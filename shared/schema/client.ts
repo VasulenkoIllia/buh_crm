@@ -31,7 +31,43 @@ export const clientSchema = z.object({
   isRegular: z.boolean(),
   regularOverride: z.boolean().nullable(),
   description: z.string().nullable(),
+  companies: z.array(companySchema),
+  /** derived in Payments (S7); 0 until invoices exist */
+  debt: money,
   createdAt: z.iso.datetime(),
   archivedAt: z.iso.datetime().nullable(),
 });
 export type Client = z.infer<typeof clientSchema>;
+
+// ── DTOs ─────────────────────────────────────────────────────────────────────
+
+const optionalTrimmed = z
+  .string()
+  .transform((v) => v.trim() || null)
+  .nullable()
+  .optional();
+
+export const createClientInput = z.object({
+  firstName: z.string().min(1),
+  lastName: z.string().min(1),
+  phone: optionalTrimmed,
+  email: z.email().nullable().optional(),
+  address: optionalTrimmed,
+  sourceId: uuid.nullable().optional(),
+  description: optionalTrimmed,
+  regularOverride: z.boolean().nullable().optional(),
+  /** company names — existing names get linked, new ones created (M:N by name) */
+  companyNames: z.array(z.string().min(1)).max(50).default([]),
+});
+export type CreateClientInput = z.infer<typeof createClientInput>;
+
+export const updateClientInput = createClientInput.partial();
+export type UpdateClientInput = z.infer<typeof updateClientInput>;
+
+export const clientListQuery = z.object({
+  tab: z.enum(["all", "regular", "one_time"]).default("all"),
+  search: z.string().trim().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(25),
+});
+export type ClientListQuery = z.infer<typeof clientListQuery>;

@@ -11,6 +11,8 @@ import {
 import { config, isDev } from "./core/config.js";
 import { errorHandler } from "./core/errors.js";
 import { authModule } from "./modules/auth/index.js";
+import { clientsModule } from "./modules/clients/index.js";
+import { leadsModule } from "./modules/leads/index.js";
 import { settingsModule } from "./modules/settings/index.js";
 import { usersModule } from "./modules/users/index.js";
 
@@ -68,6 +70,8 @@ export async function buildApp() {
   await app.register(authModule, { prefix: "/api/auth" }); // S1
   await app.register(usersModule, { prefix: "/api/users" }); // S1
   await app.register(settingsModule, { prefix: "/api/settings" }); // S2
+  await app.register(clientsModule, { prefix: "/api/clients" }); // S4 (partial — no Catalog yet)
+  await app.register(leadsModule, { prefix: "/api/leads" }); // S5 (partial — no Catalog/Calendar yet)
 
   return app;
 }

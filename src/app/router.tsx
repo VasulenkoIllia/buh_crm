@@ -10,6 +10,8 @@ import {
 } from "@/modules/auth";
 import { ProfilePage, TeamPage } from "@/modules/users";
 import { SettingsPage } from "@/modules/settings";
+import { ClientCardPage, ClientsPage } from "@/modules/clients";
+import { LeadsPage } from "@/modules/leads";
 
 function Root() {
   return (
@@ -45,8 +47,9 @@ export const router = createBrowserRouter([
             children: [
               { index: true, element: <ComingSoon module="Dashboard" stage="S12" /> },
               { path: "tasks", element: <ComingSoon module="Tasks" stage="S6" /> },
-              { path: "clients", element: <ComingSoon module="Clients" stage="S4" /> },
-              { path: "leads", element: <ComingSoon module="Leads" stage="S5" /> },
+              { path: "clients", element: <ClientsPage /> },
+              { path: "clients/:id", element: <ClientCardPage /> },
+              { path: "leads", element: <LeadsPage /> },
               { path: "unpaid", element: <ComingSoon module="Unpaid" stage="S7" /> },
               { path: "calendar", element: <ComingSoon module="Calendar" stage="S8" /> },
               {
