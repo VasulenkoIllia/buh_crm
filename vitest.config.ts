@@ -11,6 +11,8 @@ export default defineConfig({
   test: {
     include: ["server/**/*.test.ts", "shared/**/*.test.ts", "src/**/*.test.ts?(x)"],
     environment: "node",
+    globalSetup: "./server/test/global-setup.ts",
+    fileParallelism: false, // integration tests share one test database
     env: {
       NODE_ENV: "test",
       DATABASE_URL: "postgresql://buh_crm:buh_crm_dev@localhost:5432/buh_crm_test",

@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   Archive,
   BarChart3,
@@ -8,12 +8,15 @@ import {
   Kanban,
   LayoutDashboard,
   Layers,
+  LogOut,
   Mail,
   Settings,
   UserRound,
   Users,
 } from "lucide-react";
+import { useAuth, useLogout } from "./auth";
 import { cn } from "@/shared/lib/cn";
+import { UserAvatar } from "@/shared/ui/avatar";
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
@@ -58,18 +61,49 @@ export function AppLayout() {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 items-center justify-between border-b border-border bg-surface px-6">
           <div className="text-[15px] font-semibold" />
-          <button
-            type="button"
-            className="relative rounded-full p-2 text-muted hover:bg-divider"
-            aria-label="Notifications"
-          >
-            <Bell size={18} />
-          </button>
+          <HeaderActions />
         </header>
         <main className="flex-1 p-6">
           <Outlet />
         </main>
       </div>
+    </div>
+  );
+}
+
+function HeaderActions() {
+  const { user } = useAuth();
+  const logout = useLogout();
+  const navigate = useNavigate();
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <button
+        type="button"
+        className="relative rounded-full p-2 text-muted hover:bg-divider"
+        aria-label="Notifications"
+      >
+        <Bell size={18} />
+      </button>
+      {user && (
+        <Link
+          to="/profile"
+          className="flex items-center gap-2 rounded-(--radius-field) px-2 py-1.5 hover:bg-divider"
+        >
+          <UserAvatar user={user} size="sm" />
+          <span className="text-[13px] font-medium">
+            {`${user.firstName} ${user.lastName}`.trim() || user.email}
+          </span>
+        </Link>
+      )}
+      <button
+        type="button"
+        className="rounded-full p-2 text-muted hover:bg-divider"
+        aria-label="Sign out"
+        onClick={() => logout.mutateAsync().then(() => navigate("/sign-in"))}
+      >
+        <LogOut size={16} />
+      </button>
     </div>
   );
 }

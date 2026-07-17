@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
+import multipart from "@fastify/multipart";
 import {
   serializerCompiler,
   validatorCompiler,
@@ -9,6 +10,8 @@ import {
 } from "fastify-type-provider-zod";
 import { config, isDev } from "./core/config.js";
 import { errorHandler } from "./core/errors.js";
+import { authModule } from "./modules/auth/index.js";
+import { usersModule } from "./modules/users/index.js";
 
 // Build the Fastify instance: core plugins + module registration.
 // Modules are Fastify plugins registered here explicitly (no autoload magic).
@@ -40,6 +43,7 @@ export async function buildApp() {
   await app.register(helmet);
   await app.register(cookie, { secret: config.SESSION_SECRET });
   await app.register(rateLimit, { max: 300, timeWindow: "1 minute" });
+  await app.register(multipart, { limits: { fileSize: 25 * 1024 * 1024, files: 1 } });
 
   // CSRF (decision 2026-07-17): JSON-only API + Origin check on state-changing routes.
   const origins = allowedOrigins();
@@ -60,9 +64,9 @@ export async function buildApp() {
   }));
 
   // ── Modules (registered per stage) ────────────────────────────────────────
-  // await app.register(usersModule, { prefix: "/api/users" });      // S1
+  await app.register(authModule, { prefix: "/api/auth" }); // S1
+  await app.register(usersModule, { prefix: "/api/users" }); // S1
   // await app.register(settingsModule, { prefix: "/api/settings" }); // S2
-  // ...
 
   return app;
 }

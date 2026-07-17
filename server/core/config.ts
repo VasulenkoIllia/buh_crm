@@ -42,3 +42,4 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 export const config = loadConfig();
 export const isDev = config.NODE_ENV === "development";
 export const isProd = config.NODE_ENV === "production";
+export const isTest = config.NODE_ENV === "test";

@@ -17,9 +17,32 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ["**/modules/*/*", "!**/modules/*/index"],
+              regex: "modules/[^/]+/(?!index(\\.js)?$)[^/]+$",
               message:
                 "Import other modules only via their index.ts (module public surface).",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // inside a module, cross-module RELATIVE imports must also go via index
+    files: ["server/modules/**", "src/modules/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex: "modules/[^/]+/(?!index(\\.js)?$)[^/]+$",
+              message:
+                "Import other modules only via their index.ts (module public surface).",
+            },
+            {
+              regex: "^\\.\\./[^./][^/]*/(?!index(\\.js)?$)[^/]+$",
+              message:
+                "Import sibling modules only via their index.ts (module public surface).",
             },
           ],
         },
