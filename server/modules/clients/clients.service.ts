@@ -69,16 +69,20 @@ export async function listClients(query: ClientListQuery) {
     ];
   }
 
-  const { items, total } = await repo.listClients({
-    where,
-    skip: (query.page - 1) * query.pageSize,
-    take: query.pageSize,
-  });
+  const [{ items, total }, counts] = await Promise.all([
+    repo.listClients({
+      where,
+      skip: (query.page - 1) * query.pageSize,
+      take: query.pageSize,
+    }),
+    repo.countClientsByTab(REGULAR_FILTER),
+  ]);
   return {
     items: items.map(toClientDto),
     total,
     page: query.page,
     pageSize: query.pageSize,
+    counts, // per-tab counts for the tab pills (design)
   };
 }
 

@@ -13,6 +13,7 @@ export interface ClientListResponse {
   total: number;
   page: number;
   pageSize: number;
+  counts: { all: number; regular: number; one_time: number };
 }
 
 export interface ClientFile {

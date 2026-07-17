@@ -31,6 +31,15 @@ export function findClient(id: string) {
   return prisma.client.findUnique({ where: { id }, include: clientInclude });
 }
 
+/** Tab counts for the clients screen pills (all / regular / one-time). */
+export async function countClientsByTab(regularFilter: Prisma.ClientWhereInput) {
+  const [all, regular] = await prisma.$transaction([
+    prisma.client.count({ where: { archivedAt: null } }),
+    prisma.client.count({ where: { archivedAt: null, ...regularFilter } }),
+  ]);
+  return { all, regular, one_time: all - regular };
+}
+
 export function createClient(data: Prisma.ClientCreateInput) {
   return prisma.client.create({ data, include: clientInclude });
 }

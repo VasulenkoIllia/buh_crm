@@ -3,16 +3,23 @@ import { useNavigate } from "react-router-dom";
 import type { Client } from "@shared/schema/client";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
-import { Input } from "@/shared/ui/field";
 import { ClientFormModal } from "./client-form";
 import { useClients } from "./clients.api";
 
 const TABS = [
-  { key: "all", label: "All" },
+  { key: "all", label: "All clients" },
   { key: "regular", label: "Regular" },
   { key: "one_time", label: "One-time" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
+
+const TAB_HINTS: Record<TabKey, string> = {
+  all: "All clients, both engagement models. Regular clients are highlighted. Open a card to see details.",
+  regular:
+    "Regular clients. Amount and period per subscription will appear here with the Services stage.",
+  one_time:
+    "One-time clients. To make a client regular, open their card → Edit → check “Regular client”.",
+};
 
 export function ClientsPage() {
   const [tab, setTab] = useState<TabKey>("all");
@@ -22,82 +29,92 @@ export function ClientsPage() {
   const navigate = useNavigate();
 
   const { data, isLoading, error } = useClients({ tab, search: search || undefined, page });
-
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
   return (
-    <div>
-      <div className="mb-4 flex items-center justify-between">
+    <div className="mx-auto max-w-[1320px]">
+      {/* header: title · count · search · CTA (design: clients screen) */}
+      <div className="mb-3.5 flex flex-wrap items-center gap-3.5">
         <h1 className="text-[20px] font-semibold">Clients</h1>
-        <Button onClick={() => setFormOpen(true)}>New client</Button>
-      </div>
-
-      <div className="mb-3 flex items-center gap-3">
-        <div className="inline-flex rounded-(--radius-field) border border-border bg-surface p-0.5">
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              className={cn(
-                "rounded-(--radius-btn-sm) px-3 py-1.5 text-[13px] font-medium text-muted",
-                tab === t.key && "bg-primary text-white",
-              )}
-              onClick={() => {
-                setTab(t.key);
-                setPage(1);
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-        <Input
-          className="w-72"
-          placeholder="Search name, email, phone, company…"
+        <span className="whitespace-nowrap text-[13px] text-muted-400">
+          {data ? `${data.counts.all} total` : ""}
+        </span>
+        <input
+          className="ml-2 w-72 rounded-(--radius-card) border border-[#d9dde3] bg-surface px-3 py-2 text-[13px] outline-none placeholder:text-faint focus:border-primary"
+          placeholder="🔍 Search: name, company, email…"
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);
             setPage(1);
           }}
         />
+        <Button className="ml-auto" onClick={() => setFormOpen(true)}>
+          + New client
+        </Button>
       </div>
 
-      {isLoading && <p className="text-[13px] text-muted">Loading…</p>}
-      {error && <p className="text-[13px] text-danger-text">Failed to load clients.</p>}
+      {/* tab pills with counts */}
+      <div className="mb-4 flex gap-2">
+        {TABS.map((t) => {
+          const active = tab === t.key;
+          const count = data?.counts[t.key];
+          return (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => {
+                setTab(t.key);
+                setPage(1);
+              }}
+              className={cn(
+                "whitespace-nowrap rounded-(--radius-field) px-3.5 py-2 text-[13px] font-medium",
+                active
+                  ? "bg-primary text-white"
+                  : "border border-border bg-[#f1f3f6] text-ink-700 hover:bg-divider",
+              )}
+            >
+              {t.label}
+              {count !== undefined && (
+                <span
+                  className={cn(
+                    "ml-1.5 rounded-[10px] px-1.5 py-px text-[11px] font-semibold",
+                    active ? "bg-white/20 text-white" : "bg-[#e7eaef] text-muted-400",
+                  )}
+                >
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
-      {data && (
+      {error && <p className="text-[13px] text-danger-text">Failed to load clients.</p>}
+      {isLoading && <SkeletonList />}
+
+      {data && !isLoading && (
         <>
-          <div className="overflow-x-auto rounded-(--radius-panel) border border-border bg-surface shadow-(--shadow-card)">
-            <table className="w-full text-left text-[13px]">
-              <thead>
-                <tr className="border-b border-border text-[11px] font-semibold uppercase tracking-wide text-muted-400">
-                  <th className="px-4 py-3">Client</th>
-                  <th className="px-4 py-3">Companies</th>
-                  <th className="px-4 py-3">Regular</th>
-                  <th className="px-4 py-3">Phone</th>
-                  <th className="px-4 py-3">Email</th>
-                  <th className="px-4 py-3">Address</th>
-                  <th className="px-4 py-3 text-right">Debt</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.items.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-muted">
-                      No clients yet — create the first one.
-                    </td>
-                  </tr>
-                )}
-                {data.items.map((client) => (
-                  <ClientRow
-                    key={client.id}
-                    client={client}
-                    onOpen={() => navigate(`/clients/${client.id}`)}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {data.counts.all === 0 && !search ? (
+            <EmptyState onCreate={() => setFormOpen(true)} />
+          ) : (
+            <div className="overflow-x-auto rounded-(--radius-panel) border border-border bg-surface">
+              <ListHeader tab={tab} />
+              {data.items.map((client) => (
+                <ClientRow
+                  key={client.id}
+                  client={client}
+                  tab={tab}
+                  onOpen={() => navigate(`/clients/${client.id}`)}
+                />
+              ))}
+              {data.items.length === 0 && (
+                <div className="px-4 py-[34px] text-center text-[13px] text-faint">
+                  No clients match your search
+                </div>
+              )}
+            </div>
+          )}
+          <p className="mt-2.5 text-[12px] text-faint">{TAB_HINTS[tab]}</p>
 
           {totalPages > 1 && (
             <div className="mt-3 flex items-center justify-end gap-2 text-[13px] text-muted">
@@ -136,46 +153,153 @@ export function ClientsPage() {
   );
 }
 
-function ClientRow({ client, onOpen }: { client: Client; onOpen: () => void }) {
+// design grids: All = Client|Company|Phone|Email|Model|Category|Debt
+//               One-time adds Address instead of Model · Regular = subscription columns
+const GRID: Record<TabKey, string> = {
+  all: "grid-cols-[1.3fr_1fr_130px_160px_110px_150px_90px]",
+  one_time: "grid-cols-[1.3fr_1fr_130px_150px_1.1fr_150px_90px]",
+  regular: "grid-cols-[1.2fr_1fr_110px_150px_190px_100px]",
+};
+
+const HEADERS: Record<TabKey, string[]> = {
+  all: ["Client", "Company", "Phone", "Email", "Model", "Category", "Debt"],
+  one_time: ["Client", "Company", "Phone", "Email", "Address", "Category", "Debt"],
+  regular: ["Name", "Company", "Amount", "Period", "Service category", "Debt"],
+};
+
+function ListHeader({ tab }: { tab: TabKey }) {
+  const headers = HEADERS[tab];
   return (
-    <tr
+    <div
       className={cn(
-        "cursor-pointer border-b border-divider last:border-0 hover:bg-divider/50",
-        client.isRegular && "bg-[#f7f9ff]",
+        "grid min-w-[960px] gap-x-3 border-b border-[#eef0f3] bg-[#fafbfc] px-4 py-2.5 text-[11px] font-medium uppercase tracking-[.4px] text-muted-400",
+        GRID[tab],
       )}
-      onClick={onOpen}
     >
-      <td className="px-4 py-2.5 font-medium">
-        {client.firstName} {client.lastName}
-      </td>
-      <td className="px-4 py-2.5">
-        <span className="flex flex-wrap gap-1">
-          {client.companies.length === 0 && <span className="text-muted">—</span>}
-          {client.companies.map((company) => (
-            <span
-              key={company.id}
-              className="rounded-(--radius-chip) bg-divider px-1.5 py-0.5 text-[12px]"
-            >
-              {company.name}
-            </span>
-          ))}
-        </span>
-      </td>
-      <td className="px-4 py-2.5">
-        {client.isRegular ? (
-          <span className="rounded-(--radius-chip) bg-success-soft px-1.5 py-0.5 text-[12px] font-medium text-success">
-            Regular
-          </span>
-        ) : (
-          <span className="text-muted">—</span>
-        )}
-      </td>
-      <td className="px-4 py-2.5 text-muted">{client.phone ?? "—"}</td>
-      <td className="px-4 py-2.5 text-muted">{client.email ?? "—"}</td>
-      <td className="px-4 py-2.5 text-muted">{client.address ?? "—"}</td>
-      <td className="px-4 py-2.5 text-right text-muted">
-        {client.debt > 0 ? `$${(client.debt / 100).toFixed(2)}` : "—"}
-      </td>
-    </tr>
+      {headers.map((h, i) => (
+        <div key={h} className={cn(i === headers.length - 1 && "text-right")}>
+          {h}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Initials({ name }: { name: string }) {
+  return (
+    <span className="flex h-[22px] w-[22px] flex-none items-center justify-center rounded-full bg-[#dfe4ec] text-[11px] font-semibold text-ink-700">
+      {name[0]?.toUpperCase() ?? "?"}
+    </span>
+  );
+}
+
+function ModelBadge({ regular }: { regular: boolean }) {
+  return (
+    <span
+      className={cn(
+        "rounded-(--radius-chip) px-1.5 py-0.5 text-[11px] font-medium",
+        regular ? "bg-success-soft text-success" : "bg-[#eef0f3] text-muted",
+      )}
+    >
+      {regular ? "Regular" : "One-time"}
+    </span>
+  );
+}
+
+function ClientRow({
+  client,
+  tab,
+  onOpen,
+}: {
+  client: Client;
+  tab: TabKey;
+  onOpen: () => void;
+}) {
+  const name = `${client.firstName} ${client.lastName}`;
+  const companies = client.companies.map((c) => c.name).join(", ") || "—";
+  const debt =
+    client.debt > 0 ? (
+      <span className="text-danger-text">${(client.debt / 100).toFixed(2)}</span>
+    ) : (
+      <span className="text-muted">—</span>
+    );
+
+  const nameCell = (
+    <div className="flex min-w-0 items-center gap-2">
+      <Initials name={client.firstName} />
+      <span className="truncate font-semibold">{name}</span>
+    </div>
+  );
+  const categoryCell = <span className="text-muted">—</span>; // chips land with Services (S3)
+
+  return (
+    <div
+      onClick={onOpen}
+      className={cn(
+        "grid min-w-[960px] cursor-pointer items-center gap-x-3 border-b border-divider px-4 py-2.5 text-[13px] last:border-0 hover:bg-divider/40",
+        GRID[tab],
+        client.isRegular && tab === "all" && "bg-[#f7f9ff]",
+      )}
+    >
+      {tab === "regular" ? (
+        <>
+          {nameCell}
+          <div className="truncate text-ink-700">{companies}</div>
+          <div className="text-right font-semibold tabular-nums text-muted">—</div>
+          <div className="text-muted">—</div>
+          {categoryCell}
+          <div className="text-right tabular-nums">{debt}</div>
+        </>
+      ) : (
+        <>
+          {nameCell}
+          <div className="truncate text-ink-700">{companies}</div>
+          <div className="truncate text-muted">{client.phone ?? "—"}</div>
+          <div className="truncate text-muted">{client.email ?? "—"}</div>
+          {tab === "all" ? (
+            <div>
+              <ModelBadge regular={client.isRegular} />
+            </div>
+          ) : (
+            <div className="truncate text-muted">{client.address ?? "—"}</div>
+          )}
+          {categoryCell}
+          <div className="text-right tabular-nums">{debt}</div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function SkeletonList() {
+  return (
+    <div className="overflow-hidden rounded-(--radius-panel) border border-border bg-surface">
+      {Array.from({ length: 5 }, (_, i) => (
+        <div
+          key={i}
+          className="flex items-center gap-3 border-b border-divider px-4 py-[15px] last:border-0"
+        >
+          <div className="h-[30px] w-[30px] flex-none animate-pulse rounded-full bg-[#eef0f3]" />
+          <div className="h-[11px] flex-1 animate-pulse rounded-md bg-[#eef0f3]" />
+          <div className="h-[11px] w-[90px] animate-pulse rounded-md bg-[#eef0f3]" />
+          <div className="h-[11px] w-[60px] animate-pulse rounded-md bg-[#eef0f3]" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EmptyState({ onCreate }: { onCreate: () => void }) {
+  return (
+    <div className="rounded-(--radius-panel) border border-dashed border-[#cfd4db] bg-surface p-12 text-center">
+      <div className="mb-2 text-[30px] text-[#c7ccd3]">▢</div>
+      <div className="text-[15px] font-semibold">No clients yet</div>
+      <p className="mt-1 text-[13px] text-muted">
+        Create the first client to start tracking work and billing.
+      </p>
+      <Button className="mt-4" onClick={onCreate}>
+        + New client
+      </Button>
+    </div>
   );
 }
