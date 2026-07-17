@@ -1,0 +1,31 @@
+/ tmp
+/out-tsc
+
+/node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnp
+.pnp.js
+
+/dist
+/coverage
+/.tmp
+/data
+
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+.idea/
+.DS_Store
+.env
+.env.local
+.env.*.local
+
+# internal-only: docs, design, and agent files stay out of the public repo
+/docs/
+/design/
+/.claude/
+AGENTS.md
