@@ -1,0 +1,617 @@
+// buh_crm — ER schema v1 (S0). All entities up front; modules land stage by stage.
+// Conventions: uuid PKs, createdAt/updatedAt, currency = USD integer minor units (cents),
+// soft delete via archivedAt/archivedBy on archivables, derived values never stored.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../server/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ── Enums ────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  admin
+  user
+}
+
+enum UserStatus {
+  invited
+  pending
+  active
+  blocked
+}
+
+enum AuthTokenType {
+  invite
+  email_confirm
+  password_reset
+}
+
+enum ServiceType {
+  subscription
+  one_time
+  internal
+}
+
+enum InvoiceTrigger {
+  on_create
+  on_complete
+  on_period_start
+}
+
+enum BillingPeriod {
+  month
+  quarter
+  year
+}
+
+enum Periodicity {
+  weekly
+  monthly
+  quarterly
+  yearly
+  once
+}
+
+enum TaskKind {
+  once // one-off billable
+  sub  // generated from subscription
+  free // internal, non-billable
+}
+
+enum LeadStage {
+  first_contact
+  no_answer
+  set_up_meeting
+  thinking
+  on_hold
+  next_time
+}
+
+enum LeadOutcome {
+  in_process
+  won
+  lost
+}
+
+enum PaymentAuditAction {
+  created
+  updated
+  deleted
+}
+
+enum NotificationKind {
+  task
+  meeting
+  invoice
+  system
+}
+
+enum CampaignAudience {
+  all
+  by_service
+  by_debt
+  manual
+}
+
+enum CampaignSchedule {
+  one_off
+  recurring
+}
+
+// ── Users & auth ─────────────────────────────────────────────────────────────
+
+model User {
+  id               String     @id @default(uuid()) @db.Uuid
+  firstName        String
+  lastName         String
+  email            String     @unique
+  passwordHash     String?
+  role             UserRole   @default(user)
+  status           UserStatus @default(invited)
+  avatarFileId     String?    @unique @db.Uuid
+  emailConfirmedAt DateTime?
+  invitedAt        DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  avatarFile          File?                @relation("UserAvatar", fields: [avatarFileId], references: [id])
+  authTokens          AuthToken[]
+  sessions            Session[]
+  taskAssignments     TaskAssignee[]
+  timeEntries         TimeEntry[]
+  meetingParticipants MeetingParticipant[]
+  notifications       Notification[]
+  paymentsCreated     Payment[]            @relation("PaymentCreatedBy")
+  paymentAuditLogs    PaymentAuditLog[]
+  uploadedFiles       File[]               @relation("FileUploadedBy")
+  defaultForTemplates TaskTemplate[]       @relation("TemplateDefaultAssignee")
+}
+
+model AuthToken {
+  id        String        @id @default(uuid()) @db.Uuid
+  userId    String        @db.Uuid
+  type      AuthTokenType
+  tokenHash String        @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime      @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+}
+
+model Session {
+  id        String   @id // session id from the cookie
+  userId    String   @db.Uuid
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ── Settings ─────────────────────────────────────────────────────────────────
+
+model Priority {
+  id        String  @id @default(uuid()) @db.Uuid
+  name      String  @unique
+  color     String
+  order     Int
+  isDefault Boolean @default(false)
+
+  tasks Task[]
+}
+
+model SourceOption {
+  id     String  @id @default(uuid()) @db.Uuid
+  name   String  @unique
+  order  Int
+  active Boolean @default(true)
+
+  clients Client[]
+  leads   Lead[]
+}
+
+model FirmProfile {
+  id                  Int     @id @default(1) // singleton row
+  name                String
+  logoFileId          String? @unique @db.Uuid
+  invoiceNumberFormat String  @default("INV-YYYY-NNNN")
+  currency            String  @default("USD")
+
+  logoFile File? @relation(fields: [logoFileId], references: [id])
+}
+
+// ── Catalog ──────────────────────────────────────────────────────────────────
+
+model Service {
+  id             String         @id @default(uuid()) @db.Uuid
+  name           String         @unique // is the category label
+  color          String
+  type           ServiceType
+  defaultAmount  Int? // minor units
+  invoiceTrigger InvoiceTrigger @default(on_create)
+  active         Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  taskTemplates    TaskTemplate[]
+  subscriptions    Subscription[]
+  clientCategories ClientServiceCategory[]
+  tasks            Task[]
+  leads            Lead[]
+  invoices         Invoice[]
+  meetings         Meeting[]
+}
+
+model TaskTemplate {
+  id                 String      @id @default(uuid()) @db.Uuid
+  serviceId          String      @db.Uuid
+  name               String
+  periodicity        Periodicity
+  dayOfPeriod        Int? // e.g. "monthly on the 25th"
+  deadlineOffsetDays Int? // deadline = createdAt + offset; null = no deadline
+  defaultAssigneeId  String?     @db.Uuid
+  billable           Boolean     @default(true)
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  service         Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  defaultAssignee User?   @relation("TemplateDefaultAssignee", fields: [defaultAssigneeId], references: [id])
+  tasks           Task[]
+
+  @@index([serviceId])
+}
+
+// ── Clients ──────────────────────────────────────────────────────────────────
+
+model Client {
+  id              String    @id @default(uuid()) @db.Uuid
+  firstName       String
+  lastName        String
+  phone           String?
+  email           String?
+  address         String?
+  sourceId        String?   @db.Uuid
+  regularOverride Boolean? // isRegular = regularOverride ?? hasActiveSubscription (computed)
+  description     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  archivedAt      DateTime?
+  archivedById    String?   @db.Uuid
+
+  source        SourceOption?           @relation(fields: [sourceId], references: [id])
+  companies     ClientCompany[]
+  categories    ClientServiceCategory[]
+  subscriptions Subscription[]
+  tasks         Task[]
+  invoices      Invoice[]
+  meetings      Meeting[]
+  reminders     Reminder[]
+  files         File[]                  @relation("ClientFiles")
+  convertedLead Lead?                   @relation("LeadConvertedClient")
+
+  @@index([archivedAt])
+}
+
+model Company {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clients       ClientCompany[]
+  subscriptions Subscription[]
+  invoices      Invoice[]
+}
+
+model ClientCompany {
+  clientId  String @db.Uuid
+  companyId String @db.Uuid
+
+  client  Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@id([clientId, companyId])
+}
+
+model ClientServiceCategory {
+  clientId  String @db.Uuid
+  serviceId String @db.Uuid
+
+  client  Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@id([clientId, serviceId])
+}
+
+model Subscription {
+  id              String        @id @default(uuid()) @db.Uuid
+  clientId        String        @db.Uuid
+  companyId       String?       @db.Uuid
+  serviceId       String        @db.Uuid
+  amount          Int // minor units, per period
+  period          BillingPeriod
+  rhythmOverrides Json? // per-client task-template rhythm/deadline overrides
+  active          Boolean       @default(true)
+  startedAt       DateTime      @default(now())
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  client         Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  company        Company?  @relation(fields: [companyId], references: [id])
+  service        Service   @relation(fields: [serviceId], references: [id])
+  generatedTasks Task[]
+  invoices       Invoice[]
+
+  @@index([clientId])
+  @@index([active])
+}
+
+// ── Leads ────────────────────────────────────────────────────────────────────
+
+model Lead {
+  id                String      @id @default(uuid()) @db.Uuid
+  name              String
+  phone             String?
+  email             String?
+  serviceId         String?     @db.Uuid
+  sourceId          String?     @db.Uuid
+  description       String?
+  stage             LeadStage   @default(first_contact)
+  outcome           LeadOutcome @default(in_process)
+  convertedClientId String?     @unique @db.Uuid
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  archivedAt        DateTime?
+  archivedById      String?     @db.Uuid
+
+  service         Service?      @relation(fields: [serviceId], references: [id])
+  source          SourceOption? @relation(fields: [sourceId], references: [id])
+  convertedClient Client?       @relation("LeadConvertedClient", fields: [convertedClientId], references: [id])
+  tasks           Task[]
+  meetings        Meeting[]
+
+  @@index([stage])
+  @@index([archivedAt])
+}
+
+// ── Tasks ────────────────────────────────────────────────────────────────────
+
+model TaskColumn {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  order     Int
+  isFixed   Boolean  @default(false) // "New" — non-editable/deletable, default entry
+  createdAt DateTime @default(now())
+
+  tasks Task[]
+}
+
+model Task {
+  id             String    @id @default(uuid()) @db.Uuid
+  title          String
+  clientId       String?   @db.Uuid
+  leadId         String?   @db.Uuid
+  serviceId      String?   @db.Uuid
+  kind           TaskKind  @default(once)
+  priorityId     String    @db.Uuid
+  statusColumnId String    @db.Uuid
+  done           Boolean   @default(false)
+  deadline       DateTime?
+  plannedMinutes Int?
+  amount         Int? // minor units; one-off price -> invoice
+  invoiceId      String?   @db.Uuid
+  description    String?
+  // generation idempotency (scheduler): unique per subscription+template+period
+  subscriptionId String?   @db.Uuid
+  taskTemplateId String?   @db.Uuid
+  periodKey      String? // e.g. "2026-07" / "2026-Q3" / "2026-W29"
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  archivedAt     DateTime?
+  archivedById   String?   @db.Uuid
+
+  client       Client?       @relation(fields: [clientId], references: [id])
+  lead         Lead?         @relation(fields: [leadId], references: [id])
+  service      Service?      @relation(fields: [serviceId], references: [id])
+  priority     Priority      @relation(fields: [priorityId], references: [id])
+  statusColumn TaskColumn    @relation(fields: [statusColumnId], references: [id])
+  invoice      Invoice?      @relation(fields: [invoiceId], references: [id])
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
+  taskTemplate TaskTemplate? @relation(fields: [taskTemplateId], references: [id])
+  assignees    TaskAssignee[]
+  timeEntries  TimeEntry[]
+  subtasks     Subtask[]
+
+  @@unique([subscriptionId, taskTemplateId, periodKey])
+  @@index([clientId])
+  @@index([done])
+  @@index([deadline])
+  @@index([archivedAt])
+}
+
+model TaskAssignee {
+  taskId String @db.Uuid
+  userId String @db.Uuid
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, userId])
+}
+
+model TimeEntry {
+  id           String    @id @default(uuid()) @db.Uuid
+  taskId       String    @db.Uuid
+  userId       String    @db.Uuid
+  seconds      Int       @default(0) // accumulated
+  runningSince DateTime? // non-null = timer running
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+}
+
+model Subtask {
+  id     String  @id @default(uuid()) @db.Uuid
+  taskId String  @db.Uuid
+  text   String
+  done   Boolean @default(false)
+  order  Int     @default(0)
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+}
+
+// ── Payments ─────────────────────────────────────────────────────────────────
+
+model Invoice {
+  id             String    @id @default(uuid()) @db.Uuid
+  number         String    @unique // per Settings format, e.g. INV-2026-0001
+  clientId       String    @db.Uuid // required — the invoice's owner (client-primary)
+  companyId      String?   @db.Uuid // which of that client's companies (null = individual)
+  serviceId      String?   @db.Uuid
+  subscriptionId String?   @db.Uuid
+  periodKey      String? // set for per-period invoices; unique with subscriptionId
+  amount         Int // minor units; paid/balance/status/overdue are derived
+  dueDate        DateTime?
+  issuedAt       DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  client       Client            @relation(fields: [clientId], references: [id])
+  company      Company?          @relation(fields: [companyId], references: [id])
+  service      Service?          @relation(fields: [serviceId], references: [id])
+  subscription Subscription?     @relation(fields: [subscriptionId], references: [id])
+  tasks        Task[]
+  payments     Payment[]
+  auditLogs    PaymentAuditLog[]
+
+  @@unique([subscriptionId, periodKey])
+  @@index([clientId])
+  @@index([dueDate])
+}
+
+model Payment {
+  id          String   @id @default(uuid()) @db.Uuid
+  invoiceId   String   @db.Uuid
+  amount      Int // minor units
+  paidAt      DateTime
+  createdById String   @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  createdBy User    @relation("PaymentCreatedBy", fields: [createdById], references: [id])
+
+  @@index([invoiceId])
+}
+
+model PaymentAuditLog {
+  id        String             @id @default(uuid()) @db.Uuid
+  invoiceId String             @db.Uuid
+  paymentId String?            @db.Uuid // null after delete; snapshot lives in before/after
+  action    PaymentAuditAction
+  byUserId  String             @db.Uuid
+  before    Json?
+  after     Json?
+  createdAt DateTime           @default(now())
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  byUser  User    @relation(fields: [byUserId], references: [id])
+
+  @@index([invoiceId])
+}
+
+// ── Calendar ─────────────────────────────────────────────────────────────────
+
+model Meeting {
+  id              String    @id @default(uuid()) @db.Uuid
+  title           String
+  clientId        String?   @db.Uuid // client OR lead OR internal (both null)
+  leadId          String?   @db.Uuid
+  serviceId       String?   @db.Uuid
+  startAt         DateTime
+  durationMinutes Int
+  link            String? // video-call URL
+  description     String?
+  cancelledAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  client       Client?              @relation(fields: [clientId], references: [id])
+  lead         Lead?                @relation(fields: [leadId], references: [id])
+  service      Service?             @relation(fields: [serviceId], references: [id])
+  participants MeetingParticipant[]
+
+  @@index([startAt])
+}
+
+model MeetingParticipant {
+  meetingId String @db.Uuid
+  userId    String @db.Uuid
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([meetingId, userId])
+}
+
+// ── Notifications ────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String           @id @default(uuid()) @db.Uuid
+  userId    String           @db.Uuid
+  kind      NotificationKind
+  text      String
+  sub       String?
+  linkType  String? // e.g. "task" | "meeting" | "invoice"
+  linkId    String?          @db.Uuid
+  dedupKey  String? // scheduler triggers: no re-notify on re-scan
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupKey])
+  @@index([userId, read])
+}
+
+// ── Mailouts ─────────────────────────────────────────────────────────────────
+
+model EmailTemplate {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique
+  subject   String
+  body      String // rich text with merge-vars
+  variables Json?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  campaigns Campaign[]
+  reminders Reminder[]
+}
+
+model Campaign {
+  id             String           @id @default(uuid()) @db.Uuid
+  name           String
+  templateId     String           @db.Uuid
+  audience       CampaignAudience
+  audienceConfig Json? // service id / debt threshold / manual client ids
+  schedule       CampaignSchedule
+  scheduleConfig Json? // date / recurrence
+  enabled        Boolean          @default(false)
+  lastRunAt      DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  template EmailTemplate @relation(fields: [templateId], references: [id])
+}
+
+model Reminder {
+  id         String    @id @default(uuid()) @db.Uuid
+  clientId   String    @db.Uuid
+  templateId String    @db.Uuid
+  date       DateTime
+  sentAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  client   Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  template EmailTemplate @relation(fields: [templateId], references: [id])
+
+  @@index([date, sentAt])
+}
+
+// ── Files ────────────────────────────────────────────────────────────────────
+
+model File {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  size         Int // bytes, ≤ 25 MB enforced in service
+  mime         String
+  path         String // relative path on the uploads volume
+  clientId     String?  @db.Uuid // client-card files
+  uploadedById String   @db.Uuid
+  createdAt    DateTime @default(now())
+
+  client        Client?      @relation("ClientFiles", fields: [clientId], references: [id], onDelete: Cascade)
+  uploadedBy    User         @relation("FileUploadedBy", fields: [uploadedById], references: [id])
+  avatarOfUser  User?        @relation("UserAvatar")
+  logoOfProfile FirmProfile?
+
+  @@index([clientId])
+}

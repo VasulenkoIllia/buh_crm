@@ -1,0 +1,23 @@
+# Dev services only: Postgres (Mailpit already runs separately on 1025/8025).
+# App (api + web) runs locally with hot reload.
+services:
+  db:
+    container_name: buh_crm-db
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-buh_crm}
+      POSTGRES_USER: ${POSTGRES_USER:-buh_crm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-buh_crm_dev}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - buh_crm_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-buh_crm} -d ${POSTGRES_DB:-buh_crm}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  buh_crm_db_data:

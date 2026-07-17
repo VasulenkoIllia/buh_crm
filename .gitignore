@@ -24,8 +24,13 @@ pnpm-debug.log*
 .env.local
 .env.*.local
 
+/uploads/
+
 # internal-only: docs, design, and agent files stay out of the public repo
 /docs/
 /design/
 /.claude/
 AGENTS.md
+
+# generated prisma client
+/server/generated/

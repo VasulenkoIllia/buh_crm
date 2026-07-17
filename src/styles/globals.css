@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+/* Design tokens — canonical values from docs/design-system.md (delivered design). */
+@theme {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  /* Semantic / brand */
+  --color-primary: #3355dd;
+  --color-primary-link: #2f4fd6;
+  --color-link-hover: #233ca8;
+  --color-success: #1f8f3a;
+  --color-success-soft: #e6f4ea;
+  --color-danger: #d63c3c;
+  --color-danger-text: #c23434;
+  --color-danger-soft: #fbeaea;
+
+  /* Neutrals */
+  --color-sidebar: #181b20;
+  --color-ink: #1a1d21;
+  --color-ink-700: #41474f;
+  --color-muted: #6b7280;
+  --color-muted-400: #8b929c;
+  --color-faint: #9aa1ab;
+  --color-border: #e2e5e9;
+  --color-divider: #f2f4f6;
+  --color-surface: #ffffff;
+  --color-app-bg: #eceef1;
+
+  /* Overdue row highlight */
+  --color-overdue-row: #fef6f6;
+
+  /* Radii */
+  --radius-chip: 5px;
+  --radius-btn-sm: 6px;
+  --radius-field: 7px;
+  --radius-card: 8px;
+  --radius-panel: 10px;
+  --radius-auth: 14px;
+
+  /* Elevation */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-modal: 0 16px 44px rgba(0, 0, 0, 0.12);
+}
+
+body {
+  background-color: var(--color-app-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
