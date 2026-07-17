@@ -11,6 +11,7 @@ import {
 import { config, isDev } from "./core/config.js";
 import { errorHandler } from "./core/errors.js";
 import { authModule } from "./modules/auth/index.js";
+import { settingsModule } from "./modules/settings/index.js";
 import { usersModule } from "./modules/users/index.js";
 
 // Build the Fastify instance: core plugins + module registration.
@@ -66,7 +67,7 @@ export async function buildApp() {
   // ── Modules (registered per stage) ────────────────────────────────────────
   await app.register(authModule, { prefix: "/api/auth" }); // S1
   await app.register(usersModule, { prefix: "/api/users" }); // S1
-  // await app.register(settingsModule, { prefix: "/api/settings" }); // S2
+  await app.register(settingsModule, { prefix: "/api/settings" }); // S2
 
   return app;
 }

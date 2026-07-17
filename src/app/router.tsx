@@ -9,6 +9,7 @@ import {
   SignInPage,
 } from "@/modules/auth";
 import { ProfilePage, TeamPage } from "@/modules/users";
+import { SettingsPage } from "@/modules/settings";
 
 function Root() {
   return (
@@ -56,7 +57,7 @@ export const router = createBrowserRouter([
               { path: "reports", element: <ComingSoon module="Reports" stage="S12" /> },
               { path: "team", element: <TeamPage /> },
               { path: "archive", element: <ComingSoon module="Archive" stage="S11" /> },
-              { path: "settings", element: <ComingSoon module="Settings" stage="S2" /> },
+              { path: "settings", element: <SettingsPage /> },
               { path: "profile", element: <ProfilePage /> },
             ],
           },

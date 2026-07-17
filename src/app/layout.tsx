@@ -17,6 +17,7 @@ import {
 import { useAuth, useLogout } from "./auth";
 import { cn } from "@/shared/lib/cn";
 import { UserAvatar } from "@/shared/ui/avatar";
+import { useSettings } from "@/modules/settings";
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
@@ -37,7 +38,7 @@ export function AppLayout() {
   return (
     <div className="flex min-h-screen">
       <aside className="flex w-56 shrink-0 flex-col bg-sidebar text-white">
-        <div className="px-5 py-5 text-[15px] font-semibold tracking-wide">buh_crm</div>
+        <SidebarBrand />
         <nav className="flex-1 space-y-0.5 px-2">
           {NAV.map(({ to, label, icon: Icon, end }) => (
             <NavLink
@@ -67,6 +68,24 @@ export function AppLayout() {
           <Outlet />
         </main>
       </div>
+    </div>
+  );
+}
+
+function SidebarBrand() {
+  const { data } = useSettings();
+  return (
+    <div className="flex items-center gap-2.5 px-5 py-5">
+      {data?.firm.logoFileId && (
+        <img
+          src="/api/settings/firm/logo"
+          alt=""
+          className="h-6 w-6 rounded object-contain"
+        />
+      )}
+      <span className="text-[15px] font-semibold tracking-wide">
+        {data?.firm.name ?? "buh_crm"}
+      </span>
     </div>
   );
 }

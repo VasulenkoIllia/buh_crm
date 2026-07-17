@@ -181,11 +181,13 @@ model SourceOption {
 }
 
 model FirmProfile {
-  id                  Int     @id @default(1) // singleton row
-  name                String
-  logoFileId          String? @unique @db.Uuid
-  invoiceNumberFormat String  @default("INV-YYYY-NNNN")
-  currency            String  @default("USD")
+  id                   Int     @id @default(1) // singleton row
+  name                 String
+  logoFileId           String? @unique @db.Uuid
+  // invoice numbering (decision 2026-07-17): PREFIX-YEAR-NNNN, yearly counter reset
+  invoicePrefix        String  @default("INV")
+  invoiceCounterDigits Int     @default(4)
+  currency             String  @default("USD")
 
   logoFile File? @relation(fields: [logoFileId], references: [id])
 }
