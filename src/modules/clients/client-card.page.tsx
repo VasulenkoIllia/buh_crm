@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Download, Trash2 } from "lucide-react";
+import { Check, Download, Trash2 } from "lucide-react";
+import type { Client } from "@shared/schema/client";
 import { useSettings } from "@/modules/settings";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
@@ -10,32 +11,45 @@ import {
   useClient,
   useClientFiles,
   useDeleteClientFile,
+  useUpdateClient,
   useUploadClientFile,
 } from "./clients.api";
 
-const ROLLUPS = [
-  { key: "tasks", label: "Tasks", stage: "S6" },
-  { key: "invoices", label: "Invoices", stage: "S7" },
-  { key: "meetings", label: "Meetings", stage: "S8" },
+const TABS = [
+  { key: "profile", label: "Profile" },
+  { key: "tasks", label: "Tasks" },
+  { key: "invoices", label: "Invoices" },
+  { key: "meetings", label: "Meetings" },
+  { key: "services", label: "Services" },
+  { key: "files", label: "Files" },
 ] as const;
+type TabKey = (typeof TABS)[number]["key"];
+
+const TAB_STAGE: Partial<Record<TabKey, string>> = {
+  tasks: "S6",
+  invoices: "S7",
+  meetings: "S8",
+  services: "S3",
+};
 
 export function ClientCardPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data: client, isLoading, error } = useClient(id);
-  const { data: settings } = useSettings();
   const archive = useArchiveClient();
   const [editOpen, setEditOpen] = useState(false);
-  const [rollup, setRollup] = useState<(typeof ROLLUPS)[number]>(ROLLUPS[0]);
+  const [tab, setTab] = useState<TabKey>("profile");
+  const [companyFilter, setCompanyFilter] = useState<string | null>(null);
 
   if (isLoading) return <p className="text-[13px] text-muted">Loading…</p>;
   if (error || !client)
     return <p className="text-[13px] text-danger-text">Client not found.</p>;
 
-  const sourceName = settings?.sources.find((s) => s.id === client.sourceId)?.name;
+  const typeLabel = client.companies.length > 0 ? "Company" : "Private individual";
+  const companiesLabel = client.companies.map((c) => c.name).join(", ") || "—";
 
   const onArchive = async () => {
-    if (!window.confirm("Archive this client? They will disappear from lists (restorable from Archive).")) {
+    if (!window.confirm("Archive this client? They disappear from lists (restorable from Archive).")) {
       return;
     }
     await archive.mutateAsync(client.id);
@@ -43,96 +57,98 @@ export function ClientCardPage() {
   };
 
   return (
-    <div className="max-w-4xl">
+    <div className="mx-auto max-w-[940px]">
       <button
         type="button"
         onClick={() => navigate("/clients")}
-        className="mb-3 inline-flex items-center gap-1 text-[13px] text-muted hover:text-ink"
+        className="mb-3 text-[13px] text-primary-link hover:underline"
       >
-        <ArrowLeft size={14} /> Clients
+        ← Clients
       </button>
 
-      {/* header */}
-      <div className="rounded-(--radius-panel) border border-border bg-surface p-5 shadow-(--shadow-card)">
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="flex items-center gap-2 text-[20px] font-semibold">
+      {/* header (design: name + badge · type · companies, bordered actions) */}
+      <div className="mb-1 flex items-start justify-between">
+        <div>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-[20px] font-semibold">
               {client.firstName} {client.lastName}
-              {client.isRegular && (
-                <span className="rounded-(--radius-chip) bg-success-soft px-2 py-0.5 text-[12px] font-medium text-success">
-                  Regular
-                </span>
-              )}
             </h1>
-            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              {client.companies.map((company) => (
-                <span
-                  key={company.id}
-                  className="rounded-(--radius-chip) bg-divider px-2 py-0.5 text-[12px] font-medium"
-                >
-                  {company.name}
-                </span>
-              ))}
-              {client.companies.length === 0 && (
-                <span className="text-[12px] text-muted">Private individual</span>
-              )}
-              {sourceName && (
-                <span className="text-[12px] text-muted">· Source: {sourceName}</span>
-              )}
-            </div>
-            <div className="mt-2 space-x-4 text-[13px] text-muted">
-              {client.phone && <span>{client.phone}</span>}
-              {client.email && <span>{client.email}</span>}
-              {client.address && <span>{client.address}</span>}
-            </div>
+            {client.isRegular && (
+              <span className="rounded-(--radius-chip) bg-[#f0ebfb] px-2 py-0.5 text-[12px] font-medium text-[#7a4fd6]">
+                regular
+              </span>
+            )}
           </div>
-          <div className="flex gap-2">
-            <Button variant="secondary" size="sm" onClick={() => setEditOpen(true)}>
-              Edit
-            </Button>
-            <Button variant="destructive" size="sm" onClick={() => void onArchive()}>
-              Archive
-            </Button>
+          <div className="mt-0.5 text-[13px] text-muted-400">
+            {typeLabel} · {companiesLabel}
           </div>
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setEditOpen(true)}
+            className="rounded-(--radius-field) border border-[#d9dde3] px-[13px] py-[7px] text-[13px] text-ink-700 hover:bg-divider"
+          >
+            ✎ Edit
+          </button>
+          <button
+            type="button"
+            onClick={() => void onArchive()}
+            className="rounded-(--radius-field) border border-[#d9dde3] px-[13px] py-[7px] text-[13px] text-ink-700 hover:bg-divider"
+          >
+            Archive
+          </button>
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-        {/* description */}
-        <section className="rounded-(--radius-panel) border border-border bg-surface p-5 shadow-(--shadow-card)">
-          <h2 className="mb-2 text-[15px] font-semibold">Description</h2>
-          <p className="whitespace-pre-wrap text-[13px] text-ink-700">
-            {client.description || <span className="text-muted">No description.</span>}
-          </p>
-          <p className="mt-3 text-[12px] text-muted">
-            Created {new Date(client.createdAt).toLocaleDateString("en-US")}
-          </p>
-        </section>
-
-        <FilesSection clientId={client.id} />
+      {/* tabs */}
+      <div className="mb-[18px] mt-3.5 flex gap-0.5 border-b border-border">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setTab(t.key)}
+            className={cn(
+              "-mb-px px-3.5 py-2 text-[13px] font-medium",
+              tab === t.key
+                ? "border-b-2 border-primary text-primary-link"
+                : "text-muted hover:text-ink",
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
-      {/* rollups — fill in with Tasks/Payments/Calendar stages */}
-      <div className="mt-4 rounded-(--radius-panel) border border-border bg-surface shadow-(--shadow-card)">
-        <div className="flex gap-1 border-b border-divider px-3 pt-2">
-          {ROLLUPS.map((r) => (
-            <button
-              key={r.key}
-              type="button"
-              onClick={() => setRollup(r)}
-              className={cn(
-                "rounded-t px-3 py-2 text-[13px] font-medium text-muted",
-                rollup.key === r.key && "border-b-2 border-primary text-primary-link",
-              )}
-            >
-              {r.label}
-            </button>
+      {/* company view (multi-company clients) */}
+      {client.companies.length > 1 && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-[.4px] text-muted-400">
+            Company view
+          </span>
+          <CompanyChip
+            label="All companies"
+            active={companyFilter === null}
+            onClick={() => setCompanyFilter(null)}
+          />
+          {client.companies.map((company) => (
+            <CompanyChip
+              key={company.id}
+              label={company.name}
+              active={companyFilter === company.id}
+              onClick={() => setCompanyFilter(company.id)}
+            />
           ))}
         </div>
-        <div className="px-5 py-8 text-center text-[13px] text-muted">
-          {rollup.label} will appear here in stage {rollup.stage}.
+      )}
+
+      {tab === "profile" && <ProfileTab client={client} onEdit={() => setEditOpen(true)} />}
+      {tab === "files" && <FilesTab clientId={client.id} />}
+      {TAB_STAGE[tab] && (
+        <div className="rounded-(--radius-panel) border border-border bg-surface px-5 py-10 text-center text-[13px] text-muted">
+          {TABS.find((t) => t.key === tab)?.label} will appear here in stage {TAB_STAGE[tab]}.
         </div>
-      </div>
+      )}
 
       {editOpen && (
         <ClientFormModal open={editOpen} onClose={() => setEditOpen(false)} client={client} />
@@ -141,15 +157,153 @@ export function ClientCardPage() {
   );
 }
 
-function FilesSection({ clientId }: { clientId: string }) {
+function CompanyChip({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "rounded-full border px-3.5 py-1.5 text-[13px] font-medium",
+        active
+          ? "border-primary text-primary-link"
+          : "border-border bg-surface text-ink-700 hover:bg-divider",
+      )}
+    >
+      {label}
+    </button>
+  );
+}
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mb-[3px] text-[11px] uppercase tracking-[.4px] text-muted-400">
+      {children}
+    </div>
+  );
+}
+
+function ProfileTab({ client, onEdit }: { client: Client; onEdit: () => void }) {
+  const { data: settings } = useSettings();
+  const update = useUpdateClient();
+  const sourceName = settings?.sources.find((s) => s.id === client.sourceId)?.name;
+
+  return (
+    <>
+      {/* profile grid (design: 2-col, uppercase labels) */}
+      <div className="mb-4 grid grid-cols-1 gap-4 rounded-(--radius-panel) border border-border bg-surface p-5 sm:grid-cols-2 sm:gap-x-8">
+        <div>
+          <FieldLabel>Type</FieldLabel>
+          <div className="text-[14px]">
+            {client.companies.length > 0 ? "Company" : "Private individual"}
+          </div>
+        </div>
+        <div>
+          <FieldLabel>Company(ies)</FieldLabel>
+          <div className="text-[14px]">
+            {client.companies.map((c) => c.name).join(", ") || "—"}
+          </div>
+        </div>
+        <div>
+          <FieldLabel>Email</FieldLabel>
+          <div className="text-[14px]">{client.email ?? "—"}</div>
+        </div>
+        <div>
+          <FieldLabel>Phone</FieldLabel>
+          <div className="text-[14px]">{client.phone ?? "—"}</div>
+        </div>
+        <div className="sm:col-span-2">
+          <FieldLabel>Address</FieldLabel>
+          <div className="text-[14px]">{client.address ?? "—"}</div>
+        </div>
+        <div className="sm:col-span-2">
+          <FieldLabel>Service category</FieldLabel>
+          <div className="text-[13px] text-muted">
+            Category chips arrive with the Services stage (S3).
+          </div>
+        </div>
+        <div className="sm:col-span-2">
+          <FieldLabel>Description</FieldLabel>
+          <div className="whitespace-pre-wrap text-[14px] leading-normal text-ink-700">
+            {client.description || "—"}
+          </div>
+        </div>
+        <div>
+          <FieldLabel>Created</FieldLabel>
+          <div className="text-[14px]">
+            {new Date(client.createdAt).toLocaleDateString("en-GB")}
+          </div>
+        </div>
+        <div>
+          <FieldLabel>Reminders</FieldLabel>
+          <div className="text-[13px] text-muted">Arrive with the Mailouts stage (S10).</div>
+        </div>
+        {sourceName && (
+          <div>
+            <FieldLabel>Source</FieldLabel>
+            <div className="text-[14px]">{sourceName}</div>
+          </div>
+        )}
+      </div>
+
+      <p className="mb-4 text-[12px] text-faint">
+        📎 Client files are in the “Files” tab (up to 25 MB per file).
+      </p>
+
+      {/* regular client section (design: checkbox card; subscriptions come with S3) */}
+      <div className="rounded-(--radius-panel) border border-border bg-surface px-5 py-[18px]">
+        <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            aria-label="Toggle regular client"
+            disabled={update.isPending}
+            onClick={() =>
+              update.mutate({
+                id: client.id,
+                input: { regularOverride: client.isRegular ? false : true },
+              })
+            }
+            className={cn(
+              "flex h-[18px] w-[18px] items-center justify-center rounded-[4px] border",
+              client.isRegular
+                ? "border-[#7a4fd6] bg-[#7a4fd6] text-white"
+                : "border-[#c7ccd3] bg-surface",
+            )}
+          >
+            {client.isRegular && <Check size={12} strokeWidth={3} />}
+          </button>
+          <span className="text-[15px] font-semibold">Regular client</span>
+          <span className="text-[12px] text-muted-400">
+            — the subscription section appears when checked
+          </span>
+        </div>
+        {client.isRegular && (
+          <div className="mt-3.5 rounded-(--radius-panel) border border-[#ece3fb] bg-[#faf7ff] px-4 py-3.5 text-[13px] text-muted">
+            Subscriptions (service · amount · period) arrive with the Services stage (S3).
+            The Regular flag is manual until then — <button type="button" className="text-primary-link hover:underline" onClick={onEdit}>edit client</button>.
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+function FilesTab({ clientId }: { clientId: string }) {
   const { data: files } = useClientFiles(clientId);
   const upload = useUploadClientFile(clientId);
   const remove = useDeleteClientFile(clientId);
   const inputRef = useRef<HTMLInputElement>(null);
 
   return (
-    <section className="rounded-(--radius-panel) border border-border bg-surface p-5 shadow-(--shadow-card)">
-      <div className="mb-2 flex items-center justify-between">
+    <div className="rounded-(--radius-panel) border border-border bg-surface p-5">
+      <div className="mb-3 flex items-center justify-between">
         <h2 className="text-[15px] font-semibold">Files</h2>
         <input
           ref={inputRef}
@@ -201,6 +355,6 @@ function FilesSection({ clientId }: { clientId: string }) {
           <li className="text-[12px] text-muted">No files yet. Up to 25 MB per file.</li>
         )}
       </ul>
-    </section>
+    </div>
   );
 }
