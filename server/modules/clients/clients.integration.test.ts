@@ -102,6 +102,25 @@ describe("clients", () => {
     expect(body.items[0].firstName).toBe("Ivan");
   });
 
+  it("a partial update (regular toggle only) keeps the companies", async () => {
+    const before = await app.inject({
+      method: "GET",
+      url: `/api/clients/${clientId}`,
+      headers: { cookie },
+    });
+    expect(before.json().companies).toHaveLength(2);
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/clients/${clientId}`,
+      headers: { cookie },
+      payload: { regularOverride: true }, // no companyNames -> must not touch M:N
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().isRegular).toBe(true);
+    expect(res.json().companies).toHaveLength(2);
+  });
+
   it("regular tab honors the manual override", async () => {
     await app.inject({
       method: "PATCH",

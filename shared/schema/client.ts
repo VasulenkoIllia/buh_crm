@@ -61,7 +61,12 @@ export const createClientInput = z.object({
 });
 export type CreateClientInput = z.infer<typeof createClientInput>;
 
-export const updateClientInput = createClientInput.partial();
+// companyNames must stay truly optional here (no default): when omitted, the update
+// leaves the M:N links untouched. (createClientInput's .default([]) would otherwise
+// reset companies to empty on any partial update, e.g. the Regular toggle.)
+export const updateClientInput = createClientInput.partial().extend({
+  companyNames: z.array(z.string().min(1)).max(50).optional(),
+});
 export type UpdateClientInput = z.infer<typeof updateClientInput>;
 
 export const clientListQuery = z.object({

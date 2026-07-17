@@ -187,17 +187,25 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
     return <ConvertLeadModal open lead={lead} onClose={() => setConvertOpen(false)} />;
   }
 
+  const { data: settings } = useSettings();
+  const sourceName = settings?.sources.find((s) => s.id === lead.sourceId)?.name;
+  const stageLabel = STAGES.find((s) => s.key === lead.stage)?.label;
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="w-full max-w-md rounded-(--radius-panel) bg-surface p-5 shadow-(--shadow-modal)">
-        <div className="flex items-start justify-between">
-          <h2 className="flex items-center gap-2 text-[15px] font-semibold">
-            {lead.name}
-            {lead.outcome !== "in_process" && <StatusPill status={lead.outcome} />}
-          </h2>
+      <div className="w-full max-w-[480px] overflow-hidden rounded-[12px] bg-surface shadow-(--shadow-modal)">
+        {/* header */}
+        <div className="flex items-start justify-between gap-3 border-b border-[#eef0f3] px-5 py-[18px]">
+          <div>
+            <h2 className="flex items-center gap-2 text-[17px] font-semibold">
+              {lead.name}
+              {lead.outcome !== "in_process" && <StatusPill status={lead.outcome} />}
+            </h2>
+            <div className="mt-0.5 text-[13px] text-muted">Stage: {stageLabel}</div>
+          </div>
           <button
             type="button"
             className="text-[13px] text-muted hover:text-ink"
@@ -206,56 +214,99 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
             Close
           </button>
         </div>
-        <div className="mt-3 space-y-1 text-[13px] text-ink-700">
-          {lead.phone && <p>Phone: {lead.phone}</p>}
-          {lead.email && <p>Email: {lead.email}</p>}
-          {lead.description && <p className="whitespace-pre-wrap">{lead.description}</p>}
-          <p className="text-[12px] text-muted">
-            Stage: {STAGES.find((s) => s.key === lead.stage)?.label} · Created{" "}
-            {new Date(lead.createdAt).toLocaleDateString("en-US")}
-          </p>
+
+        {/* detail grid */}
+        <div className="grid grid-cols-2 gap-x-6 gap-y-3.5 border-b border-[#eef0f3] px-5 py-[18px]">
+          <LeadField label="Phone" value={lead.phone} />
+          <LeadField label="Email" value={lead.email} />
+          <LeadField label="Source" value={sourceName ?? null} />
+          <LeadField
+            label="Created"
+            value={new Date(lead.createdAt).toLocaleDateString("en-GB")}
+          />
+          <div className="col-span-2">
+            <div className="mb-[3px] text-[11px] uppercase tracking-[.4px] text-muted-400">
+              Background
+            </div>
+            <div className="whitespace-pre-wrap text-[13px] leading-normal text-ink-700">
+              {lead.description || "—"}
+            </div>
+          </div>
           {locked && lead.convertedClientId && (
-            <p>
-              Converted —{" "}
+            <div className="col-span-2">
               <Link
                 to={`/clients/${lead.convertedClientId}`}
-                className="text-primary-link hover:underline"
+                className="text-[13px] font-medium text-primary-link hover:underline"
               >
-                open the client
+                → Open the converted client
               </Link>
-            </p>
+            </div>
           )}
         </div>
-        {!locked && (
-          <div className="mt-4 flex flex-wrap justify-end gap-2">
-            {lead.outcome === "lost" ? (
-              <Button
-                variant="secondary"
-                size="sm"
+
+        {/* footer actions */}
+        <div className="flex items-center justify-between gap-2 bg-[#fafbfc] px-5 py-3.5">
+          <button
+            type="button"
+            disabled
+            title="Available with the Calendar stage (S8)"
+            className="rounded-[8px] border border-[#d9dde3] px-4 py-2.5 text-[13px] font-medium text-muted-400"
+          >
+            📅 Schedule meeting
+          </button>
+          {locked ? (
+            <span className="text-[13px] font-semibold text-success">✓ Already a client</span>
+          ) : lead.outcome === "lost" ? (
+            <span className="flex items-center gap-3">
+              <span className="text-[13px] font-semibold text-danger-text">✗ Marked as lost</span>
+              <button
+                type="button"
                 disabled={reopen.isPending}
                 onClick={() => reopen.mutate(lead.id)}
+                className="text-[13px] font-medium text-primary-link hover:underline"
               >
                 Reopen
-              </Button>
-            ) : (
-              <Button
-                variant="destructive"
-                size="sm"
+              </button>
+            </span>
+          ) : (
+            <span className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setEditOpen(true)}
+                className="rounded-[8px] border border-[#d9dde3] px-4 py-2.5 text-[13px] font-medium text-ink-700 hover:bg-divider"
+              >
+                Edit
+              </button>
+              <button
+                type="button"
                 disabled={markLost.isPending}
                 onClick={() => markLost.mutate(lead.id)}
+                className="rounded-[8px] border border-[#e6c3c3] px-4 py-2.5 text-[13px] font-semibold text-danger-text hover:bg-danger-soft"
               >
-                Mark lost
-              </Button>
-            )}
-            <Button variant="secondary" size="sm" onClick={() => setEditOpen(true)}>
-              Edit
-            </Button>
-            <Button variant="positive" size="sm" onClick={() => setConvertOpen(true)}>
-              Move to client
-            </Button>
-          </div>
-        )}
+                ✗ Mark as lost
+              </button>
+              <button
+                type="button"
+                onClick={() => setConvertOpen(true)}
+                className="rounded-[8px] bg-success px-[18px] py-2.5 text-[13px] font-semibold text-white hover:opacity-90"
+              >
+                → Convert to client
+              </button>
+            </span>
+          )}
+        </div>
       </div>
+    </div>
+  );
+}
+
+function LeadField({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div>
+      <div className="mb-[3px] text-[11px] uppercase tracking-[.4px] text-muted-400">
+        {label}
+      </div>
+      <div className="text-[13px] text-ink-700">{value || "—"}</div>
     </div>
   );
 }

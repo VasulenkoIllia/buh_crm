@@ -5,6 +5,7 @@ import { z } from "zod";
 import { X } from "lucide-react";
 import type { Client } from "@shared/schema/client";
 import { ApiError } from "@/shared/lib/api";
+import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { FormField, Input, Label, Select } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
@@ -45,6 +46,8 @@ export function ClientFormModal({
     register,
     handleSubmit,
     reset,
+    watch,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -145,11 +148,28 @@ export function ClientFormModal({
                 ))}
             </Select>
           </FormField>
-          <div className="flex items-end pb-2">
-            <label className="flex items-center gap-2 text-[13px]">
-              <input type="checkbox" {...register("regular")} />
-              Regular client
-            </label>
+          <div>
+            <Label>Engagement model</Label>
+            <div className="flex gap-1.5 rounded-(--radius-field) bg-[#eef0f3] p-0.5">
+              {[
+                { on: false, label: "One-time" },
+                { on: true, label: "Regular" },
+              ].map((opt) => (
+                <button
+                  key={opt.label}
+                  type="button"
+                  onClick={() => setValue("regular", opt.on, { shouldDirty: true })}
+                  className={cn(
+                    "flex-1 rounded-(--radius-btn-sm) py-1.5 text-[13px] font-medium",
+                    watch("regular") === opt.on
+                      ? "bg-surface text-ink shadow-(--shadow-card)"
+                      : "text-muted",
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
         <FormField label="Description" htmlFor="c-desc">
