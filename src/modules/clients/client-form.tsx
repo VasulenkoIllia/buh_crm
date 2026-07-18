@@ -134,6 +134,7 @@ export function ClientFormModal({
       title={client ? "Edit client" : "New client"}
       open={open}
       onClose={close}
+      size="lg"
       footer={
         <>
           <Button variant="secondary" onClick={close}>
@@ -145,29 +146,30 @@ export function ClientFormModal({
         </>
       }
     >
-      <form id="client-form" onSubmit={onSubmit} className="space-y-4" noValidate>
-        <div>
-          <Label>Client type</Label>
-          <Segmented
-            value={type}
-            onChange={(v) => setValue("type", v as ClientType, { shouldDirty: true })}
-            options={[
-              { value: "company", label: "Company" },
-              { value: "individual", label: "Private individual" },
-            ]}
-          />
-        </div>
-
-        <div>
-          <Label>Engagement model</Label>
-          <Segmented
-            value={watch("regular") ? "regular" : "one_time"}
-            onChange={(v) => setValue("regular", v === "regular", { shouldDirty: true })}
-            options={[
-              { value: "one_time", label: "One-time" },
-              { value: "regular", label: "Regular" },
-            ]}
-          />
+      <form id="client-form" onSubmit={onSubmit} className="space-y-3" noValidate>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Client type</Label>
+            <Segmented
+              value={type}
+              onChange={(v) => setValue("type", v as ClientType, { shouldDirty: true })}
+              options={[
+                { value: "company", label: "Company" },
+                { value: "individual", label: "Individual" },
+              ]}
+            />
+          </div>
+          <div>
+            <Label>Engagement model</Label>
+            <Segmented
+              value={watch("regular") ? "regular" : "one_time"}
+              onChange={(v) => setValue("regular", v === "regular", { shouldDirty: true })}
+              options={[
+                { value: "one_time", label: "One-time" },
+                { value: "regular", label: "Regular" },
+              ]}
+            />
+          </div>
         </div>
 
         {isCompany && (
@@ -206,16 +208,27 @@ export function ClientFormModal({
           <Input id="c-address" {...register("address")} />
         </FormField>
 
-        <div>
-          <Label>{isCompany ? "Related companies" : "Companies"}</Label>
-          <TagInput
-            value={companyNames}
-            onChange={setCompanyNames}
-            placeholder="Type a company name and press Enter…"
-          />
-          <p className="mt-1 text-[12px] text-muted">
-            Text labels (per this client) — used to attribute services, tasks and invoices.
-          </p>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>{isCompany ? "Related companies" : "Companies"}</Label>
+            <TagInput
+              value={companyNames}
+              onChange={setCompanyNames}
+              placeholder="Name + Enter…"
+            />
+          </div>
+          <FormField label="Source" htmlFor="c-source">
+            <Select id="c-source" {...register("sourceId")}>
+              <option value="">—</option>
+              {settings?.sources
+                .filter((s) => s.active)
+                .map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+            </Select>
+          </FormField>
         </div>
 
         <div>
@@ -223,23 +236,10 @@ export function ClientFormModal({
           <PeopleEditor value={people} onChange={setPeople} />
         </div>
 
-        <FormField label="Source" htmlFor="c-source">
-          <Select id="c-source" {...register("sourceId")}>
-            <option value="">—</option>
-            {settings?.sources
-              .filter((s) => s.active)
-              .map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-          </Select>
-        </FormField>
-
         <FormField label="Description" htmlFor="c-desc">
           <textarea
             id="c-desc"
-            rows={3}
+            rows={2}
             className="w-full rounded-(--radius-field) border border-border bg-surface px-3 py-2 text-[14px] focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
             {...register("description")}
           />
