@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   Client,
   ClientListQuery,
-  Company,
   CreateClientInput,
   UpdateClientInput,
 } from "@shared/schema/client";
@@ -13,7 +12,7 @@ export interface ClientListResponse {
   total: number;
   page: number;
   pageSize: number;
-  counts: { all: number; regular: number; one_time: number };
+  counts: { regular: number; one_time: number };
 }
 
 export interface ClientFile {
@@ -44,14 +43,6 @@ export function useClient(id: string | undefined) {
     queryKey: [...CLIENTS_KEY, "one", id],
     queryFn: () => api<Client>(`/api/clients/${id}`),
     enabled: !!id,
-  });
-}
-
-export function useCompanySearch(search: string) {
-  return useQuery({
-    queryKey: [...CLIENTS_KEY, "companies", search],
-    queryFn: () => api<Company[]>(`/api/clients/companies?search=${encodeURIComponent(search)}`),
-    staleTime: 30_000,
   });
 }
 

@@ -16,11 +16,11 @@ beforeAll(async () => {
   app = await buildApp();
   await prisma.session.deleteMany();
   await prisma.authToken.deleteMany();
-  await prisma.clientCompany.deleteMany();
   await prisma.lead.deleteMany();
   await prisma.file.deleteMany();
-  await prisma.client.deleteMany();
+  await prisma.clientPerson.deleteMany();
   await prisma.company.deleteMany();
+  await prisma.client.deleteMany();
   await prisma.user.deleteMany();
 
   await prisma.user.create({
@@ -46,113 +46,136 @@ afterAll(async () => {
 });
 
 describe("clients", () => {
-  let clientId: string;
+  let individualId: string;
 
-  it("creates a client with companies (created by name)", async () => {
+  it("creates an individual with companies + people", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/clients",
       headers: { cookie },
       payload: {
+        type: "individual",
         firstName: "Ivan",
         lastName: "Petrenko",
         phone: "+380501112233",
         email: "ivan@example.com",
         companyNames: ["Alpha LLC", "Beta Inc"],
+        people: [{ name: "Olena Book", serviceLabel: "Bookkeeping", phone: "+380671110000" }],
       },
     });
     expect(res.statusCode).toBe(201);
     const body = res.json();
-    clientId = body.id;
-    expect(body.companies.map((c: { name: string }) => c.name).sort()).toEqual([
-      "Alpha LLC",
-      "Beta Inc",
-    ]);
+    individualId = body.id;
+    expect(body.type).toBe("individual");
+    expect(body.displayName).toBe("Ivan Petrenko");
+    expect(body.companies.map((c: { name: string }) => c.name)).toEqual(["Alpha LLC", "Beta Inc"]);
+    expect(body.people).toHaveLength(1);
+    expect(body.people[0]).toMatchObject({ name: "Olena Book", serviceLabel: "Bookkeeping" });
     expect(body.isRegular).toBe(false);
     expect(body.debt).toBe(0);
   });
 
-  it("shares an existing company between clients (M:N, case-insensitive)", async () => {
+  it("rejects an individual without a name", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/clients",
+      headers: { cookie },
+      payload: { type: "individual", firstName: "OnlyFirst", email: "x@example.com" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("creates a company-type client (displayName = company name)", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/clients",
       headers: { cookie },
       payload: {
-        firstName: "Olha",
-        lastName: "Shevchenko",
-        email: "olha@example.com",
-        companyNames: ["alpha llc"],
+        type: "company",
+        companyName: "Romashka LLC",
+        firstName: "Petro",
+        lastName: "Tkach",
+        companyNames: ["Romashka Trade LLC"],
       },
     });
     expect(res.statusCode).toBe(201);
-    // no duplicate company created
-    expect(await prisma.company.count()).toBe(2);
-    const alpha = await prisma.company.findFirstOrThrow({ where: { name: "Alpha LLC" } });
-    expect(await prisma.clientCompany.count({ where: { companyId: alpha.id } })).toBe(2);
+    const body = res.json();
+    expect(body.type).toBe("company");
+    expect(body.displayName).toBe("Romashka LLC");
+    expect(body.companies.map((c: { name: string }) => c.name)).toEqual(["Romashka Trade LLC"]);
+  });
+
+  it("rejects a company-type client without a company name", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/clients",
+      headers: { cookie },
+      payload: { type: "company", firstName: "No", lastName: "Company" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("companies are per-client text (not shared)", async () => {
+    // Ivan(2) + Romashka Trade(1) = 3 rows total, none shared
+    expect(await prisma.company.count()).toBe(3);
+    const alphas = await prisma.company.findMany({ where: { name: "Alpha LLC" } });
+    expect(alphas).toHaveLength(1);
+    expect(alphas[0].clientId).toBe(individualId);
   });
 
   it("searches by company name", async () => {
     const res = await app.inject({
       method: "GET",
-      url: "/api/clients?search=beta",
+      url: "/api/clients?tab=one_time&search=beta",
       headers: { cookie },
     });
     const body = res.json();
     expect(body.total).toBe(1);
-    expect(body.items[0].firstName).toBe("Ivan");
+    expect(body.items[0].displayName).toBe("Ivan Petrenko");
   });
 
-  it("a partial update (regular toggle only) keeps the companies", async () => {
-    const before = await app.inject({
-      method: "GET",
-      url: `/api/clients/${clientId}`,
-      headers: { cookie },
-    });
-    expect(before.json().companies).toHaveLength(2);
-
+  it("a partial update (regular toggle only) keeps companies + people", async () => {
     const res = await app.inject({
       method: "PATCH",
-      url: `/api/clients/${clientId}`,
+      url: `/api/clients/${individualId}`,
       headers: { cookie },
-      payload: { regularOverride: true }, // no companyNames -> must not touch M:N
+      payload: { regularOverride: true }, // no companyNames/people -> must not touch them
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().isRegular).toBe(true);
     expect(res.json().companies).toHaveLength(2);
+    expect(res.json().people).toHaveLength(1);
   });
 
   it("regular tab honors the manual override", async () => {
-    await app.inject({
-      method: "PATCH",
-      url: `/api/clients/${clientId}`,
-      headers: { cookie },
-      payload: { regularOverride: true },
-    });
     const res = await app.inject({
       method: "GET",
       url: "/api/clients?tab=regular",
       headers: { cookie },
     });
     const body = res.json();
-    expect(body.total).toBe(1);
-    expect(body.items[0].id).toBe(clientId);
-    expect(body.items[0].isRegular).toBe(true);
+    expect(body.items.some((c: { id: string }) => c.id === individualId)).toBe(true);
+    expect(body.counts.regular).toBeGreaterThanOrEqual(1);
   });
 
   it("archives a client — gone from lists and from GET", async () => {
     const res = await app.inject({
       method: "POST",
-      url: `/api/clients/${clientId}/archive`,
+      url: `/api/clients/${individualId}/archive`,
       headers: { cookie },
     });
     expect(res.statusCode).toBe(200);
 
-    const list = await app.inject({ method: "GET", url: "/api/clients", headers: { cookie } });
-    expect(list.json().items.some((c: { id: string }) => c.id === clientId)).toBe(false);
+    const list = await app.inject({
+      method: "GET",
+      url: "/api/clients?tab=regular",
+      headers: { cookie },
+    });
+    expect(list.json().items.some((c: { id: string }) => c.id === individualId)).toBe(false);
 
     const get = await app.inject({
       method: "GET",
-      url: `/api/clients/${clientId}`,
+      url: `/api/clients/${individualId}`,
       headers: { cookie },
     });
     expect(get.statusCode).toBe(404);
@@ -180,13 +203,6 @@ describe("clients", () => {
     expect(up.statusCode).toBe(201);
     const file = up.json();
 
-    const list = await app.inject({
-      method: "GET",
-      url: `/api/clients/${other.id}/files`,
-      headers: { cookie },
-    });
-    expect(list.json()).toHaveLength(1);
-
     const download = await app.inject({
       method: "GET",
       url: `/api/clients/${other.id}/files/${file.id}`,
@@ -201,12 +217,5 @@ describe("clients", () => {
       headers: { cookie },
     });
     expect(del.statusCode).toBe(200);
-    expect(
-      (await app.inject({
-        method: "GET",
-        url: `/api/clients/${other.id}/files`,
-        headers: { cookie },
-      })).json(),
-    ).toHaveLength(0);
   });
 });

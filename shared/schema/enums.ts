@@ -5,6 +5,9 @@ import { z } from "zod";
 export const userRole = z.enum(["admin", "user"]);
 export type UserRole = z.infer<typeof userRole>;
 
+export const clientType = z.enum(["individual", "company"]);
+export type ClientType = z.infer<typeof clientType>;
+
 export const userStatus = z.enum(["invited", "pending", "active", "blocked"]);
 export type UserStatus = z.infer<typeof userStatus>;
 

@@ -17,6 +17,7 @@ import {
 
 const TABS = [
   { key: "profile", label: "Profile" },
+  { key: "people", label: "People" },
   { key: "tasks", label: "Tasks" },
   { key: "invoices", label: "Invoices" },
   { key: "meetings", label: "Meetings" },
@@ -45,7 +46,7 @@ export function ClientCardPage() {
   if (error || !client)
     return <p className="text-[13px] text-danger-text">Client not found.</p>;
 
-  const typeLabel = client.companies.length > 0 ? "Company" : "Private individual";
+  const typeLabel = client.type === "company" ? "Company" : "Private individual";
   const companiesLabel = client.companies.map((c) => c.name).join(", ") || "—";
 
   const onArchive = async () => {
@@ -70,9 +71,7 @@ export function ClientCardPage() {
       <div className="mb-1 flex items-start justify-between">
         <div>
           <div className="flex items-center gap-2.5">
-            <h1 className="text-[20px] font-semibold">
-              {client.firstName} {client.lastName}
-            </h1>
+            <h1 className="text-[20px] font-semibold">{client.displayName}</h1>
             {client.isRegular && (
               <span className="rounded-(--radius-chip) bg-[#f0ebfb] px-2 py-0.5 text-[12px] font-medium text-[#7a4fd6]">
                 regular
@@ -143,6 +142,7 @@ export function ClientCardPage() {
       )}
 
       {tab === "profile" && <ProfileTab client={client} onEdit={() => setEditOpen(true)} />}
+      {tab === "people" && <PeopleTab client={client} onEdit={() => setEditOpen(true)} />}
       {tab === "files" && <FilesTab clientId={client.id} />}
       {TAB_STAGE[tab] && (
         <div className="rounded-(--radius-panel) border border-border bg-surface px-5 py-10 text-center text-[13px] text-muted">
@@ -190,6 +190,45 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+function PeopleTab({ client, onEdit }: { client: Client; onEdit: () => void }) {
+  return (
+    <div className="rounded-(--radius-panel) border border-border bg-surface">
+      <div className="flex items-center justify-between border-b border-divider px-5 py-3">
+        <h2 className="text-[15px] font-semibold">People</h2>
+        <Button variant="secondary" size="sm" onClick={onEdit}>
+          Manage
+        </Button>
+      </div>
+      {client.people.length === 0 ? (
+        <p className="px-5 py-8 text-center text-[13px] text-muted">
+          No people yet. Add contacts and the service each of them handles.
+        </p>
+      ) : (
+        <ul>
+          {client.people.map((p) => (
+            <li
+              key={p.id}
+              className="flex items-center justify-between border-b border-divider px-5 py-3 text-[13px] last:border-0"
+            >
+              <div>
+                <div className="font-medium">{p.name}</div>
+                <div className="text-[12px] text-muted">
+                  {[p.phone, p.email].filter(Boolean).join(" · ") || "—"}
+                </div>
+              </div>
+              {p.serviceLabel && (
+                <span className="rounded-(--radius-chip) bg-[#eef1fb] px-2 py-0.5 text-[12px] font-medium text-primary-link">
+                  {p.serviceLabel}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function ProfileTab({ client, onEdit }: { client: Client; onEdit: () => void }) {
   const { data: settings } = useSettings();
   const update = useUpdateClient();
@@ -202,11 +241,17 @@ function ProfileTab({ client, onEdit }: { client: Client; onEdit: () => void }) 
         <div>
           <FieldLabel>Type</FieldLabel>
           <div className="text-[14px]">
-            {client.companies.length > 0 ? "Company" : "Private individual"}
+            {client.type === "company" ? "Company" : "Private individual"}
           </div>
         </div>
         <div>
-          <FieldLabel>Company(ies)</FieldLabel>
+          <FieldLabel>{client.type === "company" ? "Contact person" : "Name"}</FieldLabel>
+          <div className="text-[14px]">
+            {`${client.firstName ?? ""} ${client.lastName ?? ""}`.trim() || "—"}
+          </div>
+        </div>
+        <div className="sm:col-span-2">
+          <FieldLabel>Companies</FieldLabel>
           <div className="text-[14px]">
             {client.companies.map((c) => c.name).join(", ") || "—"}
           </div>

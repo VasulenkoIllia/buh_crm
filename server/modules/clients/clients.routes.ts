@@ -23,14 +23,6 @@ export async function registerRoutes(instance: FastifyInstance) {
     return service.listClients(request.query);
   });
 
-  app.get(
-    "/companies",
-    { schema: { querystring: z.object({ search: z.string().default("") }) } },
-    async (request) => {
-      return service.searchCompanies(request.query.search);
-    },
-  );
-
   app.get("/:id", { schema: { params: idParams } }, async (request) => {
     return service.getClient(request.params.id);
   });

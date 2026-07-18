@@ -1,12 +1,23 @@
 import { z } from "zod";
 import { money, uuid } from "./common.js";
-import { billingPeriod } from "./enums.js";
+import { billingPeriod, clientType } from "./enums.js";
 
 export const companySchema = z.object({
   id: uuid,
   name: z.string().min(1),
 });
 export type Company = z.infer<typeof companySchema>;
+
+/** A person in the client's "People" tab + the service they handle. */
+export const clientPersonSchema = z.object({
+  id: uuid,
+  name: z.string().min(1),
+  serviceLabel: z.string().nullable(),
+  role: z.string().nullable(),
+  phone: z.string().nullable(),
+  email: z.string().nullable(),
+});
+export type ClientPerson = z.infer<typeof clientPersonSchema>;
 
 export const subscriptionSchema = z.object({
   id: uuid,
@@ -21,17 +32,21 @@ export type Subscription = z.infer<typeof subscriptionSchema>;
 
 export const clientSchema = z.object({
   id: uuid,
-  firstName: z.string().min(1),
-  lastName: z.string().min(1),
+  type: clientType,
+  firstName: z.string().nullable(),
+  lastName: z.string().nullable(),
+  companyName: z.string().nullable(),
+  /** individual → "First Last"; company → companyName (main). Computed server-side. */
+  displayName: z.string(),
   phone: z.string().nullable(),
   email: z.email().nullable(),
   address: z.string().nullable(),
   sourceId: uuid.nullable(),
-  /** isRegular = regularOverride ?? hasActiveSubscription — computed server-side */
   isRegular: z.boolean(),
   regularOverride: z.boolean().nullable(),
   description: z.string().nullable(),
   companies: z.array(companySchema),
+  people: z.array(clientPersonSchema),
   /** derived in Payments (S7); 0 until invoices exist */
   debt: money,
   createdAt: z.iso.datetime(),
@@ -47,30 +62,61 @@ const optionalTrimmed = z
   .nullable()
   .optional();
 
-export const createClientInput = z.object({
-  firstName: z.string().min(1),
-  lastName: z.string().min(1),
+export const clientPersonInput = z.object({
+  name: z.string().min(1),
+  serviceLabel: optionalTrimmed,
+  role: optionalTrimmed,
+  phone: optionalTrimmed,
+  email: optionalTrimmed,
+});
+export type ClientPersonInput = z.infer<typeof clientPersonInput>;
+
+const clientFields = z.object({
+  type: clientType,
+  firstName: optionalTrimmed,
+  lastName: optionalTrimmed,
+  companyName: optionalTrimmed,
   phone: optionalTrimmed,
   email: z.email().nullable().optional(),
   address: optionalTrimmed,
   sourceId: uuid.nullable().optional(),
   description: optionalTrimmed,
   regularOverride: z.boolean().nullable().optional(),
-  /** company names — existing names get linked, new ones created (M:N by name) */
+  /** additional companies — plain text names, per client (order preserved) */
   companyNames: z.array(z.string().min(1)).max(50).default([]),
+  /** the "People" tab */
+  people: z.array(clientPersonInput).max(50).default([]),
 });
+
+/** individual → first+last required; company → companyName required. */
+const requireByType = (v: {
+  type: "individual" | "company";
+  firstName?: string | null;
+  lastName?: string | null;
+  companyName?: string | null;
+}) => {
+  if (v.type === "individual") return !!v.firstName && !!v.lastName;
+  return !!v.companyName;
+};
+const requireMsg = {
+  message: "Individual needs first and last name; company needs a company name",
+};
+
+export const createClientInput = clientFields.refine(requireByType, requireMsg);
 export type CreateClientInput = z.infer<typeof createClientInput>;
 
-// companyNames must stay truly optional here (no default): when omitted, the update
-// leaves the M:N links untouched. (createClientInput's .default([]) would otherwise
-// reset companies to empty on any partial update, e.g. the Regular toggle.)
-export const updateClientInput = createClientInput.partial().extend({
-  companyNames: z.array(z.string().min(1)).max(50).optional(),
-});
+export const updateClientInput = clientFields
+  .partial()
+  .extend({
+    // stay truly optional on PATCH (no default) so omitting them leaves the lists untouched
+    companyNames: z.array(z.string().min(1)).max(50).optional(),
+    people: z.array(clientPersonInput).max(50).optional(),
+  })
+  .refine((v) => v.type === undefined || requireByType(v as never), requireMsg);
 export type UpdateClientInput = z.infer<typeof updateClientInput>;
 
 export const clientListQuery = z.object({
-  tab: z.enum(["all", "regular", "one_time"]).default("all"),
+  tab: z.enum(["one_time", "regular"]).default("one_time"),
   search: z.string().trim().optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),

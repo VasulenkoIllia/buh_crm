@@ -3,26 +3,40 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { X } from "lucide-react";
-import type { Client } from "@shared/schema/client";
+import type { Client, ClientPersonInput } from "@shared/schema/client";
+import type { ClientType } from "@shared/schema/enums";
 import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { FormField, Input, Label, Select } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
 import { useSettings } from "@/modules/settings";
-import { useCompanySearch, useCreateClient, useUpdateClient } from "./clients.api";
+import { useCreateClient, useUpdateClient } from "./clients.api";
 
-const formSchema = z.object({
-  firstName: z.string().min(1, "Required"),
-  lastName: z.string().min(1, "Required"),
-  phone: z.string(),
-  email: z.union([z.email("Invalid email"), z.literal("")]),
-  address: z.string(),
-  sourceId: z.string(),
-  description: z.string(),
-  regular: z.boolean(),
-});
+const formSchema = z
+  .object({
+    type: z.enum(["individual", "company"]),
+    firstName: z.string(),
+    lastName: z.string(),
+    companyName: z.string(),
+    phone: z.string(),
+    email: z.union([z.email("Invalid email"), z.literal("")]),
+    address: z.string(),
+    sourceId: z.string(),
+    description: z.string(),
+    regular: z.boolean(),
+  })
+  .refine((v) => (v.type === "individual" ? v.firstName.trim() && v.lastName.trim() : true), {
+    path: ["firstName"],
+    message: "First and last name are required",
+  })
+  .refine((v) => (v.type === "company" ? v.companyName.trim() : true), {
+    path: ["companyName"],
+    message: "Company name is required",
+  });
 type FormValues = z.infer<typeof formSchema>;
+
+type PersonRow = ClientPersonInput & { serviceLabel: string; phone: string; email: string };
 
 export function ClientFormModal({
   open,
@@ -32,15 +46,23 @@ export function ClientFormModal({
 }: {
   open: boolean;
   onClose: () => void;
-  client?: Client; // present = edit
+  client?: Client;
   onSaved?: (client: Client) => void;
 }) {
   const create = useCreateClient();
   const update = useUpdateClient();
+  const { data: settings } = useSettings();
   const [companyNames, setCompanyNames] = useState<string[]>(
     client?.companies.map((c) => c.name) ?? [],
   );
-  const { data: settings } = useSettings();
+  const [people, setPeople] = useState<PersonRow[]>(
+    client?.people.map((p) => ({
+      name: p.name,
+      serviceLabel: p.serviceLabel ?? "",
+      phone: p.phone ?? "",
+      email: p.email ?? "",
+    })) ?? [],
+  );
 
   const {
     register,
@@ -52,8 +74,10 @@ export function ClientFormModal({
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
+      type: client?.type ?? "individual",
       firstName: client?.firstName ?? "",
       lastName: client?.lastName ?? "",
+      companyName: client?.companyName ?? "",
       phone: client?.phone ?? "",
       email: client?.email ?? "",
       address: client?.address ?? "",
@@ -62,6 +86,9 @@ export function ClientFormModal({
       regular: client?.isRegular ?? false,
     },
   });
+
+  const type = watch("type");
+  const isCompany = type === "company";
 
   const close = () => {
     reset();
@@ -72,8 +99,10 @@ export function ClientFormModal({
 
   const onSubmit = handleSubmit(async (values) => {
     const input = {
-      firstName: values.firstName,
-      lastName: values.lastName,
+      type: values.type as ClientType,
+      firstName: values.firstName || null,
+      lastName: values.lastName || null,
+      companyName: isCompany ? values.companyName || null : null,
       phone: values.phone || null,
       email: values.email || null,
       address: values.address || null,
@@ -81,6 +110,14 @@ export function ClientFormModal({
       description: values.description || null,
       regularOverride: values.regular ? true : null,
       companyNames,
+      people: people
+        .filter((p) => p.name.trim())
+        .map((p) => ({
+          name: p.name,
+          serviceLabel: p.serviceLabel || null,
+          phone: p.phone || null,
+          email: p.email || null,
+        })),
     };
     const saved = client
       ? await update.mutateAsync({ id: client.id, input })
@@ -109,14 +146,54 @@ export function ClientFormModal({
       }
     >
       <form id="client-form" onSubmit={onSubmit} className="space-y-4" noValidate>
+        <div>
+          <Label>Client type</Label>
+          <Segmented
+            value={type}
+            onChange={(v) => setValue("type", v as ClientType, { shouldDirty: true })}
+            options={[
+              { value: "company", label: "Company" },
+              { value: "individual", label: "Private individual" },
+            ]}
+          />
+        </div>
+
+        <div>
+          <Label>Engagement model</Label>
+          <Segmented
+            value={watch("regular") ? "regular" : "one_time"}
+            onChange={(v) => setValue("regular", v === "regular", { shouldDirty: true })}
+            options={[
+              { value: "one_time", label: "One-time" },
+              { value: "regular", label: "Regular" },
+            ]}
+          />
+        </div>
+
+        {isCompany && (
+          <FormField label="Company name" htmlFor="c-company" error={errors.companyName?.message}>
+            <Input
+              id="c-company"
+              placeholder="e.g. Romashka LLC"
+              error={!!errors.companyName}
+              {...register("companyName")}
+            />
+          </FormField>
+        )}
+
         <div className="grid grid-cols-2 gap-3">
-          <FormField label="First name" htmlFor="c-first" error={errors.firstName?.message}>
+          <FormField
+            label={isCompany ? "Contact — first name" : "First name"}
+            htmlFor="c-first"
+            error={errors.firstName?.message}
+          >
             <Input id="c-first" error={!!errors.firstName} {...register("firstName")} />
           </FormField>
-          <FormField label="Last name" htmlFor="c-last" error={errors.lastName?.message}>
-            <Input id="c-last" error={!!errors.lastName} {...register("lastName")} />
+          <FormField label={isCompany ? "Contact — last name" : "Last name"} htmlFor="c-last">
+            <Input id="c-last" {...register("lastName")} />
           </FormField>
         </div>
+
         <div className="grid grid-cols-2 gap-3">
           <FormField label="Phone" htmlFor="c-phone">
             <Input id="c-phone" {...register("phone")} />
@@ -128,50 +205,37 @@ export function ClientFormModal({
         <FormField label="Address" htmlFor="c-address">
           <Input id="c-address" {...register("address")} />
         </FormField>
+
         <div>
-          <Label>Companies</Label>
-          <CompanyTagInput value={companyNames} onChange={setCompanyNames} />
+          <Label>{isCompany ? "Related companies" : "Companies"}</Label>
+          <TagInput
+            value={companyNames}
+            onChange={setCompanyNames}
+            placeholder="Type a company name and press Enter…"
+          />
           <p className="mt-1 text-[12px] text-muted">
-            A client may hold several companies — or none (private individual).
+            Text labels (per this client) — used to attribute services, tasks and invoices.
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <FormField label="Source" htmlFor="c-source">
-            <Select id="c-source" {...register("sourceId")}>
-              <option value="">—</option>
-              {settings?.sources
-                .filter((s) => s.active)
-                .map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-            </Select>
-          </FormField>
-          <div>
-            <Label>Engagement model</Label>
-            <div className="flex gap-1.5 rounded-(--radius-field) bg-[#eef0f3] p-0.5">
-              {[
-                { on: false, label: "One-time" },
-                { on: true, label: "Regular" },
-              ].map((opt) => (
-                <button
-                  key={opt.label}
-                  type="button"
-                  onClick={() => setValue("regular", opt.on, { shouldDirty: true })}
-                  className={cn(
-                    "flex-1 rounded-(--radius-btn-sm) py-1.5 text-[13px] font-medium",
-                    watch("regular") === opt.on
-                      ? "bg-surface text-ink shadow-(--shadow-card)"
-                      : "text-muted",
-                  )}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
+
+        <div>
+          <Label>People</Label>
+          <PeopleEditor value={people} onChange={setPeople} />
         </div>
+
+        <FormField label="Source" htmlFor="c-source">
+          <Select id="c-source" {...register("sourceId")}>
+            <option value="">—</option>
+            {settings?.sources
+              .filter((s) => s.active)
+              .map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+          </Select>
+        </FormField>
+
         <FormField label="Description" htmlFor="c-desc">
           <textarea
             id="c-desc"
@@ -186,86 +250,145 @@ export function ClientFormModal({
   );
 }
 
-/** Tag input with autocomplete: pick an existing company or create by typing a new name. */
-function CompanyTagInput({
+function Segmented({
   value,
   onChange,
+  options,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <div className="flex gap-1.5 rounded-(--radius-field) bg-[#eef0f3] p-0.5">
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          onClick={() => onChange(opt.value)}
+          className={cn(
+            "flex-1 rounded-(--radius-btn-sm) py-1.5 text-[13px] font-medium",
+            value === opt.value ? "bg-surface text-ink shadow-(--shadow-card)" : "text-muted",
+          )}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Simple text tag input (per-client company names — no cross-client autocomplete). */
+function TagInput({
+  value,
+  onChange,
+  placeholder,
 }: {
   value: string[];
   onChange: (names: string[]) => void;
+  placeholder?: string;
 }) {
   const [input, setInput] = useState("");
-  const { data: suggestions } = useCompanySearch(input);
-
   const add = (name: string) => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    if (!value.some((v) => v.toLowerCase() === trimmed.toLowerCase())) {
-      onChange([...value, trimmed]);
-    }
+    const t = name.trim();
+    if (t && !value.some((v) => v.toLowerCase() === t.toLowerCase())) onChange([...value, t]);
     setInput("");
   };
-
-  const filtered = (suggestions ?? []).filter(
-    (s) => !value.some((v) => v.toLowerCase() === s.name.toLowerCase()),
-  );
-
   return (
-    <div>
-      <div className="flex flex-wrap items-center gap-1.5 rounded-(--radius-field) border border-border bg-surface px-2 py-1.5 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/30">
-        {value.map((name) => (
-          <span
-            key={name}
-            className="inline-flex items-center gap-1 rounded-(--radius-chip) bg-divider px-2 py-0.5 text-[12px] font-medium"
-          >
-            {name}
-            <button
-              type="button"
-              aria-label={`Remove ${name}`}
-              onClick={() => onChange(value.filter((v) => v !== name))}
-              className="text-muted hover:text-ink"
-            >
-              <X size={12} />
-            </button>
-          </span>
-        ))}
-        <input
-          className="min-w-28 flex-1 bg-transparent py-0.5 text-[14px] focus:outline-none"
-          placeholder={value.length === 0 ? "Type a company name…" : ""}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              add(input);
-            }
-            if (e.key === "Backspace" && !input && value.length > 0) {
-              onChange(value.slice(0, -1));
-            }
-          }}
-        />
-      </div>
-      {input && (
-        <div className="mt-1 rounded-(--radius-field) border border-border bg-surface shadow-(--shadow-card)">
-          {filtered.slice(0, 5).map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              className="block w-full px-3 py-1.5 text-left text-[13px] hover:bg-divider"
-              onClick={() => add(s.name)}
-            >
-              {s.name}
-            </button>
-          ))}
+    <div className="flex flex-wrap items-center gap-1.5 rounded-(--radius-field) border border-border bg-surface px-2 py-1.5 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/30">
+      {value.map((name) => (
+        <span
+          key={name}
+          className="inline-flex items-center gap-1 rounded-(--radius-chip) bg-divider px-2 py-0.5 text-[12px] font-medium"
+        >
+          {name}
           <button
             type="button"
-            className="block w-full px-3 py-1.5 text-left text-[13px] text-primary-link hover:bg-divider"
-            onClick={() => add(input)}
+            aria-label={`Remove ${name}`}
+            onClick={() => onChange(value.filter((v) => v !== name))}
+            className="text-muted hover:text-ink"
           >
-            Create “{input.trim()}”
+            <X size={12} />
           </button>
+        </span>
+      ))}
+      <input
+        className="min-w-32 flex-1 bg-transparent py-0.5 text-[14px] focus:outline-none"
+        placeholder={value.length === 0 ? placeholder : ""}
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            add(input);
+          }
+          if (e.key === "Backspace" && !input && value.length) onChange(value.slice(0, -1));
+        }}
+      />
+    </div>
+  );
+}
+
+function PeopleEditor({
+  value,
+  onChange,
+}: {
+  value: PersonRow[];
+  onChange: (rows: PersonRow[]) => void;
+}) {
+  const set = (i: number, patch: Partial<PersonRow>) =>
+    onChange(value.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+
+  return (
+    <div className="space-y-2">
+      {value.map((row, i) => (
+        <div key={i} className="rounded-(--radius-field) border border-border bg-surface p-2">
+          <div className="flex gap-2">
+            <Input
+              className="flex-1"
+              placeholder="Name"
+              value={row.name}
+              onChange={(e) => set(i, { name: e.target.value })}
+            />
+            <Input
+              className="flex-1"
+              placeholder="Service they handle"
+              value={row.serviceLabel}
+              onChange={(e) => set(i, { serviceLabel: e.target.value })}
+            />
+            <button
+              type="button"
+              aria-label="Remove person"
+              className="px-1 text-muted hover:text-danger"
+              onClick={() => onChange(value.filter((_, idx) => idx !== i))}
+            >
+              <X size={16} />
+            </button>
+          </div>
+          <div className="mt-2 flex gap-2">
+            <Input
+              className="flex-1"
+              placeholder="Phone"
+              value={row.phone}
+              onChange={(e) => set(i, { phone: e.target.value })}
+            />
+            <Input
+              className="flex-1"
+              placeholder="Email"
+              value={row.email}
+              onChange={(e) => set(i, { email: e.target.value })}
+            />
+          </div>
         </div>
-      )}
+      ))}
+      <Button
+        type="button"
+        variant="text"
+        size="sm"
+        onClick={() => onChange([...value, { name: "", serviceLabel: "", phone: "", email: "" }])}
+      >
+        + Add person
+      </Button>
     </div>
   );
 }

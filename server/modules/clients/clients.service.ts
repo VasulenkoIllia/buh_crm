@@ -8,12 +8,25 @@ import { NotFoundError, ValidationError } from "../../core/errors.js";
 import { MAX_FILE_SIZE, deleteFileBytes, saveFileBytes } from "../../core/files.js";
 import * as repo from "./clients.repository.js";
 
+function displayName(c: {
+  type: "individual" | "company";
+  firstName: string | null;
+  lastName: string | null;
+  companyName: string | null;
+}): string {
+  if (c.type === "company") return c.companyName ?? "—";
+  return `${c.firstName ?? ""} ${c.lastName ?? ""}`.trim() || "—";
+}
+
 /** isRegular = regularOverride ?? hasActiveSubscription (cross-cutting rule). */
 export function toClientDto(client: repo.ClientRecord) {
   return {
     id: client.id,
+    type: client.type,
     firstName: client.firstName,
     lastName: client.lastName,
+    companyName: client.companyName,
+    displayName: displayName(client),
     phone: client.phone,
     email: client.email,
     address: client.address,
@@ -21,9 +34,14 @@ export function toClientDto(client: repo.ClientRecord) {
     isRegular: client.regularOverride ?? client.subscriptions.length > 0,
     regularOverride: client.regularOverride,
     description: client.description,
-    companies: client.companies.map((link) => ({
-      id: link.company.id,
-      name: link.company.name,
+    companies: client.companies.map((c) => ({ id: c.id, name: c.name })),
+    people: client.people.map((p) => ({
+      id: p.id,
+      name: p.name,
+      serviceLabel: p.serviceLabel,
+      role: p.role,
+      phone: p.phone,
+      email: p.email,
     })),
     debt: 0, // derived in Payments (S7)
     createdAt: client.createdAt.toISOString(),
@@ -46,10 +64,10 @@ const ONE_TIME_FILTER: Prisma.ClientWhereInput = {
 };
 
 export async function listClients(query: ClientListQuery) {
-  const where: Prisma.ClientWhereInput = { archivedAt: null };
-
-  if (query.tab === "regular") Object.assign(where, REGULAR_FILTER);
-  if (query.tab === "one_time") Object.assign(where, ONE_TIME_FILTER);
+  const where: Prisma.ClientWhereInput = {
+    archivedAt: null,
+    ...(query.tab === "regular" ? REGULAR_FILTER : ONE_TIME_FILTER),
+  };
 
   if (query.search) {
     where.AND = [
@@ -57,13 +75,10 @@ export async function listClients(query: ClientListQuery) {
         OR: [
           { firstName: { contains: query.search, mode: "insensitive" } },
           { lastName: { contains: query.search, mode: "insensitive" } },
+          { companyName: { contains: query.search, mode: "insensitive" } },
           { email: { contains: query.search, mode: "insensitive" } },
           { phone: { contains: query.search, mode: "insensitive" } },
-          {
-            companies: {
-              some: { company: { name: { contains: query.search, mode: "insensitive" } } },
-            },
-          },
+          { companies: { some: { name: { contains: query.search, mode: "insensitive" } } } },
         ],
       },
     ];
@@ -82,7 +97,7 @@ export async function listClients(query: ClientListQuery) {
     total,
     page: query.page,
     pageSize: query.pageSize,
-    counts, // per-tab counts for the tab pills (design)
+    counts,
   };
 }
 
@@ -92,12 +107,42 @@ export async function getClient(id: string) {
   return toClientDto(client);
 }
 
+function toClientFields(input: CreateClientInput | UpdateClientInput, isCreate: boolean) {
+  const fields: Prisma.ClientUpdateInput = {};
+  if (input.type !== undefined) fields.type = input.type;
+  if (input.firstName !== undefined) fields.firstName = input.firstName ?? null;
+  if (input.lastName !== undefined) fields.lastName = input.lastName ?? null;
+  if (input.companyName !== undefined) fields.companyName = input.companyName ?? null;
+  if (input.phone !== undefined) fields.phone = input.phone ?? null;
+  if (input.email !== undefined) fields.email = input.email ?? null;
+  if (input.address !== undefined) fields.address = input.address ?? null;
+  if (input.description !== undefined) fields.description = input.description ?? null;
+  if (input.regularOverride !== undefined) fields.regularOverride = input.regularOverride ?? null;
+  if (input.sourceId) {
+    fields.source = { connect: { id: input.sourceId } };
+  } else if (!isCreate && input.sourceId !== undefined) {
+    fields.source = { disconnect: true }; // clearing the source (update only)
+  }
+  return fields;
+}
+
 export async function createClient(input: CreateClientInput) {
-  const { companyNames, ...fields } = input;
-  const client = await repo.createClient(fields);
-  if (companyNames.length > 0) {
-    const companyIds = await repo.resolveCompanyIds(companyNames);
-    await repo.setClientCompanies(client.id, companyIds);
+  const client = await repo.createClient({
+    ...(toClientFields(input, true) as Prisma.ClientCreateInput),
+    type: input.type,
+  });
+  if (input.companyNames.length > 0) await repo.setClientCompanies(client.id, input.companyNames);
+  if (input.people.length > 0) {
+    await repo.setClientPeople(
+      client.id,
+      input.people.map((p) => ({
+        name: p.name,
+        serviceLabel: p.serviceLabel ?? null,
+        role: p.role ?? null,
+        phone: p.phone ?? null,
+        email: p.email ?? null,
+      })),
+    );
   }
   return getClient(client.id);
 }
@@ -106,11 +151,19 @@ export async function updateClient(id: string, input: UpdateClientInput) {
   const existing = await repo.findClient(id);
   if (!existing || existing.archivedAt) throw new NotFoundError("Client not found");
 
-  const { companyNames, ...fields } = input;
-  await repo.updateClient(id, fields);
-  if (companyNames !== undefined) {
-    const companyIds = await repo.resolveCompanyIds(companyNames);
-    await repo.setClientCompanies(id, companyIds);
+  await repo.updateClient(id, toClientFields(input, false));
+  if (input.companyNames !== undefined) await repo.setClientCompanies(id, input.companyNames);
+  if (input.people !== undefined) {
+    await repo.setClientPeople(
+      id,
+      input.people.map((p) => ({
+        name: p.name,
+        serviceLabel: p.serviceLabel ?? null,
+        role: p.role ?? null,
+        phone: p.phone ?? null,
+        email: p.email ?? null,
+      })),
+    );
   }
   return getClient(id);
 }
@@ -122,14 +175,10 @@ export async function archiveClient(id: string, actor: User) {
   return { ok: true as const };
 }
 
-export function searchCompanies(search: string) {
-  return repo.searchCompanies(search);
-}
-
 // ── files (≤ 25 MB, uploads volume, API-served) ──────────────────────────────
 
 export async function listFiles(clientId: string) {
-  await getClient(clientId); // 404 if missing/archived
+  await getClient(clientId);
   const files = await repo.listClientFiles(clientId);
   return files.map((f) => ({
     id: f.id,

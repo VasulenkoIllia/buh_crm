@@ -235,23 +235,34 @@ model TaskTemplate {
 
 // ── Clients ──────────────────────────────────────────────────────────────────
 
+// Client model reset 2026-07-18: one entity with a type; companies + people are
+// per-client text lists (not shared). See modules/decisions-log.md.
+enum ClientType {
+  individual
+  company
+}
+
 model Client {
-  id              String    @id @default(uuid()) @db.Uuid
-  firstName       String
-  lastName        String
+  id              String     @id @default(uuid()) @db.Uuid
+  type            ClientType @default(individual)
+  // individual: firstName+lastName. company: companyName (title) + optional contact firstName/lastName.
+  firstName       String?
+  lastName        String?
+  companyName     String?
   phone           String?
   email           String?
   address         String?
-  sourceId        String?   @db.Uuid
+  sourceId        String?    @db.Uuid
   regularOverride Boolean? // isRegular = regularOverride ?? hasActiveSubscription (computed)
   description     String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
   archivedAt      DateTime?
-  archivedById    String?   @db.Uuid
+  archivedById    String?    @db.Uuid
 
   source        SourceOption?           @relation(fields: [sourceId], references: [id])
-  companies     ClientCompany[]
+  companies     Company[] // 1:N — additional/related companies (just names), per client
+  people        ClientPerson[] // the "People" tab
   categories    ClientServiceCategory[]
   subscriptions Subscription[]
   tasks         Task[]
@@ -262,27 +273,43 @@ model Client {
   convertedLead Lead?                   @relation("LeadConvertedClient")
 
   @@index([archivedAt])
+  @@index([type])
 }
 
+// A company is now a plain per-client text label (1:N), used as the invoicing /
+// task / report dimension. NOT shared across clients.
 model Company {
   id        String   @id @default(uuid()) @db.Uuid
+  clientId  String   @db.Uuid
   name      String
+  order     Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  clients       ClientCompany[]
+  client        Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
   subscriptions Subscription[]
   invoices      Invoice[]
+  tasks         Task[]
+
+  @@index([clientId])
 }
 
-model ClientCompany {
-  clientId  String @db.Uuid
-  companyId String @db.Uuid
+// The "People" tab — people involved with a client + the service they handle.
+model ClientPerson {
+  id           String   @id @default(uuid()) @db.Uuid
+  clientId     String   @db.Uuid
+  name         String
+  serviceLabel String? // free-text service they are responsible for (real Service link later)
+  role         String?
+  phone        String?
+  email        String?
+  order        Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  client  Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
-  @@id([clientId, companyId])
+  @@index([clientId])
 }
 
 model ClientServiceCategory {
@@ -362,6 +389,7 @@ model Task {
   id             String    @id @default(uuid()) @db.Uuid
   title          String
   clientId       String?   @db.Uuid
+  companyId      String?   @db.Uuid // which of the client's companies (null = client root)
   leadId         String?   @db.Uuid
   serviceId      String?   @db.Uuid
   kind           TaskKind  @default(once)
@@ -383,6 +411,7 @@ model Task {
   archivedById   String?   @db.Uuid
 
   client       Client?       @relation(fields: [clientId], references: [id])
+  company      Company?      @relation(fields: [companyId], references: [id])
   lead         Lead?         @relation(fields: [leadId], references: [id])
   service      Service?      @relation(fields: [serviceId], references: [id])
   priority     Priority      @relation(fields: [priorityId], references: [id])

@@ -4,25 +4,23 @@ import type { Client } from "@shared/schema/client";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { ClientFormModal } from "./client-form";
-import { useClients } from "./clients.api";
+import { useClients, useUpdateClient } from "./clients.api";
 
 const TABS = [
-  { key: "all", label: "All clients" },
-  { key: "regular", label: "Regular" },
   { key: "one_time", label: "One-time" },
+  { key: "regular", label: "Regular" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 
 const TAB_HINTS: Record<TabKey, string> = {
-  all: "All clients, both engagement models. Regular clients are highlighted. Open a card to see details.",
-  regular:
-    "Regular clients. Amount and period per subscription will appear here with the Services stage.",
   one_time:
-    "One-time clients. To make a client regular, open their card → Edit → check “Regular client”.",
+    "One-time clients. Tick “Regular” to move a client to a subscription — amount and period appear with the Services stage.",
+  regular:
+    "Regular clients (subscriptions). Amount · Period · Category per subscription arrive with the Services stage.",
 };
 
 export function ClientsPage() {
-  const [tab, setTab] = useState<TabKey>("all");
+  const [tab, setTab] = useState<TabKey>("one_time");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [formOpen, setFormOpen] = useState(false);
@@ -33,11 +31,10 @@ export function ClientsPage() {
 
   return (
     <div className="mx-auto max-w-[1320px]">
-      {/* header: title · count · search · CTA (design: clients screen) */}
       <div className="mb-3.5 flex flex-wrap items-center gap-3.5">
         <h1 className="text-[20px] font-semibold">Clients</h1>
         <span className="whitespace-nowrap text-[13px] text-muted-400">
-          {data ? `${data.counts.all} total` : ""}
+          {data ? `${data.counts.one_time + data.counts.regular} total` : ""}
         </span>
         <input
           className="ml-2 w-72 rounded-(--radius-card) border border-[#d9dde3] bg-surface px-3 py-2 text-[13px] outline-none placeholder:text-faint focus:border-primary"
@@ -53,7 +50,6 @@ export function ClientsPage() {
         </Button>
       </div>
 
-      {/* tab pills with counts */}
       <div className="mb-4 flex gap-2">
         {TABS.map((t) => {
           const active = tab === t.key;
@@ -94,7 +90,7 @@ export function ClientsPage() {
 
       {data && !isLoading && (
         <>
-          {data.counts.all === 0 && !search ? (
+          {data.counts.one_time + data.counts.regular === 0 && !search ? (
             <EmptyState onCreate={() => setFormOpen(true)} />
           ) : (
             <div className="overflow-x-auto rounded-(--radius-panel) border border-border bg-surface">
@@ -153,18 +149,13 @@ export function ClientsPage() {
   );
 }
 
-// design grids: All = Client|Company|Phone|Email|Model|Category|Debt
-//               One-time adds Address instead of Model · Regular = subscription columns
 const GRID: Record<TabKey, string> = {
-  all: "grid-cols-[1.3fr_1fr_130px_160px_110px_150px_90px]",
-  one_time: "grid-cols-[1.3fr_1fr_130px_150px_1.1fr_150px_90px]",
-  regular: "grid-cols-[1.2fr_1fr_110px_150px_190px_100px]",
+  one_time: "grid-cols-[1.3fr_1fr_90px_130px_160px_1.1fr_140px_80px]",
+  regular: "grid-cols-[1.3fr_1fr_110px_130px_150px_90px]",
 };
-
 const HEADERS: Record<TabKey, string[]> = {
-  all: ["Client", "Company", "Phone", "Email", "Model", "Category", "Debt"],
-  one_time: ["Client", "Company", "Phone", "Email", "Address", "Category", "Debt"],
-  regular: ["Name", "Company", "Amount", "Period", "Service category", "Debt"],
+  one_time: ["Client", "Company", "Regular", "Phone", "Email", "Address", "Category", "Debt"],
+  regular: ["Name", "Company", "Amount", "Period", "Category", "Debt"],
 };
 
 function ListHeader({ tab }: { tab: TabKey }) {
@@ -172,7 +163,7 @@ function ListHeader({ tab }: { tab: TabKey }) {
   return (
     <div
       className={cn(
-        "grid min-w-[960px] gap-x-3 border-b border-[#eef0f3] bg-[#fafbfc] px-4 py-2.5 text-[11px] font-medium uppercase tracking-[.4px] text-muted-400",
+        "grid min-w-[980px] gap-x-3 border-b border-[#eef0f3] bg-[#fafbfc] px-4 py-2.5 text-[11px] font-medium uppercase tracking-[.4px] text-muted-400",
         GRID[tab],
       )}
     >
@@ -193,19 +184,6 @@ function Initials({ name }: { name: string }) {
   );
 }
 
-function ModelBadge({ regular }: { regular: boolean }) {
-  return (
-    <span
-      className={cn(
-        "rounded-(--radius-chip) px-1.5 py-0.5 text-[11px] font-medium",
-        regular ? "bg-success-soft text-success" : "bg-[#eef0f3] text-muted",
-      )}
-    >
-      {regular ? "Regular" : "One-time"}
-    </span>
-  );
-}
-
 function ClientRow({
   client,
   tab,
@@ -215,7 +193,7 @@ function ClientRow({
   tab: TabKey;
   onOpen: () => void;
 }) {
-  const name = `${client.firstName} ${client.lastName}`;
+  const update = useUpdateClient();
   const companies = client.companies.map((c) => c.name).join(", ") || "—";
   const debt =
     client.debt > 0 ? (
@@ -226,44 +204,51 @@ function ClientRow({
 
   const nameCell = (
     <div className="flex min-w-0 items-center gap-2">
-      <Initials name={client.firstName} />
-      <span className="truncate font-semibold">{name}</span>
+      <Initials name={client.displayName} />
+      <span className="truncate font-semibold">{client.displayName}</span>
     </div>
   );
-  const categoryCell = <span className="text-muted">—</span>; // chips land with Services (S3)
+  const category = <span className="text-muted">—</span>; // chips with Services (S3)
 
   return (
     <div
       onClick={onOpen}
       className={cn(
-        "grid min-w-[960px] cursor-pointer items-center gap-x-3 border-b border-divider px-4 py-2.5 text-[13px] last:border-0 hover:bg-divider/40",
+        "grid min-w-[980px] cursor-pointer items-center gap-x-3 border-b border-divider px-4 py-2.5 text-[13px] last:border-0 hover:bg-divider/40",
         GRID[tab],
-        client.isRegular && tab === "all" && "bg-[#f7f9ff]",
+        client.isRegular && "bg-[#f7f9ff]",
       )}
     >
       {tab === "regular" ? (
         <>
           {nameCell}
           <div className="truncate text-ink-700">{companies}</div>
-          <div className="text-right font-semibold tabular-nums text-muted">—</div>
           <div className="text-muted">—</div>
-          {categoryCell}
+          <div className="text-muted">—</div>
+          {category}
           <div className="text-right tabular-nums">{debt}</div>
         </>
       ) : (
         <>
           {nameCell}
           <div className="truncate text-ink-700">{companies}</div>
+          <div onClick={(e) => e.stopPropagation()}>
+            <input
+              type="checkbox"
+              checked={client.isRegular}
+              disabled={update.isPending}
+              onChange={(e) =>
+                update.mutate({
+                  id: client.id,
+                  input: { regularOverride: e.target.checked ? true : false },
+                })
+              }
+            />
+          </div>
           <div className="truncate text-muted">{client.phone ?? "—"}</div>
           <div className="truncate text-muted">{client.email ?? "—"}</div>
-          {tab === "all" ? (
-            <div>
-              <ModelBadge regular={client.isRegular} />
-            </div>
-          ) : (
-            <div className="truncate text-muted">{client.address ?? "—"}</div>
-          )}
-          {categoryCell}
+          <div className="truncate text-muted">{client.address ?? "—"}</div>
+          {category}
           <div className="text-right tabular-nums">{debt}</div>
         </>
       )}

@@ -17,7 +17,6 @@ beforeAll(async () => {
   await prisma.session.deleteMany();
   await prisma.authToken.deleteMany();
   await prisma.lead.deleteMany();
-  await prisma.clientCompany.deleteMany();
   await prisma.file.deleteMany();
   await prisma.client.deleteMany();
   await prisma.user.deleteMany();

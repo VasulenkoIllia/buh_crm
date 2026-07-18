@@ -2,7 +2,8 @@ import type { Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../core/db.js";
 
 const clientInclude = {
-  companies: { include: { company: true } },
+  companies: { orderBy: { order: "asc" } },
+  people: { orderBy: { order: "asc" } },
   subscriptions: { where: { active: true }, select: { id: true } },
   source: true,
 } satisfies Prisma.ClientInclude;
@@ -27,17 +28,17 @@ export async function listClients(args: {
   return { items, total };
 }
 
-export function findClient(id: string) {
-  return prisma.client.findUnique({ where: { id }, include: clientInclude });
-}
-
-/** Tab counts for the clients screen pills (all / regular / one-time). */
+/** Tab counts for the clients screen pills (regular / one-time). */
 export async function countClientsByTab(regularFilter: Prisma.ClientWhereInput) {
-  const [all, regular] = await prisma.$transaction([
+  const [total, regular] = await prisma.$transaction([
     prisma.client.count({ where: { archivedAt: null } }),
     prisma.client.count({ where: { archivedAt: null, ...regularFilter } }),
   ]);
-  return { all, regular, one_time: all - regular };
+  return { regular, one_time: total - regular };
+}
+
+export function findClient(id: string) {
+  return prisma.client.findUnique({ where: { id }, include: clientInclude });
 }
 
 export function createClient(data: Prisma.ClientCreateInput) {
@@ -48,36 +49,35 @@ export function updateClient(id: string, data: Prisma.ClientUpdateInput) {
   return prisma.client.update({ where: { id }, data, include: clientInclude });
 }
 
-/** Resolves company names → ids: links existing (case-insensitive), creates new. */
-export async function resolveCompanyIds(names: string[]): Promise<string[]> {
-  const ids: string[] = [];
-  for (const rawName of names) {
-    const name = rawName.trim();
-    if (!name) continue;
-    const existing = await prisma.company.findFirst({
-      where: { name: { equals: name, mode: "insensitive" } },
-    });
-    const company = existing ?? (await prisma.company.create({ data: { name } }));
-    if (!ids.includes(company.id)) ids.push(company.id);
-  }
-  return ids;
-}
-
-export async function setClientCompanies(clientId: string, companyIds: string[]) {
+/** Replaces the client's company list (companies are per-client text, 1:N). */
+export async function setClientCompanies(clientId: string, names: string[]) {
   await prisma.$transaction([
-    prisma.clientCompany.deleteMany({ where: { clientId } }),
-    prisma.clientCompany.createMany({
-      data: companyIds.map((companyId) => ({ clientId, companyId })),
+    prisma.company.deleteMany({ where: { clientId } }),
+    prisma.company.createMany({
+      data: names
+        .map((n) => n.trim())
+        .filter(Boolean)
+        .map((name, order) => ({ clientId, name, order })),
     }),
   ]);
 }
 
-export function searchCompanies(search: string) {
-  return prisma.company.findMany({
-    where: search ? { name: { contains: search, mode: "insensitive" } } : undefined,
-    orderBy: { name: "asc" },
-    take: 20,
-  });
+export interface PersonData {
+  name: string;
+  serviceLabel: string | null;
+  role: string | null;
+  phone: string | null;
+  email: string | null;
+}
+
+/** Replaces the client's people list ("People" tab). */
+export async function setClientPeople(clientId: string, people: PersonData[]) {
+  await prisma.$transaction([
+    prisma.clientPerson.deleteMany({ where: { clientId } }),
+    prisma.clientPerson.createMany({
+      data: people.map((p, order) => ({ clientId, order, ...p })),
+    }),
+  ]);
 }
 
 // ── files ────────────────────────────────────────────────────────────────────
