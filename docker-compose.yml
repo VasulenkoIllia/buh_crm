@@ -10,11 +10,12 @@ services:
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
     ports:
-      # Access from your laptop via SSH tunnel (DataGrip), on a port that won't clash
-      # with other projects' Postgres (whitehall uses 5432):
-      #   ssh -L 5434:127.0.0.1:5433 user@buhcrm.workflo.space
-      #   Then in DataGrip: host=localhost, port=5434
-      - "127.0.0.1:5433:5432"
+      # Host-exposed ONLY for SSH-tunnel DB access (DataGrip); the app itself does NOT need it
+      # (it reaches Postgres in-network on 5432). Bound to 127.0.0.1 so it's never public.
+      # Default host port 15432 (high, unlikely to clash); override in .env if it's taken:
+      #   DB_HOST_PORT=15433
+      # then tunnel:  ssh -L 15432:127.0.0.1:${DB_HOST_PORT:-15432} user@buhcrm.workflo.space
+      - "127.0.0.1:${DB_HOST_PORT:-15432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
