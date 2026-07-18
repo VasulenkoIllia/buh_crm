@@ -22,8 +22,8 @@ pnpm-debug.log*
 .vscode
 .DS_Store
 
+# never bake any real env file into image layers (only compose injects env at runtime)
 .env
-.env.local
-.env.*.local
+.env.*
 
 /data
