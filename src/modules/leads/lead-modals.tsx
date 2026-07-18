@@ -130,10 +130,21 @@ export function LeadFormModal({
         </FormField>
         <div className="grid grid-cols-2 gap-3">
           <FormField label="Phone" htmlFor="l-phone" error={errors.phone?.message}>
-            <Input id="l-phone" error={!!errors.phone} {...register("phone")} />
+            <Input
+              id="l-phone"
+              placeholder="+380 67 123 4567"
+              error={!!errors.phone}
+              {...register("phone")}
+            />
           </FormField>
           <FormField label="Email" htmlFor="l-email" error={errors.email?.message}>
-            <Input id="l-email" type="email" error={!!errors.email} {...register("email")} />
+            <Input
+              id="l-email"
+              type="email"
+              placeholder="name@example.com"
+              error={!!errors.email}
+              {...register("email")}
+            />
           </FormField>
         </div>
         <FormField label="Source" htmlFor="l-source">
@@ -152,7 +163,8 @@ export function LeadFormModal({
           <textarea
             id="l-desc"
             rows={2}
-            className="w-full rounded-(--radius-field) border border-border bg-surface px-3 py-2 text-[14px] focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+            placeholder="What they need, context, next step…"
+            className="w-full rounded-(--radius-field) border border-border bg-surface px-3 py-2 text-[14px] placeholder:text-faint focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
             {...register("description")}
           />
         </FormField>
@@ -279,7 +291,12 @@ export function ConvertLeadModal({
             htmlFor="cv-company"
             error={errors.companyName?.message}
           >
-            <Input id="cv-company" error={!!errors.companyName} {...register("companyName")} />
+            <Input
+              id="cv-company"
+              placeholder="e.g. Romashka LLC"
+              error={!!errors.companyName}
+              {...register("companyName")}
+            />
           </FormField>
         )}
         <div className="grid grid-cols-2 gap-3">
@@ -288,22 +305,37 @@ export function ConvertLeadModal({
             htmlFor="cv-first"
             error={errors.firstName?.message}
           >
-            <Input id="cv-first" error={!!errors.firstName} {...register("firstName")} />
+            <Input
+              id="cv-first"
+              placeholder="e.g. Ivan"
+              error={!!errors.firstName}
+              {...register("firstName")}
+            />
           </FormField>
           <FormField label={isCompany ? "Contact — last name" : "Last name"} htmlFor="cv-last">
-            <Input id="cv-last" {...register("lastName")} />
+            <Input id="cv-last" placeholder="e.g. Petrenko" {...register("lastName")} />
           </FormField>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <FormField label="Phone" htmlFor="cv-phone">
-            <Input id="cv-phone" {...register("phone")} />
+            <Input id="cv-phone" placeholder="+380 67 123 4567" {...register("phone")} />
           </FormField>
           <FormField label="Email" htmlFor="cv-email" error={errors.email?.message}>
-            <Input id="cv-email" type="email" error={!!errors.email} {...register("email")} />
+            <Input
+              id="cv-email"
+              type="email"
+              placeholder="name@example.com"
+              error={!!errors.email}
+              {...register("email")}
+            />
           </FormField>
         </div>
         <FormField label="Address" htmlFor="cv-address">
-          <Input id="cv-address" {...register("address")} />
+          <Input
+            id="cv-address"
+            placeholder="City, street, building, office"
+            {...register("address")}
+          />
         </FormField>
         {serverError && <p className="text-[12px] text-danger-text">{serverError}</p>}
       </form>

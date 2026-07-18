@@ -34,6 +34,7 @@ export function SignInPage() {
             id="email"
             type="email"
             autoComplete="email"
+            placeholder="you@firm.com"
             error={!!errors.email}
             {...register("email")}
           />
@@ -43,6 +44,7 @@ export function SignInPage() {
             id="password"
             type="password"
             autoComplete="current-password"
+            placeholder="Your password"
             error={!!errors.password}
             {...register("password")}
           />

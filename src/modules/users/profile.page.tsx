@@ -111,10 +111,20 @@ function NameSection({ defaults }: { defaults: NameValues }) {
       >
         <div className="grid grid-cols-2 gap-3">
           <FormField label="First name" htmlFor="p-first" error={errors.firstName?.message}>
-            <Input id="p-first" error={!!errors.firstName} {...register("firstName")} />
+            <Input
+              id="p-first"
+              placeholder="e.g. Ivan"
+              error={!!errors.firstName}
+              {...register("firstName")}
+            />
           </FormField>
           <FormField label="Last name" htmlFor="p-last" error={errors.lastName?.message}>
-            <Input id="p-last" error={!!errors.lastName} {...register("lastName")} />
+            <Input
+              id="p-last"
+              placeholder="e.g. Petrenko"
+              error={!!errors.lastName}
+              {...register("lastName")}
+            />
           </FormField>
         </div>
         <Button type="submit" disabled={isSubmitting || !isDirty}>
@@ -156,6 +166,7 @@ function PasswordSection() {
             id="p-current"
             type="password"
             autoComplete="current-password"
+            placeholder="Your current password"
             error={!!errors.currentPassword}
             {...register("currentPassword")}
           />
@@ -166,6 +177,7 @@ function PasswordSection() {
               id="p-new"
               type="password"
               autoComplete="new-password"
+              placeholder="At least 8 characters"
               error={!!errors.newPassword}
               {...register("newPassword")}
             />
@@ -175,6 +187,7 @@ function PasswordSection() {
               id="p-confirm"
               type="password"
               autoComplete="new-password"
+              placeholder="Repeat the new password"
               error={!!errors.confirm}
               {...register("confirm")}
             />

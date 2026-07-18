@@ -60,6 +60,7 @@ export function ResetPasswordPage() {
             id="password"
             type="password"
             autoComplete="new-password"
+            placeholder="At least 8 characters"
             error={!!errors.password}
             {...register("password")}
           />
@@ -69,6 +70,7 @@ export function ResetPasswordPage() {
             id="confirm"
             type="password"
             autoComplete="new-password"
+            placeholder="Repeat the password"
             error={!!errors.confirm}
             {...register("confirm")}
           />

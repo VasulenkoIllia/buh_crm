@@ -70,10 +70,20 @@ export function SetPasswordPage() {
       <form onSubmit={handleSubmit((v) => accept.mutateAsync(v))} className="space-y-4" noValidate>
         <div className="grid grid-cols-2 gap-3">
           <FormField label="First name" htmlFor="firstName" error={errors.firstName?.message}>
-            <Input id="firstName" error={!!errors.firstName} {...register("firstName")} />
+            <Input
+              id="firstName"
+              placeholder="e.g. Ivan"
+              error={!!errors.firstName}
+              {...register("firstName")}
+            />
           </FormField>
           <FormField label="Last name" htmlFor="lastName" error={errors.lastName?.message}>
-            <Input id="lastName" error={!!errors.lastName} {...register("lastName")} />
+            <Input
+              id="lastName"
+              placeholder="e.g. Petrenko"
+              error={!!errors.lastName}
+              {...register("lastName")}
+            />
           </FormField>
         </div>
         <FormField label="Password" htmlFor="password" error={errors.password?.message}>
@@ -81,6 +91,7 @@ export function SetPasswordPage() {
             id="password"
             type="password"
             autoComplete="new-password"
+            placeholder="At least 8 characters"
             error={!!errors.password}
             {...register("password")}
           />
@@ -90,6 +101,7 @@ export function SetPasswordPage() {
             id="confirm"
             type="password"
             autoComplete="new-password"
+            placeholder="Repeat the password"
             error={!!errors.confirm}
             {...register("confirm")}
           />

@@ -206,6 +206,7 @@ function NumberingSection({ prefix, digits }: { prefix: string; digits: number }
             id="inv-prefix"
             className="w-28"
             value={localPrefix}
+            placeholder="INV"
             maxLength={10}
             onChange={(e) => setLocalPrefix(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
           />
