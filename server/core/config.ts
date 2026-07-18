@@ -24,6 +24,12 @@ const envSchema = z.object({
   MAIL_FROM: z.string().default("crm@localhost"),
 
   UPLOADS_DIR: z.string().default("uploads"),
+
+  // First-admin bootstrap (used on a fresh server when no users exist yet).
+  BOOTSTRAP_ADMIN_EMAIL: z.string().optional(),
+  BOOTSTRAP_ADMIN_PASSWORD: z.string().optional(),
+  BOOTSTRAP_ADMIN_FIRST_NAME: z.string().default("Admin"),
+  BOOTSTRAP_ADMIN_LAST_NAME: z.string().default("User"),
 });
 
 export type Config = z.infer<typeof envSchema>;

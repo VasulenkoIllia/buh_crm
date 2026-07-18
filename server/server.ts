@@ -1,4 +1,5 @@
 import { buildApp } from "./app.js";
+import { ensureBaseData, ensureBootstrapAdmin } from "./core/bootstrap.js";
 import { config } from "./core/config.js";
 import { disconnectDb } from "./core/db.js";
 import { ensureUploadsDir } from "./core/files.js";
@@ -8,6 +9,8 @@ async function main() {
   const app = await buildApp();
 
   await ensureUploadsDir();
+  await ensureBaseData();
+  await ensureBootstrapAdmin(app.log);
   await app.listen({ port: config.PORT, host: "0.0.0.0" });
   await startScheduler(app.log);
 
