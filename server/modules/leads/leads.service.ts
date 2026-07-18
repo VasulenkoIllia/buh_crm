@@ -44,6 +44,9 @@ export async function updateLead(id: string, input: UpdateLeadInput) {
   if (lead.outcome === "won") {
     throw new ValidationError("A converted lead is read-only");
   }
+  if (lead.outcome === "lost") {
+    throw new ValidationError("Reopen this lead before editing or moving it");
+  }
   // an edit must not leave the lead without any contact
   const phone = input.phone !== undefined ? input.phone : lead.phone;
   const email = input.email !== undefined ? input.email : lead.email;

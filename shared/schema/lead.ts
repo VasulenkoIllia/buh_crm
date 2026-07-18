@@ -29,7 +29,7 @@ const optionalTrimmed = z
 
 const leadFields = z.object({
   type: clientType.default("individual"),
-  name: z.string().min(1),
+  name: z.string().trim().min(1, "Required"),
   phone: optionalTrimmed,
   email: z.email().nullable().optional(),
   sourceId: uuid.nullable().optional(),

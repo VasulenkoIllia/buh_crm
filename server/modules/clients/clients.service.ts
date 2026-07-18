@@ -151,6 +151,19 @@ export async function updateClient(id: string, input: UpdateClientInput) {
   const existing = await repo.findClient(id);
   if (!existing || existing.archivedAt) throw new NotFoundError("Client not found");
 
+  // re-validate the type invariant against the MERGED record (the Zod refine only
+  // runs when `type` is in the patch, which routine edits omit)
+  const type = input.type ?? existing.type;
+  const firstName = input.firstName !== undefined ? input.firstName : existing.firstName;
+  const lastName = input.lastName !== undefined ? input.lastName : existing.lastName;
+  const companyName = input.companyName !== undefined ? input.companyName : existing.companyName;
+  const valid = type === "individual" ? !!firstName && !!lastName : !!companyName;
+  if (!valid) {
+    throw new ValidationError(
+      "Individual needs first and last name; company needs a company name",
+    );
+  }
+
   await repo.updateClient(id, toClientFields(input, false));
   if (input.companyNames !== undefined) await repo.setClientCompanies(id, input.companyNames);
   if (input.people !== undefined) {

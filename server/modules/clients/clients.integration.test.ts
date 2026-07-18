@@ -147,6 +147,58 @@ describe("clients", () => {
     expect(res.json().people).toHaveLength(1);
   });
 
+  it("cannot blank an individual's name via a partial update", async () => {
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/clients/${individualId}`,
+      headers: { cookie },
+      payload: { firstName: "" }, // no `type` in the patch — must still be rejected
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("preserves an explicit regularOverride=false on an unrelated edit", async () => {
+    await app.inject({
+      method: "PATCH",
+      url: `/api/clients/${individualId}`,
+      headers: { cookie },
+      payload: { regularOverride: false },
+    });
+    // edit an unrelated field WITHOUT sending regularOverride
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/clients/${individualId}`,
+      headers: { cookie },
+      payload: { address: "Kyiv" },
+    });
+    expect(res.statusCode).toBe(200);
+    const dbClient = await prisma.client.findUniqueOrThrow({ where: { id: individualId } });
+    expect(dbClient.regularOverride).toBe(false);
+    // restore for later tests
+    await app.inject({
+      method: "PATCH",
+      url: `/api/clients/${individualId}`,
+      headers: { cookie },
+      payload: { regularOverride: true },
+    });
+  });
+
+  it("rejects a whitespace-only person name", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/clients",
+      headers: { cookie },
+      payload: {
+        type: "individual",
+        firstName: "A",
+        lastName: "B",
+        email: "ws@example.com",
+        people: [{ name: "   " }],
+      },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
   it("regular tab honors the manual override", async () => {
     const res = await app.inject({
       method: "GET",

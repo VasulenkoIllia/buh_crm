@@ -91,13 +91,32 @@ describe("leads", () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it("marks lost and reopens", async () => {
+  it("rejects a whitespace-only lead name", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/leads",
+      headers: { cookie },
+      payload: { name: "   ", phone: "+380000000001" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("marks lost, blocks moving a lost lead, then reopens", async () => {
     const lost = await app.inject({
       method: "POST",
       url: `/api/leads/${leadId}/mark-lost`,
       headers: { cookie },
     });
     expect(lost.json().outcome).toBe("lost");
+
+    // a lost lead must be reopened before it can move stages
+    const move = await app.inject({
+      method: "PATCH",
+      url: `/api/leads/${leadId}`,
+      headers: { cookie },
+      payload: { stage: "thinking" },
+    });
+    expect(move.statusCode).toBe(400);
 
     const reopened = await app.inject({
       method: "POST",

@@ -126,7 +126,7 @@ function StageColumn({
 }
 
 function LeadCard({ lead, onOpen }: { lead: Lead; onOpen: () => void }) {
-  const locked = lead.outcome === "won";
+  const locked = lead.outcome !== "in_process"; // won or lost — not draggable
   const { data: settings } = useSettings();
   const sourceName = settings?.sources.find((s) => s.id === lead.sourceId)?.name;
 

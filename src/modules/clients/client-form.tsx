@@ -70,7 +70,7 @@ export function ClientFormModal({
     reset,
     watch,
     setValue,
-    formState: { errors, isSubmitting },
+    formState: { errors, isSubmitting, dirtyFields },
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -98,6 +98,18 @@ export function ClientFormModal({
   };
 
   const onSubmit = handleSubmit(async (values) => {
+    // regularOverride is a 3-state value (true / false / null=auto) but the toggle is
+    // 2-state. On CREATE, seed it (one-time → null=auto so a later subscription can flip
+    // it). On EDIT, only send an explicit override when the toggle was actually changed —
+    // otherwise omit it so an existing override (incl. explicit `false`) is preserved.
+    const regularOverride: boolean | null | undefined = !client
+      ? values.regular
+        ? true
+        : null
+      : dirtyFields.regular
+        ? values.regular
+        : undefined;
+
     const input = {
       type: values.type as ClientType,
       firstName: values.firstName || null,
@@ -108,7 +120,7 @@ export function ClientFormModal({
       address: values.address || null,
       sourceId: values.sourceId || null,
       description: values.description || null,
-      regularOverride: values.regular ? true : null,
+      ...(regularOverride !== undefined ? { regularOverride } : {}),
       companyNames,
       people: people
         .filter((p) => p.name.trim())
