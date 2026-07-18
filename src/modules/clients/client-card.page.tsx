@@ -40,7 +40,6 @@ export function ClientCardPage() {
   const archive = useArchiveClient();
   const [editOpen, setEditOpen] = useState(false);
   const [tab, setTab] = useState<TabKey>("profile");
-  const [companyFilter, setCompanyFilter] = useState<string | null>(null);
 
   if (isLoading) return <p className="text-[13px] text-muted">Loading…</p>;
   if (error || !client)
@@ -120,27 +119,6 @@ export function ClientCardPage() {
       </div>
 
       {/* company view (multi-company clients) */}
-      {client.companies.length > 1 && (
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <span className="text-[11px] font-semibold uppercase tracking-[.4px] text-muted-400">
-            Company view
-          </span>
-          <CompanyChip
-            label="All companies"
-            active={companyFilter === null}
-            onClick={() => setCompanyFilter(null)}
-          />
-          {client.companies.map((company) => (
-            <CompanyChip
-              key={company.id}
-              label={company.name}
-              active={companyFilter === company.id}
-              onClick={() => setCompanyFilter(company.id)}
-            />
-          ))}
-        </div>
-      )}
-
       {tab === "profile" && <ProfileTab client={client} onEdit={() => setEditOpen(true)} />}
       {tab === "people" && <PeopleTab client={client} onEdit={() => setEditOpen(true)} />}
       {tab === "files" && <FilesTab clientId={client.id} />}
@@ -157,30 +135,6 @@ export function ClientCardPage() {
   );
 }
 
-function CompanyChip({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "rounded-full border px-3.5 py-1.5 text-[13px] font-medium",
-        active
-          ? "border-primary text-primary-link"
-          : "border-border bg-surface text-ink-700 hover:bg-divider",
-      )}
-    >
-      {label}
-    </button>
-  );
-}
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
