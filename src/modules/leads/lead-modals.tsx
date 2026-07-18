@@ -2,16 +2,19 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useNavigate } from "react-router-dom";
 import { z } from "zod";
+import type { ClientType } from "@shared/schema/enums";
 import type { Lead } from "@shared/schema/lead";
 import { ApiError } from "@/shared/lib/api";
 import { Button } from "@/shared/ui/button";
-import { FormField, Input, Select } from "@/shared/ui/field";
+import { FormField, Input, Label, Select } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
+import { Segmented } from "@/shared/ui/segmented";
 import { useSettings } from "@/modules/settings";
 import { useConvertLead, useCreateLead, useUpdateLead } from "./leads.api";
 
 const leadFormSchema = z
   .object({
+    type: z.enum(["individual", "company"]),
     name: z.string().min(1, "Required"),
     phone: z.string(),
     email: z.union([z.email("Invalid email"), z.literal("")]),
@@ -31,7 +34,7 @@ export function LeadFormModal({
 }: {
   open: boolean;
   onClose: () => void;
-  lead?: Lead; // present = edit
+  lead?: Lead;
 }) {
   const create = useCreateLead();
   const update = useUpdateLead();
@@ -41,10 +44,13 @@ export function LeadFormModal({
     register,
     handleSubmit,
     reset,
+    watch,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<LeadFormValues>({
     resolver: zodResolver(leadFormSchema),
     defaultValues: {
+      type: lead?.type ?? "individual",
       name: lead?.name ?? "",
       phone: lead?.phone ?? "",
       email: lead?.email ?? "",
@@ -52,6 +58,8 @@ export function LeadFormModal({
       description: lead?.description ?? "",
     },
   });
+
+  const type = watch("type");
 
   const close = () => {
     reset();
@@ -62,6 +70,7 @@ export function LeadFormModal({
 
   const onSubmit = handleSubmit(async (values) => {
     const input = {
+      type: values.type as ClientType,
       name: values.name,
       phone: values.phone || null,
       email: values.email || null,
@@ -96,8 +105,28 @@ export function LeadFormModal({
       }
     >
       <form id="lead-form" onSubmit={onSubmit} className="space-y-4" noValidate>
-        <FormField label="Name" htmlFor="l-name" error={errors.name?.message}>
-          <Input id="l-name" error={!!errors.name} {...register("name")} />
+        <div>
+          <Label>Lead type</Label>
+          <Segmented
+            value={type}
+            onChange={(v) => setValue("type", v, { shouldDirty: true })}
+            options={[
+              { value: "company", label: "Company" },
+              { value: "individual", label: "Individual" },
+            ]}
+          />
+        </div>
+        <FormField
+          label={type === "company" ? "Company name" : "Name"}
+          htmlFor="l-name"
+          error={errors.name?.message}
+        >
+          <Input
+            id="l-name"
+            placeholder={type === "company" ? "e.g. Romashka LLC" : "e.g. Petro Tkach"}
+            error={!!errors.name}
+            {...register("name")}
+          />
         </FormField>
         <div className="grid grid-cols-2 gap-3">
           <FormField label="Phone" htmlFor="l-phone" error={errors.phone?.message}>
@@ -122,7 +151,7 @@ export function LeadFormModal({
         <FormField label="Description" htmlFor="l-desc">
           <textarea
             id="l-desc"
-            rows={3}
+            rows={2}
             className="w-full rounded-(--radius-field) border border-border bg-surface px-3 py-2 text-[14px] focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
             {...register("description")}
           />
@@ -133,15 +162,26 @@ export function LeadFormModal({
   );
 }
 
-// ── Convert dialog: reviewed fields → new client ─────────────────────────────
+// ── Convert dialog: type-aware reviewed fields → new client ──────────────────
 
-const convertFormSchema = z.object({
-  firstName: z.string().min(1, "Required"),
-  lastName: z.string().min(1, "Required"),
-  phone: z.string(),
-  email: z.union([z.email("Invalid email"), z.literal("")]),
-  address: z.string(),
-});
+const convertFormSchema = z
+  .object({
+    type: z.enum(["individual", "company"]),
+    companyName: z.string(),
+    firstName: z.string(),
+    lastName: z.string(),
+    phone: z.string(),
+    email: z.union([z.email("Invalid email"), z.literal("")]),
+    address: z.string(),
+  })
+  .refine((v) => (v.type === "individual" ? v.firstName.trim() && v.lastName.trim() : true), {
+    path: ["firstName"],
+    message: "First and last name are required",
+  })
+  .refine((v) => (v.type === "company" ? v.companyName.trim() : true), {
+    path: ["companyName"],
+    message: "Company name is required",
+  });
 type ConvertFormValues = z.infer<typeof convertFormSchema>;
 
 export function ConvertLeadModal({
@@ -156,28 +196,38 @@ export function ConvertLeadModal({
   const convert = useConvertLead();
   const navigate = useNavigate();
 
+  // seed: individual → split lead name into first/last; company → lead name = company name
   const [first, ...rest] = lead.name.trim().split(/\s+/);
   const {
     register,
     handleSubmit,
+    watch,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<ConvertFormValues>({
     resolver: zodResolver(convertFormSchema),
     defaultValues: {
-      firstName: first ?? "",
-      lastName: rest.join(" "),
+      type: lead.type,
+      companyName: lead.type === "company" ? lead.name : "",
+      firstName: lead.type === "individual" ? (first ?? "") : "",
+      lastName: lead.type === "individual" ? rest.join(" ") : "",
       phone: lead.phone ?? "",
       email: lead.email ?? "",
       address: "",
     },
   });
 
+  const type = watch("type");
+  const isCompany = type === "company";
+
   const onSubmit = handleSubmit(async (values) => {
     const { clientId } = await convert.mutateAsync({
       id: lead.id,
       input: {
-        firstName: values.firstName,
-        lastName: values.lastName,
+        type: values.type as ClientType,
+        firstName: values.firstName || null,
+        lastName: values.lastName || null,
+        companyName: isCompany ? values.companyName || null : null,
         phone: values.phone || null,
         email: values.email || null,
         address: values.address || null,
@@ -209,15 +259,39 @@ export function ConvertLeadModal({
     >
       <form id="convert-form" onSubmit={onSubmit} className="space-y-4" noValidate>
         <p className="text-[12px] text-muted">
-          Review the details — the lead's data becomes a new client. The lead stays as
-          read-only history marked <b>won</b>.
+          Review the details — the lead becomes a new client. The lead stays as read-only
+          history marked <b>won</b>.
         </p>
+        <div>
+          <Label>Client type</Label>
+          <Segmented
+            value={type}
+            onChange={(v) => setValue("type", v, { shouldDirty: true })}
+            options={[
+              { value: "company", label: "Company" },
+              { value: "individual", label: "Individual" },
+            ]}
+          />
+        </div>
+        {isCompany && (
+          <FormField
+            label="Company name"
+            htmlFor="cv-company"
+            error={errors.companyName?.message}
+          >
+            <Input id="cv-company" error={!!errors.companyName} {...register("companyName")} />
+          </FormField>
+        )}
         <div className="grid grid-cols-2 gap-3">
-          <FormField label="First name" htmlFor="cv-first" error={errors.firstName?.message}>
+          <FormField
+            label={isCompany ? "Contact — first name" : "First name"}
+            htmlFor="cv-first"
+            error={errors.firstName?.message}
+          >
             <Input id="cv-first" error={!!errors.firstName} {...register("firstName")} />
           </FormField>
-          <FormField label="Last name" htmlFor="cv-last" error={errors.lastName?.message}>
-            <Input id="cv-last" error={!!errors.lastName} {...register("lastName")} />
+          <FormField label={isCompany ? "Contact — last name" : "Last name"} htmlFor="cv-last">
+            <Input id="cv-last" {...register("lastName")} />
           </FormField>
         </div>
         <div className="grid grid-cols-2 gap-3">

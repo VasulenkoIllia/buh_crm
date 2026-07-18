@@ -107,12 +107,17 @@ describe("leads", () => {
     expect(reopened.json().outcome).toBe("in_process");
   });
 
-  it("converts the lead into a client and locks it", async () => {
+  it("converts the lead into an individual client and locks it", async () => {
     const res = await app.inject({
       method: "POST",
       url: `/api/leads/${leadId}/convert`,
       headers: { cookie },
-      payload: { firstName: "Maria", lastName: "Bond", phone: "+380671234567" },
+      payload: {
+        type: "individual",
+        firstName: "Maria",
+        lastName: "Bond",
+        phone: "+380671234567",
+      },
     });
     expect(res.statusCode).toBe(200);
     const { clientId, lead } = res.json();
@@ -120,6 +125,7 @@ describe("leads", () => {
     expect(lead.convertedClientId).toBe(clientId);
 
     const client = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
+    expect(client.type).toBe("individual");
     expect(client.firstName).toBe("Maria");
 
     // converted lead is read-only
@@ -135,8 +141,55 @@ describe("leads", () => {
       method: "POST",
       url: `/api/leads/${leadId}/convert`,
       headers: { cookie },
-      payload: { firstName: "X", lastName: "Y" },
+      payload: { type: "individual", firstName: "X", lastName: "Y" },
     });
     expect(again.statusCode).toBe(400);
+  });
+
+  it("converts a company lead into a company client", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/leads",
+      headers: { cookie },
+      payload: { type: "company", name: "Romashka LLC", email: "info@romashka.ua" },
+    });
+    expect(created.json().type).toBe("company");
+    const companyLeadId = created.json().id;
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/leads/${companyLeadId}/convert`,
+      headers: { cookie },
+      payload: {
+        type: "company",
+        companyName: "Romashka LLC",
+        firstName: "Petro",
+        lastName: "Tkach",
+        email: "info@romashka.ua",
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const client = await prisma.client.findUniqueOrThrow({
+      where: { id: res.json().clientId },
+    });
+    expect(client.type).toBe("company");
+    expect(client.companyName).toBe("Romashka LLC");
+    expect(client.firstName).toBe("Petro");
+  });
+
+  it("rejects a company convert without a company name", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/leads",
+      headers: { cookie },
+      payload: { type: "company", name: "NoName Co", phone: "+380000000000" },
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/leads/${created.json().id}/convert`,
+      headers: { cookie },
+      payload: { type: "company", firstName: "A", lastName: "B" },
+    });
+    expect(res.statusCode).toBe(400);
   });
 });

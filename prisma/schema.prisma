@@ -349,7 +349,8 @@ model Subscription {
 
 model Lead {
   id                String      @id @default(uuid()) @db.Uuid
-  name              String
+  type              ClientType  @default(individual) // company or individual — carried to the client on convert
+  name              String // person name, or the company name for a company lead
   phone             String?
   email             String?
   serviceId         String?     @db.Uuid

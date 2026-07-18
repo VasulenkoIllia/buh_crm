@@ -10,6 +10,7 @@ import * as repo from "./leads.repository.js";
 function toLeadDto(lead: Lead) {
   return {
     id: lead.id,
+    type: lead.type,
     name: lead.name,
     phone: lead.phone,
     email: lead.email,
@@ -79,8 +80,10 @@ export async function convert(id: string, input: ConvertLeadInput) {
   }
 
   const { client, lead: updated } = await repo.convertLead(id, {
-    firstName: input.firstName,
-    lastName: input.lastName,
+    type: input.type,
+    firstName: input.firstName ?? null,
+    lastName: input.lastName ?? null,
+    companyName: input.type === "company" ? (input.companyName ?? null) : null,
     phone: input.phone ?? null,
     email: input.email ?? null,
     address: input.address ?? null,

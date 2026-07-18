@@ -6,10 +6,10 @@ import { X } from "lucide-react";
 import type { Client, ClientPersonInput } from "@shared/schema/client";
 import type { ClientType } from "@shared/schema/enums";
 import { ApiError } from "@/shared/lib/api";
-import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { FormField, Input, Label, Select } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
+import { Segmented } from "@/shared/ui/segmented";
 import { useSettings } from "@/modules/settings";
 import { useCreateClient, useUpdateClient } from "./clients.api";
 
@@ -247,34 +247,6 @@ export function ClientFormModal({
         {serverError && <p className="text-[12px] text-danger-text">{serverError}</p>}
       </form>
     </Modal>
-  );
-}
-
-function Segmented({
-  value,
-  onChange,
-  options,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  options: { value: string; label: string }[];
-}) {
-  return (
-    <div className="flex gap-1.5 rounded-(--radius-field) bg-[#eef0f3] p-0.5">
-      {options.map((opt) => (
-        <button
-          key={opt.value}
-          type="button"
-          onClick={() => onChange(opt.value)}
-          className={cn(
-            "flex-1 rounded-(--radius-btn-sm) py-1.5 text-[13px] font-medium",
-            value === opt.value ? "bg-surface text-ink shadow-(--shadow-card)" : "text-muted",
-          )}
-        >
-          {opt.label}
-        </button>
-      ))}
-    </div>
   );
 }
 

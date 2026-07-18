@@ -172,12 +172,13 @@ function LeadCard({ lead, onOpen }: { lead: Lead; onOpen: () => void }) {
 
 function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => void }) {
   const { data: leads } = useLeads();
-  const lead = leads?.find((l) => l.id === initial.id) ?? initial;
+  const { data: settings } = useSettings();
   const markLost = useMarkLost();
   const reopen = useReopenLead();
   const [editOpen, setEditOpen] = useState(false);
   const [convertOpen, setConvertOpen] = useState(false);
 
+  const lead = leads?.find((l) => l.id === initial.id) ?? initial;
   const locked = lead.outcome === "won";
 
   if (editOpen) {
@@ -187,7 +188,6 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
     return <ConvertLeadModal open lead={lead} onClose={() => setConvertOpen(false)} />;
   }
 
-  const { data: settings } = useSettings();
   const sourceName = settings?.sources.find((s) => s.id === lead.sourceId)?.name;
   const stageLabel = STAGES.find((s) => s.key === lead.stage)?.label;
 
