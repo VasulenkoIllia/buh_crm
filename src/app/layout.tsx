@@ -29,18 +29,20 @@ const NAV = [
   { to: "/services", label: "Services", icon: Layers },
   { to: "/mailouts", label: "Mailouts", icon: Mail },
   { to: "/reports", label: "Reports", icon: BarChart3 },
-  { to: "/team", label: "Team", icon: Users },
+  { to: "/team", label: "Team", icon: Users, adminOnly: true },
   { to: "/archive", label: "Archive", icon: Archive },
-  { to: "/settings", label: "Settings", icon: Settings },
+  { to: "/settings", label: "Settings", icon: Settings, adminOnly: true },
 ];
 
 export function AppLayout() {
+  const { user } = useAuth();
+  const nav = NAV.filter((item) => !item.adminOnly || user?.role === "admin");
   return (
     <div className="flex min-h-screen">
       <aside className="flex w-56 shrink-0 flex-col bg-sidebar text-white">
         <SidebarBrand />
         <nav className="flex-1 space-y-0.5 px-2">
-          {NAV.map(({ to, label, icon: Icon, end }) => (
+          {nav.map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
               to={to}

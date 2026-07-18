@@ -2,13 +2,15 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# deps (dev deps included: build needs vite/tsc, runtime uses tsx + prisma)
 COPY package*.json ./
 RUN npm install
 
-COPY tsconfig.json ./
-COPY vite.config.ts ./
-COPY index.html ./
-COPY src ./src
-COPY server ./server
+# source
+COPY . .
 
-CMD ["npm", "run", "start"]
+# generate the prisma client, then build the frontend (vite → ./dist) + typecheck
+RUN npx prisma generate && npm run build
+
+# apply pending migrations on start, then run the API (which also serves ./dist in prod)
+CMD ["sh", "-c", "npx prisma migrate deploy && npm run start"]

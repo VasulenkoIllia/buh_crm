@@ -9,6 +9,8 @@ import * as repo from "./users.repository.js";
 
 const INVITE_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const MAX_AVATAR_SIZE = 5 * 1024 * 1024; // 5 MB
+// raster only — no SVG (can carry inline scripts → stored XSS)
+const AVATAR_MIME = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 
 export function listUsers() {
   return repo.listUsers();
@@ -35,12 +37,16 @@ export async function resendInvite(userId: string, invitedBy: User) {
 }
 
 async function sendInviteEmail(user: User, invitedBy: User) {
+  // create the token synchronously (so "Resend" works immediately), but DON'T block
+  // the request on SMTP — the mail is fire-and-forget and logs its own failures.
   const { raw, hash } = generateToken();
   await repo.createInviteToken(user.id, hash, new Date(Date.now() + INVITE_TOKEN_TTL_MS));
   const inviterName = `${invitedBy.firstName} ${invitedBy.lastName}`.trim() || invitedBy.email;
-  await sendEmail("invite", user.email, {
+  void sendEmail("invite", user.email, {
     inviteUrl: `${webOrigin()}/set-password?token=${raw}`,
     invitedBy: inviterName,
+  }).catch(() => {
+    /* failure already logged inside sendEmail; admin can Resend */
   });
 }
 
@@ -85,8 +91,8 @@ export async function setAvatar(
   user: User,
   file: { buffer: Buffer; filename: string; mimetype: string },
 ) {
-  if (!file.mimetype.startsWith("image/")) {
-    throw new ValidationError("Avatar must be an image");
+  if (!AVATAR_MIME.includes(file.mimetype)) {
+    throw new ValidationError("Avatar must be a PNG, JPEG, WebP or GIF image");
   }
   if (file.buffer.byteLength > MAX_AVATAR_SIZE) {
     throw new ValidationError("Avatar must be 5 MB or smaller");

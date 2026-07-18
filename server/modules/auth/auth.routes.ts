@@ -18,7 +18,7 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   app.post("/login", { config: authLimit, schema: { body: loginInput } }, async (request, reply) => {
     const user = await service.login(request.body);
-    await createSession(reply, user.id);
+    await createSession(request, reply, user.id);
     return toPublicUser(user);
   });
 
@@ -36,7 +36,7 @@ export async function registerRoutes(instance: FastifyInstance) {
     { config: authLimit, schema: { body: acceptInviteInput } },
     async (request, reply) => {
       const user = await service.acceptInvite(request.body);
-      await createSession(reply, user.id); // auto-login after activation
+      await createSession(request, reply, user.id); // auto-login after activation
       return toPublicUser(user);
     },
   );

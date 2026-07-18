@@ -215,4 +215,57 @@ describe("auth + users", () => {
 
     await loginAs("newbie@test.local", "brand-new-pass");
   });
+
+  it("rejects a password reset for an account blocked after the token was issued", async () => {
+    const user = await prisma.user.create({
+      data: {
+        firstName: "Blocked",
+        lastName: "Later",
+        email: "blocklater@test.local",
+        passwordHash: await argon2.hash("initial-pass-1"),
+        role: "user",
+        status: "active",
+        emailConfirmedAt: new Date(),
+      },
+    });
+    await app.inject({
+      method: "POST",
+      url: "/api/auth/forgot-password",
+      payload: { email: "blocklater@test.local" },
+    });
+    const email = [...testOutbox]
+      .reverse()
+      .find((m) => m.to === "blocklater@test.local" && m.subject.includes("Reset"));
+    const token = tokenFromEmail(email!.html);
+
+    await prisma.user.update({ where: { id: user.id }, data: { status: "blocked" } });
+
+    const reset = await app.inject({
+      method: "POST",
+      url: "/api/auth/reset-password",
+      payload: { token, password: "should-not-work" },
+    });
+    expect(reset.statusCode).toBe(400);
+  });
+
+  it("rejects an SVG avatar (raster only)", async () => {
+    const cookie = await loginAs("admin@test.local", "admin-pass-123");
+    const boundary = "----avatar-boundary";
+    const payload = [
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="x.svg"',
+      "Content-Type: image/svg+xml",
+      "",
+      '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+      `--${boundary}--`,
+      "",
+    ].join("\r\n");
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/users/me/avatar",
+      headers: { cookie, "content-type": `multipart/form-data; boundary=${boundary}` },
+      payload,
+    });
+    expect(res.statusCode).toBe(400);
+  });
 });

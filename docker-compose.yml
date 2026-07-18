@@ -1,4 +1,23 @@
 services:
+  db:
+    container_name: ${APP_NAME}-db
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: ${TZ}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - default
+
   app:
     container_name: ${APP_NAME}-app
     working_dir: /app
@@ -7,17 +26,22 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
     env_file:
       - .env
     environment:
       APP_NAME: ${APP_NAME}
+      APP_DOMAIN: ${APP_DOMAIN}
       PORT: ${PORT}
       NODE_ENV: ${NODE_ENV}
       TZ: ${TZ}
       LOG_LEVEL: ${LOG_LEVEL}
-    ports:
-      - "${PORT}:${PORT}"
+      # in-container the API reaches Postgres by the compose service name `db`
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
     volumes:
+      - uploads:/app/uploads
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     networks:
@@ -40,7 +64,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 40s
+
+volumes:
+  db_data:
+  uploads:
 
 networks:
   proxy:

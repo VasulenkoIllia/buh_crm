@@ -60,6 +60,9 @@ export async function requestPasswordReset(email: string) {
 export async function resetPassword(input: ResetPasswordInput) {
   const token = await repo.findValidToken(hashToken(input.token), "password_reset");
   if (!token) throw new ValidationError("This reset link is invalid or has expired");
+  if (token.user.status !== "active") {
+    throw new ValidationError("This account is not active");
+  }
 
   await repo.setUserPassword(token.userId, await argon2.hash(input.password));
   await repo.markTokenUsed(token.id);

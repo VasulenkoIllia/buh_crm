@@ -3,7 +3,7 @@ import { z } from "zod";
 const boolFromString = z
   .string()
   .default("false")
-  .transform((v) => v === "true" || v === "1");
+  .transform((v) => ["true", "1", "yes"].includes(v.trim().toLowerCase()));
 
 const envSchema = z.object({
   APP_NAME: z.string().default("buh_crm"),

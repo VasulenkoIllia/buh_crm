@@ -3,6 +3,9 @@ dist
 coverage
 .tmp
 tmp
+server/generated
+design
+docs
 
 npm-debug.log
 yarn-debug.log*

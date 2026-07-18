@@ -59,6 +59,10 @@ function getTransporter(): Transporter {
     port: config.SMTP_PORT,
     secure: config.SMTP_SECURE,
     auth: config.SMTP_USER ? { user: config.SMTP_USER, pass: config.SMTP_PASS } : undefined,
+    // fail fast instead of hanging on an unreachable host
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 20_000,
   });
   return transporter;
 }
@@ -87,5 +91,10 @@ export async function sendEmail<T extends EmailTemplateName>(
       await new Promise((r) => setTimeout(r, attempt * 500));
     }
   }
+  // never swallow silently — a broken SMTP config must be visible in the server logs
+  console.error(
+    `[email] send failed after ${MAX_ATTEMPTS} attempts — template=${template} to=${to}:`,
+    lastError,
+  );
   throw lastError;
 }
