@@ -6,6 +6,7 @@ import { useSettings } from "@/modules/settings";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { ClientFormModal } from "./client-form";
+import { ClientPeopleModal } from "./client-people-modal";
 import {
   useArchiveClient,
   useClient,
@@ -39,6 +40,7 @@ export function ClientCardPage() {
   const { data: client, isLoading, error } = useClient(id);
   const archive = useArchiveClient();
   const [editOpen, setEditOpen] = useState(false);
+  const [peopleOpen, setPeopleOpen] = useState(false);
   const [tab, setTab] = useState<TabKey>("profile");
 
   if (isLoading) return <p className="text-[13px] text-muted">Loading…</p>;
@@ -120,7 +122,7 @@ export function ClientCardPage() {
 
       {/* company view (multi-company clients) */}
       {tab === "profile" && <ProfileTab client={client} onEdit={() => setEditOpen(true)} />}
-      {tab === "people" && <PeopleTab client={client} onEdit={() => setEditOpen(true)} />}
+      {tab === "people" && <PeopleTab client={client} onManage={() => setPeopleOpen(true)} />}
       {tab === "files" && <FilesTab clientId={client.id} />}
       {TAB_STAGE[tab] && (
         <div className="rounded-(--radius-panel) border border-border bg-surface px-5 py-10 text-center text-[13px] text-muted">
@@ -130,6 +132,9 @@ export function ClientCardPage() {
 
       {editOpen && (
         <ClientFormModal open={editOpen} onClose={() => setEditOpen(false)} client={client} />
+      )}
+      {peopleOpen && (
+        <ClientPeopleModal open={peopleOpen} onClose={() => setPeopleOpen(false)} client={client} />
       )}
     </div>
   );
@@ -144,19 +149,24 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function PeopleTab({ client, onEdit }: { client: Client; onEdit: () => void }) {
+function PeopleTab({ client, onManage }: { client: Client; onManage: () => void }) {
   return (
     <div className="rounded-(--radius-panel) border border-border bg-surface">
       <div className="flex items-center justify-between border-b border-divider px-5 py-3">
         <h2 className="text-[15px] font-semibold">People</h2>
-        <Button variant="secondary" size="sm" onClick={onEdit}>
+        <Button variant="secondary" size="sm" onClick={onManage}>
           Manage
         </Button>
       </div>
       {client.people.length === 0 ? (
-        <p className="px-5 py-8 text-center text-[13px] text-muted">
-          No people yet. Add contacts and the service each of them handles.
-        </p>
+        <div className="px-5 py-8 text-center">
+          <p className="text-[13px] text-muted">
+            No people yet. Add contacts and the service each of them handles.
+          </p>
+          <Button variant="secondary" size="sm" className="mt-3" onClick={onManage}>
+            + Add people
+          </Button>
+        </div>
       ) : (
         <ul>
           {client.people.map((p) => (

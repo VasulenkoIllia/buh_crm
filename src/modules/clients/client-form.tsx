@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { X } from "lucide-react";
-import type { Client, ClientPersonInput } from "@shared/schema/client";
+import type { Client } from "@shared/schema/client";
 import type { ClientType } from "@shared/schema/enums";
 import { ApiError } from "@/shared/lib/api";
 import { Button } from "@/shared/ui/button";
@@ -12,6 +12,7 @@ import { Modal } from "@/shared/ui/modal";
 import { Segmented } from "@/shared/ui/segmented";
 import { useSettings } from "@/modules/settings";
 import { useCreateClient, useUpdateClient } from "./clients.api";
+import { PeopleEditor, peopleToRows, rowsToPeopleInput, type PersonRow } from "./people-editor";
 
 const formSchema = z
   .object({
@@ -36,8 +37,6 @@ const formSchema = z
   });
 type FormValues = z.infer<typeof formSchema>;
 
-type PersonRow = ClientPersonInput & { serviceLabel: string; phone: string; email: string };
-
 export function ClientFormModal({
   open,
   onClose,
@@ -55,14 +54,7 @@ export function ClientFormModal({
   const [companyNames, setCompanyNames] = useState<string[]>(
     client?.companies.map((c) => c.name) ?? [],
   );
-  const [people, setPeople] = useState<PersonRow[]>(
-    client?.people.map((p) => ({
-      name: p.name,
-      serviceLabel: p.serviceLabel ?? "",
-      phone: p.phone ?? "",
-      email: p.email ?? "",
-    })) ?? [],
-  );
+  const [people, setPeople] = useState<PersonRow[]>(() => peopleToRows(client?.people ?? []));
 
   const {
     register,
@@ -110,7 +102,7 @@ export function ClientFormModal({
         ? values.regular
         : undefined;
 
-    const input = {
+    const base = {
       type: values.type as ClientType,
       firstName: values.firstName || null,
       lastName: values.lastName || null,
@@ -122,18 +114,12 @@ export function ClientFormModal({
       description: values.description || null,
       ...(regularOverride !== undefined ? { regularOverride } : {}),
       companyNames,
-      people: people
-        .filter((p) => p.name.trim())
-        .map((p) => ({
-          name: p.name,
-          serviceLabel: p.serviceLabel || null,
-          phone: p.phone || null,
-          email: p.email || null,
-        })),
     };
+    // People are managed via the dedicated modal on the client card. On create we seed the
+    // initial list here; on edit we omit `people` so the profile form never overwrites it.
     const saved = client
-      ? await update.mutateAsync({ id: client.id, input })
-      : await create.mutateAsync(input);
+      ? await update.mutateAsync({ id: client.id, input: base })
+      : await create.mutateAsync({ ...base, people: rowsToPeopleInput(people) });
     onSaved?.(saved);
     close();
   });
@@ -201,23 +187,38 @@ export function ClientFormModal({
             htmlFor="c-first"
             error={errors.firstName?.message}
           >
-            <Input id="c-first" error={!!errors.firstName} {...register("firstName")} />
+            <Input
+              id="c-first"
+              placeholder="e.g. Ivan"
+              error={!!errors.firstName}
+              {...register("firstName")}
+            />
           </FormField>
           <FormField label={isCompany ? "Contact — last name" : "Last name"} htmlFor="c-last">
-            <Input id="c-last" {...register("lastName")} />
+            <Input id="c-last" placeholder="e.g. Petrenko" {...register("lastName")} />
           </FormField>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <FormField label="Phone" htmlFor="c-phone">
-            <Input id="c-phone" {...register("phone")} />
+            <Input id="c-phone" placeholder="+380 67 123 4567" {...register("phone")} />
           </FormField>
           <FormField label="Email" htmlFor="c-email" error={errors.email?.message}>
-            <Input id="c-email" type="email" error={!!errors.email} {...register("email")} />
+            <Input
+              id="c-email"
+              type="email"
+              placeholder="name@example.com"
+              error={!!errors.email}
+              {...register("email")}
+            />
           </FormField>
         </div>
         <FormField label="Address" htmlFor="c-address">
-          <Input id="c-address" {...register("address")} />
+          <Input
+            id="c-address"
+            placeholder="City, street, building, office"
+            {...register("address")}
+          />
         </FormField>
 
         <div className="grid grid-cols-2 gap-3">
@@ -243,16 +244,19 @@ export function ClientFormModal({
           </FormField>
         </div>
 
-        <div>
-          <Label>People</Label>
-          <PeopleEditor value={people} onChange={setPeople} />
-        </div>
+        {!client && (
+          <div>
+            <Label>People</Label>
+            <PeopleEditor value={people} onChange={setPeople} />
+          </div>
+        )}
 
         <FormField label="Description" htmlFor="c-desc">
           <textarea
             id="c-desc"
             rows={2}
-            className="w-full rounded-(--radius-field) border border-border bg-surface px-3 py-2 text-[14px] focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+            placeholder="Notes, terms, anything useful about this client"
+            className="w-full rounded-(--radius-field) border border-border bg-surface px-3 py-2 text-[14px] placeholder:text-faint focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
             {...register("description")}
           />
         </FormField>
@@ -309,70 +313,6 @@ function TagInput({
           if (e.key === "Backspace" && !input && value.length) onChange(value.slice(0, -1));
         }}
       />
-    </div>
-  );
-}
-
-function PeopleEditor({
-  value,
-  onChange,
-}: {
-  value: PersonRow[];
-  onChange: (rows: PersonRow[]) => void;
-}) {
-  const set = (i: number, patch: Partial<PersonRow>) =>
-    onChange(value.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
-
-  return (
-    <div className="space-y-2">
-      {value.map((row, i) => (
-        <div key={i} className="rounded-(--radius-field) border border-border bg-surface p-2">
-          <div className="flex gap-2">
-            <Input
-              className="flex-1"
-              placeholder="Name"
-              value={row.name}
-              onChange={(e) => set(i, { name: e.target.value })}
-            />
-            <Input
-              className="flex-1"
-              placeholder="Service they handle"
-              value={row.serviceLabel}
-              onChange={(e) => set(i, { serviceLabel: e.target.value })}
-            />
-            <button
-              type="button"
-              aria-label="Remove person"
-              className="px-1 text-muted hover:text-danger"
-              onClick={() => onChange(value.filter((_, idx) => idx !== i))}
-            >
-              <X size={16} />
-            </button>
-          </div>
-          <div className="mt-2 flex gap-2">
-            <Input
-              className="flex-1"
-              placeholder="Phone"
-              value={row.phone}
-              onChange={(e) => set(i, { phone: e.target.value })}
-            />
-            <Input
-              className="flex-1"
-              placeholder="Email"
-              value={row.email}
-              onChange={(e) => set(i, { email: e.target.value })}
-            />
-          </div>
-        </div>
-      ))}
-      <Button
-        type="button"
-        variant="text"
-        size="sm"
-        onClick={() => onChange([...value, { name: "", serviceLabel: "", phone: "", email: "" }])}
-      >
-        + Add person
-      </Button>
     </div>
   );
 }
