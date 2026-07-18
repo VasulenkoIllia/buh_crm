@@ -1,34 +1,35 @@
 services:
   db:
-    container_name: ${APP_NAME}-db
     image: postgres:16-alpine
-    restart: unless-stopped
+    container_name: ${APP_NAME}-db
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
       TZ: ${TZ}
     volumes:
-      - db_data:/var/lib/postgresql/data
+      - ./data/postgres:/var/lib/postgresql/data
+    ports:
+      # Access from your laptop via SSH tunnel (DataGrip), on a port that won't clash
+      # with other projects' Postgres (whitehall uses 5432):
+      #   ssh -L 5434:127.0.0.1:5433 user@buhcrm.workflo.space
+      #   Then in DataGrip: host=localhost, port=5434
+      - "127.0.0.1:5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 5
+    restart: unless-stopped
     networks:
-      - default
+      - app-net
 
   app:
-    container_name: ${APP_NAME}-app
-    working_dir: /app
-    init: true
     build:
       context: .
       dockerfile: Dockerfile
-    restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
+    container_name: ${APP_NAME}-app
+    init: true
     env_file:
       - .env
     environment:
@@ -40,21 +41,26 @@ services:
       LOG_LEVEL: ${LOG_LEVEL}
       # in-container the API reaches Postgres by the compose service name `db`
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    depends_on:
+      db:
+        condition: service_healthy
     volumes:
-      - uploads:/app/uploads
+      - ./data/uploads:/app/uploads # client files + avatars (backed up with ./data)
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
+    # migrations run automatically on every start (idempotent); Dockerfile CMD:
+    #   npx prisma migrate deploy && npm run start
+    restart: unless-stopped
     networks:
-      - default
+      - app-net
       - proxy
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=${TRAEFIK_NETWORK}"
-      - "traefik.http.routers.${APP_NAME}.rule=Host(`${APP_DOMAIN}`)"
-      - "traefik.http.routers.${APP_NAME}.entrypoints=${TRAEFIK_ENTRYPOINT}"
-      - "traefik.http.routers.${APP_NAME}.tls=${TRAEFIK_TLS}"
-      - "traefik.http.routers.${APP_NAME}.tls.certresolver=${TRAEFIK_CERTRESOLVER}"
-      - "traefik.http.services.${APP_NAME}.loadbalancer.server.port=${PORT}"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.routers.buh-crm.rule=Host(`${APP_DOMAIN}`)"
+      - "traefik.http.routers.buh-crm.entrypoints=websecure"
+      - "traefik.http.routers.buh-crm.tls.certresolver=cf"
+      - "traefik.http.services.buh-crm.loadbalancer.server.port=${PORT}"
     healthcheck:
       test:
         [
@@ -66,11 +72,8 @@ services:
       retries: 5
       start_period: 40s
 
-volumes:
-  db_data:
-  uploads:
-
 networks:
+  app-net:
+    driver: bridge
   proxy:
     external: true
-    name: ${TRAEFIK_NETWORK}

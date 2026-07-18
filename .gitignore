@@ -20,9 +20,10 @@ pnpm-debug.log*
 
 .idea/
 .DS_Store
+# all real env files stay local; only the template is tracked
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
 /uploads/
 
