@@ -47,6 +47,10 @@ export const updatePriorityInput = z.object({
 });
 export type UpdatePriorityInput = z.infer<typeof updatePriorityInput>;
 
+/** Reorder: swap two priorities' positions (applied atomically server-side). */
+export const swapPrioritiesInput = z.object({ aId: uuid, bId: uuid });
+export type SwapPrioritiesInput = z.infer<typeof swapPrioritiesInput>;
+
 export const createSourceInput = z.object({
   name: z.string().min(1).max(40),
 });

@@ -1,6 +1,6 @@
 import { createReadStream } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
 import { ValidationError } from "./errors.js";
@@ -12,6 +12,13 @@ export const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB per file (product decisi
 
 const uploadsRoot = resolve(config.UPLOADS_DIR);
 
+/** Containment check with a separator — a sibling dir like `uploads-x` must not pass. */
+function assertInsideUploads(absPath: string) {
+  if (!absPath.startsWith(uploadsRoot + sep)) {
+    throw new ValidationError("Invalid file path");
+  }
+}
+
 export async function ensureUploadsDir() {
   await mkdir(uploadsRoot, { recursive: true });
 }
@@ -21,9 +28,14 @@ export async function saveFileBytes(buffer: Buffer, originalName: string): Promi
   if (buffer.byteLength > MAX_FILE_SIZE) {
     throw new ValidationError(`File exceeds the ${MAX_FILE_SIZE / 1024 / 1024} MB limit`);
   }
-  const ext = originalName.includes(".") ? originalName.slice(originalName.lastIndexOf(".")) : "";
+  // never trust a multipart filename near a filesystem path — allowlist the extension shape
+  const rawExt = originalName.includes(".")
+    ? originalName.slice(originalName.lastIndexOf("."))
+    : "";
+  const ext = /^\.[A-Za-z0-9]{1,12}$/.test(rawExt) ? rawExt.toLowerCase() : "";
   const relPath = join(new Date().toISOString().slice(0, 7), `${randomUUID()}${ext}`);
   const absPath = join(uploadsRoot, relPath);
+  assertInsideUploads(absPath);
   await mkdir(resolve(absPath, ".."), { recursive: true });
   await writeFile(absPath, buffer);
   return relPath;
@@ -31,16 +43,12 @@ export async function saveFileBytes(buffer: Buffer, originalName: string): Promi
 
 export function readFileStream(relPath: string) {
   const absPath = resolve(uploadsRoot, relPath);
-  if (!absPath.startsWith(uploadsRoot)) {
-    throw new ValidationError("Invalid file path");
-  }
+  assertInsideUploads(absPath);
   return createReadStream(absPath);
 }
 
 export async function deleteFileBytes(relPath: string) {
   const absPath = resolve(uploadsRoot, relPath);
-  if (!absPath.startsWith(uploadsRoot)) {
-    throw new ValidationError("Invalid file path");
-  }
+  assertInsideUploads(absPath);
   await rm(absPath, { force: true });
 }

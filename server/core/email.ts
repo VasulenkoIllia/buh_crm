@@ -17,6 +17,16 @@ export function webOrigin(): string {
   return isDev ? "http://localhost:5173" : `https://${config.APP_DOMAIN}`;
 }
 
+/** Escape user-influenced values before interpolating into email HTML. */
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 function render<T extends EmailTemplateName>(
   template: T,
   data: EmailTemplates[T],
@@ -27,7 +37,7 @@ function render<T extends EmailTemplateName>(
       return {
         subject: `You are invited to ${config.APP_NAME}`,
         html: [
-          `<p>${d.invitedBy} invited you to the ${config.APP_NAME} CRM.</p>`,
+          `<p>${escapeHtml(d.invitedBy)} invited you to the ${config.APP_NAME} CRM.</p>`,
           `<p><a href="${d.inviteUrl}">Set your password</a> to activate your account.</p>`,
           `<p>The link expires in 7 days.</p>`,
         ].join("\n"),

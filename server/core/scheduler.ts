@@ -1,5 +1,6 @@
 import cron, { type ScheduledTask } from "node-cron";
 import type { FastifyBaseLogger } from "fastify";
+import { config } from "./config.js";
 
 // In-process scheduler skeleton (S0). Jobs land per stage:
 //   S6 — subscription task generation · S7 — per-period invoices
@@ -37,9 +38,14 @@ export async function startScheduler(log: FastifyBaseLogger) {
         log.error({ job: job.name, err }, "scheduler catch-up failed");
       }
     }
-    const task = cron.schedule(job.cronExpr, () => {
-      job.run().catch((err) => log.error({ job: job.name, err }, "scheduler job failed"));
-    });
+    const task = cron.schedule(
+      job.cronExpr,
+      () => {
+        job.run().catch((err) => log.error({ job: job.name, err }, "scheduler job failed"));
+      },
+      // pin the firm timezone explicitly — don't rely on the container's TZ env matching
+      { timezone: config.TZ },
+    );
     scheduled.push(task);
     log.info({ job: job.name, cron: job.cronExpr }, "scheduler job registered");
   }

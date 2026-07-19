@@ -63,6 +63,26 @@ export function errorHandler(
     });
   }
 
+  // Prisma known request errors → meaningful statuses (unique/FK races would otherwise be 500s)
+  const prismaCode = (error as { code?: unknown }).code;
+  if (typeof prismaCode === "string" && /^P2\d{3}$/.test(prismaCode)) {
+    if (prismaCode === "P2002") {
+      return reply.status(409).send({
+        error: { code: "conflict", message: "A record with this value already exists" },
+      });
+    }
+    if (prismaCode === "P2025") {
+      return reply.status(404).send({
+        error: { code: "not_found", message: "Record not found" },
+      });
+    }
+    if (prismaCode === "P2003") {
+      return reply.status(400).send({
+        error: { code: "validation_error", message: "Related record does not exist" },
+      });
+    }
+  }
+
   if (error.statusCode && error.statusCode < 500) {
     return reply.status(error.statusCode).send({
       error: { code: error.code ?? "bad_request", message: error.message },

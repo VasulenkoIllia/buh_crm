@@ -20,8 +20,13 @@ export function findValidToken(tokenHash: string, type: AuthTokenType) {
   });
 }
 
-export function markTokenUsed(id: string) {
-  return prisma.authToken.update({ where: { id }, data: { usedAt: new Date() } });
+/** Marks a token used ONLY if it is still unused — returns false when it lost the race. */
+export async function consumeToken(id: string): Promise<boolean> {
+  const res = await prisma.authToken.updateMany({
+    where: { id, usedAt: null },
+    data: { usedAt: new Date() },
+  });
+  return res.count === 1;
 }
 
 export function invalidateUserTokens(userId: string, type: AuthTokenType) {

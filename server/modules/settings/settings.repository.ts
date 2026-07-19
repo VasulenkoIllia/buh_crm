@@ -25,8 +25,21 @@ export function listSources() {
   return prisma.sourceOption.findMany({ orderBy: { order: "asc" } });
 }
 
+/** Case-insensitive — "Referral" and "referral" are the same source. */
 export function findSourceByName(name: string) {
-  return prisma.sourceOption.findUnique({ where: { name } });
+  return prisma.sourceOption.findFirst({
+    where: { name: { equals: name, mode: "insensitive" } },
+  });
+}
+
+/** Swaps two priorities' order values in one transaction. */
+export function swapPriorityOrders(aId: string, bId: string) {
+  return prisma.$transaction(async (tx) => {
+    const a = await tx.priority.findUniqueOrThrow({ where: { id: aId } });
+    const b = await tx.priority.findUniqueOrThrow({ where: { id: bId } });
+    await tx.priority.update({ where: { id: aId }, data: { order: b.order } });
+    await tx.priority.update({ where: { id: bId }, data: { order: a.order } });
+  });
 }
 
 export function maxSourceOrder() {

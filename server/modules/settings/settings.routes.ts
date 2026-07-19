@@ -4,6 +4,7 @@ import { z } from "zod";
 import { uuid } from "@shared/schema/common.js";
 import {
   createSourceInput,
+  swapPrioritiesInput,
   updateFirmInput,
   updatePriorityInput,
   updateSourceInput,
@@ -31,6 +32,15 @@ export async function registerRoutes(instance: FastifyInstance) {
   });
 
   // ── admin-only mutations ──────────────────────────────────────────────────
+
+  // static route — registered alongside /priorities/:id (static segments win routing)
+  app.patch(
+    "/priorities/swap",
+    { preHandler: requireAdmin, schema: { body: swapPrioritiesInput } },
+    async (request) => {
+      return service.swapPriorities(request.body.aId, request.body.bId);
+    },
+  );
 
   app.patch(
     "/priorities/:id",

@@ -11,6 +11,8 @@ import { ValidationError } from "../../core/errors.js";
 import * as repo from "./settings.repository.js";
 
 const MAX_LOGO_SIZE = 5 * 1024 * 1024; // 5 MB
+// raster only — no SVG (can carry inline scripts → stored XSS; same rule as avatars)
+const LOGO_MIME = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 
 export async function getSettings() {
   const [priorities, sources, firm] = await Promise.all([
@@ -46,6 +48,14 @@ export async function updatePriority(id: string, input: UpdatePriorityInput) {
   return repo.findPriority(id);
 }
 
+/** Reorders two priorities atomically (single transaction — no half-applied swap). */
+export async function swapPriorities(aId: string, bId: string) {
+  const [a, b] = await Promise.all([repo.findPriority(aId), repo.findPriority(bId)]);
+  if (!a || !b) throw new NotFoundError("Priority not found");
+  await repo.swapPriorityOrders(aId, bId);
+  return repo.listPriorities();
+}
+
 export async function createSource(input: CreateSourceInput) {
   const existing = await repo.findSourceByName(input.name);
   if (existing) throw new ConflictError("A source with this name already exists");
@@ -72,8 +82,8 @@ export async function setLogo(
   actor: User,
   file: { buffer: Buffer; filename: string; mimetype: string },
 ) {
-  if (!file.mimetype.startsWith("image/")) {
-    throw new ValidationError("Logo must be an image");
+  if (!LOGO_MIME.includes(file.mimetype)) {
+    throw new ValidationError("Logo must be a PNG, JPEG, WebP or GIF image");
   }
   if (file.buffer.byteLength > MAX_LOGO_SIZE) {
     throw new ValidationError("Logo must be 5 MB or smaller");

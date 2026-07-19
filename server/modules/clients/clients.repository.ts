@@ -51,13 +51,21 @@ export function updateClient(id: string, data: Prisma.ClientUpdateInput) {
 
 /** Replaces the client's company list (companies are per-client text, 1:N). */
 export async function setClientCompanies(clientId: string, names: string[]) {
+  // case-insensitive dedup, first occurrence wins (decision: companies are a report/invoice
+  // dimension — duplicates would silently split totals; mirrors the TagInput behaviour)
+  const seen = new Set<string>();
+  const unique = names
+    .map((n) => n.trim())
+    .filter((n) => {
+      const key = n.toLowerCase();
+      if (!n || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   await prisma.$transaction([
     prisma.company.deleteMany({ where: { clientId } }),
     prisma.company.createMany({
-      data: names
-        .map((n) => n.trim())
-        .filter(Boolean)
-        .map((name, order) => ({ clientId, name, order })),
+      data: unique.map((name, order) => ({ clientId, name, order })),
     }),
   ]);
 }

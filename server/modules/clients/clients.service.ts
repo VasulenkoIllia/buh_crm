@@ -224,12 +224,14 @@ export async function addFile(
 }
 
 export async function getFile(clientId: string, fileId: string) {
+  await getClient(clientId); // 404s archived/missing clients — files go dark with the client
   const file = await repo.findClientFile(clientId, fileId);
   if (!file) throw new NotFoundError("File not found");
   return file;
 }
 
 export async function removeFile(clientId: string, fileId: string) {
+  await getClient(clientId); // 404s archived/missing clients
   const file = await repo.findClientFile(clientId, fileId);
   if (!file) throw new NotFoundError("File not found");
   await repo.deleteFileRow(file.id);

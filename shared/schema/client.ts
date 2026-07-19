@@ -67,7 +67,11 @@ export const clientPersonInput = z.object({
   serviceLabel: optionalTrimmed,
   role: optionalTrimmed,
   phone: optionalTrimmed,
-  email: optionalTrimmed,
+  // tolerant of "" (→ null) like the other fields, but validated when present
+  email: z.preprocess(
+    (v) => (typeof v === "string" ? v.trim() || null : v),
+    z.email().nullable().optional(),
+  ),
 });
 export type ClientPersonInput = z.infer<typeof clientPersonInput>;
 

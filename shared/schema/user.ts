@@ -32,8 +32,14 @@ export type PublicUser = z.infer<typeof publicUserSchema>;
 /** Password policy (decision 2026-07-17): length ≥ 8, no composition rules. */
 export const password = z.string().min(8, "Password must be at least 8 characters");
 
+/**
+ * User-identity emails are matched case-insensitively everywhere — normalize once
+ * at the schema boundary so login/invite/forgot-password can't diverge by case.
+ */
+export const normalizedEmail = z.string().trim().toLowerCase().pipe(z.email());
+
 export const loginInput = z.object({
-  email: z.email(),
+  email: normalizedEmail,
   password: z.string().min(1),
 });
 export type LoginInput = z.infer<typeof loginInput>;
@@ -47,7 +53,7 @@ export const acceptInviteInput = z.object({
 export type AcceptInviteInput = z.infer<typeof acceptInviteInput>;
 
 export const forgotPasswordInput = z.object({
-  email: z.email(),
+  email: normalizedEmail,
 });
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordInput>;
 
@@ -58,7 +64,7 @@ export const resetPasswordInput = z.object({
 export type ResetPasswordInput = z.infer<typeof resetPasswordInput>;
 
 export const inviteUserInput = z.object({
-  email: z.email(),
+  email: normalizedEmail,
   role: userRole,
 });
 export type InviteUserInput = z.infer<typeof inviteUserInput>;

@@ -7,10 +7,21 @@ import * as repo from "./auth.repository.js";
 
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
 
+// Unknown-email logins still pay the argon2 cost, so response timing can't be
+// used to probe which emails have accounts.
+let timingDummyHash: string | null = null;
+async function burnPasswordCheck(password: string) {
+  timingDummyHash ??= await argon2.hash("timing-equalizer");
+  await argon2.verify(timingDummyHash, password).catch(() => {});
+}
+
 export async function login(input: LoginInput) {
   const user = await repo.findUserByEmail(input.email);
   const invalid = new UnauthorizedError("Invalid email or password");
-  if (!user?.passwordHash) throw invalid;
+  if (!user?.passwordHash) {
+    await burnPasswordCheck(input.password);
+    throw invalid;
+  }
   if (!(await argon2.verify(user.passwordHash, input.password))) throw invalid;
   if (user.status === "blocked") throw new UnauthorizedError("This account is blocked");
   if (user.status !== "active") throw invalid;
@@ -27,14 +38,16 @@ export async function acceptInvite(input: AcceptInviteInput) {
   if (token.user.status !== "invited") {
     throw new ValidationError("This invite has already been used");
   }
+  // consume atomically BEFORE acting — a concurrent double-submit loses here
+  if (!(await repo.consumeToken(token.id))) {
+    throw new ValidationError("This invite has already been used");
+  }
 
-  const user = await repo.activateInvitedUser(token.userId, {
+  return repo.activateInvitedUser(token.userId, {
     firstName: input.firstName,
     lastName: input.lastName,
     passwordHash: await argon2.hash(input.password),
   });
-  await repo.markTokenUsed(token.id);
-  return user;
 }
 
 /** Always succeeds silently — never reveals whether the email exists. */
@@ -63,9 +76,12 @@ export async function resetPassword(input: ResetPasswordInput) {
   if (token.user.status !== "active") {
     throw new ValidationError("This account is not active");
   }
+  // consume atomically BEFORE acting — a concurrent double-submit loses here
+  if (!(await repo.consumeToken(token.id))) {
+    throw new ValidationError("This reset link is invalid or has expired");
+  }
 
   await repo.setUserPassword(token.userId, await argon2.hash(input.password));
-  await repo.markTokenUsed(token.id);
   await destroyAllUserSessions(token.userId); // log out everywhere after a reset
   return token.user;
 }

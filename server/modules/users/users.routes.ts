@@ -3,7 +3,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { inviteUserInput, updateProfileInput, updateUserInput } from "@shared/schema/user.js";
 import { uuid } from "@shared/schema/common.js";
-import { requireAdmin, requireAuth } from "../../core/auth.js";
+import { createSession, requireAdmin, requireAuth } from "../../core/auth.js";
 import { ValidationError } from "../../core/errors.js";
 import { readFileStream } from "../../core/files.js";
 import { toPublicUser } from "../auth/index.js";
@@ -56,8 +56,12 @@ export async function registerRoutes(instance: FastifyInstance) {
   app.patch(
     "/me",
     { preHandler: requireAuth, schema: { body: updateProfileInput } },
-    async (request) => {
+    async (request, reply) => {
       const user = await service.updateProfile(request.currentUser!, request.body);
+      if (request.body.newPassword) {
+        // the password change destroyed all sessions — re-issue one for this device
+        await createSession(request, reply, user.id);
+      }
       return toPublicUser(user);
     },
   );

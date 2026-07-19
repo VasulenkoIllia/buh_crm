@@ -74,7 +74,7 @@ export async function ensureBootstrapAdmin(
     return { created: false }; // already provisioned — leave accounts alone
   }
 
-  const email = opts.email?.trim();
+  const email = opts.email?.trim().toLowerCase(); // identity emails are matched lowercased
   const password = opts.password;
   if (!email || !password) {
     log.warn(
@@ -88,17 +88,26 @@ export async function ensureBootstrapAdmin(
     return { created: false };
   }
 
-  await prisma.user.create({
-    data: {
-      firstName: opts.firstName || "Admin",
-      lastName: opts.lastName || "User",
-      email,
-      passwordHash: await argon2.hash(password),
-      role: "admin",
-      status: "active",
-      emailConfirmedAt: new Date(),
-    },
-  });
+  try {
+    await prisma.user.create({
+      data: {
+        firstName: opts.firstName || "Admin",
+        lastName: opts.lastName || "User",
+        email,
+        passwordHash: await argon2.hash(password),
+        role: "admin",
+        status: "active",
+        emailConfirmedAt: new Date(),
+      },
+    });
+  } catch (err) {
+    if ((err as { code?: string }).code === "P2002") {
+      // two instances raced the empty-DB check — the other one won; nothing to do
+      log.info({ email }, "Bootstrap admin already exists — skipping.");
+      return { created: false };
+    }
+    throw err;
+  }
   log.info({ email }, "Bootstrap admin created — sign in and change the password.");
   return { created: true };
 }

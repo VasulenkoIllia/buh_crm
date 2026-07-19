@@ -84,7 +84,13 @@ export async function updateProfile(user: User, input: UpdateProfileInput) {
     data.passwordHash = await argon2.hash(input.newPassword);
   }
 
-  return repo.updateUser(user.id, data);
+  const updated = await repo.updateUser(user.id, data);
+  if (data.passwordHash) {
+    // same rule as forgot-password reset: a password change signs out every session;
+    // the route immediately issues a fresh one so THIS device stays signed in
+    await destroyAllUserSessions(user.id);
+  }
+  return updated;
 }
 
 export async function setAvatar(
