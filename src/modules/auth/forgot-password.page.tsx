@@ -38,7 +38,11 @@ export function ForgotPasswordPage() {
   return (
     <AuthCard title="Reset password">
       <form
-        onSubmit={handleSubmit((v) => request.mutateAsync(v))}
+        onSubmit={handleSubmit(async (v) => {
+          await request.mutateAsync(v).catch(() => {
+            /* success state simply doesn't render; no enumeration hints */
+          });
+        })}
         className="space-y-4"
         noValidate
       >

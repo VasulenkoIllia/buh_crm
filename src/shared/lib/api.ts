@@ -25,7 +25,7 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
     credentials: "same-origin",
   });
 
-  const json = res.status === 204 ? null : await res.json().catch(() => null);
+  const json = res.status === 204 ? null : await res.json().catch(() => undefined);
   if (!res.ok) {
     const err = (json as { error?: { code?: string; message?: string; details?: unknown } })
       ?.error;
@@ -35,6 +35,10 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
       err?.message ?? res.statusText,
       err?.details,
     );
+  }
+  if (json === undefined) {
+    // a 2xx with an unparseable body must not silently become null
+    throw new ApiError(res.status, "invalid_response", "Unexpected non-JSON response");
   }
   return json as T;
 }

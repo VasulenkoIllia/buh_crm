@@ -8,6 +8,7 @@ import { FormField, Input, Select } from "@/shared/ui/field";
 import {
   useCreateSource,
   useSettings,
+  useSwapPriorities,
   useUpdateFirm,
   useUpdatePriority,
   useUpdateSource,
@@ -52,11 +53,15 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function PrioritiesSection({ priorities }: { priorities: Priority[] }) {
   const update = useUpdatePriority();
+  const swap = useSwapPriorities(); // one transactional request — no half-applied reorder
+  const busy = update.isPending || swap.isPending;
 
-  const swap = (a: Priority, b: Priority) => {
-    update.mutate({ id: a.id, input: { order: b.order } });
-    update.mutate({ id: b.id, input: { order: a.order } });
-  };
+  const serverError =
+    update.error instanceof ApiError
+      ? update.error.message
+      : swap.error instanceof ApiError
+        ? swap.error.message
+        : null;
 
   return (
     <Section title="Task priorities">
@@ -66,6 +71,7 @@ function PrioritiesSection({ priorities }: { priorities: Priority[] }) {
             <input
               type="color"
               defaultValue={priority.color}
+              disabled={busy}
               className="h-8 w-10 cursor-pointer rounded-(--radius-btn-sm) border border-border"
               onBlur={(e) => {
                 if (e.target.value !== priority.color) {
@@ -76,6 +82,7 @@ function PrioritiesSection({ priorities }: { priorities: Priority[] }) {
             <Input
               className="w-44"
               defaultValue={priority.name}
+              disabled={busy}
               onBlur={(e) => {
                 const name = e.target.value.trim();
                 if (name && name !== priority.name) {
@@ -88,6 +95,7 @@ function PrioritiesSection({ priorities }: { priorities: Priority[] }) {
                 type="radio"
                 name="default-priority"
                 checked={priority.isDefault}
+                disabled={busy}
                 onChange={() => update.mutate({ id: priority.id, input: { isDefault: true } })}
               />
               default
@@ -95,18 +103,22 @@ function PrioritiesSection({ priorities }: { priorities: Priority[] }) {
             <span className="ml-auto inline-flex gap-1">
               <button
                 type="button"
-                disabled={index === 0}
+                disabled={index === 0 || busy}
                 className="rounded p-1 text-muted hover:bg-divider disabled:opacity-30"
-                onClick={() => swap(priority, priorities[index - 1])}
+                onClick={() =>
+                  swap.mutate({ aId: priority.id, bId: priorities[index - 1].id })
+                }
                 aria-label="Move up"
               >
                 <ArrowUp size={14} />
               </button>
               <button
                 type="button"
-                disabled={index === priorities.length - 1}
+                disabled={index === priorities.length - 1 || busy}
                 className="rounded p-1 text-muted hover:bg-divider disabled:opacity-30"
-                onClick={() => swap(priorities[index + 1], priority)}
+                onClick={() =>
+                  swap.mutate({ aId: priority.id, bId: priorities[index + 1].id })
+                }
                 aria-label="Move down"
               >
                 <ArrowDown size={14} />
@@ -115,6 +127,7 @@ function PrioritiesSection({ priorities }: { priorities: Priority[] }) {
           </div>
         ))}
       </div>
+      {serverError && <p className="mt-2 text-[12px] text-danger-text">{serverError}</p>}
       <p className="mt-3 text-[12px] text-muted">
         Four fixed levels — rename, recolor, reorder, or move the default. Overdue is a red
         highlight, not a priority.
@@ -133,11 +146,16 @@ function SourcesSection({ sources }: { sources: SourceOption[] }) {
   const add = async () => {
     const name = newName.trim();
     if (!name) return;
-    await create.mutateAsync({ name });
-    setNewName("");
+    try {
+      await create.mutateAsync({ name });
+      setNewName("");
+    } catch {
+      /* surfaced via create.error below */
+    }
   };
 
   const createError = create.error instanceof ApiError ? create.error.message : null;
+  const updateError = update.error instanceof ApiError ? update.error.message : null;
 
   return (
     <Section title="Source of origin">
@@ -147,6 +165,7 @@ function SourcesSection({ sources }: { sources: SourceOption[] }) {
             <Input
               className={`w-56 ${source.active ? "" : "opacity-50"}`}
               defaultValue={source.name}
+              disabled={update.isPending}
               onBlur={(e) => {
                 const name = e.target.value.trim();
                 if (name && name !== source.name) {
@@ -157,6 +176,7 @@ function SourcesSection({ sources }: { sources: SourceOption[] }) {
             <Button
               variant="secondary"
               size="sm"
+              disabled={update.isPending}
               onClick={() =>
                 update.mutate({ id: source.id, input: { active: !source.active } })
               }
@@ -167,6 +187,7 @@ function SourcesSection({ sources }: { sources: SourceOption[] }) {
           </div>
         ))}
       </div>
+      {updateError && <p className="mt-1 text-[12px] text-danger-text">{updateError}</p>}
       <div className="mt-3 flex items-center gap-2">
         <Input
           className="w-56"
@@ -197,6 +218,7 @@ function NumberingSection({ prefix, digits }: { prefix: string; digits: number }
 
   const preview = `${localPrefix}-${new Date().getFullYear()}-${"1".padStart(localDigits, "0")}`;
   const dirty = localPrefix !== prefix || localDigits !== digits;
+  const serverError = update.error instanceof ApiError ? update.error.message : null;
 
   return (
     <Section title="Invoice numbering">
@@ -234,6 +256,7 @@ function NumberingSection({ prefix, digits }: { prefix: string; digits: number }
           Save
         </Button>
       </div>
+      {serverError && <p className="mt-1 text-[12px] text-danger-text">{serverError}</p>}
       <p className="mt-3 text-[12px] text-muted">
         Preview: <span className="font-medium text-ink">{preview}</span> — the counter resets
         every year.
@@ -251,6 +274,7 @@ function FirmSection({ name, hasLogo }: { name: string; hasLogo: boolean }) {
   const [version, setVersion] = useState(0);
 
   const logoError = uploadLogo.error instanceof ApiError ? uploadLogo.error.message : null;
+  const nameError = update.error instanceof ApiError ? update.error.message : null;
 
   return (
     <Section title="Firm profile">
@@ -267,6 +291,7 @@ function FirmSection({ name, hasLogo }: { name: string; hasLogo: boolean }) {
           />
         </FormField>
       </div>
+      {nameError && <p className="mt-1 text-[12px] text-danger-text">{nameError}</p>}
       <div className="mt-4 flex items-center gap-4">
         {hasLogo ? (
           <img
@@ -284,9 +309,14 @@ function FirmSection({ name, hasLogo }: { name: string; hasLogo: boolean }) {
           className="hidden"
           onChange={async (e) => {
             const file = e.target.files?.[0];
+            e.target.value = "";
             if (!file) return;
-            await uploadLogo.mutateAsync(file);
-            setVersion((v) => v + 1);
+            try {
+              await uploadLogo.mutateAsync(file);
+              setVersion((v) => v + 1);
+            } catch {
+              /* surfaced via logoError below */
+            }
           }}
         />
         <Button

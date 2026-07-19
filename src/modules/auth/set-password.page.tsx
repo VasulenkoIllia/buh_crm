@@ -67,7 +67,15 @@ export function SetPasswordPage() {
 
   return (
     <AuthCard title="Set up your account">
-      <form onSubmit={handleSubmit((v) => accept.mutateAsync(v))} className="space-y-4" noValidate>
+      <form
+        onSubmit={handleSubmit(async (v) => {
+          await accept.mutateAsync(v).catch(() => {
+            /* surfaced via serverError below */
+          });
+        })}
+        className="space-y-4"
+        noValidate
+      >
         <div className="grid grid-cols-2 gap-3">
           <FormField label="First name" htmlFor="firstName" error={errors.firstName?.message}>
             <Input

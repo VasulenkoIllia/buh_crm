@@ -77,6 +77,13 @@ export function RequireAuth() {
   return <Outlet />;
 }
 
+/** Route wrapper: admin-only pages (Team, Settings) — non-admins bounce home. */
+export function RequireAdmin() {
+  const { user } = useAuth();
+  if (user?.role !== "admin") return <Navigate to="/" replace />;
+  return <Outlet />;
+}
+
 /** Route wrapper for auth screens: bounce logged-in users back to the app. */
 export function PublicOnly() {
   const { user, isLoading } = useAuth();

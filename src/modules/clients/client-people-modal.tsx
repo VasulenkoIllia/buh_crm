@@ -26,8 +26,12 @@ export function ClientPeopleModal({
   };
 
   const save = async () => {
-    await update.mutateAsync({ id: client.id, input: { people: rowsToPeopleInput(rows) } });
-    onClose();
+    try {
+      await update.mutateAsync({ id: client.id, input: { people: rowsToPeopleInput(rows) } });
+      onClose();
+    } catch {
+      /* surfaced via serverError below */
+    }
   };
 
   const serverError = update.error instanceof ApiError ? update.error.message : null;

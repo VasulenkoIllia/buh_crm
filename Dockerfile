@@ -2,9 +2,11 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# deps (dev deps included: build needs vite/tsc, runtime uses tsx + prisma)
+# deps — npm ci for reproducible installs from the lockfile.
+# NOTE: do NOT add --omit=dev: the build stage needs vite/tsc from devDependencies
+# (runtime deps tsx/prisma/dotenv live in "dependencies").
 COPY package*.json ./
-RUN npm install
+RUN npm ci
 
 # source
 COPY . .

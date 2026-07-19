@@ -77,12 +77,16 @@ export function LeadFormModal({
       sourceId: values.sourceId || null,
       description: values.description || null,
     };
-    if (lead) {
-      await update.mutateAsync({ id: lead.id, input });
-    } else {
-      await create.mutateAsync(input);
+    try {
+      if (lead) {
+        await update.mutateAsync({ id: lead.id, input });
+      } else {
+        await create.mutateAsync(input);
+      }
+      close();
+    } catch {
+      /* surfaced via serverError below */
     }
-    close();
   });
 
   const mutation = lead ? update : create;
@@ -233,22 +237,26 @@ export function ConvertLeadModal({
   const isCompany = type === "company";
 
   const onSubmit = handleSubmit(async (values) => {
-    const { clientId } = await convert.mutateAsync({
-      id: lead.id,
-      input: {
-        type: values.type as ClientType,
-        firstName: values.firstName || null,
-        lastName: values.lastName || null,
-        companyName: isCompany ? values.companyName || null : null,
-        phone: values.phone || null,
-        email: values.email || null,
-        address: values.address || null,
-        sourceId: lead.sourceId,
-        description: lead.description,
-      },
-    });
-    onClose();
-    navigate(`/clients/${clientId}`);
+    try {
+      const { clientId } = await convert.mutateAsync({
+        id: lead.id,
+        input: {
+          type: values.type as ClientType,
+          firstName: values.firstName || null,
+          lastName: values.lastName || null,
+          companyName: isCompany ? values.companyName || null : null,
+          phone: values.phone || null,
+          email: values.email || null,
+          address: values.address || null,
+          sourceId: lead.sourceId,
+          description: lead.description,
+        },
+      });
+      onClose();
+      navigate(`/clients/${clientId}`);
+    } catch {
+      /* surfaced via serverError below */
+    }
   });
 
   const serverError = convert.error instanceof ApiError ? convert.error.message : null;

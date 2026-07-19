@@ -47,7 +47,10 @@ export function useUpdateProfile() {
   return useMutation({
     mutationFn: (input: UpdateProfileInput) =>
       api<PublicUser>("/api/users/me", { method: "PATCH", body: input }),
-    onSuccess: (user) => queryClient.setQueryData(ME_QUERY_KEY, user),
+    onSuccess: (user) => {
+      queryClient.setQueryData(ME_QUERY_KEY, user);
+      void queryClient.invalidateQueries({ queryKey: USERS_KEY }); // Team list shows the new name
+    },
   });
 }
 
@@ -59,6 +62,9 @@ export function useUploadAvatar() {
       formData.append("file", file);
       return api<PublicUser>("/api/users/me/avatar", { method: "PUT", formData });
     },
-    onSuccess: (user) => queryClient.setQueryData(ME_QUERY_KEY, user),
+    onSuccess: (user) => {
+      queryClient.setQueryData(ME_QUERY_KEY, user);
+      void queryClient.invalidateQueries({ queryKey: USERS_KEY }); // Team list shows the new avatar
+    },
   });
 }

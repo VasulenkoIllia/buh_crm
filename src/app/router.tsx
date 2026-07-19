@@ -1,7 +1,8 @@
 import { createBrowserRouter, Outlet } from "react-router-dom";
-import { AuthProvider, PublicOnly, RequireAuth } from "./auth";
+import { AuthProvider, PublicOnly, RequireAdmin, RequireAuth } from "./auth";
 import { AppLayout } from "./layout";
 import { ComingSoon } from "./coming-soon";
+import { ErrorScreen } from "./error-screen";
 import {
   ForgotPasswordPage,
   ResetPasswordPage,
@@ -24,6 +25,7 @@ function Root() {
 export const router = createBrowserRouter([
   {
     element: <Root />,
+    errorElement: <ErrorScreen />,
     children: [
       // auth screens
       {
@@ -58,10 +60,16 @@ export const router = createBrowserRouter([
               },
               { path: "mailouts", element: <ComingSoon module="Mailouts" stage="S10" /> },
               { path: "reports", element: <ComingSoon module="Reports" stage="S12" /> },
-              { path: "team", element: <TeamPage /> },
               { path: "archive", element: <ComingSoon module="Archive" stage="S11" /> },
-              { path: "settings", element: <SettingsPage /> },
               { path: "profile", element: <ProfilePage /> },
+              // admin-only (backend enforces too — this stops the page from even mounting)
+              {
+                element: <RequireAdmin />,
+                children: [
+                  { path: "team", element: <TeamPage /> },
+                  { path: "settings", element: <SettingsPage /> },
+                ],
+              },
             ],
           },
         ],

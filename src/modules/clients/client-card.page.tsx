@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { Check, Download, Trash2 } from "lucide-react";
 import type { Client } from "@shared/schema/client";
 import { useSettings } from "@/modules/settings";
+import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { ClientFormModal } from "./client-form";
@@ -54,8 +55,12 @@ export function ClientCardPage() {
     if (!window.confirm("Archive this client? They disappear from lists (restorable from Archive).")) {
       return;
     }
-    await archive.mutateAsync(client.id);
-    navigate("/clients");
+    try {
+      await archive.mutateAsync(client.id);
+      navigate("/clients");
+    } catch {
+      window.alert("Could not archive the client. Please try again.");
+    }
   };
 
   return (
@@ -93,10 +98,11 @@ export function ClientCardPage() {
           </button>
           <button
             type="button"
+            disabled={archive.isPending}
             onClick={() => void onArchive()}
-            className="rounded-(--radius-field) border border-[#d9dde3] px-[13px] py-[7px] text-[13px] text-ink-700 hover:bg-divider"
+            className="rounded-(--radius-field) border border-[#d9dde3] px-[13px] py-[7px] text-[13px] text-ink-700 hover:bg-divider disabled:opacity-50"
           >
-            Archive
+            {archive.isPending ? "Archiving…" : "Archive"}
           </button>
         </div>
       </div>
@@ -310,6 +316,13 @@ function FilesTab({ clientId }: { clientId: string }) {
   const remove = useDeleteClientFile(clientId);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const serverError =
+    upload.error instanceof ApiError
+      ? upload.error.message
+      : remove.error instanceof ApiError
+        ? remove.error.message
+        : null;
+
   return (
     <div className="rounded-(--radius-panel) border border-border bg-surface p-5">
       <div className="mb-3 flex items-center justify-between">
@@ -320,7 +333,11 @@ function FilesTab({ clientId }: { clientId: string }) {
           className="hidden"
           onChange={(e) => {
             const file = e.target.files?.[0];
-            if (file) void upload.mutateAsync(file);
+            if (file) {
+              upload.mutateAsync(file).catch(() => {
+                /* surfaced via serverError below */
+              });
+            }
             e.target.value = "";
           }}
         />
@@ -353,7 +370,11 @@ function FilesTab({ clientId }: { clientId: string }) {
                 type="button"
                 className="hover:text-danger"
                 aria-label={`Delete ${file.name}`}
-                onClick={() => void remove.mutateAsync(file.id)}
+                onClick={() => {
+                  remove.mutateAsync(file.id).catch(() => {
+                    /* surfaced via serverError below */
+                  });
+                }}
               >
                 <Trash2 size={14} />
               </button>
@@ -364,6 +385,7 @@ function FilesTab({ clientId }: { clientId: string }) {
           <li className="text-[12px] text-muted">No files yet. Up to 25 MB per file.</li>
         )}
       </ul>
+      {serverError && <p className="mt-2 text-[12px] text-danger-text">{serverError}</p>}
     </div>
   );
 }

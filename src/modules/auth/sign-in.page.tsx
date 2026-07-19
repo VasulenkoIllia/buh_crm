@@ -19,8 +19,12 @@ export function SignInPage() {
   } = useForm<LoginInput>({ resolver: zodResolver(loginInput) });
 
   const onSubmit = handleSubmit(async (values) => {
-    await login.mutateAsync(values);
-    navigate((location.state as { from?: string } | null)?.from ?? "/", { replace: true });
+    try {
+      await login.mutateAsync(values);
+      navigate((location.state as { from?: string } | null)?.from ?? "/", { replace: true });
+    } catch {
+      /* surfaced via serverError below */
+    }
   });
 
   const serverError =

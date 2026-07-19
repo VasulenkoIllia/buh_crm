@@ -61,8 +61,12 @@ function AvatarSection() {
 
   const onFile = async (file: File | undefined) => {
     if (!file) return;
-    await upload.mutateAsync(file);
-    setVersion((v) => v + 1);
+    try {
+      await upload.mutateAsync(file);
+      setVersion((v) => v + 1);
+    } catch {
+      /* surfaced via serverError below */
+    }
   };
 
   const serverError = upload.error instanceof ApiError ? upload.error.message : null;
@@ -99,13 +103,23 @@ function NameSection({ defaults }: { defaults: NameValues }) {
   const {
     register,
     handleSubmit,
+    reset,
     formState: { errors, isSubmitting, isDirty },
   } = useForm<NameValues>({ resolver: zodResolver(nameSchema), defaultValues: defaults });
+
+  const serverError = update.error instanceof ApiError ? update.error.message : null;
 
   return (
     <Section title="Name">
       <form
-        onSubmit={handleSubmit((v) => update.mutateAsync(v))}
+        onSubmit={handleSubmit(async (v) => {
+          try {
+            await update.mutateAsync(v);
+            reset(v); // clears isDirty → the "Saved" label can appear
+          } catch {
+            /* surfaced via serverError below */
+          }
+        })}
         className="space-y-4"
         noValidate
       >
@@ -127,6 +141,7 @@ function NameSection({ defaults }: { defaults: NameValues }) {
             />
           </FormField>
         </div>
+        {serverError && <p className="text-[12px] text-danger-text">{serverError}</p>}
         <Button type="submit" disabled={isSubmitting || !isDirty}>
           {update.isSuccess && !isDirty ? "Saved" : "Save name"}
         </Button>
@@ -145,11 +160,15 @@ function PasswordSection() {
   } = useForm<PasswordValues>({ resolver: zodResolver(passwordSchema) });
 
   const onSubmit = handleSubmit(async (values) => {
-    await update.mutateAsync({
-      currentPassword: values.currentPassword,
-      newPassword: values.newPassword,
-    });
-    reset();
+    try {
+      await update.mutateAsync({
+        currentPassword: values.currentPassword,
+        newPassword: values.newPassword,
+      });
+      reset();
+    } catch {
+      /* surfaced via serverError below */
+    }
   });
 
   const serverError = update.error instanceof ApiError ? update.error.message : null;

@@ -5,6 +5,7 @@ import type {
   Priority,
   SettingsResponse,
   SourceOption,
+  SwapPrioritiesInput,
   UpdateFirmInput,
   UpdatePriorityInput,
   UpdateSourceInput,
@@ -31,6 +32,15 @@ export function useUpdatePriority() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdatePriorityInput }) =>
       api<Priority>(`/api/settings/priorities/${id}`, { method: "PATCH", body: input }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useSwapPriorities() {
+  const invalidate = useInvalidateSettings();
+  return useMutation({
+    mutationFn: (input: SwapPrioritiesInput) =>
+      api<Priority[]>("/api/settings/priorities/swap", { method: "PATCH", body: input }),
     onSuccess: invalidate,
   });
 }

@@ -54,7 +54,15 @@ export function ResetPasswordPage() {
 
   return (
     <AuthCard title="Set a new password">
-      <form onSubmit={handleSubmit((v) => reset.mutateAsync(v))} className="space-y-4" noValidate>
+      <form
+        onSubmit={handleSubmit(async (v) => {
+          await reset.mutateAsync(v).catch(() => {
+            /* surfaced via serverError below */
+          });
+        })}
+        className="space-y-4"
+        noValidate
+      >
         <FormField label="New password" htmlFor="password" error={errors.password?.message}>
           <Input
             id="password"

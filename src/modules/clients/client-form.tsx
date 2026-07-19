@@ -117,11 +117,15 @@ export function ClientFormModal({
     };
     // People are managed via the dedicated modal on the client card. On create we seed the
     // initial list here; on edit we omit `people` so the profile form never overwrites it.
-    const saved = client
-      ? await update.mutateAsync({ id: client.id, input: base })
-      : await create.mutateAsync({ ...base, people: rowsToPeopleInput(people) });
-    onSaved?.(saved);
-    close();
+    try {
+      const saved = client
+        ? await update.mutateAsync({ id: client.id, input: base })
+        : await create.mutateAsync({ ...base, people: rowsToPeopleInput(people) });
+      onSaved?.(saved);
+      close();
+    } catch {
+      /* surfaced via serverError below */
+    }
   });
 
   const mutation = client ? update : create;

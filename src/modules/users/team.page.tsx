@@ -48,7 +48,7 @@ export function TeamPage() {
             </tr>
           </thead>
           <tbody>
-            {users!.map((user) => (
+            {(users ?? []).map((user) => (
               <UserRow key={user.id} user={user} isSelf={user.id === me.id} />
             ))}
           </tbody>
@@ -160,8 +160,12 @@ function InviteModal({ open, onClose }: { open: boolean; onClose: () => void }) 
   };
 
   const onSubmit = handleSubmit(async (values) => {
-    await invite.mutateAsync(values);
-    close();
+    try {
+      await invite.mutateAsync(values);
+      close();
+    } catch {
+      /* surfaced via serverError below */
+    }
   });
 
   const serverError = invite.error instanceof ApiError ? invite.error.message : null;
