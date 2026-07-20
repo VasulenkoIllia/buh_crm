@@ -1,15 +1,24 @@
 import { X } from "lucide-react";
 import type { Client, ClientPersonInput } from "@shared/schema/client";
+import { useCatalog } from "@/modules/catalog";
 import { Button } from "@/shared/ui/button";
-import { Input } from "@/shared/ui/field";
+import { Input, Select } from "@/shared/ui/field";
 
 /** One editable contact row. `role` isn't edited in the UI (kept null server-side). */
-export type PersonRow = { name: string; serviceLabel: string; phone: string; email: string };
+export type PersonRow = {
+  name: string;
+  serviceId: string;
+  /** legacy pre-S3 free-text label — display-only, cleared once a service is picked */
+  serviceLabel: string;
+  phone: string;
+  email: string;
+};
 
 /** client DTO people → editable rows */
 export function peopleToRows(people: Client["people"]): PersonRow[] {
   return people.map((p) => ({
     name: p.name,
+    serviceId: p.serviceId ?? "",
     serviceLabel: p.serviceLabel ?? "",
     phone: p.phone ?? "",
     email: p.email ?? "",
@@ -22,7 +31,9 @@ export function rowsToPeopleInput(rows: PersonRow[]): ClientPersonInput[] {
     .filter((p) => p.name.trim())
     .map((p) => ({
       name: p.name,
-      serviceLabel: p.serviceLabel || null,
+      serviceId: p.serviceId || null,
+      // once a real service is picked the legacy text is retired
+      serviceLabel: p.serviceId ? null : p.serviceLabel || null,
       phone: p.phone || null,
       email: p.email || null,
     }));
@@ -35,6 +46,7 @@ export function PeopleEditor({
   value: PersonRow[];
   onChange: (rows: PersonRow[]) => void;
 }) {
+  const { data: services } = useCatalog();
   const set = (i: number, patch: Partial<PersonRow>) =>
     onChange(value.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
 
@@ -49,12 +61,23 @@ export function PeopleEditor({
               value={row.name}
               onChange={(e) => set(i, { name: e.target.value })}
             />
-            <Input
+            <Select
               className="flex-1"
-              placeholder="Service they handle"
-              value={row.serviceLabel}
-              onChange={(e) => set(i, { serviceLabel: e.target.value })}
-            />
+              aria-label="Service they handle"
+              value={row.serviceId}
+              onChange={(e) => set(i, { serviceId: e.target.value })}
+            >
+              <option value="">
+                {row.serviceLabel ? `${row.serviceLabel} (legacy)` : "Service they handle…"}
+              </option>
+              {services
+                ?.filter((s) => s.active)
+                .map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+            </Select>
             <button
               type="button"
               aria-label="Remove person"
@@ -84,7 +107,12 @@ export function PeopleEditor({
         type="button"
         variant="text"
         size="sm"
-        onClick={() => onChange([...value, { name: "", serviceLabel: "", phone: "", email: "" }])}
+        onClick={() =>
+          onChange([
+            ...value,
+            { name: "", serviceId: "", serviceLabel: "", phone: "", email: "" },
+          ])
+        }
       >
         + Add person
       </Button>

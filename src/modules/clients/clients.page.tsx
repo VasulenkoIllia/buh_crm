@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Client } from "@shared/schema/client";
+import type { Service } from "@shared/schema/catalog";
+import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { ClientFormModal } from "./client-form";
@@ -14,9 +16,9 @@ type TabKey = (typeof TABS)[number]["key"];
 
 const TAB_HINTS: Record<TabKey, string> = {
   one_time:
-    "One-time clients. Tick “Regular” to move a client to a subscription — amount and period appear with the Services stage.",
+    "One-time clients. Tick “Regular” (or add a subscription on the card) to move a client to the Regular tab.",
   regular:
-    "Regular clients (subscriptions). Amount · Period · Category per subscription arrive with the Services stage.",
+    "Regular clients — active subscriptions with amount and period; manage them on the client card.",
 };
 
 export function ClientsPage() {
@@ -27,6 +29,8 @@ export function ClientsPage() {
   const navigate = useNavigate();
 
   const { data, isLoading, error } = useClients({ tab, search: search || undefined, page });
+  const { data: services } = useCatalog();
+  const serviceById = new Map((services ?? []).map((s) => [s.id, s]));
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
   return (
@@ -100,6 +104,7 @@ export function ClientsPage() {
                   key={client.id}
                   client={client}
                   tab={tab}
+                  serviceById={serviceById}
                   onOpen={() => navigate(`/clients/${client.id}`)}
                 />
               ))}
@@ -184,13 +189,17 @@ function Initials({ name }: { name: string }) {
   );
 }
 
+const PERIOD_SHORT: Record<string, string> = { month: "monthly", quarter: "quarterly", year: "yearly" };
+
 function ClientRow({
   client,
   tab,
+  serviceById,
   onOpen,
 }: {
   client: Client;
   tab: TabKey;
+  serviceById: Map<string, Service>;
   onOpen: () => void;
 }) {
   const update = useUpdateClient();
@@ -208,7 +217,24 @@ function ClientRow({
       <span className="truncate font-semibold">{client.displayName}</span>
     </div>
   );
-  const category = <span className="text-muted">—</span>; // chips with Services (S3)
+  const category =
+    client.categories.length > 0 ? (
+      <div className="flex min-w-0 flex-wrap items-center gap-1">
+        {client.categories.slice(0, 2).map((id) => {
+          const svc = serviceById.get(id);
+          return svc ? <ServiceChip key={id} name={svc.name} color={svc.color} /> : null;
+        })}
+        {client.categories.length > 2 && (
+          <span className="text-[11px] text-muted">+{client.categories.length - 2}</span>
+        )}
+      </div>
+    ) : (
+      <span className="text-muted">—</span>
+    );
+  const activeSubs = client.subscriptions.filter((s) => s.active);
+  const subsTotal = activeSubs.reduce((sum, s) => sum + s.amount, 0);
+  const subsPeriods =
+    [...new Set(activeSubs.map((s) => PERIOD_SHORT[s.period]))].join(", ") || "—";
 
   return (
     <div
@@ -223,8 +249,10 @@ function ClientRow({
         <>
           {nameCell}
           <div className="truncate text-ink-700">{companies}</div>
-          <div className="text-muted">—</div>
-          <div className="text-muted">—</div>
+          <div className="tabular-nums">
+            {activeSubs.length > 0 ? `$${(subsTotal / 100).toFixed(0)}` : "—"}
+          </div>
+          <div className="truncate text-muted">{subsPeriods}</div>
           {category}
           <div className="text-right tabular-nums">{debt}</div>
         </>

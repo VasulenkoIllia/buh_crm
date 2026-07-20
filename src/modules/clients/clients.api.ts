@@ -3,7 +3,9 @@ import type {
   Client,
   ClientListQuery,
   CreateClientInput,
+  CreateSubscriptionInput,
   UpdateClientInput,
+  UpdateSubscriptionInput,
 } from "@shared/schema/client";
 import { api } from "@/shared/lib/api";
 
@@ -105,5 +107,48 @@ export function useDeleteClientFile(clientId: string) {
       api<{ ok: true }>(`/api/clients/${clientId}/files/${fileId}`, { method: "DELETE" }),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: [...CLIENTS_KEY, "files", clientId] }),
+  });
+}
+
+// ── subscriptions & categories (S3) ─────────────────────────────────────────
+
+export function useAddSubscription() {
+  const invalidate = useInvalidateClients();
+  return useMutation({
+    mutationFn: ({ clientId, input }: { clientId: string; input: CreateSubscriptionInput }) =>
+      api<Client>(`/api/clients/${clientId}/subscriptions`, { method: "POST", body: input }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useUpdateSubscription() {
+  const invalidate = useInvalidateClients();
+  return useMutation({
+    mutationFn: ({
+      clientId,
+      subscriptionId,
+      input,
+    }: {
+      clientId: string;
+      subscriptionId: string;
+      input: UpdateSubscriptionInput;
+    }) =>
+      api<Client>(`/api/clients/${clientId}/subscriptions/${subscriptionId}`, {
+        method: "PATCH",
+        body: input,
+      }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useSetCategories() {
+  const invalidate = useInvalidateClients();
+  return useMutation({
+    mutationFn: ({ clientId, serviceIds }: { clientId: string; serviceIds: string[] }) =>
+      api<Client>(`/api/clients/${clientId}/categories`, {
+        method: "PUT",
+        body: { serviceIds },
+      }),
+    onSuccess: invalidate,
   });
 }

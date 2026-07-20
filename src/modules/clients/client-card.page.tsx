@@ -2,12 +2,14 @@ import { useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Check, Download, Trash2 } from "lucide-react";
 import type { Client } from "@shared/schema/client";
+import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { useSettings } from "@/modules/settings";
 import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { ClientFormModal } from "./client-form";
 import { ClientPeopleModal } from "./client-people-modal";
+import { AddServiceModal, CategoriesModal, SubscriptionList } from "./client-services";
 import {
   useArchiveClient,
   useClient,
@@ -32,7 +34,6 @@ const TAB_STAGE: Partial<Record<TabKey, string>> = {
   tasks: "S6",
   invoices: "S7",
   meetings: "S8",
-  services: "S3",
 };
 
 export function ClientCardPage() {
@@ -127,8 +128,9 @@ export function ClientCardPage() {
       </div>
 
       {/* company view (multi-company clients) */}
-      {tab === "profile" && <ProfileTab client={client} onEdit={() => setEditOpen(true)} />}
+      {tab === "profile" && <ProfileTab client={client} />}
       {tab === "people" && <PeopleTab client={client} onManage={() => setPeopleOpen(true)} />}
+      {tab === "services" && <ServicesTab client={client} />}
       {tab === "files" && <FilesTab clientId={client.id} />}
       {TAB_STAGE[tab] && (
         <div className="rounded-(--radius-panel) border border-border bg-surface px-5 py-10 text-center text-[13px] text-muted">
@@ -147,6 +149,25 @@ export function ClientCardPage() {
 }
 
 
+function ServicesTab({ client }: { client: Client }) {
+  const [addOpen, setAddOpen] = useState(false);
+  return (
+    <div className="rounded-(--radius-panel) border border-border bg-surface p-5">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-[15px] font-semibold">Services / subscriptions</h2>
+        <Button variant="secondary" size="sm" onClick={() => setAddOpen(true)}>
+          + Add service
+        </Button>
+      </div>
+      <SubscriptionList client={client} />
+      <p className="mt-3 text-[12px] text-faint">
+        Tasks are generated from subscriptions with the Tasks stage (S6).
+      </p>
+      {addOpen && <AddServiceModal client={client} open onClose={() => setAddOpen(false)} />}
+    </div>
+  );
+}
+
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
     <div className="mb-[3px] text-[11px] uppercase tracking-[.4px] text-muted-400">
@@ -156,6 +177,8 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 }
 
 function PeopleTab({ client, onManage }: { client: Client; onManage: () => void }) {
+  const { data: services } = useCatalog();
+  const serviceById = new Map((services ?? []).map((s) => [s.id, s]));
   return (
     <div className="rounded-(--radius-panel) border border-border bg-surface">
       <div className="flex items-center justify-between border-b border-divider px-5 py-3">
@@ -186,11 +209,16 @@ function PeopleTab({ client, onManage }: { client: Client; onManage: () => void 
                   {[p.phone, p.email].filter(Boolean).join(" · ") || "—"}
                 </div>
               </div>
-              {p.serviceLabel && (
-                <span className="rounded-(--radius-chip) bg-[#eef1fb] px-2 py-0.5 text-[12px] font-medium text-primary-link">
+              {p.serviceId && serviceById.get(p.serviceId) ? (
+                <ServiceChip
+                  name={serviceById.get(p.serviceId)!.name}
+                  color={serviceById.get(p.serviceId)!.color}
+                />
+              ) : p.serviceLabel ? (
+                <span className="rounded-(--radius-chip) bg-divider px-2 py-0.5 text-[12px] font-medium text-muted">
                   {p.serviceLabel}
                 </span>
-              )}
+              ) : null}
             </li>
           ))}
         </ul>
@@ -199,10 +227,14 @@ function PeopleTab({ client, onManage }: { client: Client; onManage: () => void 
   );
 }
 
-function ProfileTab({ client, onEdit }: { client: Client; onEdit: () => void }) {
+function ProfileTab({ client }: { client: Client }) {
   const { data: settings } = useSettings();
+  const { data: services } = useCatalog();
   const update = useUpdateClient();
+  const [categoriesOpen, setCategoriesOpen] = useState(false);
+  const [addServiceOpen, setAddServiceOpen] = useState(false);
   const sourceName = settings?.sources.find((s) => s.id === client.sourceId)?.name;
+  const serviceById = new Map((services ?? []).map((s) => [s.id, s]));
 
   return (
     <>
@@ -240,8 +272,21 @@ function ProfileTab({ client, onEdit }: { client: Client; onEdit: () => void }) 
         </div>
         <div className="sm:col-span-2">
           <FieldLabel>Service category</FieldLabel>
-          <div className="text-[13px] text-muted">
-            Category chips arrive with the Services stage (S3).
+          <div className="flex flex-wrap items-center gap-1.5">
+            {client.categories.map((id) => {
+              const svc = serviceById.get(id);
+              return svc ? <ServiceChip key={id} name={svc.name} color={svc.color} /> : null;
+            })}
+            {client.categories.length === 0 && (
+              <span className="text-[14px] text-muted">—</span>
+            )}
+            <button
+              type="button"
+              className="text-[12px] font-medium text-primary-link hover:underline"
+              onClick={() => setCategoriesOpen(true)}
+            >
+              Edit
+            </button>
           </div>
         </div>
         <div className="sm:col-span-2">
@@ -300,11 +345,27 @@ function ProfileTab({ client, onEdit }: { client: Client; onEdit: () => void }) 
           </span>
         </div>
         {client.isRegular && (
-          <div className="mt-3.5 rounded-(--radius-panel) border border-[#ece3fb] bg-[#faf7ff] px-4 py-3.5 text-[13px] text-muted">
-            Subscriptions (service · amount · period) arrive with the Services stage (S3).
-            The Regular flag is manual until then — <button type="button" className="text-primary-link hover:underline" onClick={onEdit}>edit client</button>.
+          <div className="mt-3.5 rounded-(--radius-panel) border border-[#ece3fb] bg-[#faf7ff] px-4 py-3.5">
+            <SubscriptionList client={client} />
+            <Button
+              variant="secondary"
+              size="sm"
+              className="mt-2.5"
+              onClick={() => setAddServiceOpen(true)}
+            >
+              + Add service
+            </Button>
+            <p className="mt-2 text-[12px] text-faint">
+              Tasks are generated from subscriptions with the Tasks stage (S6).
+            </p>
           </div>
         )}
+      {categoriesOpen && (
+        <CategoriesModal client={client} open onClose={() => setCategoriesOpen(false)} />
+      )}
+      {addServiceOpen && (
+        <AddServiceModal client={client} open onClose={() => setAddServiceOpen(false)} />
+      )}
       </div>
     </>
   );

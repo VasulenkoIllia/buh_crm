@@ -14,6 +14,7 @@ import type { Lead } from "@shared/schema/lead";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { StatusPill } from "@/shared/ui/pill";
+import { useCatalog } from "@/modules/catalog";
 import { useSettings } from "@/modules/settings";
 import { ConvertLeadModal, LeadFormModal } from "./lead-modals";
 import { useLeads, useMarkLost, useReopenLead, useUpdateLead } from "./leads.api";
@@ -173,6 +174,7 @@ function LeadCard({ lead, onOpen }: { lead: Lead; onOpen: () => void }) {
 function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => void }) {
   const { data: leads } = useLeads();
   const { data: settings } = useSettings();
+  const { data: services } = useCatalog();
   const markLost = useMarkLost();
   const reopen = useReopenLead();
   const [editOpen, setEditOpen] = useState(false);
@@ -189,6 +191,7 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
   }
 
   const sourceName = settings?.sources.find((s) => s.id === lead.sourceId)?.name;
+  const serviceName = services?.find((s) => s.id === lead.serviceId)?.name;
   const stageLabel = STAGES.find((s) => s.key === lead.stage)?.label;
 
   return (
@@ -219,6 +222,7 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
         <div className="grid grid-cols-2 gap-x-6 gap-y-3.5 border-b border-[#eef0f3] px-5 py-[18px]">
           <LeadField label="Phone" value={lead.phone} />
           <LeadField label="Email" value={lead.email} />
+          <LeadField label="Service" value={serviceName ?? null} />
           <LeadField label="Source" value={sourceName ?? null} />
           <LeadField
             label="Created"

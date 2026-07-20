@@ -13,6 +13,7 @@ import { ProfilePage, TeamPage } from "@/modules/users";
 import { SettingsPage } from "@/modules/settings";
 import { ClientCardPage, ClientsPage } from "@/modules/clients";
 import { LeadsPage } from "@/modules/leads";
+import { ServicesPage } from "@/modules/catalog";
 
 function Root() {
   return (
@@ -54,10 +55,7 @@ export const router = createBrowserRouter([
               { path: "leads", element: <LeadsPage /> },
               { path: "unpaid", element: <ComingSoon module="Unpaid" stage="S7" /> },
               { path: "calendar", element: <ComingSoon module="Calendar" stage="S8" /> },
-              {
-                path: "services",
-                element: <ComingSoon module="Services (Catalog)" stage="S3" />,
-              },
+              { path: "services", element: <ServicesPage /> },
               { path: "mailouts", element: <ComingSoon module="Mailouts" stage="S10" /> },
               { path: "reports", element: <ComingSoon module="Reports" stage="S12" /> },
               { path: "archive", element: <ComingSoon module="Archive" stage="S11" /> },

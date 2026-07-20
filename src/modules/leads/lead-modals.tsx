@@ -9,6 +9,7 @@ import { Button } from "@/shared/ui/button";
 import { FormField, Input, Label, Select } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
 import { Segmented } from "@/shared/ui/segmented";
+import { useCatalog } from "@/modules/catalog";
 import { useSettings } from "@/modules/settings";
 import { useConvertLead, useCreateLead, useUpdateLead } from "./leads.api";
 
@@ -18,6 +19,7 @@ const leadFormSchema = z
     name: z.string().min(1, "Required"),
     phone: z.string(),
     email: z.union([z.email("Invalid email"), z.literal("")]),
+    serviceId: z.string(),
     sourceId: z.string(),
     description: z.string(),
   })
@@ -39,6 +41,7 @@ export function LeadFormModal({
   const create = useCreateLead();
   const update = useUpdateLead();
   const { data: settings } = useSettings();
+  const { data: services } = useCatalog();
 
   const {
     register,
@@ -54,6 +57,7 @@ export function LeadFormModal({
       name: lead?.name ?? "",
       phone: lead?.phone ?? "",
       email: lead?.email ?? "",
+      serviceId: lead?.serviceId ?? "",
       sourceId: lead?.sourceId ?? "",
       description: lead?.description ?? "",
     },
@@ -74,6 +78,7 @@ export function LeadFormModal({
       name: values.name,
       phone: values.phone || null,
       email: values.email || null,
+      serviceId: values.serviceId || null,
       sourceId: values.sourceId || null,
       description: values.description || null,
     };
@@ -151,6 +156,18 @@ export function LeadFormModal({
             />
           </FormField>
         </div>
+        <FormField label="Service they came for" htmlFor="l-service">
+          <Select id="l-service" {...register("serviceId")}>
+            <option value="">—</option>
+            {services
+              ?.filter((s) => s.active)
+              .map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+          </Select>
+        </FormField>
         <FormField label="Source" htmlFor="l-source">
           <Select id="l-source" {...register("sourceId")}>
             <option value="">—</option>

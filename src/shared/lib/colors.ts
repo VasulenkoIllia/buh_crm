@@ -17,6 +17,21 @@ export const CATEGORY_COLORS: Record<string, ChipColors> = {
   Other: { fg: "#6b7280", bg: "#eef0f3" },
 };
 
+/** bg tint for each palette fg — services store only the fg hex (Catalog, S3). */
+const CHIP_BG: Record<string, string> = {
+  "#2f4fd6": "#eef1fb",
+  "#7a4fd6": "#f0ebfb",
+  "#1f7a8c": "#e2f1f4",
+  "#b5651d": "#f7ede2",
+  "#c23434": "#fbeaea",
+  "#1f8f3a": "#e6f4ea",
+  "#6b7280": "#eef0f3",
+};
+
+export function categoryChip(color: string): ChipColors {
+  return { fg: color, bg: CHIP_BG[color.toLowerCase()] ?? "#eef0f3" };
+}
+
 export interface PriorityColors extends ChipColors {
   bar: string;
 }
