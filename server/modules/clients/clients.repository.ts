@@ -4,7 +4,8 @@ import { prisma } from "../../core/db.js";
 const clientInclude = {
   companies: { orderBy: { order: "asc" } },
   people: { orderBy: { order: "asc" } },
-  subscriptions: { where: { active: true }, select: { id: true } },
+  subscriptions: { orderBy: { createdAt: "asc" } },
+  categories: { select: { serviceId: true } },
   source: true,
 } satisfies Prisma.ClientInclude;
 
@@ -72,6 +73,7 @@ export async function setClientCompanies(clientId: string, names: string[]) {
 
 export interface PersonData {
   name: string;
+  serviceId: string | null;
   serviceLabel: string | null;
   role: string | null;
   phone: string | null;
@@ -84,6 +86,36 @@ export async function setClientPeople(clientId: string, people: PersonData[]) {
     prisma.clientPerson.deleteMany({ where: { clientId } }),
     prisma.clientPerson.createMany({
       data: people.map((p, order) => ({ clientId, order, ...p })),
+    }),
+  ]);
+}
+
+// ── subscriptions & categories (S3) ─────────────────────────────────────────
+
+export function createSubscription(data: {
+  clientId: string;
+  serviceId: string;
+  companyId: string | null;
+  amount: number;
+  period: "month" | "quarter" | "year";
+}) {
+  return prisma.subscription.create({ data });
+}
+
+export function findSubscription(clientId: string, id: string) {
+  return prisma.subscription.findFirst({ where: { id, clientId } });
+}
+
+export function updateSubscription(id: string, data: Prisma.SubscriptionUpdateInput) {
+  return prisma.subscription.update({ where: { id }, data });
+}
+
+/** Full replace of the client's category chip set. */
+export async function setClientCategories(clientId: string, serviceIds: string[]) {
+  await prisma.$transaction([
+    prisma.clientServiceCategory.deleteMany({ where: { clientId } }),
+    prisma.clientServiceCategory.createMany({
+      data: [...new Set(serviceIds)].map((serviceId) => ({ clientId, serviceId })),
     }),
   ]);
 }

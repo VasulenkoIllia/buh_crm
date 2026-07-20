@@ -1,9 +1,13 @@
 import type {
   ClientListQuery,
   CreateClientInput,
+  CreateSubscriptionInput,
+  SetClientCategoriesInput,
   UpdateClientInput,
+  UpdateSubscriptionInput,
 } from "@shared/schema/client.js";
 import type { Prisma, User } from "../../generated/prisma/client.js";
+import { prisma } from "../../core/db.js";
 import { NotFoundError, ValidationError } from "../../core/errors.js";
 import { MAX_FILE_SIZE, deleteFileBytes, saveFileBytes } from "../../core/files.js";
 import * as repo from "./clients.repository.js";
@@ -22,6 +26,16 @@ function displayName(c: {
 export function toClientDto(client: repo.ClientRecord) {
   return {
     id: client.id,
+    categories: client.categories.map((c) => c.serviceId),
+    subscriptions: client.subscriptions.map((s) => ({
+      id: s.id,
+      clientId: s.clientId,
+      companyId: s.companyId,
+      serviceId: s.serviceId,
+      amount: s.amount,
+      period: s.period,
+      active: s.active,
+    })),
     type: client.type,
     firstName: client.firstName,
     lastName: client.lastName,
@@ -31,13 +45,14 @@ export function toClientDto(client: repo.ClientRecord) {
     email: client.email,
     address: client.address,
     sourceId: client.sourceId,
-    isRegular: client.regularOverride ?? client.subscriptions.length > 0,
+    isRegular: client.regularOverride ?? client.subscriptions.some((s) => s.active),
     regularOverride: client.regularOverride,
     description: client.description,
     companies: client.companies.map((c) => ({ id: c.id, name: c.name })),
     people: client.people.map((p) => ({
       id: p.id,
       name: p.name,
+      serviceId: p.serviceId,
       serviceLabel: p.serviceLabel,
       role: p.role,
       phone: p.phone,
@@ -137,6 +152,7 @@ export async function createClient(input: CreateClientInput) {
       client.id,
       input.people.map((p) => ({
         name: p.name,
+        serviceId: p.serviceId ?? null,
         serviceLabel: p.serviceLabel ?? null,
         role: p.role ?? null,
         phone: p.phone ?? null,
@@ -171,6 +187,7 @@ export async function updateClient(id: string, input: UpdateClientInput) {
       id,
       input.people.map((p) => ({
         name: p.name,
+        serviceId: p.serviceId ?? null,
         serviceLabel: p.serviceLabel ?? null,
         role: p.role ?? null,
         phone: p.phone ?? null,
@@ -179,6 +196,56 @@ export async function updateClient(id: string, input: UpdateClientInput) {
     );
   }
   return getClient(id);
+}
+
+// ── subscriptions & categories (S3) ─────────────────────────────────────────
+
+export async function addSubscription(clientId: string, input: CreateSubscriptionInput) {
+  await getClient(clientId);
+  const service = await prisma.service.findUnique({ where: { id: input.serviceId } });
+  if (!service || !service.active) throw new ValidationError("Unknown or inactive service");
+  if (input.companyId) {
+    const company = await prisma.company.findFirst({
+      where: { id: input.companyId, clientId },
+    });
+    if (!company) throw new ValidationError("Company does not belong to this client");
+  }
+  await repo.createSubscription({
+    clientId,
+    serviceId: input.serviceId,
+    companyId: input.companyId ?? null,
+    amount: input.amount,
+    period: input.period,
+  });
+  return getClient(clientId);
+}
+
+export async function updateSubscription(
+  clientId: string,
+  subscriptionId: string,
+  input: UpdateSubscriptionInput,
+) {
+  await getClient(clientId);
+  const sub = await repo.findSubscription(clientId, subscriptionId);
+  if (!sub) throw new NotFoundError("Subscription not found");
+  if (input.companyId) {
+    const company = await prisma.company.findFirst({
+      where: { id: input.companyId, clientId },
+    });
+    if (!company) throw new ValidationError("Company does not belong to this client");
+  }
+  await repo.updateSubscription(subscriptionId, input);
+  return getClient(clientId);
+}
+
+export async function setCategories(clientId: string, input: SetClientCategoriesInput) {
+  await getClient(clientId);
+  const count = await prisma.service.count({ where: { id: { in: input.serviceIds } } });
+  if (count !== new Set(input.serviceIds).size) {
+    throw new ValidationError("Unknown service in the category list");
+  }
+  await repo.setClientCategories(clientId, input.serviceIds);
+  return getClient(clientId);
 }
 
 export async function archiveClient(id: string, actor: User) {

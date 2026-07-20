@@ -199,8 +199,9 @@ model Service {
   name           String         @unique // is the category label
   color          String
   type           ServiceType
-  defaultAmount  Int? // minor units
+  defaultAmount  Int? // minor units — expected price; per-client override on Subscription.amount
   invoiceTrigger InvoiceTrigger @default(on_create)
+  invoiceDay     Int? // "on day N of the period" (design: billing rule sub-panel)
   active         Boolean        @default(true)
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
@@ -212,6 +213,7 @@ model Service {
   leads            Lead[]
   invoices         Invoice[]
   meetings         Meeting[]
+  people           ClientPerson[]
 }
 
 model TaskTemplate {
@@ -221,6 +223,7 @@ model TaskTemplate {
   periodicity        Periodicity
   dayOfPeriod        Int? // e.g. "monthly on the 25th"
   deadlineOffsetDays Int? // deadline = createdAt + offset; null = no deadline
+  estimatedMinutes   Int? // planned labor default; per-task override via Task.plannedMinutes
   defaultAssigneeId  String?     @db.Uuid
   billable           Boolean     @default(true)
   createdAt          DateTime    @default(now())
@@ -299,7 +302,8 @@ model ClientPerson {
   id           String   @id @default(uuid()) @db.Uuid
   clientId     String   @db.Uuid
   name         String
-  serviceLabel String? // free-text service they are responsible for (real Service link later)
+  serviceId    String?  @db.Uuid // the catalog service they handle (S3+)
+  serviceLabel String? // legacy free-text label (pre-S3 rows); shown until edited
   role         String?
   phone        String?
   email        String?
@@ -307,9 +311,11 @@ model ClientPerson {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  client  Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  service Service? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
 
   @@index([clientId])
+  @@index([serviceId])
 }
 
 model ClientServiceCategory {

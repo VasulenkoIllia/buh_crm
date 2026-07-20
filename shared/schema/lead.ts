@@ -32,6 +32,8 @@ const leadFields = z.object({
   name: z.string().trim().min(1, "Required"),
   phone: optionalTrimmed,
   email: z.email().nullable().optional(),
+  /** the catalog service the lead came for (S3) */
+  serviceId: uuid.nullable().optional(),
   sourceId: uuid.nullable().optional(),
   description: optionalTrimmed,
 });

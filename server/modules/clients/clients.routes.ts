@@ -5,7 +5,10 @@ import { uuid } from "@shared/schema/common.js";
 import {
   clientListQuery,
   createClientInput,
+  createSubscriptionInput,
+  setClientCategoriesInput,
   updateClientInput,
+  updateSubscriptionInput,
 } from "@shared/schema/client.js";
 import { requireAuth } from "../../core/auth.js";
 import { ValidationError } from "../../core/errors.js";
@@ -43,6 +46,38 @@ export async function registerRoutes(instance: FastifyInstance) {
   app.post("/:id/archive", { schema: { params: idParams } }, async (request) => {
     return service.archiveClient(request.params.id, request.currentUser!);
   });
+
+  // ── subscriptions & categories (S3) ───────────────────────────────────────
+
+  app.post(
+    "/:id/subscriptions",
+    { schema: { params: idParams, body: createSubscriptionInput } },
+    async (request, reply) => {
+      const client = await service.addSubscription(request.params.id, request.body);
+      return reply.status(201).send(client);
+    },
+  );
+
+  app.patch(
+    "/:id/subscriptions/:subId",
+    {
+      schema: {
+        params: z.object({ id: uuid, subId: uuid }),
+        body: updateSubscriptionInput,
+      },
+    },
+    async (request) => {
+      return service.updateSubscription(request.params.id, request.params.subId, request.body);
+    },
+  );
+
+  app.put(
+    "/:id/categories",
+    { schema: { params: idParams, body: setClientCategoriesInput } },
+    async (request) => {
+      return service.setCategories(request.params.id, request.body);
+    },
+  );
 
   // ── files ─────────────────────────────────────────────────────────────────
 

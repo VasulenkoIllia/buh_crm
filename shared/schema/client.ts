@@ -12,6 +12,8 @@ export type Company = z.infer<typeof companySchema>;
 export const clientPersonSchema = z.object({
   id: uuid,
   name: z.string().min(1),
+  serviceId: uuid.nullable(),
+  /** legacy pre-S3 free-text label — shown until the person is edited */
   serviceLabel: z.string().nullable(),
   role: z.string().nullable(),
   phone: z.string().nullable(),
@@ -32,6 +34,9 @@ export type Subscription = z.infer<typeof subscriptionSchema>;
 
 export const clientSchema = z.object({
   id: uuid,
+  /** category chips + subscription rows join against the catalog list client-side */
+  categories: z.array(uuid),
+  subscriptions: z.array(subscriptionSchema),
   type: clientType,
   firstName: z.string().nullable(),
   lastName: z.string().nullable(),
@@ -64,6 +69,8 @@ const optionalTrimmed = z
 
 export const clientPersonInput = z.object({
   name: z.string().trim().min(1),
+  /** picked from the catalog (S3+); serviceLabel below is legacy display only */
+  serviceId: uuid.nullable().optional(),
   serviceLabel: optionalTrimmed,
   role: optionalTrimmed,
   phone: optionalTrimmed,
@@ -118,6 +125,30 @@ export const updateClientInput = clientFields
   })
   .refine((v) => v.type === undefined || requireByType(v as never), requireMsg);
 export type UpdateClientInput = z.infer<typeof updateClientInput>;
+
+// ── Subscriptions & categories (S3) ─────────────────────────────────────────
+
+export const createSubscriptionInput = z.object({
+  serviceId: uuid,
+  companyId: uuid.nullable().optional(),
+  amount: money,
+  period: billingPeriod.default("month"),
+});
+export type CreateSubscriptionInput = z.infer<typeof createSubscriptionInput>;
+
+export const updateSubscriptionInput = z.object({
+  amount: money.optional(),
+  period: billingPeriod.optional(),
+  companyId: uuid.nullable().optional(),
+  active: z.boolean().optional(),
+});
+export type UpdateSubscriptionInput = z.infer<typeof updateSubscriptionInput>;
+
+/** Full replace of the client's category chip set. */
+export const setClientCategoriesInput = z.object({
+  serviceIds: z.array(uuid).max(20),
+});
+export type SetClientCategoriesInput = z.infer<typeof setClientCategoriesInput>;
 
 export const clientListQuery = z.object({
   tab: z.enum(["one_time", "regular"]).default("one_time"),
