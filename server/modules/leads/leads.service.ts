@@ -4,8 +4,16 @@ import type {
   UpdateLeadInput,
 } from "@shared/schema/lead.js";
 import type { Lead } from "../../generated/prisma/client.js";
+import { prisma } from "../../core/db.js";
 import { NotFoundError, ValidationError } from "../../core/errors.js";
 import * as repo from "./leads.repository.js";
+
+/** New/changed service on a lead must exist and be active (existing refs stay untouched). */
+async function assertActiveService(serviceId: string | null | undefined, current?: string | null) {
+  if (!serviceId || serviceId === current) return;
+  const service = await prisma.service.findUnique({ where: { id: serviceId } });
+  if (!service || !service.active) throw new ValidationError("Unknown or inactive service");
+}
 
 function toLeadDto(lead: Lead) {
   return {
@@ -30,6 +38,7 @@ export async function listLeads() {
 }
 
 export async function createLead(input: CreateLeadInput) {
+  await assertActiveService(input.serviceId);
   return toLeadDto(await repo.createLead(input));
 }
 
@@ -53,6 +62,7 @@ export async function updateLead(id: string, input: UpdateLeadInput) {
   if (!phone && !email) {
     throw new ValidationError("At least one of phone or email is required");
   }
+  await assertActiveService(input.serviceId, lead.serviceId);
   return toLeadDto(await repo.updateLead(id, input));
 }
 

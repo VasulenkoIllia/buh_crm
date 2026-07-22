@@ -35,6 +35,19 @@ export function updateService(id: string, data: Prisma.ServiceUpdateInput) {
   return prisma.service.update({ where: { id }, data, include: serviceInclude });
 }
 
+export async function countServiceUsage(serviceId: string) {
+  const [subscriptions, categories, people] = await prisma.$transaction([
+    prisma.subscription.count({ where: { serviceId } }),
+    prisma.clientServiceCategory.count({ where: { serviceId } }),
+    prisma.clientPerson.count({ where: { serviceId } }),
+  ]);
+  return { subscriptions, categories, people };
+}
+
+export function deleteService(id: string) {
+  return prisma.service.delete({ where: { id } });
+}
+
 // ── task templates ───────────────────────────────────────────────────────────
 
 export function findTemplate(serviceId: string, templateId: string) {

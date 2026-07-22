@@ -37,6 +37,12 @@ export function convertLead(
       throw new ConflictError("This lead is already converted"); // rolls back the created client
     }
     const lead = await tx.lead.findUniqueOrThrow({ where: { id: leadId } });
+    // the service the lead came for becomes the client's category chip (decision 2026-07-21)
+    if (lead.serviceId) {
+      await tx.clientServiceCategory.create({
+        data: { clientId: client.id, serviceId: lead.serviceId },
+      });
+    }
     return { client, lead };
   });
 }

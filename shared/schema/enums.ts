@@ -14,7 +14,7 @@ export type UserStatus = z.infer<typeof userStatus>;
 export const serviceType = z.enum(["subscription", "one_time", "internal"]);
 export type ServiceType = z.infer<typeof serviceType>;
 
-export const invoiceTrigger = z.enum(["on_create", "on_complete", "on_period_start"]);
+export const invoiceTrigger = z.enum(["on_create", "on_complete", "on_period_start", "on_period_end"]);
 export type InvoiceTrigger = z.infer<typeof invoiceTrigger>;
 
 export const billingPeriod = z.enum(["month", "quarter", "year"]);

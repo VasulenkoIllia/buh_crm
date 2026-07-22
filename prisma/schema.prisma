@@ -41,6 +41,7 @@ enum InvoiceTrigger {
   on_create
   on_complete
   on_period_start
+  on_period_end
 }
 
 enum BillingPeriod {
@@ -202,6 +203,7 @@ model Service {
   defaultAmount  Int? // minor units — expected price; per-client override on Subscription.amount
   invoiceTrigger InvoiceTrigger @default(on_create)
   invoiceDay     Int? // "on day N of the period" (design: billing rule sub-panel)
+  dueDays        Int? // invoice counts as overdue N days after issue; null = never
   active         Boolean        @default(true)
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
@@ -221,7 +223,8 @@ model TaskTemplate {
   serviceId          String      @db.Uuid
   name               String
   periodicity        Periodicity
-  dayOfPeriod        Int? // e.g. "monthly on the 25th"
+  dayOfPeriod        Int? // weekly: 1-7 (Mon=1); monthly/quarterly/yearly: 1-31 or -1 = last day
+  monthOfPeriod      Int? // quarterly: 1-3 (month of quarter); yearly: 1-12
   deadlineOffsetDays Int? // deadline = createdAt + offset; null = no deadline
   estimatedMinutes   Int? // planned labor default; per-task override via Task.plannedMinutes
   defaultAssigneeId  String?     @db.Uuid
@@ -335,6 +338,10 @@ model Subscription {
   serviceId       String        @db.Uuid
   amount          Int // minor units, per period
   period          BillingPeriod
+  // per-client billing timing; null = inherit the service preset (legacy rows)
+  invoiceTrigger  InvoiceTrigger?
+  invoiceDay      Int?
+  dueDays         Int? // per-client overdue terms; null = inherit the service preset
   rhythmOverrides Json? // per-client task-template rhythm/deadline overrides
   active          Boolean       @default(true)
   startedAt       DateTime      @default(now())

@@ -39,6 +39,14 @@ export async function registerRoutes(instance: FastifyInstance) {
     },
   );
 
+  app.delete(
+    "/:id",
+    { preHandler: requireAdmin, schema: { params: idParams } },
+    async (request) => {
+      return service.removeService(request.params.id);
+    },
+  );
+
   app.post(
     "/:id/tasks",
     { preHandler: requireAdmin, schema: { params: idParams, body: createTaskTemplateInput } },

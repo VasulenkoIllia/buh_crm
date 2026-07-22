@@ -92,12 +92,56 @@ export async function setClientPeople(clientId: string, people: PersonData[]) {
 
 // ── subscriptions & categories (S3) ─────────────────────────────────────────
 
+export function findServiceById(id: string) {
+  return prisma.service.findUnique({ where: { id } });
+}
+
+export function findClientCompany(clientId: string, companyId: string) {
+  return prisma.company.findFirst({ where: { id: companyId, clientId } });
+}
+
+export function countServicesByIds(ids: string[]) {
+  return prisma.service.count({ where: { id: { in: ids } } });
+}
+
+export function countActiveServicesByIds(ids: string[]) {
+  return prisma.service.count({ where: { id: { in: ids }, active: true } });
+}
+
+export async function listServiceTemplateIds(serviceId: string) {
+  const rows = await prisma.taskTemplate.findMany({
+    where: { serviceId },
+    select: { id: true },
+  });
+  return rows.map((r) => r.id);
+}
+
+/** An existing subscription for the same client+service+company target (null = client root). */
+export function findDuplicateSubscription(
+  clientId: string,
+  serviceId: string,
+  companyId: string | null,
+  excludeId?: string,
+) {
+  return prisma.subscription.findFirst({
+    where: {
+      clientId,
+      serviceId,
+      companyId,
+      ...(excludeId ? { id: { not: excludeId } } : {}),
+    },
+  });
+}
+
 export function createSubscription(data: {
   clientId: string;
   serviceId: string;
   companyId: string | null;
   amount: number;
   period: "month" | "quarter" | "year";
+  invoiceTrigger: "on_period_start" | "on_period_end" | null;
+  invoiceDay: number | null;
+  dueDays: number | null;
 }) {
   return prisma.subscription.create({ data });
 }
@@ -106,7 +150,8 @@ export function findSubscription(clientId: string, id: string) {
   return prisma.subscription.findFirst({ where: { id, clientId } });
 }
 
-export function updateSubscription(id: string, data: Prisma.SubscriptionUpdateInput) {
+export function updateSubscription(id: string, data: Prisma.SubscriptionUncheckedUpdateInput) {
+  // Unchecked: callers pass scalar FKs (companyId), not nested relation writes
   return prisma.subscription.update({ where: { id }, data });
 }
 

@@ -1,6 +1,7 @@
 import { z } from "zod";
+import { rhythmOverridesSchema } from "./catalog.js";
 import { money, uuid } from "./common.js";
-import { billingPeriod, clientType } from "./enums.js";
+import { billingPeriod, clientType, invoiceTrigger } from "./enums.js";
 
 export const companySchema = z.object({
   id: uuid,
@@ -28,6 +29,12 @@ export const subscriptionSchema = z.object({
   serviceId: uuid,
   amount: money,
   period: billingPeriod,
+  /** per-client billing timing; null = inherit the service preset */
+  invoiceTrigger: invoiceTrigger.nullable(),
+  invoiceDay: z.number().int().nullable(),
+  dueDays: z.number().int().nullable(),
+  /** per-client task-template overrides keyed by templateId ({} = all inherit) */
+  rhythmOverrides: rhythmOverridesSchema,
   active: z.boolean(),
 });
 export type Subscription = z.infer<typeof subscriptionSchema>;
@@ -128,20 +135,49 @@ export type UpdateClientInput = z.infer<typeof updateClientInput>;
 
 // ── Subscriptions & categories (S3) ─────────────────────────────────────────
 
-export const createSubscriptionInput = z.object({
-  serviceId: uuid,
-  companyId: uuid.nullable().optional(),
-  amount: money,
-  period: billingPeriod.default("month"),
-});
+const subscriptionBilling = {
+  /** per-client billing timing (copied from the service preset in the UI) */
+  invoiceTrigger: z.enum(["on_period_start", "on_period_end"]).nullable().optional(),
+  invoiceDay: z.number().int().min(1).max(31).nullable().optional(),
+  /** per-client overdue terms; null = inherit the service preset */
+  dueDays: z.number().int().min(1).max(365).nullable().optional(),
+};
+const subscriptionBillingValid = (v: {
+  invoiceTrigger?: "on_period_start" | "on_period_end" | null;
+  invoiceDay?: number | null;
+}) => v.invoiceDay == null || v.invoiceTrigger === "on_period_start";
+const subscriptionBillingMsg = {
+  path: ["invoiceDay"],
+  message: "A custom day only applies when billing at the start of the period",
+};
+
+export const createSubscriptionInput = z
+  .object({
+    serviceId: uuid,
+    companyId: uuid.nullable().optional(),
+    amount: money,
+    period: billingPeriod.default("month"),
+    ...subscriptionBilling,
+  })
+  .refine(subscriptionBillingValid, subscriptionBillingMsg);
 export type CreateSubscriptionInput = z.infer<typeof createSubscriptionInput>;
 
-export const updateSubscriptionInput = z.object({
-  amount: money.optional(),
-  period: billingPeriod.optional(),
-  companyId: uuid.nullable().optional(),
-  active: z.boolean().optional(),
-});
+export const updateSubscriptionInput = z
+  .object({
+    amount: money.optional(),
+    period: billingPeriod.optional(),
+    companyId: uuid.nullable().optional(),
+    active: z.boolean().optional(),
+    /** full replace of the per-client task overrides map */
+    rhythmOverrides: rhythmOverridesSchema.optional(),
+    ...subscriptionBilling,
+  })
+  // an omitted trigger means "not part of this patch" — the service layer re-checks the
+  // rule against the MERGED row, so only an explicit day+wrong-trigger combo fails here
+  .refine(
+    (v) => v.invoiceTrigger === undefined || subscriptionBillingValid(v),
+    subscriptionBillingMsg,
+  );
 export type UpdateSubscriptionInput = z.infer<typeof updateSubscriptionInput>;
 
 /** Full replace of the client's category chip set. */

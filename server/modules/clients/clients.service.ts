@@ -6,8 +6,8 @@ import type {
   UpdateClientInput,
   UpdateSubscriptionInput,
 } from "@shared/schema/client.js";
+import { rhythmOverridesSchema } from "@shared/schema/catalog.js";
 import type { Prisma, User } from "../../generated/prisma/client.js";
-import { prisma } from "../../core/db.js";
 import { NotFoundError, ValidationError } from "../../core/errors.js";
 import { MAX_FILE_SIZE, deleteFileBytes, saveFileBytes } from "../../core/files.js";
 import * as repo from "./clients.repository.js";
@@ -34,6 +34,11 @@ export function toClientDto(client: repo.ClientRecord) {
       serviceId: s.serviceId,
       amount: s.amount,
       period: s.period,
+      invoiceTrigger: s.invoiceTrigger,
+      invoiceDay: s.invoiceDay,
+      dueDays: s.dueDays,
+      // validated on write; the parse also shields the API from malformed legacy blobs
+      rhythmOverrides: rhythmOverridesSchema.catch({}).parse(s.rhythmOverrides ?? {}),
       active: s.active,
     })),
     type: client.type,
@@ -202,13 +207,22 @@ export async function updateClient(id: string, input: UpdateClientInput) {
 
 export async function addSubscription(clientId: string, input: CreateSubscriptionInput) {
   await getClient(clientId);
-  const service = await prisma.service.findUnique({ where: { id: input.serviceId } });
+  const service = await repo.findServiceById(input.serviceId);
   if (!service || !service.active) throw new ValidationError("Unknown or inactive service");
   if (input.companyId) {
-    const company = await prisma.company.findFirst({
-      where: { id: input.companyId, clientId },
-    });
+    const company = await repo.findClientCompany(clientId, input.companyId);
     if (!company) throw new ValidationError("Company does not belong to this client");
+  }
+  // same service twice only for DIFFERENT companies of the client (decision 2026-07-21)
+  const duplicate = await repo.findDuplicateSubscription(
+    clientId,
+    input.serviceId,
+    input.companyId ?? null,
+  );
+  if (duplicate) {
+    throw new ValidationError(
+      "This service is already assigned to the same target — edit the existing subscription or pick another company",
+    );
   }
   await repo.createSubscription({
     clientId,
@@ -216,6 +230,9 @@ export async function addSubscription(clientId: string, input: CreateSubscriptio
     companyId: input.companyId ?? null,
     amount: input.amount,
     period: input.period,
+    invoiceTrigger: input.invoiceTrigger ?? null,
+    invoiceDay: input.invoiceDay ?? null,
+    dueDays: input.dueDays ?? null,
   });
   return getClient(clientId);
 }
@@ -229,20 +246,55 @@ export async function updateSubscription(
   const sub = await repo.findSubscription(clientId, subscriptionId);
   if (!sub) throw new NotFoundError("Subscription not found");
   if (input.companyId) {
-    const company = await prisma.company.findFirst({
-      where: { id: input.companyId, clientId },
-    });
+    const company = await repo.findClientCompany(clientId, input.companyId);
     if (!company) throw new ValidationError("Company does not belong to this client");
+  }
+  // billing timing must stay valid against the MERGED row (partial PATCH skips the Zod refine)
+  const trigger =
+    input.invoiceTrigger !== undefined ? input.invoiceTrigger : sub.invoiceTrigger;
+  const day = input.invoiceDay !== undefined ? input.invoiceDay : sub.invoiceDay;
+  if (day != null && trigger !== "on_period_start") {
+    throw new ValidationError("A custom day only applies when billing at the start of the period");
+  }
+  // duplicate-target rule also holds when the company changes
+  if (input.companyId !== undefined) {
+    const duplicate = await repo.findDuplicateSubscription(
+      clientId,
+      sub.serviceId,
+      input.companyId ?? null,
+      subscriptionId,
+    );
+    if (duplicate) {
+      throw new ValidationError(
+        "This service is already assigned to the same target — edit the existing subscription instead",
+      );
+    }
+  }
+  // per-client task overrides may only key on THIS service's task templates
+  if (input.rhythmOverrides !== undefined) {
+    const templateIds = new Set(await repo.listServiceTemplateIds(sub.serviceId));
+    for (const id of Object.keys(input.rhythmOverrides)) {
+      if (!templateIds.has(id)) {
+        throw new ValidationError("Override references a task that isn't part of this service");
+      }
+    }
   }
   await repo.updateSubscription(subscriptionId, input);
   return getClient(clientId);
 }
 
 export async function setCategories(clientId: string, input: SetClientCategoriesInput) {
-  await getClient(clientId);
-  const count = await prisma.service.count({ where: { id: { in: input.serviceIds } } });
-  if (count !== new Set(input.serviceIds).size) {
+  const client = await getClient(clientId);
+  const ids = [...new Set(input.serviceIds)];
+  const count = await repo.countServicesByIds(ids);
+  if (count !== ids.length) {
     throw new ValidationError("Unknown service in the category list");
+  }
+  // NEW chips must reference active services; existing ones may outlive a deactivation
+  const existing = new Set(client.categories);
+  const added = ids.filter((id) => !existing.has(id));
+  if (added.length > 0 && (await repo.countActiveServicesByIds(added)) !== added.length) {
+    throw new ValidationError("Can't add an inactive service as a category");
   }
   await repo.setClientCategories(clientId, input.serviceIds);
   return getClient(clientId);
