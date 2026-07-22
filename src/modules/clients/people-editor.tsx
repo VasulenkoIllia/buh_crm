@@ -71,10 +71,11 @@ export function PeopleEditor({
                 {row.serviceLabel ? `${row.serviceLabel} (legacy)` : "Service they handle…"}
               </option>
               {services
-                ?.filter((s) => s.active)
+                ?.filter((s) => s.active || s.id === row.serviceId)
                 .map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
+                    {!s.active ? " (inactive)" : ""}
                   </option>
                 ))}
             </Select>

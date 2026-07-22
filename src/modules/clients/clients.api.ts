@@ -7,6 +7,7 @@ import type {
   UpdateClientInput,
   UpdateSubscriptionInput,
 } from "@shared/schema/client";
+import { CATALOG_KEY } from "@/modules/catalog";
 import { api } from "@/shared/lib/api";
 
 export interface ClientListResponse {
@@ -112,8 +113,17 @@ export function useDeleteClientFile(clientId: string) {
 
 // ── subscriptions & categories (S3) ─────────────────────────────────────────
 
+/** Subscriptions change the catalog's clientsCount — refresh both caches. */
+function useInvalidateClientsAndCatalog() {
+  const queryClient = useQueryClient();
+  return () => {
+    void queryClient.invalidateQueries({ queryKey: CLIENTS_KEY });
+    void queryClient.invalidateQueries({ queryKey: CATALOG_KEY });
+  };
+}
+
 export function useAddSubscription() {
-  const invalidate = useInvalidateClients();
+  const invalidate = useInvalidateClientsAndCatalog();
   return useMutation({
     mutationFn: ({ clientId, input }: { clientId: string; input: CreateSubscriptionInput }) =>
       api<Client>(`/api/clients/${clientId}/subscriptions`, { method: "POST", body: input }),
@@ -122,7 +132,7 @@ export function useAddSubscription() {
 }
 
 export function useUpdateSubscription() {
-  const invalidate = useInvalidateClients();
+  const invalidate = useInvalidateClientsAndCatalog();
   return useMutation({
     mutationFn: ({
       clientId,
@@ -142,7 +152,7 @@ export function useUpdateSubscription() {
 }
 
 export function useSetCategories() {
-  const invalidate = useInvalidateClients();
+  const invalidate = useInvalidateClientsAndCatalog();
   return useMutation({
     mutationFn: ({ clientId, serviceIds }: { clientId: string; serviceIds: string[] }) =>
       api<Client>(`/api/clients/${clientId}/categories`, {

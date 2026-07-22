@@ -160,10 +160,11 @@ export function LeadFormModal({
           <Select id="l-service" {...register("serviceId")}>
             <option value="">—</option>
             {services
-              ?.filter((s) => s.active)
+              ?.filter((s) => s.active || s.id === lead?.serviceId)
               .map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
+                  {!s.active ? " (inactive)" : ""}
                 </option>
               ))}
           </Select>

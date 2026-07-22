@@ -14,7 +14,7 @@ import type { Lead } from "@shared/schema/lead";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { StatusPill } from "@/shared/ui/pill";
-import { useCatalog } from "@/modules/catalog";
+import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { useSettings } from "@/modules/settings";
 import { ConvertLeadModal, LeadFormModal } from "./lead-modals";
 import { useLeads, useMarkLost, useReopenLead, useUpdateLead } from "./leads.api";
@@ -129,7 +129,9 @@ function StageColumn({
 function LeadCard({ lead, onOpen }: { lead: Lead; onOpen: () => void }) {
   const locked = lead.outcome !== "in_process"; // won or lost — not draggable
   const { data: settings } = useSettings();
+  const { data: services } = useCatalog();
   const sourceName = settings?.sources.find((s) => s.id === lead.sourceId)?.name;
+  const service = services?.find((s) => s.id === lead.serviceId);
 
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: lead.id,
@@ -160,11 +162,14 @@ function LeadCard({ lead, onOpen }: { lead: Lead; onOpen: () => void }) {
         {lead.outcome !== "in_process" && <StatusPill status={lead.outcome} />}
       </div>
       {contact && <div className="mt-[3px] truncate text-[12px] text-muted">{contact}</div>}
-      {sourceName && (
-        <div className="mt-2 flex items-center gap-1.5">
-          <span className="rounded-(--radius-chip) bg-[#eef0f3] px-[7px] py-[2px] text-[11px] text-muted">
-            {sourceName}
-          </span>
+      {(sourceName || service) && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {service && <ServiceChip name={service.name} color={service.color} />}
+          {sourceName && (
+            <span className="rounded-(--radius-chip) bg-[#eef0f3] px-[7px] py-[2px] text-[11px] text-muted">
+              {sourceName}
+            </span>
+          )}
         </div>
       )}
     </div>
