@@ -42,6 +42,15 @@ export function useUpdateService() {
   });
 }
 
+export function useDeleteService() {
+  const invalidate = useInvalidateCatalog();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api<{ ok: true }>(`/api/catalog/${id}`, { method: "DELETE" }),
+    onSettled: invalidate,
+  });
+}
+
 export function useAddTemplate() {
   const invalidate = useInvalidateCatalog();
   return useMutation({
@@ -67,7 +76,7 @@ export function useUpdateTemplate() {
         method: "PATCH",
         body: input,
       }),
-    onSuccess: invalidate,
+    onSettled: invalidate,
   });
 }
 
@@ -76,6 +85,6 @@ export function useDeleteTemplate() {
   return useMutation({
     mutationFn: ({ serviceId, templateId }: { serviceId: string; templateId: string }) =>
       api<Service>(`/api/catalog/${serviceId}/tasks/${templateId}`, { method: "DELETE" }),
-    onSuccess: invalidate,
+    onSettled: invalidate,
   });
 }

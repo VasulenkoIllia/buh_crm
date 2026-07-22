@@ -32,6 +32,9 @@ export function categoryChip(color: string): ChipColors {
   return { fg: color, bg: CHIP_BG[color.toLowerCase()] ?? "#eef0f3" };
 }
 
+/** The pickable service-color palette (same set the server auto-assigns from). */
+export const CATEGORY_PALETTE: string[] = Object.keys(CHIP_BG);
+
 export interface PriorityColors extends ChipColors {
   bar: string;
 }
