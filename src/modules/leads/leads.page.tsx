@@ -14,6 +14,7 @@ import type { Lead } from "@shared/schema/lead";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { StatusPill } from "@/shared/ui/pill";
+import { Segmented } from "@/shared/ui/segmented";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { useSettings } from "@/modules/settings";
 import { ConvertLeadModal, LeadFormModal } from "./lead-modals";
@@ -33,21 +34,26 @@ export function LeadsPage() {
   const update = useUpdateLead();
   const [formOpen, setFormOpen] = useState(false);
   const [selected, setSelected] = useState<Lead | null>(null);
+  // won/lost leads leave the board automatically — they live in the archive view
+  const [view, setView] = useState<"board" | "archive">("board");
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
+  const active = useMemo(() => (leads ?? []).filter((l) => l.outcome === "in_process"), [leads]);
+  const closed = useMemo(() => (leads ?? []).filter((l) => l.outcome !== "in_process"), [leads]);
+
   const byStage = useMemo(() => {
     const map = new Map<LeadStage, Lead[]>(STAGES.map((s) => [s.key, []]));
-    for (const lead of leads ?? []) {
+    for (const lead of active) {
       map.get(lead.stage)?.push(lead);
     }
     return map;
-  }, [leads]);
+  }, [active]);
 
   const onDragEnd = (event: DragEndEvent) => {
     const leadId = String(event.active.id);
     const stage = event.over?.id as LeadStage | undefined;
-    const lead = leads?.find((l) => l.id === leadId);
+    const lead = active.find((l) => l.id === leadId);
     if (!stage || !lead || lead.stage === stage) return;
     update.mutate({ id: leadId, input: { stage } });
   };
@@ -58,18 +64,29 @@ export function LeadsPage() {
       <div className="flex flex-none items-center gap-3.5 border-b border-border bg-surface px-6 pb-3 pt-4">
         <h1 className="text-[18px] font-semibold">Leads</h1>
         <span className="text-[13px] text-muted-400">
-          {leads ? `${leads.length} ${leads.length === 1 ? "lead" : "leads"} · ` : ""}
-          sales pipeline
+          {leads
+            ? view === "board"
+              ? `${active.length} ${active.length === 1 ? "lead" : "leads"} · sales pipeline`
+              : `${closed.length} won or lost`
+            : "sales pipeline"}
         </span>
-        <Button className="ml-auto" onClick={() => setFormOpen(true)}>
-          + New lead
-        </Button>
+        <div className="ml-auto flex items-center gap-3">
+          <Segmented
+            value={view}
+            onChange={setView}
+            options={[
+              { value: "board", label: "Board" },
+              { value: "archive", label: `Archive (${closed.length})` },
+            ]}
+          />
+          <Button onClick={() => setFormOpen(true)}>+ New lead</Button>
+        </div>
       </div>
 
       {isLoading && <p className="p-6 text-[13px] text-muted">Loading…</p>}
       {error && <p className="p-6 text-[13px] text-danger-text">Failed to load leads.</p>}
 
-      {leads && (
+      {leads && view === "board" && (
         <DndContext sensors={sensors} onDragEnd={onDragEnd}>
           <div className="grid flex-1 grid-cols-[repeat(6,minmax(190px,1fr))] items-start gap-3 overflow-auto p-3.5">
             {STAGES.map((stage) => (
@@ -84,8 +101,57 @@ export function LeadsPage() {
         </DndContext>
       )}
 
+      {leads && view === "archive" && <LeadArchive leads={closed} onOpen={setSelected} />}
+
       {formOpen && <LeadFormModal open={formOpen} onClose={() => setFormOpen(false)} />}
       {selected && <LeadDetails lead={selected} onClose={() => setSelected(null)} />}
+    </div>
+  );
+}
+
+/** Won & lost leads — off the board, still reachable from it (reopen / open the client). */
+function LeadArchive({ leads, onOpen }: { leads: Lead[]; onOpen: (lead: Lead) => void }) {
+  const { data: settings } = useSettings();
+  const { data: services } = useCatalog();
+
+  if (leads.length === 0) {
+    return (
+      <p className="p-6 text-[13px] text-muted">
+        No won or lost leads yet — they land here automatically once the outcome is set.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex-1 overflow-auto p-3.5">
+      <div className="overflow-hidden rounded-(--radius-panel) border border-border bg-surface">
+        {leads.map((lead) => {
+          const service = services?.find((s) => s.id === lead.serviceId);
+          const sourceName = settings?.sources.find((s) => s.id === lead.sourceId)?.name;
+          const contact = [lead.phone, lead.email].filter(Boolean).join(" · ");
+          return (
+            <button
+              key={lead.id}
+              type="button"
+              onClick={() => onOpen(lead)}
+              className="flex w-full items-center gap-3 border-b border-divider px-4 py-2.5 text-left text-[13px] last:border-0 hover:bg-divider/40"
+            >
+              <span className="min-w-0 truncate font-semibold">{lead.name}</span>
+              <StatusPill status={lead.outcome} />
+              {service && <ServiceChip name={service.name} color={service.color} />}
+              {sourceName && (
+                <span className="rounded-(--radius-chip) bg-[#eef0f3] px-[7px] py-[2px] text-[11px] text-muted">
+                  {sourceName}
+                </span>
+              )}
+              <span className="ml-auto truncate text-[12px] text-muted">{contact}</span>
+              <span className="flex-none text-[12px] text-muted-400">
+                {new Date(lead.createdAt).toLocaleDateString("en-GB")}
+              </span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
