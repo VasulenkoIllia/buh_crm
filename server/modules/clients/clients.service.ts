@@ -22,7 +22,8 @@ function displayName(c: {
   return `${c.firstName ?? ""} ${c.lastName ?? ""}`.trim() || "—";
 }
 
-/** isRegular = regularOverride ?? hasActiveSubscription (cross-cutting rule). */
+/** isRegular = regularOverride ?? has an active SUBSCRIPTION-type sub (cross-cutting rule).
+ * One-time subs are just containers ad-hoc jobs flow through — they never make a client regular. */
 export function toClientDto(client: repo.ClientRecord) {
   return {
     id: client.id,
@@ -50,7 +51,9 @@ export function toClientDto(client: repo.ClientRecord) {
     email: client.email,
     address: client.address,
     sourceId: client.sourceId,
-    isRegular: client.regularOverride ?? client.subscriptions.some((s) => s.active),
+    isRegular:
+      client.regularOverride ??
+      client.subscriptions.some((s) => s.active && s.service.type === "subscription"),
     regularOverride: client.regularOverride,
     description: client.description,
     companies: client.companies.map((c) => ({ id: c.id, name: c.name })),
@@ -69,17 +72,23 @@ export function toClientDto(client: repo.ClientRecord) {
   };
 }
 
+/** Only subscription-type services count toward "regular" — one-time subs are job containers. */
+const ACTIVE_REGULAR_SUB: Prisma.SubscriptionWhereInput = {
+  active: true,
+  service: { type: "subscription" },
+};
+
 const REGULAR_FILTER: Prisma.ClientWhereInput = {
   OR: [
     { regularOverride: true },
-    { regularOverride: null, subscriptions: { some: { active: true } } },
+    { regularOverride: null, subscriptions: { some: ACTIVE_REGULAR_SUB } },
   ],
 };
 
 const ONE_TIME_FILTER: Prisma.ClientWhereInput = {
   OR: [
     { regularOverride: false },
-    { regularOverride: null, subscriptions: { none: { active: true } } },
+    { regularOverride: null, subscriptions: { none: ACTIVE_REGULAR_SUB } },
   ],
 };
 

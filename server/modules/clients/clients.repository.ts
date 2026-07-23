@@ -4,7 +4,11 @@ import { prisma } from "../../core/db.js";
 const clientInclude = {
   companies: { orderBy: { order: "asc" } },
   people: { orderBy: { order: "asc" } },
-  subscriptions: { orderBy: { createdAt: "asc" } },
+  // service.type rides along: only type=subscription services make a client regular
+  subscriptions: {
+    orderBy: { createdAt: "asc" },
+    include: { service: { select: { type: true } } },
+  },
   categories: { select: { serviceId: true } },
   source: true,
 } satisfies Prisma.ClientInclude;

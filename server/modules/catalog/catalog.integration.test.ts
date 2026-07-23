@@ -225,6 +225,51 @@ describe("catalog", () => {
     expect(off.json().isRegular).toBe(false);
   });
 
+  it("a one-time subscription does NOT make the client regular", async () => {
+    const svc = await app.inject({
+      method: "POST",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+      payload: { name: "Ad-hoc Jobs", type: "one_time" },
+    });
+    const oneTimeId = svc.json().id;
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/clients",
+      headers: { cookie: adminCookie },
+      payload: { type: "individual", firstName: "Adhoc", lastName: "Client", companyNames: [], people: [] },
+    });
+    const clientId = created.json().id;
+
+    // one-time sub = container for manual jobs — client stays one-time
+    const sub = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions`,
+      headers: { cookie: adminCookie },
+      payload: { serviceId: oneTimeId, amount: 5000 },
+    });
+    expect(sub.statusCode).toBe(201);
+    expect(sub.json().isRegular).toBe(false);
+
+    // …and the list keeps them on the one-time tab
+    const list = await app.inject({
+      method: "GET",
+      url: "/api/clients?tab=one_time",
+      headers: { cookie: adminCookie },
+    });
+    expect(list.json().items.some((c: { id: string }) => c.id === clientId)).toBe(true);
+
+    // a subscription-type service still flips them to regular
+    const regular = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions`,
+      headers: { cookie: adminCookie },
+      payload: { serviceId, amount: 10000 },
+    });
+    expect(regular.json().isRegular).toBe(true);
+  });
+
   it("stores per-client billing timing on the subscription (preset override)", async () => {
     const created = await app.inject({
       method: "POST",
