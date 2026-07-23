@@ -104,6 +104,10 @@ export async function removeService(id: string) {
 export async function addTemplate(serviceId: string, input: CreateTaskTemplateInput) {
   const service = await repo.findService(serviceId);
   if (!service) throw new NotFoundError("Service not found");
+  // one-time services hold JOB PRESETS (deadline + planned time) — no rhythm to repeat
+  if (service.type === "one_time" && input.periodicity !== "once") {
+    throw new ValidationError("One-time services hold job presets — no repeat rhythm (use once)");
+  }
   await repo.createTemplate(serviceId, {
     name: input.name,
     periodicity: input.periodicity,
@@ -121,8 +125,9 @@ export async function updateTemplate(
   templateId: string,
   input: UpdateTaskTemplateInput,
 ) {
+  const service = await repo.findService(serviceId);
   const template = await repo.findTemplate(serviceId, templateId);
-  if (!template) throw new NotFoundError("Task template not found");
+  if (!service || !template) throw new NotFoundError("Task template not found");
   // rhythm must stay valid against the MERGED row (partial PATCH skips the Zod refine)
   const merged = {
     periodicity: input.periodicity ?? template.periodicity,
@@ -132,6 +137,10 @@ export async function updateTemplate(
   };
   if (!rhythmValid(merged)) {
     throw new ValidationError("Rhythm day/month don't fit the frequency");
+  }
+  // one-time services hold job presets — no rhythm to repeat
+  if (service.type === "one_time" && merged.periodicity !== "once") {
+    throw new ValidationError("One-time services hold job presets — no repeat rhythm (use once)");
   }
   await repo.updateTemplate(templateId, input);
   return toServiceDto((await repo.findService(serviceId))!);

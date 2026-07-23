@@ -253,12 +253,12 @@ function ExpandedPanel({
         const total = service.taskTemplates.reduce((sum, t) => sum + (t.estimatedMinutes ?? 0), 0);
         return total > 0 ? (
           <span className="ml-1.5 inline-flex rounded-[5px] bg-divider px-2 py-[3px] text-[12px] font-medium text-ink-700">
-            ⏱ ~{total} min planned / period
+            ⏱ ~{total} min planned{service.type === "one_time" ? " / job" : " / period"}
           </span>
         ) : null;
       })()}
       <div className="mt-2 text-[11px] font-medium uppercase tracking-[.4px] text-muted-400">
-        Item tasks
+        {service.type === "one_time" ? "Job presets — for manual tasks (S6)" : "Item tasks"}
       </div>
       {service.taskTemplates.length === 0 && (
         <p className="mt-1 text-[12px] text-faint">No tasks yet.</p>
@@ -282,7 +282,7 @@ function ExpandedPanel({
           className="mt-1.5 text-[13px] font-medium text-primary-link hover:underline"
           onClick={onAddTask}
         >
-          + Add task to item
+          {service.type === "one_time" ? "+ Add job preset" : "+ Add task to item"}
         </button>
       )}
     </div>
@@ -557,7 +557,7 @@ function ServiceEditorModal({
             />
           </div>
           <div className="mt-2.5 flex items-center gap-2 text-[13px]">
-            <span>Overdue after</span>
+            <span>Invoice overdue after</span>
             <Input
               className="w-14"
               type="number"
@@ -630,6 +630,8 @@ function TaskTemplateModal({
 }) {
   const add = useAddTemplate();
   const update = useUpdateTemplate();
+  // one-time service = job presets: always "once", no rhythm (self-heals stray legacy rows)
+  const isOneTime = service.type === "one_time";
   const {
     register,
     handleSubmit,
@@ -640,9 +642,9 @@ function TaskTemplateModal({
     resolver: zodResolver(templateFormSchema),
     defaultValues: {
       name: template?.name ?? "",
-      periodicity: template?.periodicity ?? "monthly",
-      dayOfPeriod: template ? template.dayOfPeriod : 1,
-      monthOfPeriod: template?.monthOfPeriod ?? null,
+      periodicity: isOneTime ? "once" : (template?.periodicity ?? "monthly"),
+      dayOfPeriod: isOneTime ? null : template ? template.dayOfPeriod : 1,
+      monthOfPeriod: isOneTime ? null : (template?.monthOfPeriod ?? null),
       deadlineOffsetDays: template?.deadlineOffsetDays ?? null,
       estimatedMinutes: template?.estimatedMinutes ?? null,
     },
@@ -683,7 +685,15 @@ function TaskTemplateModal({
 
   return (
     <Modal
-      title={template ? `Edit task — “${service.name}”` : `Task for “${service.name}”`}
+      title={
+        isOneTime
+          ? template
+            ? `Edit job preset — “${service.name}”`
+            : `Job preset for “${service.name}”`
+          : template
+            ? `Edit task — “${service.name}”`
+            : `Task for “${service.name}”`
+      }
       open={open}
       onClose={onClose}
       footer={
@@ -712,6 +722,7 @@ function TaskTemplateModal({
           onChange={applyRhythm}
           dayError={errors.dayOfPeriod?.message}
           plannedHint="the default; per-client override lives on the client's subscription"
+          oneTime={isOneTime}
         />
         {serverError && <p className="text-[12px] text-danger-text">{serverError}</p>}
       </form>

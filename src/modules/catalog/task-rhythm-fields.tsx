@@ -72,22 +72,26 @@ export function rhythmSummary(t: {
 
 const DEADLINE_PRESETS = [1, 2, 5] as const;
 
-/** Rhythm + deadline + planned-time controls; controlled by a RhythmValue + onChange(patch). */
+/** Rhythm + deadline + planned-time controls; controlled by a RhythmValue + onChange(patch).
+ * `oneTime` = job-preset mode: no rhythm (periodicity is always "once"), only deadline + time. */
 export function TaskRhythmFields({
   value,
   onChange,
   dayError,
   plannedHint,
+  oneTime,
 }: {
   value: RhythmValue;
   onChange: (patch: Partial<RhythmValue>) => void;
   dayError?: string;
   plannedHint?: string;
+  oneTime?: boolean;
 }) {
   const { periodicity, dayOfPeriod: day, monthOfPeriod: month, deadlineOffsetDays: offset } = value;
 
   return (
     <>
+      {!oneTime && (
       <div>
         <div className="mb-1.5 block text-[12px] font-medium text-ink-700">Rhythm / frequency</div>
         <div className="flex flex-wrap gap-1.5">
@@ -184,10 +188,13 @@ export function TaskRhythmFields({
           </div>
         )}
       </div>
+      )}
 
       <div>
         <div className="mb-1.5 block text-[12px] font-medium text-ink-700">
-          Deadline (offset from each task’s creation date)
+          {oneTime
+            ? "Deadline preset — days after the job is created"
+            : "Deadline (offset from each task’s creation date)"}
         </div>
         <div className="flex flex-wrap gap-1.5">
           {DEADLINE_PRESETS.map((d) => (

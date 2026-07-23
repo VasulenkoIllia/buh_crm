@@ -144,7 +144,7 @@ function DueDaysField({
   // subscription-level: null inherits the service preset (the preset itself may be "never")
   return (
     <div className="flex items-center gap-2 text-[13px]">
-      <span>Overdue after</span>
+      <span>Invoice overdue after</span>
       <Input
         className="w-14"
         type="number"
@@ -153,7 +153,7 @@ function DueDaysField({
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
       />
-      <span className="text-muted">days (empty = service default)</span>
+      <span className="text-muted">days after it’s issued (empty = service default)</span>
     </div>
   );
 }
@@ -358,6 +358,7 @@ function SubscriptionTasks({
         <TaskOverrideModal
           template={editing}
           effective={effectiveTask(editing, overrides[editing.id])}
+          oneTime={service.type === "one_time"}
           onApply={(value) => setOverride(editing.id, value)}
           onClose={() => setEditing(undefined)}
         />
@@ -369,11 +370,13 @@ function SubscriptionTasks({
 function TaskOverrideModal({
   template,
   effective,
+  oneTime,
   onApply,
   onClose,
 }: {
   template: TaskTemplate;
   effective: EffectiveTask;
+  oneTime?: boolean;
   onApply: (value: TaskOverride | null) => void;
   onClose: () => void;
 }) {
@@ -447,6 +450,7 @@ function TaskOverrideModal({
           value={rhythm}
           onChange={(p) => setRhythm((r) => ({ ...r, ...p }))}
           plannedHint="planned time for this client"
+          oneTime={oneTime}
         />
       </div>
     </Modal>

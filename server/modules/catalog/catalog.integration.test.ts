@@ -602,6 +602,44 @@ describe("catalog", () => {
     expect(badRhythm.statusCode).toBe(400);
   });
 
+  it("one-time services hold job presets only (periodicity once)", async () => {
+    const svc = await app.inject({
+      method: "POST",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+      payload: { name: "Job Container", type: "one_time" },
+    });
+    const oneTimeId = svc.json().id;
+
+    // a rhythmic template on a one-time service is rejected…
+    const weekly = await app.inject({
+      method: "POST",
+      url: `/api/catalog/${oneTimeId}/tasks`,
+      headers: { cookie: adminCookie },
+      payload: { name: "Weekly nonsense", periodicity: "weekly", dayOfPeriod: 1 },
+    });
+    expect(weekly.statusCode).toBe(400);
+
+    // …a job preset (once + deadline + planned time) is fine
+    const preset = await app.inject({
+      method: "POST",
+      url: `/api/catalog/${oneTimeId}/tasks`,
+      headers: { cookie: adminCookie },
+      payload: { name: "Prepare documents", periodicity: "once", deadlineOffsetDays: 5, estimatedMinutes: 60 },
+    });
+    expect(preset.statusCode).toBe(201);
+    const tplId = preset.json().taskTemplates[0].id;
+
+    // …and cannot gain a rhythm later via PATCH either
+    const drift = await app.inject({
+      method: "PATCH",
+      url: `/api/catalog/${oneTimeId}/tasks/${tplId}`,
+      headers: { cookie: adminCookie },
+      payload: { periodicity: "monthly", dayOfPeriod: 1 },
+    });
+    expect(drift.statusCode).toBe(400);
+  });
+
   it("convert carries the lead's service into the client's categories", async () => {
     const lead = await app.inject({
       method: "POST",
