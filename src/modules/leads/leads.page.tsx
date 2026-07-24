@@ -16,6 +16,7 @@ import { Button } from "@/shared/ui/button";
 import { StatusPill } from "@/shared/ui/pill";
 import { Segmented } from "@/shared/ui/segmented";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
+import { EntityTasks } from "@/modules/tasks";
 import { useSettings } from "@/modules/settings";
 import { ConvertLeadModal, LeadFormModal } from "./lead-modals";
 import { useLeads, useMarkLost, useReopenLead, useUpdateLead } from "./leads.api";
@@ -270,7 +271,7 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="w-full max-w-[480px] overflow-hidden rounded-[12px] bg-surface shadow-(--shadow-modal)">
+      <div className="flex max-h-[88vh] w-full max-w-[480px] flex-col overflow-hidden rounded-[12px] bg-surface shadow-(--shadow-modal)">
         {/* header */}
         <div className="flex items-start justify-between gap-3 border-b border-[#eef0f3] px-5 py-[18px]">
           <div>
@@ -317,6 +318,11 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
               </Link>
             </div>
           )}
+        </div>
+
+        {/* tasks for this lead (free internal work) */}
+        <div className="min-h-0 flex-1 overflow-y-auto border-b border-[#eef0f3] px-5 py-[18px]">
+          <EntityTasks target={{ kind: "lead", id: lead.id, label: lead.name }} />
         </div>
 
         {/* footer actions */}

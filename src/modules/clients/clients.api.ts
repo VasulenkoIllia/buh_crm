@@ -28,7 +28,7 @@ export interface ClientFile {
 
 const CLIENTS_KEY = ["clients"] as const;
 
-export function useClients(query: Partial<ClientListQuery>) {
+export function useClients(query: Partial<ClientListQuery>, opts?: { enabled?: boolean }) {
   const params = new URLSearchParams();
   if (query.tab) params.set("tab", query.tab);
   if (query.search) params.set("search", query.search);
@@ -38,6 +38,7 @@ export function useClients(query: Partial<ClientListQuery>) {
     queryKey: [...CLIENTS_KEY, "list", params.toString()],
     queryFn: () => api<ClientListResponse>(`/api/clients?${params}`),
     placeholderData: (prev) => prev,
+    enabled: opts?.enabled ?? true,
   });
 }
 

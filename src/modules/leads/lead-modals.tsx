@@ -33,10 +33,12 @@ export function LeadFormModal({
   open,
   onClose,
   lead,
+  onSaved,
 }: {
   open: boolean;
   onClose: () => void;
   lead?: Lead;
+  onSaved?: (lead: Lead) => void;
 }) {
   const create = useCreateLead();
   const update = useUpdateLead();
@@ -86,7 +88,8 @@ export function LeadFormModal({
       if (lead) {
         await update.mutateAsync({ id: lead.id, input });
       } else {
-        await create.mutateAsync(input);
+        const created = await create.mutateAsync(input);
+        onSaved?.(created);
       }
       close();
     } catch {

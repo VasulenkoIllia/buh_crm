@@ -14,6 +14,7 @@ import { SettingsPage } from "@/modules/settings";
 import { ClientCardPage, ClientsPage } from "@/modules/clients";
 import { LeadsPage } from "@/modules/leads";
 import { ServicesPage } from "@/modules/catalog";
+import { TasksPage } from "@/modules/tasks";
 
 function Root() {
   return (
@@ -49,7 +50,7 @@ export const router = createBrowserRouter([
             element: <AppLayout />,
             children: [
               { index: true, element: <ComingSoon module="Dashboard" stage="S12" /> },
-              { path: "tasks", element: <ComingSoon module="Tasks" stage="S6" /> },
+              { path: "tasks", element: <TasksPage /> },
               { path: "clients", element: <ClientsPage /> },
               { path: "clients/:id", element: <ClientCardPage /> },
               { path: "leads", element: <LeadsPage /> },

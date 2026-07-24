@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { Check, Download, Trash2 } from "lucide-react";
 import type { Client } from "@shared/schema/client";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
+import { EntityTasks } from "@/modules/tasks";
 import { useSettings } from "@/modules/settings";
 import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
@@ -31,7 +32,6 @@ const TABS = [
 type TabKey = (typeof TABS)[number]["key"];
 
 const TAB_STAGE: Partial<Record<TabKey, string>> = {
-  tasks: "S6",
   invoices: "S7",
   meetings: "S8",
 };
@@ -130,6 +130,9 @@ export function ClientCardPage() {
       {/* company view (multi-company clients) */}
       {tab === "profile" && <ProfileTab client={client} />}
       {tab === "people" && <PeopleTab client={client} onManage={() => setPeopleOpen(true)} />}
+      {tab === "tasks" && (
+        <EntityTasks target={{ kind: "client", id: client.id, label: client.displayName }} />
+      )}
       {tab === "services" && <ServicesTab client={client} />}
       {tab === "files" && <FilesTab clientId={client.id} />}
       {TAB_STAGE[tab] && (

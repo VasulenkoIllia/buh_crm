@@ -18,6 +18,7 @@ import { useAuth, useLogout } from "./auth";
 import { cn } from "@/shared/lib/cn";
 import { UserAvatar } from "@/shared/ui/avatar";
 import { useSettings } from "@/modules/settings";
+import { TimerBar } from "@/modules/tasks";
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
@@ -64,7 +65,10 @@ export function AppLayout() {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 items-center justify-between border-b border-border bg-surface px-6">
           <div className="text-[15px] font-semibold" />
-          <HeaderActions />
+          <div className="flex items-center gap-4">
+            <TimerBar />
+            <HeaderActions />
+          </div>
         </header>
         <main className="flex-1 p-6">
           <Outlet />
