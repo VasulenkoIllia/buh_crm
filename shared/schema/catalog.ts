@@ -26,6 +26,8 @@ export const serviceSchema = z.object({
   invoiceDay: z.number().int().nullable(),
   dueDays: z.number().int().nullable(),
   active: z.boolean(),
+  /** one-time only, ≤1 across the catalog — auto-added to every new client on create */
+  autoAddToNewClients: z.boolean(),
   clientsCount: z.number().int(),
   taskTemplates: z.array(taskTemplateSchema),
 });
@@ -128,7 +130,19 @@ const serviceFields = z.object({
   invoiceDay: z.number().int().min(1).max(31).nullable().optional(),
   /** invoice counts as overdue N days after issue; null = never */
   dueDays: z.number().int().min(1).max(365).nullable().optional(),
+  /** auto-add this service to every new client (one-time services only; ≤1 in the catalog) */
+  autoAddToNewClients: z.boolean().optional(),
 });
+
+/** the default-for-new-clients flag is only valid on a one-time service */
+const defaultServiceValid = (v: {
+  type?: z.infer<typeof serviceType>;
+  autoAddToNewClients?: boolean;
+}) => v.autoAddToNewClients !== true || v.type === "one_time";
+const defaultServiceMsg = {
+  path: ["autoAddToNewClients"],
+  message: "Only a one-time service can be the default for new clients",
+};
 
 export function defaultTriggerFor(type: z.infer<typeof serviceType>) {
   return type === "one_time" ? ("on_create" as const) : ("on_period_start" as const);
@@ -156,19 +170,25 @@ const billingMsg = {
   message: "Invoice rule doesn't fit the service type",
 };
 
-export const createServiceInput = serviceFields.refine(
-  (v) =>
-    billingRuleValid({
-      type: v.type,
-      invoiceTrigger: v.invoiceTrigger ?? defaultTriggerFor(v.type),
-      invoiceDay: v.invoiceDay,
-    }),
-  billingMsg,
-);
+export const createServiceInput = serviceFields
+  .refine(
+    (v) =>
+      billingRuleValid({
+        type: v.type,
+        invoiceTrigger: v.invoiceTrigger ?? defaultTriggerFor(v.type),
+        invoiceDay: v.invoiceDay,
+      }),
+    billingMsg,
+  )
+  .refine(defaultServiceValid, defaultServiceMsg);
 export type CreateServiceInput = z.infer<typeof createServiceInput>;
 
 /** Services are deactivated, never deleted — history references stay intact. */
-export const updateServiceInput = serviceFields.partial().extend({
-  active: z.boolean().optional(),
-});
+export const updateServiceInput = serviceFields
+  .partial()
+  .extend({
+    active: z.boolean().optional(),
+  })
+  // type may be absent on PATCH — the service layer re-checks against the merged row
+  .refine((v) => v.type === undefined || defaultServiceValid(v), defaultServiceMsg);
 export type UpdateServiceInput = z.infer<typeof updateServiceInput>;

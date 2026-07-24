@@ -6,6 +6,7 @@ import type {
 import type { Lead } from "../../generated/prisma/client.js";
 import { prisma } from "../../core/db.js";
 import { NotFoundError, ValidationError } from "../../core/errors.js";
+import { applyDefaultClientService } from "../clients/index.js";
 import * as repo from "./leads.repository.js";
 
 /** New/changed service on a lead must exist and be active (existing refs stay untouched). */
@@ -103,5 +104,7 @@ export async function convert(id: string, input: ConvertLeadInput) {
     description: input.description ?? null,
     ...(input.sourceId ? { source: { connect: { id: input.sourceId } } } : {}),
   });
+  // a converted lead becomes a new client → give it the default service too (no-op if none)
+  await applyDefaultClientService(client.id);
   return { clientId: client.id, lead: toLeadDto(updated) };
 }

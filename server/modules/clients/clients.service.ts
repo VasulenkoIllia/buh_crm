@@ -175,7 +175,29 @@ export async function createClient(input: CreateClientInput) {
       })),
     );
   }
+  await applyDefaultClientService(client.id);
   return getClient(client.id);
+}
+
+/**
+ * Auto-add the catalog's "default for new clients" service (one active one-time service, if any)
+ * as a subscription on a freshly-created client — so every client has at least one paid
+ * container. On the client root (no company); amount prefilled from the service's expected
+ * price. Called on direct create AND on lead→client convert. No-op when no default is set.
+ */
+export async function applyDefaultClientService(clientId: string) {
+  const svc = await repo.findDefaultClientService();
+  if (!svc) return;
+  await repo.createSubscription({
+    clientId,
+    serviceId: svc.id,
+    companyId: null,
+    amount: svc.defaultAmount ?? 0,
+    period: "month", // stored but unused for one-time
+    invoiceTrigger: null,
+    invoiceDay: null,
+    dueDays: null,
+  });
 }
 
 export async function updateClient(id: string, input: UpdateClientInput) {

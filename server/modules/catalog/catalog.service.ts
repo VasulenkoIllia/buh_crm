@@ -22,6 +22,7 @@ export function toServiceDto(service: repo.ServiceRecord) {
     invoiceDay: service.invoiceDay,
     dueDays: service.dueDays,
     active: service.active,
+    autoAddToNewClients: service.autoAddToNewClients,
     clientsCount: new Set(service.subscriptions.map((s) => s.clientId)).size,
     taskTemplates: service.taskTemplates.map((t) => ({
       id: t.id,
@@ -57,7 +58,12 @@ export async function createService(input: CreateServiceInput) {
     invoiceDay: input.invoiceDay ?? null,
     dueDays: input.dueDays ?? null,
   });
-  return toServiceDto(service);
+  // set the default-for-new-clients flag separately (unsets any previous holder in a tx —
+  // the partial unique index would reject a straight insert while another flag is set)
+  if (input.autoAddToNewClients === true) {
+    await repo.setDefaultClientService(service.id);
+  }
+  return toServiceDto((await repo.findService(service.id))!);
 }
 
 export async function updateService(id: string, input: UpdateServiceInput) {
@@ -79,7 +85,16 @@ export async function updateService(id: string, input: UpdateServiceInput) {
   if (!billingRuleValid(merged)) {
     throw new ValidationError("Invoice rule doesn't fit the service type");
   }
-  return toServiceDto(await repo.updateService(id, input));
+  // the default-for-new-clients flag is one-time only (merged) and travels through its own
+  // tx (unset-others → set), so keep it out of the plain field update
+  const { autoAddToNewClients, ...fields } = input;
+  if (autoAddToNewClients === true && merged.type !== "one_time") {
+    throw new ValidationError("Only a one-time service can be the default for new clients");
+  }
+  await repo.updateService(id, fields);
+  if (autoAddToNewClients === true) await repo.setDefaultClientService(id);
+  else if (autoAddToNewClients === false) await repo.clearDefaultClientService(id);
+  return toServiceDto((await repo.findService(id))!);
 }
 
 /**

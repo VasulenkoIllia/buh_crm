@@ -35,6 +35,22 @@ export function updateService(id: string, data: Prisma.ServiceUpdateInput) {
   return prisma.service.update({ where: { id }, data, include: serviceInclude });
 }
 
+/** Make `id` the single default-for-new-clients service (unset the previous holder first,
+ * else the partial unique index would reject two flagged rows). */
+export function setDefaultClientService(id: string) {
+  return prisma.$transaction([
+    prisma.service.updateMany({
+      where: { autoAddToNewClients: true, id: { not: id } },
+      data: { autoAddToNewClients: false },
+    }),
+    prisma.service.update({ where: { id }, data: { autoAddToNewClients: true } }),
+  ]);
+}
+
+export function clearDefaultClientService(id: string) {
+  return prisma.service.update({ where: { id }, data: { autoAddToNewClients: false } });
+}
+
 export async function countServiceUsage(serviceId: string) {
   const [subscriptions, categories, people] = await prisma.$transaction([
     prisma.subscription.count({ where: { serviceId } }),

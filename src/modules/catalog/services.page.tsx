@@ -134,6 +134,14 @@ export function ServicesPage() {
                   <span className="text-[12px] text-[#9aa1ab]">
                     · {service.taskTemplates.length} tasks
                   </span>
+                  {service.autoAddToNewClients && (
+                    <span
+                      title="Auto-added to every new client"
+                      className="rounded-(--radius-chip) bg-[#eef7f0] px-1.5 py-px text-[11px] font-medium text-[#1f8f3a]"
+                    >
+                      ★ default
+                    </span>
+                  )}
                   {!service.active && (
                     <span className="text-[11px] uppercase text-faint">inactive</span>
                   )}
@@ -338,6 +346,7 @@ const serviceFormSchema = z.object({
   invoiceDay: z.number().int().min(1).max(31).nullable(),
   defaultAmount: z.number().int().nonnegative().nullable(),
   dueDays: z.number().int().min(1).max(365).nullable(),
+  autoAddToNewClients: z.boolean(),
 });
 type ServiceFormValues = z.infer<typeof serviceFormSchema>;
 
@@ -395,6 +404,7 @@ function ServiceEditorModal({
       invoiceTrigger: billing.trigger,
       invoiceDay: billing.day,
       dueDays: service?.dueDays ?? null,
+      autoAddToNewClients: service?.autoAddToNewClients ?? false,
     },
   });
 
@@ -403,11 +413,14 @@ function ServiceEditorModal({
   const day = watch("invoiceDay");
   const amount = watch("defaultAmount");
   const dueDays = watch("dueDays");
+  const autoAdd = watch("autoAddToNewClients");
 
   const onSubmit = handleSubmit(async (values) => {
+    // the default-for-new-clients flag is one-time only — never send it for a subscription
+    const input = { ...values, autoAddToNewClients: values.type === "one_time" && values.autoAddToNewClients };
     try {
-      if (service) await update.mutateAsync({ id: service.id, input: values });
-      else await create.mutateAsync(values);
+      if (service) await update.mutateAsync({ id: service.id, input });
+      else await create.mutateAsync(input);
       onClose();
     } catch {
       /* surfaced via serverError below */
@@ -597,6 +610,27 @@ function ServiceEditorModal({
             “+ Add task to item”.
           </p>
         </div>
+
+        {/* default-for-new-clients — one-time services only, at most one in the catalog */}
+        {type === "one_time" && (
+          <label className="flex cursor-pointer items-start gap-2 rounded-(--radius-field) border border-border bg-[#f7f8fa] px-3 py-2.5 text-[13px]">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={autoAdd}
+              onChange={(e) => setValue("autoAddToNewClients", e.target.checked, { shouldDirty: true })}
+            />
+            <span>
+              <span className="font-medium">Auto-add to every new client</span>
+              <span className="mt-0.5 block text-[12px] text-faint">
+                Every newly-created client gets this service automatically, so they always have at
+                least one paid container. Only one service can be the default — picking this unsets
+                any previous one.
+              </span>
+            </span>
+          </label>
+        )}
+
         {serverError && <p className="text-[12px] text-danger-text">{serverError}</p>}
       </form>
     </Modal>

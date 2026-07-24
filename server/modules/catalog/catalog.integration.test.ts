@@ -742,4 +742,109 @@ describe("catalog", () => {
     expect(client.statusCode).toBe(201);
     expect(client.json().people[0].serviceId).toBe(serviceId);
   });
+
+  it("default-for-new-clients service auto-adds to new clients + convert; ≤1, one-time only", async () => {
+    const mkOneTime = async (name: string) => {
+      const r = await app.inject({
+        method: "POST",
+        url: "/api/catalog",
+        headers: { cookie: adminCookie },
+        payload: { name, type: "one_time", defaultAmount: 5000 },
+      });
+      expect(r.statusCode).toBe(201);
+      return r.json().id as string;
+    };
+
+    // the flag is one-time only — a subscription service is rejected
+    const badFlag = await app.inject({
+      method: "PATCH",
+      url: `/api/catalog/${serviceId}`, // serviceId = the subscription-type "Bookkeeping"
+      headers: { cookie: adminCookie },
+      payload: { autoAddToNewClients: true },
+    });
+    expect(badFlag.statusCode).toBe(400);
+
+    const svcA = await mkOneTime("Default A");
+    const svcB = await mkOneTime("Default B");
+
+    // flag A
+    const flagA = await app.inject({
+      method: "PATCH",
+      url: `/api/catalog/${svcA}`,
+      headers: { cookie: adminCookie },
+      payload: { autoAddToNewClients: true },
+    });
+    expect(flagA.statusCode).toBe(200);
+    expect(flagA.json().autoAddToNewClients).toBe(true);
+
+    // a brand-new client auto-gets svcA on the client root, stays one-time (not regular)
+    const c1 = await app.inject({
+      method: "POST",
+      url: "/api/clients",
+      headers: { cookie: adminCookie },
+      payload: { type: "individual", firstName: "Auto", lastName: "One", companyNames: [], people: [] },
+    });
+    expect(c1.statusCode).toBe(201);
+    const subs1 = c1.json().subscriptions;
+    expect(subs1).toHaveLength(1);
+    expect(subs1[0]).toMatchObject({ serviceId: svcA, companyId: null, amount: 5000 });
+    expect(c1.json().isRegular).toBe(false);
+
+    // flagging B unsets A (≤1 default — partial unique index + unset-others tx)
+    const flagB = await app.inject({
+      method: "PATCH",
+      url: `/api/catalog/${svcB}`,
+      headers: { cookie: adminCookie },
+      payload: { autoAddToNewClients: true },
+    });
+    expect(flagB.statusCode).toBe(200);
+    const listAfter = await app.inject({ method: "GET", url: "/api/catalog", headers: { cookie: adminCookie } });
+    const flagged = listAfter.json().filter((s: { autoAddToNewClients: boolean }) => s.autoAddToNewClients);
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0].id).toBe(svcB);
+
+    // converting a lead → the new client also gets the default (svcB now)
+    const lead = await app.inject({
+      method: "POST",
+      url: "/api/leads",
+      headers: { cookie: adminCookie },
+      payload: { type: "individual", name: "Convert Auto", phone: "+380500009999" },
+    });
+    const convert = await app.inject({
+      method: "POST",
+      url: `/api/leads/${lead.json().id}/convert`,
+      headers: { cookie: adminCookie },
+      payload: { type: "individual", firstName: "Convert", lastName: "Auto" },
+    });
+    expect(convert.statusCode).toBe(200);
+    const converted = await app.inject({
+      method: "GET",
+      url: `/api/clients/${convert.json().clientId}`,
+      headers: { cookie: adminCookie },
+    });
+    expect(converted.json().subscriptions.some((s: { serviceId: string }) => s.serviceId === svcB)).toBe(true);
+
+    // deactivating the default → new clients get nothing
+    await app.inject({
+      method: "PATCH",
+      url: `/api/catalog/${svcB}`,
+      headers: { cookie: adminCookie },
+      payload: { active: false },
+    });
+    const c2 = await app.inject({
+      method: "POST",
+      url: "/api/clients",
+      headers: { cookie: adminCookie },
+      payload: { type: "individual", firstName: "No", lastName: "Default", companyNames: [], people: [] },
+    });
+    expect(c2.json().subscriptions).toHaveLength(0);
+
+    // clear the flag so it doesn't leak into other tests sharing the DB
+    await app.inject({
+      method: "PATCH",
+      url: `/api/catalog/${svcB}`,
+      headers: { cookie: adminCookie },
+      payload: { autoAddToNewClients: false },
+    });
+  });
 });

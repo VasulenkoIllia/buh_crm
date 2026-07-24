@@ -206,6 +206,9 @@ model Service {
   invoiceDay     Int? // "on day N of the period" (design: billing rule sub-panel)
   dueDays        Int? // invoice counts as overdue N days after issue; null = never
   active         Boolean        @default(true)
+  // at most ONE service (one-time only) is auto-added to every new client — enforced by the
+  // partial unique index `Service_single_default_for_new_clients` (raw SQL, not expressible here)
+  autoAddToNewClients Boolean   @default(false)
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 

@@ -100,6 +100,13 @@ export function findServiceById(id: string) {
   return prisma.service.findUnique({ where: { id } });
 }
 
+/** The one active one-time service flagged to auto-add to every new client (or null). */
+export function findDefaultClientService() {
+  return prisma.service.findFirst({
+    where: { autoAddToNewClients: true, active: true, type: "one_time" },
+  });
+}
+
 export function findClientCompany(clientId: string, companyId: string) {
   return prisma.company.findFirst({ where: { id: companyId, clientId } });
 }
