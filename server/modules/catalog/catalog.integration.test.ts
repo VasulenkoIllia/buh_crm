@@ -764,10 +764,20 @@ describe("catalog", () => {
     });
     expect(badFlag.statusCode).toBe(400);
 
+    // create a one-time service already flagged (create-time path, not just PATCH)
+    const createdFlagged = await app.inject({
+      method: "POST",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+      payload: { name: "Default OnCreate", type: "one_time", defaultAmount: 3000, autoAddToNewClients: true },
+    });
+    expect(createdFlagged.statusCode).toBe(201);
+    expect(createdFlagged.json().autoAddToNewClients).toBe(true);
+
     const svcA = await mkOneTime("Default A");
     const svcB = await mkOneTime("Default B");
 
-    // flag A
+    // flag A — unsets the create-time default (≤1 across the catalog)
     const flagA = await app.inject({
       method: "PATCH",
       url: `/api/catalog/${svcA}`,

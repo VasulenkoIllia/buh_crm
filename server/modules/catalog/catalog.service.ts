@@ -49,21 +49,20 @@ export async function createService(input: CreateServiceInput) {
   if (existing) throw new ConflictError("A service with this name already exists");
 
   const color = input.color ?? PALETTE[(await repo.countServices()) % PALETTE.length];
-  const service = await repo.createService({
-    name: input.name,
-    color,
-    type: input.type,
-    defaultAmount: input.defaultAmount ?? null,
-    invoiceTrigger: input.invoiceTrigger ?? defaultTriggerFor(input.type),
-    invoiceDay: input.invoiceDay ?? null,
-    dueDays: input.dueDays ?? null,
-  });
-  // set the default-for-new-clients flag separately (unsets any previous holder in a tx —
-  // the partial unique index would reject a straight insert while another flag is set)
-  if (input.autoAddToNewClients === true) {
-    await repo.setDefaultClientService(service.id);
-  }
-  return toServiceDto((await repo.findService(service.id))!);
+  // create + default-flag in one transaction (the flag unsets any previous holder)
+  const service = await repo.createServiceWithDefault(
+    {
+      name: input.name,
+      color,
+      type: input.type,
+      defaultAmount: input.defaultAmount ?? null,
+      invoiceTrigger: input.invoiceTrigger ?? defaultTriggerFor(input.type),
+      invoiceDay: input.invoiceDay ?? null,
+      dueDays: input.dueDays ?? null,
+    },
+    input.autoAddToNewClients === true,
+  );
+  return toServiceDto(service!);
 }
 
 export async function updateService(id: string, input: UpdateServiceInput) {
@@ -85,16 +84,14 @@ export async function updateService(id: string, input: UpdateServiceInput) {
   if (!billingRuleValid(merged)) {
     throw new ValidationError("Invoice rule doesn't fit the service type");
   }
-  // the default-for-new-clients flag is one-time only (merged) and travels through its own
-  // tx (unset-others → set), so keep it out of the plain field update
+  // the default-for-new-clients flag is one-time only (merged); it and the field update
+  // travel through ONE transaction (unset-others → set), so pull it out of the field data
   const { autoAddToNewClients, ...fields } = input;
   if (autoAddToNewClients === true && merged.type !== "one_time") {
     throw new ValidationError("Only a one-time service can be the default for new clients");
   }
-  await repo.updateService(id, fields);
-  if (autoAddToNewClients === true) await repo.setDefaultClientService(id);
-  else if (autoAddToNewClients === false) await repo.clearDefaultClientService(id);
-  return toServiceDto((await repo.findService(id))!);
+  const updated = await repo.updateServiceWithDefault(id, fields, autoAddToNewClients);
+  return toServiceDto(updated!);
 }
 
 /**

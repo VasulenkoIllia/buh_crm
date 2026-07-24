@@ -393,7 +393,7 @@ function ServiceEditorModal({
     handleSubmit,
     watch,
     setValue,
-    formState: { errors, isSubmitting },
+    formState: { errors, isSubmitting, dirtyFields },
   } = useForm<ServiceFormValues>({
     resolver: zodResolver(serviceFormSchema),
     defaultValues: {
@@ -416,8 +416,12 @@ function ServiceEditorModal({
   const autoAdd = watch("autoAddToNewClients");
 
   const onSubmit = handleSubmit(async (values) => {
-    // the default-for-new-clients flag is one-time only — never send it for a subscription
-    const input = { ...values, autoAddToNewClients: values.type === "one_time" && values.autoAddToNewClients };
+    // only touch the default flag when the checkbox was actually changed this session —
+    // saving unrelated fields must not re-assert (or steal) the catalog default. one-time only.
+    const { autoAddToNewClients: _flag, ...rest } = values;
+    const input = dirtyFields.autoAddToNewClients
+      ? { ...rest, autoAddToNewClients: values.type === "one_time" && values.autoAddToNewClients }
+      : rest;
     try {
       if (service) await update.mutateAsync({ id: service.id, input });
       else await create.mutateAsync(input);

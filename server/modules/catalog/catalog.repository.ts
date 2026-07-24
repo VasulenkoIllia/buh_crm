@@ -35,20 +35,50 @@ export function updateService(id: string, data: Prisma.ServiceUpdateInput) {
   return prisma.service.update({ where: { id }, data, include: serviceInclude });
 }
 
-/** Make `id` the single default-for-new-clients service (unset the previous holder first,
- * else the partial unique index would reject two flagged rows). */
-export function setDefaultClientService(id: string) {
-  return prisma.$transaction([
-    prisma.service.updateMany({
+/**
+ * Apply the default-for-new-clients flag inside a transaction (unset the previous
+ * holder BEFORE setting this one, else the partial unique index would reject two
+ * flagged rows). `flag` undefined = leave the flag untouched.
+ */
+async function applyDefaultFlag(
+  tx: Prisma.TransactionClient,
+  id: string,
+  flag: boolean | undefined,
+) {
+  if (flag === true) {
+    await tx.service.updateMany({
       where: { autoAddToNewClients: true, id: { not: id } },
       data: { autoAddToNewClients: false },
-    }),
-    prisma.service.update({ where: { id }, data: { autoAddToNewClients: true } }),
-  ]);
+    });
+    await tx.service.update({ where: { id }, data: { autoAddToNewClients: true } });
+  } else if (flag === false) {
+    await tx.service.update({ where: { id }, data: { autoAddToNewClients: false } });
+  }
 }
 
-export function clearDefaultClientService(id: string) {
-  return prisma.service.update({ where: { id }, data: { autoAddToNewClients: false } });
+/** Create a service and (atomically) set the default flag if requested. */
+export function createServiceWithDefault(
+  data: Prisma.ServiceCreateInput,
+  flag: boolean | undefined,
+) {
+  return prisma.$transaction(async (tx) => {
+    const service = await tx.service.create({ data });
+    await applyDefaultFlag(tx, service.id, flag);
+    return tx.service.findUnique({ where: { id: service.id }, include: serviceInclude });
+  });
+}
+
+/** Update a service's fields and (atomically) apply the default flag change if any. */
+export function updateServiceWithDefault(
+  id: string,
+  data: Prisma.ServiceUpdateInput,
+  flag: boolean | undefined,
+) {
+  return prisma.$transaction(async (tx) => {
+    await tx.service.update({ where: { id }, data });
+    await applyDefaultFlag(tx, id, flag);
+    return tx.service.findUnique({ where: { id }, include: serviceInclude });
+  });
 }
 
 export async function countServiceUsage(serviceId: string) {

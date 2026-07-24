@@ -13,8 +13,12 @@ export function findById(id: string) {
 
 export function findByEmail(email: string) {
   // case-insensitive so the invite duplicate-check can't be fooled by a
-  // mixed-case existing row (would otherwise let a second account slip in)
-  return prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } } });
+  // mixed-case existing row (would otherwise let a second account slip in);
+  // deterministic orderBy resolves a legacy case-collision pair to a stable row
+  return prisma.user.findFirst({
+    where: { email: { equals: email, mode: "insensitive" } },
+    orderBy: { createdAt: "asc" },
+  });
 }
 
 export function createInvitedUser(email: string, role: "admin" | "user") {
