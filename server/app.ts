@@ -18,6 +18,7 @@ import { catalogModule } from "./modules/catalog/index.js";
 import { clientsModule } from "./modules/clients/index.js";
 import { leadsModule } from "./modules/leads/index.js";
 import { settingsModule } from "./modules/settings/index.js";
+import { tasksModule } from "./modules/tasks/index.js";
 import { usersModule } from "./modules/users/index.js";
 
 // Build the Fastify instance: core plugins + module registration.
@@ -81,6 +82,7 @@ export async function buildApp() {
   await app.register(catalogModule, { prefix: "/api/catalog" }); // S3
   await app.register(clientsModule, { prefix: "/api/clients" }); // S4 (partial — no Catalog yet)
   await app.register(leadsModule, { prefix: "/api/leads" }); // S5 (partial — no Catalog/Calendar yet)
+  await app.register(tasksModule, { prefix: "/api/tasks" }); // S6
 
   // ── Serve the built SPA in production (single-container: API + web) ────────
   // Vite builds the frontend into ./dist; this app serves it and falls back to

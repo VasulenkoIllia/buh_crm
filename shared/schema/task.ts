@@ -1,11 +1,14 @@
 import { z } from "zod";
 import { money, uuid } from "./common.js";
-import { taskKind } from "./enums.js";
+import { taskKind, timeEntrySource } from "./enums.js";
+
+// ── DTOs ─────────────────────────────────────────────────────────────────────
 
 export const taskColumnSchema = z.object({
   id: uuid,
   name: z.string().min(1),
   order: z.number().int(),
+  /** the "New" column — non-editable/deletable, default entry point */
   isFixed: z.boolean(),
 });
 export type TaskColumn = z.infer<typeof taskColumnSchema>;
@@ -19,12 +22,18 @@ export const subtaskSchema = z.object({
 });
 export type Subtask = z.infer<typeof subtaskSchema>;
 
+/** One tracked interval (S6 redesign); stoppedAt null = the timer is running now. */
 export const timeEntrySchema = z.object({
   id: uuid,
   taskId: uuid,
   userId: uuid,
-  seconds: z.number().int().nonnegative(),
-  runningSince: z.iso.datetime().nullable(),
+  startedAt: z.iso.datetime(),
+  stoppedAt: z.iso.datetime().nullable(),
+  seconds: z.number().int().nullable(),
+  comment: z.string().nullable(),
+  source: timeEntrySource,
+  /** admin who added a manual entry; null = the user's own timer */
+  createdById: uuid.nullable(),
 });
 export type TimeEntry = z.infer<typeof timeEntrySchema>;
 
@@ -32,8 +41,10 @@ export const taskSchema = z.object({
   id: uuid,
   title: z.string().min(1),
   clientId: uuid.nullable(),
+  companyId: uuid.nullable(),
   leadId: uuid.nullable(),
   serviceId: uuid.nullable(),
+  /** once = billable one-off · sub = generated from a subscription · free = internal */
   kind: taskKind,
   priorityId: uuid,
   statusColumnId: uuid,
@@ -41,10 +52,160 @@ export const taskSchema = z.object({
   done: z.boolean(),
   deadline: z.iso.datetime().nullable(),
   plannedMinutes: z.number().int().nonnegative().nullable(),
+  /** one-off price (minor units) → invoice at S7; kind=once only */
   amount: money.nullable(),
   invoiceId: uuid.nullable(),
   description: z.string().nullable(),
+  /** generation provenance (kind=sub) */
+  subscriptionId: uuid.nullable(),
+  taskTemplateId: uuid.nullable(),
+  periodKey: z.string().nullable(),
+  /** the invoice issued for this job (one-time services; created per the service trigger) */
+  invoice: z
+    .object({
+      id: uuid,
+      number: z.string(),
+      amount: money,
+      issuedAt: z.iso.datetime(),
+      dueDate: z.iso.datetime().nullable(),
+    })
+    .nullable(),
+  assignees: z.array(uuid),
+  subtasks: z.array(subtaskSchema),
+  timeEntries: z.array(timeEntrySchema),
+  /** Σ seconds of CLOSED intervals (a running one adds live elapsed client-side) */
+  trackedSeconds: z.number().int(),
   createdAt: z.iso.datetime(),
   archivedAt: z.iso.datetime().nullable(),
 });
 export type Task = z.infer<typeof taskSchema>;
+
+// ── Task inputs ──────────────────────────────────────────────────────────────
+
+const optionalText = z
+  .string()
+  .transform((v) => v.trim() || null)
+  .nullable()
+  .optional();
+
+const workflowFields = z.object({
+  title: z.string().trim().min(1).max(200),
+  /** omitted → the default priority (Normal) */
+  priorityId: uuid.optional(),
+  /** omitted → the fixed "New" column */
+  statusColumnId: uuid.optional(),
+  deadline: z.iso.date().nullable().optional(),
+  plannedMinutes: z.number().int().min(1).max(60_000).nullable().optional(),
+  description: optionalText,
+  assignees: z.array(uuid).max(20).default([]),
+});
+
+/**
+ * Task targeting (decision 2026-07-23): a CLIENT task always goes through one
+ * of the client's subscriptions — one-time service → billable job (price +
+ * invoice per the service trigger), subscription service → free extra work
+ * included in the price. A LEAD task is always free (no services yet).
+ * Neither → internal. `kind`, service and company are DERIVED server-side.
+ */
+export const createTaskInput = workflowFields
+  .extend({
+    clientId: uuid.nullable().optional(),
+    /** required with clientId — the client's subscription the work goes through */
+    subscriptionId: uuid.nullable().optional(),
+    leadId: uuid.nullable().optional(),
+    /** one-time jobs only; omitted → the subscription's default job price */
+    amount: money.nullable().optional(),
+  })
+  .refine((v) => !(v.clientId && v.leadId), {
+    path: ["leadId"],
+    message: "Pick a client or a lead, not both",
+  })
+  .refine((v) => !v.clientId || !!v.subscriptionId, {
+    path: ["subscriptionId"],
+    message: "A client task goes through one of the client's services",
+  });
+// assignees are optional (default = the creator in the UI; may be left empty)
+export type CreateTaskInput = z.infer<typeof createTaskInput>;
+
+/** Re-targeting isn't supported — create a new task instead (workflow fields only). */
+export const updateTaskInput = workflowFields.partial().extend({
+  done: z.boolean().optional(),
+  /** one-time jobs only, until invoiced */
+  amount: money.nullable().optional(),
+  // optional on PATCH — omitting keeps current assignees; [] clears them
+  assignees: z.array(uuid).max(20).optional(),
+});
+export type UpdateTaskInput = z.infer<typeof updateTaskInput>;
+
+/** Full replace of the checklist (order = array index). */
+export const setSubtasksInput = z.object({
+  subtasks: z
+    .array(z.object({ text: z.string().trim().min(1).max(300), done: z.boolean().default(false) }))
+    .max(50),
+});
+export type SetSubtasksInput = z.infer<typeof setSubtasksInput>;
+
+export const taskListQuery = z.object({
+  view: z.enum(["board", "table"]).default("board"),
+  /** table view only */
+  status: z.enum(["all", "open", "done"]).default("all"),
+  search: z.string().trim().optional(),
+  assigneeId: uuid.optional(),
+  clientId: uuid.optional(),
+  leadId: uuid.optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(50),
+});
+export type TaskListQuery = z.infer<typeof taskListQuery>;
+
+// ── Columns ──────────────────────────────────────────────────────────────────
+
+export const createColumnInput = z.object({ name: z.string().trim().min(1).max(40) });
+export type CreateColumnInput = z.infer<typeof createColumnInput>;
+
+export const updateColumnInput = z.object({
+  name: z.string().trim().min(1).max(40).optional(),
+  order: z.number().int().min(0).optional(),
+});
+export type UpdateColumnInput = z.infer<typeof updateColumnInput>;
+
+// ── Timer ────────────────────────────────────────────────────────────────────
+
+/**
+ * One running timer per user. Starting while another runs: without
+ * `closeComment` → 409 with the running entry (UI opens the comment modal);
+ * with it → the old interval closes with that comment and the new one starts
+ * atomically.
+ */
+export const startTimerInput = z.object({
+  taskId: uuid,
+  closeComment: z.string().trim().min(1).max(500).optional(),
+});
+export type StartTimerInput = z.infer<typeof startTimerInput>;
+
+/** Every stop requires a comment — an interval never closes silently. */
+export const stopTimerInput = z.object({
+  comment: z.string().trim().min(1).max(500),
+});
+export type StopTimerInput = z.infer<typeof stopTimerInput>;
+
+// ── Admin time management ────────────────────────────────────────────────────
+
+export const addTimeEntryInput = z.object({
+  userId: uuid,
+  minutes: z.number().int().min(1).max(24 * 60),
+  comment: z.string().trim().min(1).max(500),
+  /** anchor date (defaults to now) */
+  date: z.iso.date().optional(),
+});
+export type AddTimeEntryInput = z.infer<typeof addTimeEntryInput>;
+
+export const updateTimeEntryInput = z
+  .object({
+    minutes: z.number().int().min(1).max(24 * 60).optional(),
+    comment: z.string().trim().min(1).max(500).optional(),
+  })
+  .refine((v) => v.minutes !== undefined || v.comment !== undefined, {
+    message: "Nothing to update",
+  });
+export type UpdateTimeEntryInput = z.infer<typeof updateTimeEntryInput>;

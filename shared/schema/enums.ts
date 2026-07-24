@@ -26,6 +26,9 @@ export type Periodicity = z.infer<typeof periodicity>;
 export const taskKind = z.enum(["once", "sub", "free"]);
 export type TaskKind = z.infer<typeof taskKind>;
 
+export const timeEntrySource = z.enum(["timer", "manual"]);
+export type TimeEntrySource = z.infer<typeof timeEntrySource>;
+
 export const leadStage = z.enum([
   "first_contact",
   "no_answer",

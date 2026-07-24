@@ -187,7 +187,8 @@ export const setClientCategoriesInput = z.object({
 export type SetClientCategoriesInput = z.infer<typeof setClientCategoriesInput>;
 
 export const clientListQuery = z.object({
-  tab: z.enum(["one_time", "regular"]).default("one_time"),
+  /** "all" = no regularity filter (pickers); the clients screen uses the 2 tabs */
+  tab: z.enum(["one_time", "regular", "all"]).default("one_time"),
   search: z.string().trim().optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),

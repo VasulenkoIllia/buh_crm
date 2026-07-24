@@ -125,6 +125,7 @@ model User {
   sessions            Session[]
   taskAssignments     TaskAssignee[]
   timeEntries         TimeEntry[]
+  timeEntriesCreated  TimeEntry[]          @relation("TimeEntryCreatedBy")
   meetingParticipants MeetingParticipant[]
   notifications       Notification[]
   paymentsCreated     Payment[]            @relation("PaymentCreatedBy")
@@ -454,19 +455,34 @@ model TaskAssignee {
   @@id([taskId, userId])
 }
 
+enum TimeEntrySource {
+  timer // live start/stop by the user themself
+  manual // added by an admin (forgotten/corrected time)
+}
+
+/// One tracked INTERVAL (S6 redesign). `stoppedAt` null = the timer is running.
+/// A user has at most one running interval across all tasks (partial unique
+/// index `TimeEntry_one_running_per_user` — raw SQL, not representable in Prisma).
+/// Closing a timer interval requires a comment; admins have full management.
 model TimeEntry {
-  id           String    @id @default(uuid()) @db.Uuid
-  taskId       String    @db.Uuid
-  userId       String    @db.Uuid
-  seconds      Int       @default(0) // accumulated
-  runningSince DateTime? // non-null = timer running
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id          String          @id @default(uuid()) @db.Uuid
+  taskId      String          @db.Uuid
+  userId      String          @db.Uuid
+  startedAt   DateTime
+  stoppedAt   DateTime? // null = running
+  seconds     Int? // fixed at stop (admin-editable); null while running
+  comment     String? // what was done — required when a timer interval closes
+  source      TimeEntrySource @default(timer)
+  createdById String?         @db.Uuid // admin who added a manual entry (null = the user themself)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
 
-  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task      Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdBy User? @relation("TimeEntryCreatedBy", fields: [createdById], references: [id])
 
-  @@unique([taskId, userId])
+  @@index([taskId])
+  @@index([userId])
 }
 
 model Subtask {

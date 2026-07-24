@@ -1,0 +1,211 @@
+import type { Prisma } from "../../generated/prisma/client.js";
+import { prisma } from "../../core/db.js";
+
+const taskInclude = {
+  assignees: { select: { userId: true } },
+  subtasks: { orderBy: { order: "asc" } },
+  timeEntries: { orderBy: { startedAt: "asc" } },
+  invoice: { select: { id: true, number: true, amount: true, issuedAt: true, dueDate: true } },
+} satisfies Prisma.TaskInclude;
+
+export type TaskRecord = Prisma.TaskGetPayload<{ include: typeof taskInclude }>;
+
+// ── columns ──────────────────────────────────────────────────────────────────
+
+export function listColumns() {
+  return prisma.taskColumn.findMany({ orderBy: { order: "asc" } });
+}
+
+export function findColumn(id: string) {
+  return prisma.taskColumn.findUnique({ where: { id } });
+}
+
+/** The fixed "New" column — default entry point (bootstrap guarantees it exists). */
+export function findFixedColumn() {
+  return prisma.taskColumn.findFirst({ where: { isFixed: true } });
+}
+
+export async function createColumn(name: string) {
+  const max = await prisma.taskColumn.aggregate({ _max: { order: true } });
+  return prisma.taskColumn.create({ data: { name, order: (max._max.order ?? 0) + 1 } });
+}
+
+export function updateColumn(id: string, data: Prisma.TaskColumnUpdateInput) {
+  return prisma.taskColumn.update({ where: { id }, data });
+}
+
+export function deleteColumn(id: string) {
+  return prisma.taskColumn.delete({ where: { id } });
+}
+
+export function countTasksInColumn(columnId: string) {
+  return prisma.task.count({ where: { statusColumnId: columnId, archivedAt: null } });
+}
+
+// ── tasks ────────────────────────────────────────────────────────────────────
+
+export async function listTasks(args: {
+  where: Prisma.TaskWhereInput;
+  skip: number;
+  take: number;
+}) {
+  const [items, total] = await prisma.$transaction([
+    prisma.task.findMany({
+      where: args.where,
+      include: taskInclude,
+      orderBy: { createdAt: "desc" },
+      skip: args.skip,
+      take: args.take,
+    }),
+    prisma.task.count({ where: args.where }),
+  ]);
+  return { items, total };
+}
+
+export function findTask(id: string) {
+  return prisma.task.findUnique({ where: { id }, include: taskInclude });
+}
+
+export function createTask(data: Prisma.TaskUncheckedCreateInput) {
+  return prisma.task.create({ data, include: taskInclude });
+}
+
+export function updateTask(id: string, data: Prisma.TaskUncheckedUpdateInput) {
+  return prisma.task.update({ where: { id }, data, include: taskInclude });
+}
+
+/** Full replace of the task's assignee set. */
+export async function setAssignees(taskId: string, userIds: string[]) {
+  await prisma.$transaction([
+    prisma.taskAssignee.deleteMany({ where: { taskId } }),
+    prisma.taskAssignee.createMany({
+      data: [...new Set(userIds)].map((userId) => ({ taskId, userId })),
+    }),
+  ]);
+}
+
+/** Full replace of the checklist (order = array index). */
+export async function setSubtasks(taskId: string, rows: { text: string; done: boolean }[]) {
+  await prisma.$transaction([
+    prisma.subtask.deleteMany({ where: { taskId } }),
+    prisma.subtask.createMany({
+      data: rows.map((r, order) => ({ taskId, order, ...r })),
+    }),
+  ]);
+}
+
+// ── lookups for validation ───────────────────────────────────────────────────
+
+export function findDefaultPriority() {
+  return prisma.priority.findFirst({ where: { isDefault: true }, orderBy: { order: "asc" } });
+}
+
+export function findPriority(id: string) {
+  return prisma.priority.findUnique({ where: { id } });
+}
+
+export function findActiveClient(id: string) {
+  return prisma.client.findFirst({ where: { id, archivedAt: null } });
+}
+
+export function findClientCompany(clientId: string, companyId: string) {
+  return prisma.company.findFirst({ where: { id: companyId, clientId } });
+}
+
+export function findLead(id: string) {
+  return prisma.lead.findFirst({ where: { id, archivedAt: null } });
+}
+
+export function findActiveService(id: string) {
+  return prisma.service.findFirst({ where: { id, active: true } });
+}
+
+export function findClientSubscription(clientId: string, subscriptionId: string) {
+  return prisma.subscription.findFirst({
+    where: { id: subscriptionId, clientId },
+    include: { service: { select: { id: true, type: true, invoiceTrigger: true, dueDays: true } } },
+  });
+}
+
+
+export function countActiveUsersByIds(ids: string[]) {
+  return prisma.user.count({ where: { id: { in: ids }, status: "active" } });
+}
+
+export function findUser(id: string) {
+  return prisma.user.findUnique({ where: { id } });
+}
+
+/** Lightweight team directory for assignee pickers + name rendering (all-auth). */
+export function listUserDirectory() {
+  return prisma.user.findMany({
+    select: { id: true, firstName: true, lastName: true, status: true },
+    orderBy: { firstName: "asc" },
+  });
+}
+
+// ── timer / time entries ─────────────────────────────────────────────────────
+
+export function findRunningEntry(userId: string) {
+  return prisma.timeEntry.findFirst({
+    where: { userId, stoppedAt: null },
+    include: { task: { select: { id: true, title: true } } },
+  });
+}
+
+export function findEntry(id: string) {
+  return prisma.timeEntry.findUnique({ where: { id } });
+}
+
+/** Close the old interval (if any) and open the new one atomically. */
+export async function switchRunningEntry(args: {
+  userId: string;
+  taskId: string;
+  close?: { id: string; stoppedAt: Date; seconds: number; comment: string };
+}) {
+  return prisma.$transaction(async (tx) => {
+    if (args.close) {
+      await tx.timeEntry.update({
+        where: { id: args.close.id },
+        data: {
+          stoppedAt: args.close.stoppedAt,
+          seconds: args.close.seconds,
+          comment: args.close.comment,
+        },
+      });
+    }
+    // make sure the tracker is on the task's crew (tracking = working on it)
+    await tx.taskAssignee.upsert({
+      where: { taskId_userId: { taskId: args.taskId, userId: args.userId } },
+      update: {},
+      create: { taskId: args.taskId, userId: args.userId },
+    });
+    return tx.timeEntry.create({
+      data: { taskId: args.taskId, userId: args.userId, startedAt: new Date() },
+    });
+  });
+}
+
+export function closeEntry(id: string, data: { stoppedAt: Date; seconds: number; comment: string }) {
+  return prisma.timeEntry.update({ where: { id }, data });
+}
+
+export function createManualEntry(data: {
+  taskId: string;
+  userId: string;
+  startedAt: Date;
+  stoppedAt: Date;
+  seconds: number;
+  comment: string;
+  createdById: string;
+}) {
+  return prisma.timeEntry.create({ data: { ...data, source: "manual" } });
+}
+
+export function updateEntry(id: string, data: Prisma.TimeEntryUncheckedUpdateInput) {
+  return prisma.timeEntry.update({ where: { id }, data });
+}
+
+export function deleteEntry(id: string) {
+  return prisma.timeEntry.delete({ where: { id } });
+}

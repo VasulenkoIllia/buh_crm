@@ -16,6 +16,12 @@ beforeAll(async () => {
   app = await buildApp();
   await prisma.session.deleteMany();
   await prisma.authToken.deleteMany();
+  await prisma.timeEntry.deleteMany();
+  await prisma.subtask.deleteMany();
+  await prisma.taskAssignee.deleteMany();
+  await prisma.task.deleteMany();
+  await prisma.invoice.deleteMany();
+  await prisma.subscription.deleteMany();
   await prisma.lead.deleteMany();
   await prisma.file.deleteMany();
   await prisma.clientPerson.deleteMany();

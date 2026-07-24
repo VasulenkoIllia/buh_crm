@@ -9,6 +9,7 @@ import type {
 import { rhythmOverridesSchema } from "@shared/schema/catalog.js";
 import type { Prisma, User } from "../../generated/prisma/client.js";
 import { NotFoundError, ValidationError } from "../../core/errors.js";
+import { generateForSubscription } from "../tasks/index.js";
 import { MAX_FILE_SIZE, deleteFileBytes, saveFileBytes } from "../../core/files.js";
 import * as repo from "./clients.repository.js";
 
@@ -95,7 +96,7 @@ const ONE_TIME_FILTER: Prisma.ClientWhereInput = {
 export async function listClients(query: ClientListQuery) {
   const where: Prisma.ClientWhereInput = {
     archivedAt: null,
-    ...(query.tab === "regular" ? REGULAR_FILTER : ONE_TIME_FILTER),
+    ...(query.tab === "regular" ? REGULAR_FILTER : query.tab === "one_time" ? ONE_TIME_FILTER : {}),
   };
 
   if (query.search) {
@@ -233,7 +234,7 @@ export async function addSubscription(clientId: string, input: CreateSubscriptio
       "This service is already assigned to the same target — edit the existing subscription or pick another company",
     );
   }
-  await repo.createSubscription({
+  const created = await repo.createSubscription({
     clientId,
     serviceId: input.serviceId,
     companyId: input.companyId ?? null,
@@ -243,6 +244,10 @@ export async function addSubscription(clientId: string, input: CreateSubscriptio
     invoiceDay: input.invoiceDay ?? null,
     dueDays: input.dueDays ?? null,
   });
+  // instant feedback: today's-due tasks appear right away (idempotent; no-op for one-time).
+  // best-effort — a generation hiccup must NOT fail the (already-committed) subscription;
+  // the daily scheduler sweep + startup catch-up will fill anything missed.
+  await generateForSubscription(created.id).catch(() => {});
   return getClient(clientId);
 }
 
@@ -289,6 +294,11 @@ export async function updateSubscription(
     }
   }
   await repo.updateSubscription(subscriptionId, input);
+  // rhythm overrides / reactivation may make today's tasks due — sweep this sub now
+  // (best-effort; the scheduler self-heals so a hiccup never fails the saved edit)
+  if (input.rhythmOverrides !== undefined || input.active === true) {
+    await generateForSubscription(subscriptionId).catch(() => {});
+  }
   return getClient(clientId);
 }
 
