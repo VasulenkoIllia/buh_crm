@@ -305,16 +305,20 @@ function BoardColumn({
         </div>
       </div>
       <div className="flex flex-col gap-2">
-        {tasks.length === 0 && (
-          <div className="rounded-[8px] border border-dashed border-[#cfd4db] px-3.5 py-[22px] text-center text-[#8b929c]">
-            <div className="text-[22px]">✓</div>
-            <div className="text-[13px] font-medium text-ink-700">Empty</div>
-            <div className="text-[12px]">No tasks here</div>
-          </div>
-        )}
         {tasks.map((task) => (
           <BoardCard key={task.id} task={task} team={team} onOpen={() => onOpen(task)} />
         ))}
+        {/* prominent add button — the primary way to create a task in this column */}
+        <button
+          type="button"
+          onClick={onAdd}
+          className={cn(
+            "flex items-center justify-center gap-1.5 rounded-[8px] border border-dashed border-[#b7e0c5] bg-[#eef8f1] font-semibold text-[#1f8f3a] transition-colors hover:border-[#8fd0a6] hover:bg-[#e2f2e8]",
+            tasks.length === 0 ? "py-[22px] text-[14px]" : "py-2.5 text-[13px]",
+          )}
+        >
+          <span className="text-[16px] leading-none">+</span> New task
+        </button>
       </div>
     </div>
   );
