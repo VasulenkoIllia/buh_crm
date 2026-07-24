@@ -131,6 +131,42 @@ describe("email normalization", () => {
     });
     expect(login.statusCode).toBe(200);
   });
+
+  it("a legacy MIXED-CASE stored email is still reachable by login + reset", async () => {
+    // simulate a row created before the normalization rule (capital letters
+    // that bypassed lowercasing) — it must not be locked out
+    await prisma.user.create({
+      data: {
+        email: "Legacy.Admin@Illion.Tax",
+        passwordHash: await argon2.hash("legacy-pass-123"),
+        firstName: "Legacy",
+        lastName: "Admin",
+        role: "admin",
+        status: "active",
+        emailConfirmedAt: new Date(),
+      },
+    });
+
+    // login with the lowercased form finds the mixed-case row
+    const login = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: "legacy.admin@illion.tax", password: "legacy-pass-123" },
+    });
+    expect(login.statusCode).toBe(200);
+
+    // forgot-password matches it too → a reset email is actually sent
+    testOutbox.length = 0;
+    const forgot = await app.inject({
+      method: "POST",
+      url: "/api/auth/forgot-password",
+      payload: { email: "legacy.admin@illion.tax" },
+    });
+    expect(forgot.statusCode).toBe(200);
+    const reset = testOutbox.find((m) => m.to === "Legacy.Admin@Illion.Tax");
+    expect(reset).toBeDefined();
+    expect(reset!.subject.toLowerCase()).toContain("reset");
+  });
 });
 
 describe("password change session invalidation", () => {

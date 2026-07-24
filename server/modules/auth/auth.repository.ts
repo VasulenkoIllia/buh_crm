@@ -2,7 +2,10 @@ import type { AuthTokenType } from "../../generated/prisma/enums.js";
 import { prisma } from "../../core/db.js";
 
 export function findUserByEmail(email: string) {
-  return prisma.user.findUnique({ where: { email } });
+  // Case-insensitive: inputs are normalized to lowercase, but a legacy or
+  // manually-inserted mixed-case row would otherwise be unreachable (can't log
+  // in or reset). insensitive match keeps such accounts usable.
+  return prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } } });
 }
 
 export function findUserById(id: string) {

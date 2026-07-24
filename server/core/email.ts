@@ -68,6 +68,10 @@ function getTransporter(): Transporter {
     host: config.SMTP_HOST,
     port: config.SMTP_PORT,
     secure: config.SMTP_SECURE,
+    // On a submission port (587, secure=false) force STARTTLS instead of relying on
+    // opportunistic upgrade — many providers (e.g. illion.tax) reject plaintext AUTH,
+    // which otherwise fails silently. Skipped in dev so Mailpit (no TLS) still works.
+    requireTLS: !isDev && !config.SMTP_SECURE,
     auth: config.SMTP_USER ? { user: config.SMTP_USER, pass: config.SMTP_PASS } : undefined,
     // fail fast instead of hanging on an unreachable host
     connectionTimeout: 10_000,
