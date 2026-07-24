@@ -162,7 +162,15 @@ type SubWithTemplates = {
   serviceId: string;
   createdAt: Date;
   rhythmOverrides: unknown;
+  client: {
+    type: "individual" | "company";
+    firstName: string | null;
+    lastName: string | null;
+    companyName: string | null;
+  };
+  company: { name: string } | null;
   service: {
+    name: string;
     taskTemplates: {
       id: string;
       name: string;
@@ -175,6 +183,28 @@ type SubWithTemplates = {
     }[];
   };
 };
+
+/** individual → "First Last"; company → the company name. */
+function clientLabel(c: SubWithTemplates["client"]): string {
+  if (c.type === "company") return c.companyName ?? "—";
+  return `${c.firstName ?? ""} ${c.lastName ?? ""}`.trim() || "—";
+}
+
+const dayLabel = ({ y, m, d }: Day) =>
+  `${String(d).padStart(2, "0")}.${String(m).padStart(2, "0")}.${y}`;
+
+/** Auto-task title: "client · company (if any) · service · template · date". */
+function generatedTitle(sub: SubWithTemplates, templateName: string, date: Day): string {
+  return [
+    clientLabel(sub.client),
+    sub.company?.name,
+    sub.service.name,
+    templateName,
+    dayLabel(date),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 function rowsForSubscription(sub: SubWithTemplates, deps: GenerationDeps, today: Day, tz: string) {
   const overrides = rhythmOverridesSchema.catch({}).parse(sub.rhythmOverrides ?? {});
@@ -197,7 +227,7 @@ function rowsForSubscription(sub: SubWithTemplates, deps: GenerationDeps, today:
     const from = cmp(tplStart, subStart) > 0 ? tplStart : subStart;
 
     return occurrencesInWindow(eff, from, today).map((occ) => ({
-      title: tpl.name,
+      title: generatedTitle(sub, tpl.name, occ.date),
       clientId: sub.clientId,
       companyId: sub.companyId,
       serviceId: sub.serviceId,
@@ -220,8 +250,11 @@ const subscriptionQuery = {
     client: { archivedAt: null },
   },
   include: {
+    client: { select: { type: true, firstName: true, lastName: true, companyName: true } },
+    company: { select: { name: true } },
     service: {
       select: {
+        name: true,
         taskTemplates: {
           select: {
             id: true,

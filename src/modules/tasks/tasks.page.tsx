@@ -53,7 +53,13 @@ export function TasksPage() {
   const [layout, setLayout] = useState<Layout>("board");
   const [view, setView] = useState<ViewTab>("active");
   const [formOpen, setFormOpen] = useState(false);
+  const [formColumnId, setFormColumnId] = useState<string | undefined>();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const openNewTask = (columnId?: string) => {
+    setFormColumnId(columnId);
+    setFormOpen(true);
+  };
 
   const tasks = useMemo(() => {
     let list = data?.items ?? [];
@@ -125,7 +131,7 @@ export function TasksPage() {
               { value: "done", label: "Done" },
             ]}
           />
-          <Button onClick={() => setFormOpen(true)}>+ New task</Button>
+          <Button onClick={() => openNewTask()}>+ New task</Button>
         </div>
       </div>
 
@@ -140,7 +146,13 @@ export function TasksPage() {
       )}
 
       {data && columns && layout === "board" && view === "active" && (
-        <Board columns={columns} tasks={tasks} team={team ?? []} onOpen={(t) => setSelectedId(t.id)} />
+        <Board
+          columns={columns}
+          tasks={tasks}
+          team={team ?? []}
+          onOpen={(t) => setSelectedId(t.id)}
+          onAddInColumn={openNewTask}
+        />
       )}
       {data && layout === "board" && view === "done" && (
         <DoneGrid tasks={tasks} onOpen={(t) => setSelectedId(t.id)} />
@@ -149,7 +161,15 @@ export function TasksPage() {
         <TaskTable columns={columns} tasks={tasks} team={team ?? []} onOpen={(t) => setSelectedId(t.id)} />
       )}
 
-      {formOpen && <TaskFormModal onClose={() => setFormOpen(false)} />}
+      {formOpen && (
+        <TaskFormModal
+          presetColumnId={formColumnId}
+          onClose={() => {
+            setFormOpen(false);
+            setFormColumnId(undefined);
+          }}
+        />
+      )}
       {selected && <TaskDetailsModal task={selected} onClose={() => setSelectedId(null)} />}
     </div>
   );
@@ -162,11 +182,13 @@ function Board({
   tasks,
   team,
   onOpen,
+  onAddInColumn,
 }: {
   columns: TaskColumn[];
   tasks: Task[];
   team: AssigneeInfo[];
   onOpen: (task: Task) => void;
+  onAddInColumn: (columnId: string) => void;
 }) {
   const { user } = useAuth();
   const update = useUpdateTask(); // moving a card is just a task PATCH
@@ -196,6 +218,7 @@ function Board({
             tasks={byColumn.get(column.id) ?? []}
             team={team}
             onOpen={onOpen}
+            onAdd={() => onAddInColumn(column.id)}
           />
         ))}
         {user?.role === "admin" && <AddColumnTile />}
@@ -209,11 +232,13 @@ function BoardColumn({
   tasks,
   team,
   onOpen,
+  onAdd,
 }: {
   column: TaskColumn;
   tasks: Task[];
   team: AssigneeInfo[];
   onOpen: (task: Task) => void;
+  onAdd: () => void;
 }) {
   const { user } = useAuth();
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
@@ -257,16 +282,27 @@ function BoardColumn({
         <span className="rounded-[10px] bg-[#e7eaef] px-[7px] py-px text-[11px] font-semibold text-[#8b929c]">
           {tasks.length}
         </span>
-        {isAdmin && !column.isFixed && tasks.length === 0 && (
+        <div className="ml-auto flex items-center gap-1">
           <button
             type="button"
-            aria-label="Delete column"
-            className="ml-auto text-[15px] text-[#b6bcc5] hover:text-danger"
-            onClick={() => remove.mutate(column.id)}
+            aria-label={`Add task in ${column.name}`}
+            title="New task in this column"
+            className="flex h-[18px] w-[18px] items-center justify-center rounded-[5px] text-[15px] leading-none text-[#8b929c] hover:bg-[#e7eaef] hover:text-ink-700"
+            onClick={onAdd}
           >
-            ×
+            +
           </button>
-        )}
+          {isAdmin && !column.isFixed && tasks.length === 0 && (
+            <button
+              type="button"
+              aria-label="Delete column"
+              className="text-[15px] text-[#b6bcc5] hover:text-danger"
+              onClick={() => remove.mutate(column.id)}
+            >
+              ×
+            </button>
+          )}
+        </div>
       </div>
       <div className="flex flex-col gap-2">
         {tasks.length === 0 && (

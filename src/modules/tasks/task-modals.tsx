@@ -51,17 +51,21 @@ export type Target =
 export function TaskFormModal({
   task,
   preset,
+  presetColumnId,
   onClose,
 }: {
   task?: Task;
   /** pre-target a new task (from a client/lead card's "+ New task") */
   preset?: Target;
+  /** pre-select the kanban column (from a column's "+" button) */
+  presetColumnId?: string;
   onClose: () => void;
 }) {
   const { user } = useAuth();
   const { data: services } = useCatalog();
   const { data: settings } = useSettings();
   const { data: team } = useAssignees();
+  const { data: columns } = useTaskColumns();
   const create = useCreateTask();
   const update = useUpdateTask();
 
@@ -80,6 +84,7 @@ export function TaskFormModal({
   const [subscriptionId, setSubscriptionId] = useState(task?.subscriptionId ?? "");
   const [title, setTitle] = useState(task?.title ?? "");
   const [priorityId, setPriorityId] = useState(task?.priorityId ?? "");
+  const [statusColumnId, setStatusColumnId] = useState(task?.statusColumnId ?? presetColumnId ?? "");
   const [deadline, setDeadline] = useState(task?.deadline ? task.deadline.slice(0, 10) : "");
   const [plannedMinutes, setPlannedMinutes] = useState<number | null>(task?.plannedMinutes ?? null);
   const [amount, setAmount] = useState<number | null>(task?.amount ?? null);
@@ -142,6 +147,7 @@ export function TaskFormModal({
     const workflow = {
       title: title.trim(),
       priorityId: priorityId || undefined,
+      statusColumnId: statusColumnId || undefined,
       deadline: deadline || null,
       plannedMinutes,
       description: description.trim() || null,
@@ -351,6 +357,19 @@ export function TaskFormModal({
 
         <div className="grid grid-cols-2 gap-3">
           <div>
+            <Label>Column</Label>
+            <Select value={statusColumnId} onChange={(e) => setStatusColumnId(e.target.value)}>
+              <option value="">New (default)</option>
+              {(columns ?? [])
+                .filter((c) => !c.isFixed)
+                .map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+            </Select>
+          </div>
+          <div>
             <Label>Priority</Label>
             <Select value={priorityId} onChange={(e) => setPriorityId(e.target.value)}>
               <option value="">Default</option>
@@ -361,15 +380,16 @@ export function TaskFormModal({
               ))}
             </Select>
           </div>
-          <div>
-            <Label>Planned time (min)</Label>
-            <Input
-              type="number"
-              min={1}
-              value={plannedMinutes ?? ""}
-              onChange={(e) => setPlannedMinutes(e.target.value ? Number(e.target.value) : null)}
-            />
-          </div>
+        </div>
+
+        <div>
+          <Label>Planned time (min)</Label>
+          <Input
+            type="number"
+            min={1}
+            value={plannedMinutes ?? ""}
+            onChange={(e) => setPlannedMinutes(e.target.value ? Number(e.target.value) : null)}
+          />
         </div>
 
         <div>

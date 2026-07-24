@@ -132,7 +132,7 @@ describe("tasks", () => {
     expect(created.statusCode).toBe(201);
     const doingId = created.json().id;
 
-    // a column holding tasks refuses deletion (internal task = no target needed)
+    // a task can be created directly into a chosen column (the column "+" button)
     const task = await app.inject({
       method: "POST",
       url: "/api/tasks",
@@ -140,6 +140,7 @@ describe("tasks", () => {
       payload: { title: "Occupies column", statusColumnId: doingId, assignees: [adminId] },
     });
     expect(task.statusCode).toBe(201);
+    expect(task.json().statusColumnId).toBe(doingId);
     const blocked = await app.inject({
       method: "DELETE",
       url: `/api/tasks/columns/${doingId}`,
@@ -406,6 +407,11 @@ describe("tasks", () => {
     expect(generated!.periodKey).toBe(monthKey);
     expect(generated!.assignees).toHaveLength(0);
     expect(generated!.plannedMinutes).toBe(120);
+    // composed title: client · service · template · date (no company on this client)
+    expect(generated!.title).toContain("GenClient Tasks");
+    expect(generated!.title).toContain("Gen Bookkeeping");
+    expect(generated!.title).toContain("Monthly close");
+    expect(generated!.title).toMatch(/\d{2}\.\d{2}\.\d{4}$/);
 
     // double sweep creates nothing new (unique key + skipDuplicates)
     const before = await prisma.task.count();
