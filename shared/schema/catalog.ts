@@ -11,6 +11,8 @@ export const taskTemplateSchema = z.object({
   monthOfPeriod: z.number().int().nullable(),
   deadlineOffsetDays: z.number().int().nullable(),
   estimatedMinutes: z.number().int().nullable(),
+  /** default checklist steps seeded onto tasks made from this template */
+  defaultChecklist: z.array(z.string()).default([]),
   defaultAssigneeId: uuid.nullable(),
   billable: z.boolean(),
 });
@@ -69,6 +71,9 @@ const rhythmMsg = {
     "Rhythm day/month don't fit the frequency (weekly: Mon–Sun; monthly: day 1–31 or last; quarterly: month 1–3; yearly: month 1–12)",
 };
 
+/** A checklist = an ordered list of short step texts (empty steps trimmed out upstream). */
+export const checklistSchema = z.array(z.string().trim().min(1).max(200)).max(50);
+
 const taskTemplateFields = z.object({
   name: z.string().trim().min(1).max(80),
   periodicity,
@@ -79,6 +84,8 @@ const taskTemplateFields = z.object({
   deadlineOffsetDays: z.number().int().min(0).max(90).nullable().optional(),
   /** planned labor (minutes); per-task override lands with Tasks (S6) */
   estimatedMinutes: z.number().int().min(1).max(60_000).nullable().optional(),
+  /** default checklist steps seeded onto tasks made from this template */
+  defaultChecklist: checklistSchema.optional(),
   billable: z.boolean().default(true),
 });
 
@@ -106,6 +113,8 @@ export const taskOverrideSchema = z
     monthOfPeriod: z.number().int().min(1).max(12).nullable().optional(),
     deadlineOffsetDays: z.number().int().min(0).max(90).nullable().optional(),
     estimatedMinutes: z.number().int().min(1).max(60_000).nullable().optional(),
+    /** per-client checklist: array = replace the template's, `null` = remove it, absent = inherit */
+    checklist: checklistSchema.nullable().optional(),
   })
   .refine(
     (v) =>

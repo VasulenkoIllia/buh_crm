@@ -33,6 +33,7 @@ export function toServiceDto(service: repo.ServiceRecord) {
       monthOfPeriod: t.monthOfPeriod,
       deadlineOffsetDays: t.deadlineOffsetDays,
       estimatedMinutes: t.estimatedMinutes,
+      defaultChecklist: (t.defaultChecklist as string[] | null) ?? [],
       defaultAssigneeId: t.defaultAssigneeId,
       billable: t.billable,
     })),
@@ -127,6 +128,7 @@ export async function addTemplate(serviceId: string, input: CreateTaskTemplateIn
     monthOfPeriod: input.monthOfPeriod ?? null,
     deadlineOffsetDays: input.deadlineOffsetDays ?? null,
     estimatedMinutes: input.estimatedMinutes ?? null,
+    defaultChecklist: input.defaultChecklist ?? [],
     billable: input.billable,
   });
   return toServiceDto((await repo.findService(serviceId))!);

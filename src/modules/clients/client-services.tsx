@@ -5,6 +5,7 @@ import type { BillingPeriod } from "@shared/schema/enums";
 import {
   ServiceChip,
   TaskRhythmFields,
+  pillCls,
   rhythmSummary,
   useCatalog,
   type RhythmValue,
@@ -12,6 +13,7 @@ import {
 import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
+import { ChecklistEditor } from "@/shared/ui/checklist-editor";
 import { Input, Label, Select } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
 import { useAddSubscription, useSetCategories, useUpdateSubscription } from "./clients.api";
@@ -33,12 +35,13 @@ function effectiveTask(template: TaskTemplate, override?: TaskOverride): Effecti
   };
 }
 
-/** True when the override customizes rhythm/planned time (not just the include flag). */
+/** True when the override customizes anything beyond the include flag (rhythm/planned/checklist). */
 const rhythmEdited = (o?: TaskOverride) =>
   !!o &&
   (o.periodicity !== undefined ||
     o.deadlineOffsetDays !== undefined ||
-    o.estimatedMinutes !== undefined);
+    o.estimatedMinutes !== undefined ||
+    o.checklist !== undefined);
 
 const PERIOD_LABEL: Record<BillingPeriod, string> = {
   month: "monthly",
@@ -358,6 +361,7 @@ function SubscriptionTasks({
         <TaskOverrideModal
           template={editing}
           effective={effectiveTask(editing, overrides[editing.id])}
+          override={overrides[editing.id]}
           oneTime={service.type === "one_time"}
           onApply={(value) => setOverride(editing.id, value)}
           onClose={() => setEditing(undefined)}
@@ -370,12 +374,14 @@ function SubscriptionTasks({
 function TaskOverrideModal({
   template,
   effective,
+  override,
   oneTime,
   onApply,
   onClose,
 }: {
   template: TaskTemplate;
   effective: EffectiveTask;
+  override?: TaskOverride;
   oneTime?: boolean;
   onApply: (value: TaskOverride | null) => void;
   onClose: () => void;
@@ -388,6 +394,11 @@ function TaskOverrideModal({
     deadlineOffsetDays: effective.deadlineOffsetDays,
     estimatedMinutes: effective.estimatedMinutes,
   });
+  // checklist: inherit (follow template) | custom (own list) | none (removed for this client)
+  const initialMode: "inherit" | "custom" | "none" =
+    override?.checklist === undefined ? "inherit" : override.checklist === null ? "none" : "custom";
+  const [clMode, setClMode] = useState(initialMode);
+  const [clSteps, setClSteps] = useState<string[]>(override?.checklist ?? template.defaultChecklist);
 
   /** Store ONLY what differs from the template — untouched fields keep tracking catalog edits. */
   const buildOverride = (): TaskOverride | null => {
@@ -408,6 +419,9 @@ function TaskOverrideModal({
     if (rhythm.estimatedMinutes !== template.estimatedMinutes) {
       o.estimatedMinutes = rhythm.estimatedMinutes;
     }
+    // inherit = leave absent; none = null; custom = the edited (trimmed) list
+    if (clMode === "none") o.checklist = null;
+    else if (clMode === "custom") o.checklist = clSteps.map((s) => s.trim()).filter(Boolean);
     return enabled && !rhythmEdited(o) ? null : o; // nothing changed → no override at all
   };
 
@@ -452,6 +466,41 @@ function TaskOverrideModal({
           plannedHint="planned time for this client"
           oneTime={oneTime}
         />
+
+        <div>
+          <div className="mb-1.5 block text-[12px] font-medium text-ink-700">Checklist</div>
+          <div className="flex flex-wrap gap-1.5">
+            {(["inherit", "custom", "none"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => {
+                  // switching to custom starts from whatever it currently inherits/had
+                  if (m === "custom" && clSteps.length === 0) setClSteps([...template.defaultChecklist]);
+                  setClMode(m);
+                }}
+                className={pillCls(clMode === m)}
+              >
+                {m === "inherit" ? "Inherit default" : m === "custom" ? "Custom" : "None"}
+              </button>
+            ))}
+          </div>
+          {clMode === "inherit" && (
+            <p className="mt-1.5 text-[12px] text-muted">
+              {template.defaultChecklist.length
+                ? `Uses the service default (${template.defaultChecklist.length} step${template.defaultChecklist.length === 1 ? "" : "s"}).`
+                : "The service has no default checklist."}
+            </p>
+          )}
+          {clMode === "none" && (
+            <p className="mt-1.5 text-[12px] text-muted">No checklist for this client's tasks.</p>
+          )}
+          {clMode === "custom" && (
+            <div className="mt-1.5">
+              <ChecklistEditor value={clSteps} onChange={setClSteps} />
+            </div>
+          )}
+        </div>
       </div>
     </Modal>
   );

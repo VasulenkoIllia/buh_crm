@@ -489,6 +489,111 @@ describe("tasks", () => {
     ).toBe(0);
   });
 
+  it("template default checklist seeds generated tasks; per-client override replaces/removes it; manual create seeds too", async () => {
+    const { d } = todayParts();
+    const svc = await app.inject({
+      method: "POST",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+      payload: { name: "Checklist svc", type: "subscription" },
+    });
+    const serviceId = svc.json().id;
+    const tpl = await app.inject({
+      method: "POST",
+      url: `/api/catalog/${serviceId}/tasks`,
+      headers: { cookie: adminCookie },
+      payload: {
+        name: "With steps",
+        periodicity: "monthly",
+        dayOfPeriod: d,
+        defaultChecklist: ["Collect statements", "Reconcile", "File"],
+      },
+    });
+    expect(tpl.json().taskTemplates[0].defaultChecklist).toEqual([
+      "Collect statements",
+      "Reconcile",
+      "File",
+    ]);
+    const templateId = tpl.json().taskTemplates[0].id;
+
+    // default: generated task gets the template's checklist, in order, all undone
+    const c1 = await makeClient("ChkDefault");
+    const s1 = await app.inject({
+      method: "POST",
+      url: `/api/clients/${c1}/subscriptions`,
+      headers: { cookie: adminCookie },
+      payload: { serviceId, amount: 10000 },
+    });
+    const t1 = await prisma.task.findFirst({
+      where: { subscriptionId: s1.json().subscriptions[0].id },
+      include: { subtasks: { orderBy: { order: "asc" } } },
+    });
+    expect(t1!.subtasks.map((x) => x.text)).toEqual(["Collect statements", "Reconcile", "File"]);
+    expect(t1!.subtasks.every((x) => !x.done)).toBe(true);
+
+    // a second sweep must NOT duplicate or rewrite the checklist
+    await generateSubscriptionTasks();
+    const t1again = await prisma.task.findFirst({
+      where: { subscriptionId: s1.json().subscriptions[0].id },
+      include: { subtasks: true },
+    });
+    expect(t1again!.subtasks).toHaveLength(3);
+
+    // per-client override: replace the checklist for this client only
+    const c2 = await makeClient("ChkCustom");
+    const s2 = await app.inject({
+      method: "POST",
+      url: `/api/clients/${c2}/subscriptions`,
+      headers: { cookie: adminCookie },
+      payload: { serviceId, amount: 10000 },
+    });
+    const s2Id = s2.json().subscriptions[0].id;
+    await prisma.task.deleteMany({ where: { subscriptionId: s2Id } });
+    await app.inject({
+      method: "PATCH",
+      url: `/api/clients/${c2}/subscriptions/${s2Id}`,
+      headers: { cookie: adminCookie },
+      payload: { rhythmOverrides: { [templateId]: { checklist: ["Just this one"] } } },
+    });
+    const t2 = await prisma.task.findFirst({
+      where: { subscriptionId: s2Id },
+      include: { subtasks: true },
+    });
+    expect(t2!.subtasks.map((x) => x.text)).toEqual(["Just this one"]);
+
+    // per-client override: checklist=null removes it for this client
+    const c3 = await makeClient("ChkNone");
+    const s3 = await app.inject({
+      method: "POST",
+      url: `/api/clients/${c3}/subscriptions`,
+      headers: { cookie: adminCookie },
+      payload: { serviceId, amount: 10000 },
+    });
+    const s3Id = s3.json().subscriptions[0].id;
+    await prisma.task.deleteMany({ where: { subscriptionId: s3Id } });
+    await app.inject({
+      method: "PATCH",
+      url: `/api/clients/${c3}/subscriptions/${s3Id}`,
+      headers: { cookie: adminCookie },
+      payload: { rhythmOverrides: { [templateId]: { checklist: null } } },
+    });
+    const t3 = await prisma.task.findFirst({
+      where: { subscriptionId: s3Id },
+      include: { subtasks: true },
+    });
+    expect(t3!.subtasks).toHaveLength(0);
+
+    // manual create can seed its own checklist
+    const manual = await app.inject({
+      method: "POST",
+      url: "/api/tasks",
+      headers: { cookie: adminCookie },
+      payload: { title: "Manual with steps", assignees: [adminId], subtasks: ["A", "B"] },
+    });
+    expect(manual.statusCode).toBe(201);
+    expect(manual.json().subtasks.map((x: { text: string }) => x.text)).toEqual(["A", "B"]);
+  });
+
   it("timer: one per user, switch closes with a comment, admin manages time", async () => {
     const mk = async (title: string) => {
       const res = await app.inject({

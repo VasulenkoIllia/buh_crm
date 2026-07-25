@@ -179,6 +179,7 @@ type SubWithTemplates = {
       monthOfPeriod: number | null;
       deadlineOffsetDays: number | null;
       estimatedMinutes: number | null;
+      defaultChecklist: unknown;
       createdAt: Date;
     }[];
   };
@@ -222,6 +223,11 @@ function rowsForSubscription(sub: SubWithTemplates, deps: GenerationDeps, today:
       estimatedMinutes:
         ov?.estimatedMinutes !== undefined ? ov.estimatedMinutes : tpl.estimatedMinutes,
     };
+    // per-client checklist: present key overrides (null = removed → []); absent = template default
+    const checklist =
+      ov?.checklist !== undefined
+        ? (ov.checklist ?? [])
+        : ((tpl.defaultChecklist as string[] | null) ?? []);
     // a template added mid-life must not back-fill periods before it existed
     const tplStart = fromDate(tpl.createdAt, tz);
     const from = cmp(tplStart, subStart) > 0 ? tplStart : subStart;
@@ -239,6 +245,7 @@ function rowsForSubscription(sub: SubWithTemplates, deps: GenerationDeps, today:
       subscriptionId: sub.id,
       taskTemplateId: tpl.id,
       periodKey: occ.periodKey,
+      checklist,
     }));
   });
 }
@@ -264,6 +271,7 @@ const subscriptionQuery = {
             monthOfPeriod: true,
             deadlineOffsetDays: true,
             estimatedMinutes: true,
+            defaultChecklist: true,
             createdAt: true,
           },
         },
@@ -272,6 +280,47 @@ const subscriptionQuery = {
   },
 };
 
+type GeneratedRow = ReturnType<typeof rowsForSubscription>[number];
+
+/**
+ * Insert only the rows whose (subscriptionId, taskTemplateId, periodKey) doesn't exist yet,
+ * seeding each new task's checklist as subtasks. Keeps generation idempotent (existing keys
+ * skipped) AND never rewrites — a task's checklist is seeded once, at creation. `createMany`
+ * can't nest subtasks, so new rows are created individually; a concurrent sweep that beats us
+ * to the same key hits the unique index (P2002) and is skipped.
+ */
+async function insertGeneratedTasks(rows: GeneratedRow[]): Promise<number> {
+  if (rows.length === 0) return 0;
+  const key = (r: { subscriptionId: string; taskTemplateId: string; periodKey: string }) =>
+    `${r.subscriptionId}|${r.taskTemplateId}|${r.periodKey}`;
+  const subIds = [...new Set(rows.map((r) => r.subscriptionId))];
+  const existing = await prisma.task.findMany({
+    where: { subscriptionId: { in: subIds } },
+    select: { subscriptionId: true, taskTemplateId: true, periodKey: true },
+  });
+  const seen = new Set(existing.map((e) => key(e as GeneratedRow)));
+  let created = 0;
+  for (const row of rows) {
+    if (seen.has(key(row))) continue;
+    const { checklist, ...task } = row;
+    try {
+      await prisma.task.create({
+        data: {
+          ...task,
+          subtasks: checklist.length
+            ? { create: checklist.map((text, order) => ({ text, order })) }
+            : undefined,
+        },
+      });
+      created++;
+    } catch (e) {
+      // a concurrent sweep created the same (sub, template, period) first → skip
+      if ((e as { code?: string }).code !== "P2002") throw e;
+    }
+  }
+  return created;
+}
+
 /** Full sweep — the daily run AND the startup catch-up (same idempotent scan). */
 export async function generateSubscriptionTasks() {
   const deps = await loadDeps();
@@ -279,9 +328,7 @@ export async function generateSubscriptionTasks() {
   const today = todayInTz(config.TZ);
   const subs = await prisma.subscription.findMany(subscriptionQuery);
   const rows = subs.flatMap((sub) => rowsForSubscription(sub, deps, today, config.TZ));
-  if (rows.length === 0) return { created: 0 };
-  const result = await prisma.task.createMany({ data: rows, skipDuplicates: true });
-  return { created: result.count };
+  return { created: await insertGeneratedTasks(rows) };
 }
 
 /** Instant feedback after a subscription is added/tuned on the client card. */
@@ -294,7 +341,5 @@ export async function generateForSubscription(subscriptionId: string) {
   });
   if (!sub) return { created: 0 }; // stopped / one-time / archived client — nothing to generate
   const rows = rowsForSubscription(sub, deps, todayInTz(config.TZ), config.TZ);
-  if (rows.length === 0) return { created: 0 };
-  const result = await prisma.task.createMany({ data: rows, skipDuplicates: true });
-  return { created: result.count };
+  return { created: await insertGeneratedTasks(rows) };
 }

@@ -9,6 +9,7 @@ import { ApiError } from "@/shared/lib/api";
 import { CATEGORY_PALETTE } from "@/shared/lib/colors";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
+import { ChecklistEditor } from "@/shared/ui/checklist-editor";
 import { FormField, Input, Label } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
 import { Segmented } from "@/shared/ui/segmented";
@@ -651,6 +652,7 @@ const templateFormSchema = z
     monthOfPeriod: z.number().int().min(1).max(12).nullable(),
     deadlineOffsetDays: z.number().int().min(0).max(90).nullable(),
     estimatedMinutes: z.number().int().min(1).nullable(),
+    defaultChecklist: z.array(z.string()),
   })
   .refine(rhythmValid, { path: ["dayOfPeriod"], message: "Day/month don't fit the frequency" });
 type TemplateFormValues = z.infer<typeof templateFormSchema>;
@@ -685,6 +687,7 @@ function TaskTemplateModal({
       monthOfPeriod: isOneTime ? null : (template?.monthOfPeriod ?? null),
       deadlineOffsetDays: template?.deadlineOffsetDays ?? null,
       estimatedMinutes: template?.estimatedMinutes ?? null,
+      defaultChecklist: template?.defaultChecklist ?? [],
     },
   });
 
@@ -702,15 +705,16 @@ function TaskTemplateModal({
   };
 
   const onSubmit = handleSubmit(async (values) => {
+    // drop blank steps left in the checklist editor
+    const input = {
+      ...values,
+      defaultChecklist: values.defaultChecklist.map((s) => s.trim()).filter(Boolean),
+    };
     try {
       if (template) {
-        await update.mutateAsync({
-          serviceId: service.id,
-          templateId: template.id,
-          input: values,
-        });
+        await update.mutateAsync({ serviceId: service.id, templateId: template.id, input });
       } else {
-        await add.mutateAsync({ serviceId: service.id, input: { ...values, billable: true } });
+        await add.mutateAsync({ serviceId: service.id, input: { ...input, billable: true } });
       }
       onClose();
     } catch {
@@ -762,6 +766,19 @@ function TaskTemplateModal({
           plannedHint="the default; per-client override lives on the client's subscription"
           oneTime={isOneTime}
         />
+
+        <div>
+          <div className="mb-1.5 block text-[12px] font-medium text-ink-700">
+            Default checklist{" "}
+            <span className="font-normal text-muted">
+              — seeded onto each task; per-client override on the subscription
+            </span>
+          </div>
+          <ChecklistEditor
+            value={watch("defaultChecklist")}
+            onChange={(next) => setValue("defaultChecklist", next, { shouldDirty: true })}
+          />
+        </div>
         {serverError && <p className="text-[12px] text-danger-text">{serverError}</p>}
       </form>
     </Modal>

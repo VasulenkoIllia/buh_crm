@@ -10,6 +10,7 @@ import { useSettings } from "@/modules/settings";
 import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
+import { ChecklistEditor } from "@/shared/ui/checklist-editor";
 import { Chip } from "@/shared/ui/chip";
 import { Input, Label, Select, Textarea } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
@@ -94,6 +95,7 @@ export function TaskFormModal({
   const [assignees, setAssignees] = useState<Set<string>>(
     () => new Set(task ? task.assignees : user ? [user.id] : []),
   );
+  const [subtasks, setSubtasks] = useState<string[]>([]);
   const [leadFormOpen, setLeadFormOpen] = useState(false);
   const [clientFormOpen, setClientFormOpen] = useState(false);
 
@@ -120,6 +122,8 @@ export function TaskFormModal({
     if (!title.trim()) setTitle(tpl.name);
     if (tpl.deadlineOffsetDays != null) setDeadline(todayPlus(tpl.deadlineOffsetDays));
     if (tpl.estimatedMinutes != null) setPlannedMinutes(tpl.estimatedMinutes);
+    // prefill the checklist from the preset (don't clobber steps already typed)
+    if (subtasks.length === 0 && tpl.defaultChecklist.length) setSubtasks([...tpl.defaultChecklist]);
   };
 
   const toggleAssignee = (id: string) =>
@@ -161,6 +165,7 @@ export function TaskFormModal({
           input: isOneTimeJob && !task!.invoice ? { ...workflow, amount } : workflow,
         });
       } else {
+        const steps = subtasks.map((s) => s.trim()).filter(Boolean);
         await create.mutateAsync({
           ...workflow,
           clientId: type === "client" && target?.kind === "client" ? target.id : null,
@@ -168,6 +173,7 @@ export function TaskFormModal({
           subscriptionId:
             type === "client" && target?.kind === "client" ? subscriptionId || null : null,
           amount: isOneTimeJob ? amount : null,
+          subtasks: steps.length ? steps : undefined,
         });
       }
       onClose();
@@ -444,6 +450,11 @@ export function TaskFormModal({
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
+        </div>
+
+        <div>
+          <Label>Checklist</Label>
+          <ChecklistEditor value={subtasks} onChange={setSubtasks} />
         </div>
 
         {serverError && <p className="text-[12px] text-danger-text">{serverError}</p>}

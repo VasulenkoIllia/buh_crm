@@ -117,6 +117,8 @@ export const createTaskInput = workflowFields
     leadId: uuid.nullable().optional(),
     /** one-time jobs only; omitted → the subscription's default job price */
     amount: money.nullable().optional(),
+    /** initial checklist steps (e.g. prefilled from the picked template's default) */
+    subtasks: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
   })
   .refine((v) => !(v.clientId && v.leadId), {
     path: ["leadId"],

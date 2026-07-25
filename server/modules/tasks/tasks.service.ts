@@ -239,6 +239,12 @@ export async function createTask(input: CreateTaskInput, actor: User) {
     createdById: actor.id, // manual task → the actor; generated tasks stay null ("Auto")
   });
   await repo.setAssignees(task.id, input.assignees);
+  if (input.subtasks?.length) {
+    await repo.setSubtasks(
+      task.id,
+      input.subtasks.map((text) => ({ text, done: false })),
+    );
+  }
 
   if (kind === "once" && billNow && amount != null && clientId) {
     await issueJobInvoice({ taskId: task.id, clientId, companyId, serviceId, amount, dueDays });
