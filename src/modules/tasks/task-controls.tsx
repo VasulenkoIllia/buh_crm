@@ -93,11 +93,20 @@ export function TaskTimerButton({ task, compact }: { task: Task; compact?: boole
           className={cn(
             "flex flex-none items-center gap-1 rounded-[6px] border px-2 py-[3px] text-[11px] font-semibold",
             mine
-              ? "animate-pulse border-[#cdd7f7] bg-[#eef1fb] text-[#3355dd]"
+              ? "border-[#cdd7f7] bg-[#eef1fb] text-[#3355dd]"
               : "border-[#cdd7f7] bg-[#eef1fb] text-[#2f4fd6] hover:bg-[#e2e8fb]",
           )}
         >
-          {mine ? `⏱ ${fmtDuration(elapsed)} ⏹` : "▶ Track"}
+          {mine ? (
+            <>
+              {/* only the small dot pulses ("recording") — the ticking time stays steady/readable */}
+              <span className="h-1.5 w-1.5 flex-none animate-pulse rounded-full bg-[#3355dd]" />
+              <span className="tabular-nums">{fmtDuration(elapsed)}</span>
+              <span aria-hidden>■</span>
+            </>
+          ) : (
+            "▶ Track"
+          )}
         </button>
         {modal && timer && (
           <TimerCommentModal
@@ -114,8 +123,10 @@ export function TaskTimerButton({ task, compact }: { task: Task; compact?: boole
     <div className="flex items-center gap-3 rounded-(--radius-field) bg-[#f7f8fa] px-3 py-2.5">
       {mine ? (
         <>
-          <span className="animate-pulse text-[13px] font-bold text-[#3355dd]">
-            ⏱ {fmtDuration(elapsed)}
+          <span className="flex items-center gap-1.5 text-[13px] font-bold text-[#3355dd]">
+            {/* steady time + a small pulsing "recording" dot (no whole-element blink) */}
+            <span className="h-2 w-2 flex-none animate-pulse rounded-full bg-[#3355dd]" />
+            <span className="tabular-nums">{fmtDuration(elapsed)}</span>
           </span>
           <button
             type="button"

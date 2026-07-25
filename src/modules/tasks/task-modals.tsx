@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Check } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { Task, TimeEntry, UpdateTaskInput } from "@shared/schema/task";
 import { useAuth } from "@/app/auth";
@@ -610,6 +611,13 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
   const updateError = update.error instanceof ApiError ? update.error.message : null;
 
   const editableAmount = task.kind === "once" && !task.invoice;
+  // a completed task is a locked snapshot — everything read-only until Reopen.
+  // (Admin can still correct the time log below — that's a deliberate exception.)
+  const locked = task.done;
+  const currentPriority = settings?.priorities.find((p) => p.id === task.priorityId);
+  // tracked has run past the planned estimate → flag it in the card
+  const trackedOver =
+    task.plannedMinutes != null && task.trackedSeconds > task.plannedMinutes * 60;
   const createdBy = task.createdById
     ? task.createdById === user?.id
       ? "you"
@@ -650,12 +658,30 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
       }
     >
       <div className="space-y-4">
-        {/* title (inline) + big green done */}
+        {/* title (inline) + done / completed control */}
         <div className="flex items-start gap-3">
-          <InlineTitle value={task.title} onSave={(title) => patch({ title })} />
-          {/* for a billable one-time job, don't let "done" fire (→ invoice) while an
-              unsaved price patch is still in flight — it would bill the stale amount */}
-          <DoneToggle task={task} disabled={editableAmount && update.isPending} />
+          <InlineTitle value={task.title} disabled={locked} onSave={(title) => patch({ title })} />
+          {locked ? (
+            // completed = a clear status badge + an explicit Reopen (un-locks for editing)
+            <div className="flex flex-none items-center gap-2">
+              <span className="flex items-center gap-1 rounded-full bg-[#e6f4ea] px-3 py-1.5 text-[13px] font-semibold text-[#1f8f3a]">
+                <Check size={15} strokeWidth={3} /> Completed
+              </span>
+              <button
+                type="button"
+                onClick={() => patch({ done: false })}
+                disabled={update.isPending}
+                title="Reopen — makes the task editable again"
+                className="flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-[13px] font-medium text-ink-700 hover:bg-divider disabled:opacity-60"
+              >
+                ↩ Reopen
+              </button>
+            </div>
+          ) : (
+            // for a billable one-time job, don't let "done" fire (→ invoice) while an
+            // unsaved price patch is still in flight — it would bill the stale amount
+            <DoneToggle task={task} disabled={editableAmount && update.isPending} />
+          )}
         </div>
 
         {/* an inline PATCH was rejected (e.g. an out-of-range value) — say so, don't fail silently */}
@@ -686,6 +712,7 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
           <Field label="Column">
             <Select
               value={task.statusColumnId}
+              disabled={locked}
               onChange={(e) => patch({ statusColumnId: e.target.value })}
             >
               {(columns ?? []).map((c) => (
@@ -696,9 +723,24 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
             </Select>
           </Field>
           <Field label="Priority">
-            <Select value={task.priorityId} onChange={(e) => patch({ priorityId: e.target.value })}>
+            {/* tint the control by the current priority so its color scheme is visible at a glance */}
+            <Select
+              value={task.priorityId}
+              disabled={locked}
+              onChange={(e) => patch({ priorityId: e.target.value })}
+              className="font-medium"
+              style={
+                currentPriority
+                  ? {
+                      color: currentPriority.color,
+                      borderColor: currentPriority.color,
+                      backgroundColor: `${currentPriority.color}1a`,
+                    }
+                  : undefined
+              }
+            >
               {(settings?.priorities ?? []).map((p) => (
-                <option key={p.id} value={p.id}>
+                <option key={p.id} value={p.id} style={{ color: p.color }}>
                   {p.name}
                 </option>
               ))}
@@ -720,17 +762,33 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
             <Input
               className="w-40"
               type="date"
+              disabled={locked}
               value={task.deadline ? task.deadline.slice(0, 10) : ""}
               onChange={(e) => patch({ deadline: e.target.value || null })}
             />
           </Field>
           <Field label="Planned / tracked">
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               <InlineNumber
                 value={task.plannedMinutes}
+                disabled={locked}
                 onSave={(v) => patch({ plannedMinutes: v })}
               />
-              <span className="text-muted">min · {fmtDuration(task.trackedSeconds)}</span>
+              <span className="text-muted">min ·</span>
+              <span
+                className={cn(
+                  "tabular-nums",
+                  trackedOver ? "font-semibold text-danger-text" : "text-muted",
+                )}
+                title={trackedOver ? "Tracked time is over the planned estimate" : undefined}
+              >
+                {fmtDuration(task.trackedSeconds)}
+              </span>
+              {trackedOver && (
+                <span className="rounded-(--radius-chip) bg-danger-soft px-1.5 py-[1px] text-[11px] font-medium text-danger-text">
+                  over
+                </span>
+              )}
             </div>
           </Field>
           {editableAmount && (
@@ -739,6 +797,7 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
                 <span className="text-muted">$</span>
                 <InlineNumber
                   min={0}
+                  disabled={locked}
                   value={task.amount != null ? task.amount / 100 : null}
                   onSave={(v) => patch({ amount: v != null ? Math.round(v * 100) : null })}
                 />
@@ -765,8 +824,9 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
                   key={u.id}
                   type="button"
                   // assignees is a full-array replace read from the task prop; block a
-                  // second toggle until the first PATCH's refetch lands, else it clobbers
-                  disabled={update.isPending}
+                  // second toggle until the first PATCH's refetch lands, else it clobbers.
+                  // locked (done) → read-only.
+                  disabled={locked || update.isPending}
                   className={cn(pill(task.assignees.includes(u.id)), "disabled:opacity-60")}
                   onClick={() => toggleAssignee(u.id)}
                 >
@@ -781,12 +841,19 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
           <Label>Description</Label>
           <InlineTextarea
             value={task.description ?? ""}
+            disabled={locked}
             onSave={(d) => patch({ description: d || null })}
           />
         </div>
 
-        <TaskTimerButton task={task} />
-        <SubtasksSection task={task} />
+        {locked ? (
+          <p className="rounded-(--radius-field) bg-[#f7f8fa] px-3 py-2.5 text-[13px] text-muted">
+            ✓ Completed — reopen to track time or edit.
+          </p>
+        ) : (
+          <TaskTimerButton task={task} />
+        )}
+        <SubtasksSection task={task} disabled={locked} />
         <TimeLog task={task} isAdmin={isAdmin} userName={userName} />
       </div>
     </Modal>
@@ -802,14 +869,27 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-/** Big inline title — saves on blur, ignores empty. */
-function InlineTitle({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+/** Big inline title — saves on blur, ignores empty. `disabled` = read-only (locked task). */
+function InlineTitle({
+  value,
+  onSave,
+  disabled,
+}: {
+  value: string;
+  onSave: (v: string) => void;
+  disabled?: boolean;
+}) {
   const [t, setT] = useState(value);
   useEffect(() => setT(value), [value]); // resync when the task refetches
   return (
     <textarea
       rows={1}
-      className="min-w-0 flex-1 resize-none rounded-(--radius-field) border border-transparent bg-transparent px-1 py-0.5 text-[16px] font-semibold leading-snug hover:border-border focus:border-primary focus:bg-surface focus:outline-none"
+      disabled={disabled}
+      className={cn(
+        "min-w-0 flex-1 resize-none rounded-(--radius-field) border border-transparent bg-transparent px-1 py-0.5 text-[16px] font-semibold leading-snug focus:outline-none",
+        !disabled && "hover:border-border focus:border-primary focus:bg-surface",
+        disabled && "cursor-default text-ink-700 opacity-100",
+      )}
       value={t}
       onChange={(e) => setT(e.target.value)}
       // Enter commits (a title is single-line) instead of inserting a newline
@@ -828,12 +908,21 @@ function InlineTitle({ value, onSave }: { value: string; onSave: (v: string) => 
   );
 }
 
-function InlineTextarea({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+function InlineTextarea({
+  value,
+  onSave,
+  disabled,
+}: {
+  value: string;
+  onSave: (v: string) => void;
+  disabled?: boolean;
+}) {
   const [t, setT] = useState(value);
   useEffect(() => setT(value), [value]);
   return (
     <Textarea
       className="h-[70px]"
+      disabled={disabled}
       value={t}
       onChange={(e) => setT(e.target.value)}
       onBlur={() => t !== value && onSave(t)}
@@ -846,10 +935,12 @@ function InlineNumber({
   value,
   onSave,
   min = 1,
+  disabled,
 }: {
   value: number | null;
   onSave: (v: number | null) => void;
   min?: number;
+  disabled?: boolean;
 }) {
   const [t, setT] = useState(value != null ? String(value) : "");
   useEffect(() => setT(value != null ? String(value) : ""), [value]);
@@ -859,6 +950,7 @@ function InlineNumber({
       className="w-20"
       type="number"
       min={min}
+      disabled={disabled}
       value={t}
       onChange={(e) => setT(e.target.value)}
       onBlur={() => {
@@ -871,7 +963,7 @@ function InlineNumber({
   );
 }
 
-function SubtasksSection({ task }: { task: Task }) {
+function SubtasksSection({ task, disabled }: { task: Task; disabled?: boolean }) {
   const setSubtasks = useSetSubtasks();
   const [text, setText] = useState("");
 
@@ -889,35 +981,42 @@ function SubtasksSection({ task }: { task: Task }) {
           <input
             type="checkbox"
             checked={s.done}
-            disabled={setSubtasks.isPending}
+            disabled={disabled || setSubtasks.isPending}
             onChange={(e) => apply(rows.map((r, j) => (j === i ? { ...r, done: e.target.checked } : r)))}
           />
           <span className={cn("min-w-0 flex-1 truncate", s.done && "text-faint line-through")}>
             {s.text}
           </span>
-          <button
-            type="button"
-            className="text-[13px] text-[#b6bcc5] hover:text-danger"
-            onClick={() => apply(rows.filter((_, j) => j !== i))}
-          >
-            ×
-          </button>
+          {!disabled && (
+            <button
+              type="button"
+              className="text-[13px] text-[#b6bcc5] hover:text-danger"
+              onClick={() => apply(rows.filter((_, j) => j !== i))}
+            >
+              ×
+            </button>
+          )}
         </div>
       ))}
-      <div className="mt-1 flex items-center gap-2">
-        <Input
-          className="flex-1"
-          placeholder="Add a step…"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && text.trim()) {
-              apply([...rows, { text: text.trim(), done: false }]);
-              setText("");
-            }
-          }}
-        />
-      </div>
+      {task.subtasks.length === 0 && disabled && (
+        <p className="text-[12px] text-faint">No steps.</p>
+      )}
+      {!disabled && (
+        <div className="mt-1 flex items-center gap-2">
+          <Input
+            className="flex-1"
+            placeholder="Add a step…"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && text.trim()) {
+                apply([...rows, { text: text.trim(), done: false }]);
+                setText("");
+              }
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }
