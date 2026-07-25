@@ -644,7 +644,7 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
   return (
     <Modal
       title="Task"
-      size="md"
+      size="xl"
       open
       onClose={onClose}
       footer={
@@ -718,9 +718,13 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
           </span>
         </div>
 
-        {/* inline meta grid */}
-        <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-[13px]">
-          <Field label="Column">
+        {/* two columns: left = task fields, right = activity (timer / checklist / log) */}
+        <div className="grid gap-x-8 gap-y-6 md:grid-cols-[1.5fr_1fr]">
+          {/* LEFT — task fields */}
+          <div className="space-y-4">
+            {/* inline meta grid */}
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-[13px]">
+              <Field label="Column">
             <Select
               value={task.statusColumnId}
               disabled={locked}
@@ -848,24 +852,29 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
           </div>
         </div>
 
-        <div>
-          <Label>Description</Label>
-          <InlineTextarea
-            value={task.description ?? ""}
-            disabled={locked}
-            onSave={(d) => patch({ description: d || null })}
-          />
-        </div>
+            <div>
+              <Label>Description</Label>
+              <InlineTextarea
+                value={task.description ?? ""}
+                disabled={locked}
+                onSave={(d) => patch({ description: d || null })}
+              />
+            </div>
+          </div>
 
-        {locked ? (
-          <p className="rounded-(--radius-field) bg-[#f7f8fa] px-3 py-2.5 text-[13px] text-muted">
-            ✓ Completed — reopen to track time or edit.
-          </p>
-        ) : (
-          <TaskTimerButton task={task} />
-        )}
-        <SubtasksSection task={task} disabled={locked} />
-        <TimeLog task={task} isAdmin={isAdmin} userName={userName} />
+          {/* RIGHT — activity: timer, checklist, work log */}
+          <div className="space-y-5 md:border-l md:border-divider md:pl-6">
+            {locked ? (
+              <p className="rounded-(--radius-field) bg-[#f7f8fa] px-3 py-2.5 text-[13px] text-muted">
+                ✓ Completed — reopen to track time or edit.
+              </p>
+            ) : (
+              <TaskTimerButton task={task} />
+            )}
+            <SubtasksSection task={task} disabled={locked} />
+            <TimeLog task={task} isAdmin={isAdmin} userName={userName} />
+          </div>
+        </div>
       </div>
     </Modal>
   );
