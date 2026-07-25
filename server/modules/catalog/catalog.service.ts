@@ -34,7 +34,8 @@ export function toServiceDto(service: repo.ServiceRecord) {
       deadlineOffsetDays: t.deadlineOffsetDays,
       estimatedMinutes: t.estimatedMinutes,
       defaultChecklist: (t.defaultChecklist as string[] | null) ?? [],
-      defaultAssigneeId: t.defaultAssigneeId,
+      description: t.description,
+      defaultAssigneeIds: (t.defaultAssigneeIds as string[] | null) ?? [],
       billable: t.billable,
     })),
   };
@@ -50,18 +51,20 @@ export async function createService(input: CreateServiceInput) {
   if (existing) throw new ConflictError("A service with this name already exists");
 
   const color = input.color ?? PALETTE[(await repo.countServices()) % PALETTE.length];
+  // internal services never bill — null out billing fields (a dummy trigger is stored, never used)
+  const isInternal = input.type === "internal";
   // create + default-flag in one transaction (the flag unsets any previous holder)
   const service = await repo.createServiceWithDefault(
     {
       name: input.name,
       color,
       type: input.type,
-      defaultAmount: input.defaultAmount ?? null,
+      defaultAmount: isInternal ? null : (input.defaultAmount ?? null),
       invoiceTrigger: input.invoiceTrigger ?? defaultTriggerFor(input.type),
-      invoiceDay: input.invoiceDay ?? null,
-      dueDays: input.dueDays ?? null,
+      invoiceDay: isInternal ? null : (input.invoiceDay ?? null),
+      dueDays: isInternal ? null : (input.dueDays ?? null),
     },
-    input.autoAddToNewClients === true,
+    isInternal ? false : input.autoAddToNewClients === true,
   );
   return toServiceDto(service!);
 }
@@ -91,7 +94,15 @@ export async function updateService(id: string, input: UpdateServiceInput) {
   if (autoAddToNewClients === true && merged.type !== "one_time") {
     throw new ValidationError("Only a one-time service can be the default for new clients");
   }
-  const updated = await repo.updateServiceWithDefault(id, fields, autoAddToNewClients);
+  // internal never bills — force billing fields null + clear any default flag, regardless of what
+  // was passed (mirror createService), so a flip to internal can't leave stale billing/★ behind
+  if (merged.type === "internal") {
+    fields.defaultAmount = null;
+    fields.invoiceDay = null;
+    fields.dueDays = null;
+  }
+  const flag = merged.type === "internal" ? false : autoAddToNewClients;
+  const updated = await repo.updateServiceWithDefault(id, fields, flag);
   return toServiceDto(updated!);
 }
 
@@ -103,9 +114,9 @@ export async function removeService(id: string) {
   const service = await repo.findService(id);
   if (!service) throw new NotFoundError("Service not found");
   const usage = await repo.countServiceUsage(id);
-  if (usage.subscriptions > 0 || usage.categories > 0 || usage.people > 0) {
+  if (usage.subscriptions > 0 || usage.categories > 0 || usage.people > 0 || usage.tasks > 0) {
     throw new ConflictError(
-      "This service is used by clients (subscriptions incl. stopped, category chips or people) — deactivate it instead of deleting",
+      "This service has history (subscriptions incl. stopped, category chips, people, or generated tasks) — deactivate it instead of deleting",
     );
   }
   await repo.deleteService(id); // task templates cascade; lead references clear to null
@@ -129,6 +140,8 @@ export async function addTemplate(serviceId: string, input: CreateTaskTemplateIn
     deadlineOffsetDays: input.deadlineOffsetDays ?? null,
     estimatedMinutes: input.estimatedMinutes ?? null,
     defaultChecklist: input.defaultChecklist ?? [],
+    description: input.description ?? null,
+    defaultAssigneeIds: input.defaultAssigneeIds ?? [],
     billable: input.billable,
   });
   return toServiceDto((await repo.findService(serviceId))!);

@@ -4,7 +4,7 @@ import { buildApp } from "../../app.js";
 import { ensureBaseData } from "../../core/bootstrap.js";
 import { config } from "../../core/config.js";
 import { prisma } from "../../core/db.js";
-import { generateSubscriptionTasks } from "./tasks.generation.js";
+import { generateInternalTasks, generateSubscriptionTasks } from "./tasks.generation.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 let adminCookie: string;
@@ -592,6 +592,124 @@ describe("tasks", () => {
     });
     expect(manual.statusCode).toBe(201);
     expect(manual.json().subtasks.map((x: { text: string }) => x.text)).toEqual(["A", "B"]);
+  });
+
+  it("internal templates generate firm-internal tasks (no client; with assignees, checklist, description); idempotent; not client-assignable", async () => {
+    const { d } = todayParts();
+    const svc = await app.inject({
+      method: "POST",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+      payload: { name: "Compliance", type: "internal" },
+    });
+    expect(svc.statusCode).toBe(201);
+    expect(svc.json().type).toBe("internal");
+    const serviceId = svc.json().id as string;
+
+    const tpl = await app.inject({
+      method: "POST",
+      url: `/api/catalog/${serviceId}/tasks`,
+      headers: { cookie: adminCookie },
+      payload: {
+        name: "Monthly review",
+        periodicity: "monthly",
+        dayOfPeriod: d,
+        deadlineOffsetDays: 3,
+        estimatedMinutes: 60,
+        description: "Review the tax law changes",
+        defaultChecklist: ["Read updates", "Note impacts"],
+        defaultAssigneeIds: [adminId, userId],
+      },
+    });
+    const t0 = tpl.json().taskTemplates[0];
+    expect(t0.description).toBe("Review the tax law changes");
+    expect([...t0.defaultAssigneeIds].sort()).toEqual([adminId, userId].sort());
+    const templateId = t0.id as string;
+
+    await generateInternalTasks();
+    const task = await prisma.task.findFirst({
+      where: { taskTemplateId: templateId, subscriptionId: null },
+      include: { assignees: true, subtasks: { orderBy: { order: "asc" } } },
+    });
+    expect(task).not.toBeNull();
+    expect(task!.kind).toBe("free");
+    expect(task!.clientId).toBeNull();
+    expect(task!.serviceId).toBe(serviceId);
+    expect(task!.description).toBe("Review the tax law changes");
+    expect(task!.plannedMinutes).toBe(60);
+    expect(task!.assignees.map((a) => a.userId).sort()).toEqual([adminId, userId].sort());
+    expect(task!.subtasks.map((s) => s.text)).toEqual(["Read updates", "Note impacts"]);
+    expect(task!.title).toContain("Compliance");
+    expect(task!.title).toContain("Monthly review");
+
+    // idempotent — a second sweep creates nothing new
+    await generateInternalTasks();
+    expect(
+      await prisma.task.count({ where: { taskTemplateId: templateId, subscriptionId: null } }),
+    ).toBe(1);
+
+    // internal services can't be assigned to a client
+    const clientId = await makeClient("IntClient");
+    const sub = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions`,
+      headers: { cookie: adminCookie },
+      payload: { serviceId, amount: 10000 },
+    });
+    expect(sub.statusCode).toBe(400);
+
+    // it has generated tasks now → deleting is blocked (history); deactivate instead
+    const del = await app.inject({
+      method: "DELETE",
+      url: `/api/catalog/${serviceId}`,
+      headers: { cookie: adminCookie },
+    });
+    expect(del.statusCode).toBe(409);
+  });
+
+  it("internal templates: duplicate assignees rejected on save + generation dedupes defensively", async () => {
+    const { d } = todayParts();
+    const svc = await app.inject({
+      method: "POST",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+      payload: { name: "Dedup dept", type: "internal" },
+    });
+    const serviceId = svc.json().id as string;
+
+    // the API refuses a template that lists the same assignee twice
+    const dup = await app.inject({
+      method: "POST",
+      url: `/api/catalog/${serviceId}/tasks`,
+      headers: { cookie: adminCookie },
+      payload: {
+        name: "Dup",
+        periodicity: "monthly",
+        dayOfPeriod: d,
+        defaultAssigneeIds: [adminId, adminId],
+      },
+    });
+    expect(dup.statusCode).toBe(400);
+
+    // a row that somehow carries duplicate ids (bypassing the API) must still generate one
+    // clean task — TaskAssignee is unique per (task,user), so generation dedupes before insert
+    const tpl = await prisma.taskTemplate.create({
+      data: {
+        serviceId,
+        name: "Raw dup",
+        periodicity: "monthly",
+        dayOfPeriod: d,
+        billable: false,
+        defaultAssigneeIds: [adminId, adminId, userId],
+      },
+    });
+    await generateInternalTasks();
+    const task = await prisma.task.findFirst({
+      where: { taskTemplateId: tpl.id, subscriptionId: null },
+      include: { assignees: true },
+    });
+    expect(task).not.toBeNull();
+    expect(task!.assignees.map((a) => a.userId).sort()).toEqual([adminId, userId].sort());
   });
 
   it("task comments: anyone posts; delete own or (admin) anyone; empty body rejected", async () => {

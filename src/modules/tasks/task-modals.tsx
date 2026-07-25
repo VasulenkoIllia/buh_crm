@@ -9,11 +9,13 @@ import { LeadFormModal, useLeads } from "@/modules/leads";
 import { useSettings } from "@/modules/settings";
 import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
+import { AssigneePicker } from "@/shared/ui/assignee-picker";
 import { Button } from "@/shared/ui/button";
 import { ChecklistEditor } from "@/shared/ui/checklist-editor";
 import { Chip } from "@/shared/ui/chip";
 import { Input, Label, Select, Textarea } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
+import { pillCls } from "@/shared/ui/pill";
 import { Segmented } from "@/shared/ui/segmented";
 import { DoneToggle, TaskTimerButton } from "./task-controls";
 import { fmtDuration } from "./timer";
@@ -36,14 +38,6 @@ const todayPlus = (days: number) => {
   d.setDate(d.getDate() + days);
   return d.toISOString().slice(0, 10);
 };
-
-const pill = (selected: boolean) =>
-  cn(
-    "rounded-(--radius-chip) border px-2.5 py-1 text-[12px] font-medium",
-    selected
-      ? "border-primary bg-[#eef1fb] text-primary-link"
-      : "border-border bg-surface text-muted hover:bg-divider",
-  );
 
 // ── create / edit ────────────────────────────────────────────────────────────
 
@@ -323,7 +317,7 @@ export function TaskFormModal({
               <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
                 <span className="text-muted">Preset:</span>
                 {subService.taskTemplates.map((t) => (
-                  <button key={t.id} type="button" className={pill(false)} onClick={() => applyPreset(t.id)}>
+                  <button key={t.id} type="button" className={pillCls(false)} onClick={() => applyPreset(t.id)}>
                     {t.name}
                   </button>
                 ))}
@@ -408,13 +402,13 @@ export function TaskFormModal({
               <button
                 key={d}
                 type="button"
-                className={pill(deadline === todayPlus(d))}
+                className={pillCls(deadline === todayPlus(d))}
                 onClick={() => setDeadline(todayPlus(d))}
               >
                 +{d} days
               </button>
             ))}
-            <button type="button" className={pill(deadline === "")} onClick={() => setDeadline("")}>
+            <button type="button" className={pillCls(deadline === "")} onClick={() => setDeadline("")}>
               none
             </button>
             <Input
@@ -428,21 +422,11 @@ export function TaskFormModal({
 
         <div>
           <Label>Assignees</Label>
-          <div className="flex flex-wrap gap-1.5">
-            {(team ?? [])
-              .filter((u) => u.status === "active" || assignees.has(u.id))
-              .map((u) => (
-                <button
-                  key={u.id}
-                  type="button"
-                  className={pill(assignees.has(u.id))}
-                  onClick={() => toggleAssignee(u.id)}
-                >
-                  {u.firstName} {u.lastName}
-                  {u.status === "blocked" && " ⛔"}
-                </button>
-              ))}
-          </div>
+          <AssigneePicker
+            users={team ?? []}
+            selected={(id) => assignees.has(id)}
+            onToggle={toggleAssignee}
+          />
         </div>
 
         <div>
@@ -833,25 +817,14 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
 
         <div>
           <Label>Assignees</Label>
-          <div className="flex flex-wrap gap-1.5">
-            {(team ?? [])
-              .filter((u) => u.status === "active" || task.assignees.includes(u.id))
-              .map((u) => (
-                <button
-                  key={u.id}
-                  type="button"
-                  // assignees is a full-array replace read from the task prop; block a
-                  // second toggle until the first PATCH's refetch lands, else it clobbers.
-                  // locked (done) → read-only.
-                  disabled={locked || update.isPending}
-                  className={cn(pill(task.assignees.includes(u.id)), "disabled:opacity-60")}
-                  onClick={() => toggleAssignee(u.id)}
-                >
-                  {u.firstName} {u.lastName}
-                  {u.status === "blocked" && " ⛔"}
-                </button>
-              ))}
-          </div>
+          {/* assignees is a full-array replace read from the task prop; block a second
+              toggle until the first PATCH's refetch lands (else it clobbers). Locked (done) → read-only. */}
+          <AssigneePicker
+            users={team ?? []}
+            selected={(id) => task.assignees.includes(id)}
+            onToggle={toggleAssignee}
+            disabled={locked || update.isPending}
+          />
         </div>
 
             <div>

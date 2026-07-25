@@ -13,7 +13,10 @@ export const taskTemplateSchema = z.object({
   estimatedMinutes: z.number().int().nullable(),
   /** default checklist steps seeded onto tasks made from this template */
   defaultChecklist: z.array(z.string()).default([]),
-  defaultAssigneeId: uuid.nullable(),
+  /** seeded into the generated task's description */
+  description: z.string().nullable().default(null),
+  /** default assignees seeded onto generated tasks (used mainly by internal templates) */
+  defaultAssigneeIds: z.array(uuid).default([]),
   billable: z.boolean(),
 });
 export type TaskTemplate = z.infer<typeof taskTemplateSchema>;
@@ -34,6 +37,10 @@ export const serviceSchema = z.object({
   taskTemplates: z.array(taskTemplateSchema),
 });
 export type Service = z.infer<typeof serviceSchema>;
+
+/** Client-assignable (subscription / one-time). Internal services are firm-internal only, so they're
+ *  excluded from every client/lead service picker. Keep this the single source of that rule. */
+export const isClientFacing = (s: { type: z.infer<typeof serviceType> }) => s.type !== "internal";
 
 // ── DTOs ─────────────────────────────────────────────────────────────────────
 
@@ -86,6 +93,14 @@ const taskTemplateFields = z.object({
   estimatedMinutes: z.number().int().min(1).max(60_000).nullable().optional(),
   /** default checklist steps seeded onto tasks made from this template */
   defaultChecklist: checklistSchema.optional(),
+  /** seeded into the generated task's description */
+  description: z.string().trim().max(2000).nullable().optional(),
+  /** default assignees seeded onto generated tasks (internal templates); no duplicates */
+  defaultAssigneeIds: z
+    .array(uuid)
+    .max(20)
+    .refine((v) => new Set(v).size === v.length, "Duplicate assignee")
+    .optional(),
   billable: z.boolean().default(true),
 });
 
@@ -132,7 +147,8 @@ const serviceFields = z.object({
   name: z.string().trim().min(1).max(60),
   /** omitted on create → the server auto-assigns from the category palette */
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Must be a hex color").optional(),
-  type: serviceType.refine((t) => t !== "internal", "Internal services arrive later"),
+  /** subscription/one-time = client-facing (billable); internal = firm-internal recurring tasks (no billing) */
+  type: serviceType,
   defaultAmount: money.nullable().optional(),
   /** omitted → defaults by type: subscription = start of period, one-time = on create */
   invoiceTrigger: invoiceTrigger.optional(),
@@ -154,15 +170,17 @@ const defaultServiceMsg = {
 };
 
 export function defaultTriggerFor(type: z.infer<typeof serviceType>) {
+  // internal never bills — a dummy trigger is stored and never used
   return type === "one_time" ? ("on_create" as const) : ("on_period_start" as const);
 }
 
-/** one-time bills on create/complete; subscriptions bill by period (start/end/custom day). */
+/** one-time bills on create/complete; subscriptions bill by period; internal never bills. */
 export function billingRuleValid(v: {
   type: z.infer<typeof serviceType>;
   invoiceTrigger: z.infer<typeof invoiceTrigger>;
   invoiceDay?: number | null;
 }) {
+  if (v.type === "internal") return true; // no billing constraints
   if (v.type === "one_time") {
     return (
       (v.invoiceTrigger === "on_create" || v.invoiceTrigger === "on_complete") &&

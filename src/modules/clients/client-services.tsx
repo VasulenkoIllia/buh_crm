@@ -1,11 +1,11 @@
 import { useState } from "react";
 import type { Client, Subscription } from "@shared/schema/client";
+import { isClientFacing } from "@shared/schema/catalog";
 import type { Service, TaskOverride, TaskTemplate } from "@shared/schema/catalog";
 import type { BillingPeriod } from "@shared/schema/enums";
 import {
   ServiceChip,
   TaskRhythmFields,
-  pillCls,
   rhythmSummary,
   useCatalog,
   type RhythmValue,
@@ -16,6 +16,7 @@ import { Button } from "@/shared/ui/button";
 import { ChecklistEditor } from "@/shared/ui/checklist-editor";
 import { Input, Label, Select } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
+import { pillCls } from "@/shared/ui/pill";
 import { useAddSubscription, useSetCategories, useUpdateSubscription } from "./clients.api";
 
 /** Effective per-client config for a service task = template + the fields the override sets. */
@@ -77,14 +78,6 @@ const timingLabel = (t: BillingTiming) =>
       ? `day ${t.day}`
       : "start of period";
 
-const pill = (selected: boolean) =>
-  cn(
-    "rounded-(--radius-chip) border px-2.5 py-1 text-[12px] font-medium",
-    selected
-      ? "border-primary bg-[#eef1fb] text-primary-link"
-      : "border-border bg-surface text-muted hover:bg-divider",
-  );
-
 /** Start / End / Custom-day pills — the same rule editor for add + edit. */
 function BillingPills({
   value,
@@ -98,21 +91,21 @@ function BillingPills({
       <div className="flex flex-wrap gap-1.5">
         <button
           type="button"
-          className={pill(value.trigger === "on_period_start" && value.day == null)}
+          className={pillCls(value.trigger === "on_period_start" && value.day == null)}
           onClick={() => onChange({ trigger: "on_period_start", day: null })}
         >
           Start of period
         </button>
         <button
           type="button"
-          className={pill(value.trigger === "on_period_end")}
+          className={pillCls(value.trigger === "on_period_end")}
           onClick={() => onChange({ trigger: "on_period_end", day: null })}
         >
           End of period
         </button>
         <button
           type="button"
-          className={pill(value.trigger === "on_period_start" && value.day != null)}
+          className={pillCls(value.trigger === "on_period_start" && value.day != null)}
           onClick={() => onChange({ trigger: "on_period_start", day: 5 })}
         >
           Custom day
@@ -642,7 +635,7 @@ export function AddServiceModal({
   const [dueDays, setDueDays] = useState<number | null>(null);
   const [companyId, setCompanyId] = useState("");
 
-  const active = (services ?? []).filter((s) => s.active);
+  const active = (services ?? []).filter((s) => s.active && isClientFacing(s));
   const selected = active.find((s) => s.id === serviceId);
   // one-time service = container for manual jobs: no billing period, bills per job
   const isOneTime = selected?.type === "one_time";
@@ -836,7 +829,7 @@ export function CategoriesModal({
     >
       <div className="space-y-1.5">
         {(services ?? [])
-          .filter((s) => s.active || selected.has(s.id))
+          .filter((s) => isClientFacing(s) && (s.active || selected.has(s.id)))
           .map((s) => (
             <label key={s.id} className="flex cursor-pointer items-center gap-2 py-0.5">
               <input

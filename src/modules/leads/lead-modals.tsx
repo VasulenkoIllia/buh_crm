@@ -2,6 +2,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useNavigate } from "react-router-dom";
 import { z } from "zod";
+import { isClientFacing } from "@shared/schema/catalog";
 import type { ClientType } from "@shared/schema/enums";
 import type { Lead } from "@shared/schema/lead";
 import { ApiError } from "@/shared/lib/api";
@@ -163,7 +164,7 @@ export function LeadFormModal({
           <Select id="l-service" {...register("serviceId")}>
             <option value="">—</option>
             {services
-              ?.filter((s) => s.active || s.id === lead?.serviceId)
+              ?.filter((s) => isClientFacing(s) && (s.active || s.id === lead?.serviceId))
               .map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}

@@ -156,24 +156,34 @@ function toClientFields(input: CreateClientInput | UpdateClientInput, isCreate: 
   return fields;
 }
 
+/** Normalize the people payload for the repo (optional fields → null). */
+const mapPeople = (people: CreateClientInput["people"]) =>
+  people.map((p) => ({
+    name: p.name,
+    serviceId: p.serviceId ?? null,
+    serviceLabel: p.serviceLabel ?? null,
+    role: p.role ?? null,
+    phone: p.phone ?? null,
+    email: p.email ?? null,
+  }));
+
+/** A person's optional service label must be client-facing — never an internal (firm-only) service. */
+async function assertPeopleServicesClientFacing(people: CreateClientInput["people"]) {
+  const ids = [...new Set(people.map((p) => p.serviceId).filter((v): v is string => !!v))];
+  if (ids.length > 0 && (await repo.countInternalServicesByIds(ids)) > 0) {
+    throw new ValidationError("Can't tag a person with an internal service");
+  }
+}
+
 export async function createClient(input: CreateClientInput) {
+  await assertPeopleServicesClientFacing(input.people);
   const client = await repo.createClient({
     ...(toClientFields(input, true) as Prisma.ClientCreateInput),
     type: input.type,
   });
   if (input.companyNames.length > 0) await repo.setClientCompanies(client.id, input.companyNames);
   if (input.people.length > 0) {
-    await repo.setClientPeople(
-      client.id,
-      input.people.map((p) => ({
-        name: p.name,
-        serviceId: p.serviceId ?? null,
-        serviceLabel: p.serviceLabel ?? null,
-        role: p.role ?? null,
-        phone: p.phone ?? null,
-        email: p.email ?? null,
-      })),
-    );
+    await repo.setClientPeople(client.id, mapPeople(input.people));
   }
   await applyDefaultClientService(client.id);
   return getClient(client.id);
@@ -217,20 +227,11 @@ export async function updateClient(id: string, input: UpdateClientInput) {
     );
   }
 
+  if (input.people !== undefined) await assertPeopleServicesClientFacing(input.people);
   await repo.updateClient(id, toClientFields(input, false));
   if (input.companyNames !== undefined) await repo.setClientCompanies(id, input.companyNames);
   if (input.people !== undefined) {
-    await repo.setClientPeople(
-      id,
-      input.people.map((p) => ({
-        name: p.name,
-        serviceId: p.serviceId ?? null,
-        serviceLabel: p.serviceLabel ?? null,
-        role: p.role ?? null,
-        phone: p.phone ?? null,
-        email: p.email ?? null,
-      })),
-    );
+    await repo.setClientPeople(id, mapPeople(input.people));
   }
   return getClient(id);
 }
@@ -241,6 +242,9 @@ export async function addSubscription(clientId: string, input: CreateSubscriptio
   await getClient(clientId);
   const service = await repo.findServiceById(input.serviceId);
   if (!service || !service.active) throw new ValidationError("Unknown or inactive service");
+  if (service.type === "internal") {
+    throw new ValidationError("Internal services aren't assignable to clients");
+  }
   if (input.companyId) {
     const company = await repo.findClientCompany(clientId, input.companyId);
     if (!company) throw new ValidationError("Company does not belong to this client");
@@ -335,7 +339,7 @@ export async function setCategories(clientId: string, input: SetClientCategories
   const existing = new Set(client.categories);
   const added = ids.filter((id) => !existing.has(id));
   if (added.length > 0 && (await repo.countActiveServicesByIds(added)) !== added.length) {
-    throw new ValidationError("Can't add an inactive service as a category");
+    throw new ValidationError("Can't add an inactive or internal service as a category");
   }
   await repo.setClientCategories(clientId, input.serviceIds);
   return getClient(clientId);

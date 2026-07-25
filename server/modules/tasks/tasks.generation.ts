@@ -280,6 +280,9 @@ const subscriptionQuery = {
   },
 };
 
+/** Distinct non-null values — used to scope the existing-keys pre-check `IN` lists. */
+const uniq = <T,>(xs: (T | null)[]) => [...new Set(xs)].filter((x): x is T => x != null);
+
 type GeneratedRow = ReturnType<typeof rowsForSubscription>[number];
 
 /**
@@ -312,7 +315,6 @@ async function insertGeneratedTasks(rows: GeneratedRow[]): Promise<number> {
   if (withChecklist.length > 0) {
     const key = (r: { subscriptionId: string | null; taskTemplateId: string | null; periodKey: string | null }) =>
       `${r.subscriptionId}|${r.taskTemplateId}|${r.periodKey}`;
-    const uniq = <T,>(xs: (T | null)[]) => [...new Set(xs)].filter((x): x is T => x != null);
     // scope the pre-check to exactly the candidate (sub, template, period) space — not all history
     const existing = await prisma.task.findMany({
       where: {
@@ -362,4 +364,133 @@ export async function generateForSubscription(subscriptionId: string) {
   if (!sub) return { created: 0 }; // stopped / one-time / archived client — nothing to generate
   const rows = rowsForSubscription(sub, deps, todayInTz(config.TZ), config.TZ);
   return { created: await insertGeneratedTasks(rows) };
+}
+
+// ── internal task templates (recurring firm-internal tasks: no client, no billing) ────────────
+
+type InternalService = {
+  id: string;
+  name: string;
+  taskTemplates: {
+    id: string;
+    name: string;
+    periodicity: string;
+    dayOfPeriod: number | null;
+    monthOfPeriod: number | null;
+    deadlineOffsetDays: number | null;
+    estimatedMinutes: number | null;
+    defaultChecklist: unknown;
+    description: string | null;
+    defaultAssigneeIds: unknown;
+    createdAt: Date;
+  }[];
+};
+
+const internalServiceQuery = {
+  where: { active: true, type: "internal" as const },
+  select: {
+    id: true,
+    name: true,
+    taskTemplates: {
+      select: {
+        id: true,
+        name: true,
+        periodicity: true,
+        dayOfPeriod: true,
+        monthOfPeriod: true,
+        deadlineOffsetDays: true,
+        estimatedMinutes: true,
+        defaultChecklist: true,
+        description: true,
+        defaultAssigneeIds: true,
+        createdAt: true,
+      },
+    },
+  },
+};
+
+/** Rows for one internal service's templates. Title: `service · template · date`; no client. */
+function internalRows(svc: InternalService, deps: GenerationDeps, today: Day, tz: string) {
+  return svc.taskTemplates.flatMap((tpl) => {
+    // an internal template generates from its own creation day (no subscription start)
+    const from = fromDate(tpl.createdAt, tz);
+    const eff = { periodicity: tpl.periodicity, dayOfPeriod: tpl.dayOfPeriod, monthOfPeriod: tpl.monthOfPeriod };
+    return occurrencesInWindow(eff, from, today).map((occ) => ({
+      title: `${svc.name} · ${tpl.name} · ${dayLabel(occ.date)}`,
+      serviceId: svc.id, // belonging (grouping/reports) — but no client/company/subscription
+      kind: "free" as const,
+      priorityId: deps.priorityId,
+      statusColumnId: deps.columnId,
+      deadline: toUtc(addDays(occ.date, tpl.deadlineOffsetDays ?? 0)),
+      plannedMinutes: tpl.estimatedMinutes,
+      description: tpl.description,
+      taskTemplateId: tpl.id,
+      periodKey: occ.periodKey,
+      checklist: (tpl.defaultChecklist as string[] | null) ?? [],
+      assigneeIds: (tpl.defaultAssigneeIds as string[] | null) ?? [],
+    }));
+  });
+}
+
+type InternalRow = ReturnType<typeof internalRows>[number];
+
+/**
+ * Insert new internal tasks. subscriptionId is always null, so idempotency comes from the partial
+ * unique index on (taskTemplateId, periodKey) WHERE subscriptionId IS NULL. Per-row create (nests
+ * subtasks + assignees), pre-filtered against existing keys, with a race-safe P2002 fallback.
+ */
+async function insertInternalTasks(rows: InternalRow[]): Promise<number> {
+  if (rows.length === 0) return 0;
+  const key = (r: { taskTemplateId: string | null; periodKey: string | null }) =>
+    `${r.taskTemplateId}|${r.periodKey}`;
+  const existing = await prisma.task.findMany({
+    where: {
+      subscriptionId: null,
+      taskTemplateId: { in: uniq(rows.map((r) => r.taskTemplateId)) },
+      periodKey: { in: uniq(rows.map((r) => r.periodKey)) },
+    },
+    select: { taskTemplateId: true, periodKey: true },
+  });
+  const seen = new Set(existing.map(key));
+  let created = 0;
+  for (const row of rows) {
+    if (seen.has(key(row))) continue;
+    const { checklist, assigneeIds, ...task } = row;
+    try {
+      await prisma.task.create({
+        data: {
+          ...task,
+          subtasks: checklist.length
+            ? { create: checklist.map((text, order) => ({ text, order })) }
+            : undefined,
+          // dedupe — a duplicate userId would hit the TaskAssignee PK (P2002) and, since the catch
+          // below can't tell it from the (template,period) race, silently drop the task forever
+          assignees: assigneeIds.length
+            ? { create: [...new Set(assigneeIds)].map((userId) => ({ userId })) }
+            : undefined,
+        },
+      });
+      created++;
+    } catch (e) {
+      if ((e as { code?: string }).code !== "P2002") throw e;
+    }
+  }
+  return created;
+}
+
+/** Full sweep for internal task templates — runs alongside the subscription sweep. */
+export async function generateInternalTasks() {
+  const deps = await loadDeps();
+  if (!deps) return { created: 0 };
+  const today = todayInTz(config.TZ);
+  const services = await prisma.service.findMany(internalServiceQuery);
+  const rows = services.flatMap((svc) => internalRows(svc, deps, today, config.TZ));
+  if (rows.length === 0) return { created: 0 };
+  // only ACTIVE users get freshly assigned (same invariant manual create/update enforce) —
+  // a template member blocked after being set is dropped, not carried onto new tasks
+  const active = new Set(
+    (await prisma.user.findMany({ where: { status: "active" }, select: { id: true } })).map((u) => u.id),
+  );
+  for (const row of rows) row.assigneeIds = row.assigneeIds.filter((id) => active.has(id));
+  return { created: await insertInternalTasks(rows) };
 }

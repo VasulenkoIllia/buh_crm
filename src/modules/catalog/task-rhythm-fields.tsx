@@ -1,6 +1,6 @@
 import type { Periodicity } from "@shared/schema/enums";
-import { cn } from "@/shared/lib/cn";
 import { Input, Select } from "@/shared/ui/field";
+import { pillCls } from "@/shared/ui/pill";
 
 export const RHYTHM_LABEL: Record<Periodicity, string> = {
   weekly: "Weekly",
@@ -14,15 +14,6 @@ export const MONTHS = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 const dayLabel = (d: number) => (d === -1 ? "last day" : `day ${d}`);
-
-/** Shared pill styling for all chip-style choice buttons. */
-export const pillCls = (selected: boolean) =>
-  cn(
-    "rounded-(--radius-chip) border px-2.5 py-1 text-[12px] font-medium",
-    selected
-      ? "border-primary bg-[#eef1fb] text-primary-link"
-      : "border-border bg-surface text-muted hover:bg-divider",
-  );
 
 export interface RhythmValue {
   periodicity: Periodicity;

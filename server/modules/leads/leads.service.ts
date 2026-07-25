@@ -14,6 +14,8 @@ async function assertActiveService(serviceId: string | null | undefined, current
   if (!serviceId || serviceId === current) return;
   const service = await prisma.service.findUnique({ where: { id: serviceId } });
   if (!service || !service.active) throw new ValidationError("Unknown or inactive service");
+  // internal services are firm-internal recurring tasks — not a lead's/client's service
+  if (service.type === "internal") throw new ValidationError("Internal services aren't client-facing");
 }
 
 function toLeadDto(lead: Lead) {

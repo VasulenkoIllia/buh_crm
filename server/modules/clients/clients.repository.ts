@@ -115,8 +115,16 @@ export function countServicesByIds(ids: string[]) {
   return prisma.service.count({ where: { id: { in: ids } } });
 }
 
+/** Active AND client-assignable (excludes internal) — for validating new category chips. */
 export function countActiveServicesByIds(ids: string[]) {
-  return prisma.service.count({ where: { id: { in: ids }, active: true } });
+  return prisma.service.count({
+    where: { id: { in: ids }, active: true, type: { not: "internal" } },
+  });
+}
+
+/** How many of these ids are internal (firm-only) services — guards the People service label. */
+export function countInternalServicesByIds(ids: string[]) {
+  return prisma.service.count({ where: { id: { in: ids }, type: "internal" } });
 }
 
 export async function listServiceTemplateIds(serviceId: string) {

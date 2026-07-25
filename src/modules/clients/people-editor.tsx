@@ -1,4 +1,5 @@
 import { X } from "lucide-react";
+import { isClientFacing } from "@shared/schema/catalog";
 import type { Client, ClientPersonInput } from "@shared/schema/client";
 import { useCatalog } from "@/modules/catalog";
 import { Button } from "@/shared/ui/button";
@@ -71,7 +72,7 @@ export function PeopleEditor({
                 {row.serviceLabel ? `${row.serviceLabel} (legacy)` : "Service they handle…"}
               </option>
               {services
-                ?.filter((s) => s.active || s.id === row.serviceId)
+                ?.filter((s) => isClientFacing(s) && (s.active || s.id === row.serviceId))
                 .map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}

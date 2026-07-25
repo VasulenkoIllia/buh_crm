@@ -1,17 +1,21 @@
 import { useState } from "react";
+import { Building2, Users } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { rhythmValid } from "@shared/schema/catalog";
 import type { Service, TaskTemplate } from "@shared/schema/catalog";
 import { useAuth } from "@/app/auth";
+import { useUsers } from "@/modules/users";
 import { ApiError } from "@/shared/lib/api";
 import { CATEGORY_PALETTE } from "@/shared/lib/colors";
 import { cn } from "@/shared/lib/cn";
+import { AssigneePicker } from "@/shared/ui/assignee-picker";
 import { Button } from "@/shared/ui/button";
 import { ChecklistEditor } from "@/shared/ui/checklist-editor";
-import { FormField, Input, Label } from "@/shared/ui/field";
+import { FormField, Input, Label, Textarea } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
+import { pillCls } from "@/shared/ui/pill";
 import { Segmented } from "@/shared/ui/segmented";
 import {
   useAddTemplate,
@@ -23,12 +27,7 @@ import {
   useUpdateTemplate,
 } from "./catalog.api";
 import { ServiceChip } from "./service-chip";
-import {
-  TaskRhythmFields,
-  pillCls,
-  rhythmSummary,
-  type RhythmValue,
-} from "./task-rhythm-fields";
+import { TaskRhythmFields, rhythmSummary, type RhythmValue } from "./task-rhythm-fields";
 
 /**
  * Billing timing lives on the service; the billing FREQUENCY (month/quarter/year)
@@ -67,6 +66,7 @@ export function ServicesPage() {
     { service: Service; template?: TaskTemplate } | undefined
   >();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [tab, setTab] = useState<"external" | "internal">("external");
 
   const toggle = (id: string) =>
     setExpanded((prev) => {
@@ -80,6 +80,15 @@ export function ServicesPage() {
   if (error || !services)
     return <p className="text-[13px] text-danger-text">Failed to load the catalog.</p>;
 
+  const internalCount = services.filter((s) => s.type === "internal").length;
+  const externalCount = services.length - internalCount;
+  const shown = tab === "internal" ? services.filter((s) => s.type === "internal") : services.filter((s) => s.type !== "internal");
+
+  const TABS = [
+    { value: "external" as const, label: "External", icon: Users, count: externalCount },
+    { value: "internal" as const, label: "Internal", icon: Building2, count: internalCount },
+  ];
+
   return (
     <div className="mx-auto max-w-[820px]">
       <div className="mb-1 flex items-center justify-between">
@@ -91,20 +100,56 @@ export function ServicesPage() {
               setEditorOpen(true);
             }}
           >
-            + New item
+            {tab === "internal" ? "+ New internal category" : "+ New service"}
           </Button>
         )}
       </div>
-      <p className="mb-4 text-[13px] text-muted-400">
-        Universal catalog item: type, tasks and expected price — the final price is set per
-        client when the service is assigned.
+      <p className="mb-3 text-[13px] text-muted-400">
+        {tab === "external"
+          ? "Client-facing services: type, tasks and expected price — the final price is set per client when assigned."
+          : "Internal recurring tasks (no client, no billing): each template auto-generates a firm-internal task on its rhythm."}
       </p>
 
-      {services.length === 0 ? (
+      <div className="mb-4 flex gap-1 border-b border-border">
+        {TABS.map((t) => {
+          const isActive = tab === t.value;
+          const Icon = t.icon;
+          return (
+            <button
+              key={t.value}
+              type="button"
+              onClick={() => setTab(t.value)}
+              className={cn(
+                "-mb-px flex items-center gap-2 border-b-2 px-3 pb-2.5 pt-1.5 text-[13px] font-medium transition-colors",
+                isActive
+                  ? "border-primary text-ink"
+                  : "border-transparent text-muted hover:text-ink-700",
+              )}
+            >
+              <Icon size={15} strokeWidth={2} />
+              {t.label}
+              <span
+                className={cn(
+                  "rounded-full px-1.5 py-px text-[11px] font-semibold tabular-nums",
+                  isActive ? "bg-primary/10 text-primary-link" : "bg-divider text-muted",
+                )}
+              >
+                {t.count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {shown.length === 0 ? (
         <div className="rounded-(--radius-panel) border border-dashed border-[#cfd4db] bg-surface p-12 text-center">
-          <div className="text-[15px] font-semibold">No services yet</div>
+          <div className="text-[15px] font-semibold">
+            {tab === "external" ? "No services yet" : "No internal templates yet"}
+          </div>
           <p className="mt-1 text-[13px] text-muted">
-            Create the first catalog item — it becomes the shared category list.
+            {tab === "external"
+              ? "Create the first service — it becomes the shared category list."
+              : "Create an internal category, then add recurring task templates to it."}
           </p>
         </div>
       ) : (
@@ -116,7 +161,7 @@ export function ServicesPage() {
             <div className="text-right">Clients</div>
             <div className="text-right">Actions</div>
           </div>
-          {services.map((service) => (
+          {shown.map((service) => (
             <div key={service.id}>
               <div
                 className="grid cursor-pointer grid-cols-[20px_1fr_120px_70px_190px] items-center gap-x-3 border-b border-divider px-4 py-[13px] text-[13px] hover:bg-divider/40"
@@ -149,10 +194,16 @@ export function ServicesPage() {
                 </div>
                 <div>
                   <span className="rounded-(--radius-chip) bg-divider px-2 py-0.5 text-[12px] font-medium">
-                    {service.type === "subscription" ? "Subscription" : "One-time"}
+                    {service.type === "subscription"
+                      ? "Subscription"
+                      : service.type === "one_time"
+                        ? "One-time"
+                        : "Internal"}
                   </span>
                 </div>
-                <div className="text-right text-[#6b7280]">{service.clientsCount}</div>
+                <div className="text-right text-[#6b7280]">
+                  {service.type === "internal" ? "—" : service.clientsCount}
+                </div>
                 <div
                   className="flex items-center justify-end gap-2.5 text-right"
                   onClick={(e) => e.stopPropagation()}
@@ -226,6 +277,7 @@ export function ServicesPage() {
         <ServiceEditorModal
           open={editorOpen}
           service={editing}
+          presetType={tab === "internal" ? "internal" : undefined}
           onClose={() => setEditorOpen(false)}
         />
       )}
@@ -255,9 +307,11 @@ function ExpandedPanel({
   const removeTemplate = useDeleteTemplate();
   return (
     <div className="border-b border-[#f2f4f6] bg-[#fafbfc] px-4 pb-3.5 pl-10 pt-1.5">
-      <span className="inline-flex rounded-[5px] bg-[#eef1fb] px-2 py-[3px] text-[12px] font-medium text-[#2f4fd6]">
-        💸 {ruleSummary(service)}
-      </span>
+      {service.type !== "internal" && (
+        <span className="inline-flex rounded-[5px] bg-[#eef1fb] px-2 py-[3px] text-[12px] font-medium text-[#2f4fd6]">
+          💸 {ruleSummary(service)}
+        </span>
+      )}
       {(() => {
         const total = service.taskTemplates.reduce((sum, t) => sum + (t.estimatedMinutes ?? 0), 0);
         return total > 0 ? (
@@ -291,7 +345,7 @@ function ExpandedPanel({
           className="mt-1.5 text-[13px] font-medium text-primary-link hover:underline"
           onClick={onAddTask}
         >
-          {service.type === "one_time" ? "+ Add job preset" : "+ Add task to item"}
+          {service.type === "one_time" ? "+ Add job preset" : "+ Add task template"}
         </button>
       )}
     </div>
@@ -342,7 +396,7 @@ function TemplateRow({
 const serviceFormSchema = z.object({
   name: z.string().trim().min(1, "Required").max(60),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
-  type: z.enum(["subscription", "one_time"]),
+  type: z.enum(["subscription", "one_time", "internal"]),
   invoiceTrigger: z.enum(["on_create", "on_complete", "on_period_start", "on_period_end"]),
   invoiceDay: z.number().int().min(1).max(31).nullable(),
   defaultAmount: z.number().int().nonnegative().nullable(),
@@ -379,15 +433,19 @@ function normalizedBilling(service?: Service): {
 function ServiceEditorModal({
   open,
   service,
+  presetType,
   onClose,
 }: {
   open: boolean;
   service?: Service;
+  presetType?: "internal";
   onClose: () => void;
 }) {
   const create = useCreateService();
   const update = useUpdateService();
   const billing = normalizedBilling(service);
+  // internal = firm-internal recurring tasks (no client, no billing) → a stripped-down editor
+  const isInternal = service?.type === "internal" || presetType === "internal";
 
   const {
     register,
@@ -400,7 +458,7 @@ function ServiceEditorModal({
     defaultValues: {
       name: service?.name ?? "",
       color: service?.color,
-      type: service?.type === "one_time" ? "one_time" : "subscription",
+      type: service?.type ?? presetType ?? "subscription",
       defaultAmount: service?.defaultAmount ?? null,
       invoiceTrigger: billing.trigger,
       invoiceDay: billing.day,
@@ -417,6 +475,18 @@ function ServiceEditorModal({
   const autoAdd = watch("autoAddToNewClients");
 
   const onSubmit = handleSubmit(async (values) => {
+    // internal services never bill — send only identity fields
+    if (isInternal) {
+      try {
+        const input = { name: values.name, color: values.color, type: "internal" as const };
+        if (service) await update.mutateAsync({ id: service.id, input });
+        else await create.mutateAsync(input);
+        onClose();
+      } catch {
+        /* surfaced via serverError below */
+      }
+      return;
+    }
     // only touch the default flag when the checkbox was actually changed this session —
     // saving unrelated fields must not re-assert (or steal) the catalog default. one-time only.
     const { autoAddToNewClients: _flag, ...rest } = values;
@@ -437,7 +507,15 @@ function ServiceEditorModal({
 
   return (
     <Modal
-      title={service ? "Edit catalog item" : "New catalog item"}
+      title={
+        isInternal
+          ? service
+            ? "Edit internal category"
+            : "New internal category"
+          : service
+            ? "Edit service"
+            : "New service"
+      }
       open={open}
       onClose={onClose}
       footer={
@@ -452,33 +530,46 @@ function ServiceEditorModal({
       }
     >
       <form id="service-form" onSubmit={onSubmit} className="space-y-3.5" noValidate>
-        <FormField label="Service name" htmlFor="s-name" error={errors.name?.message}>
+        <FormField
+          label={isInternal ? "Category name" : "Service name"}
+          htmlFor="s-name"
+          error={errors.name?.message}
+        >
           <Input
             id="s-name"
-            placeholder="e.g. Bookkeeping"
+            placeholder={isInternal ? "e.g. Compliance" : "e.g. Bookkeeping"}
             error={!!errors.name}
             {...register("name")}
           />
         </FormField>
 
-        <div>
-          <Label>Type</Label>
-          <Segmented
-            value={type}
-            onChange={(v) => {
-              setValue("type", v as ServiceFormValues["type"], { shouldDirty: true });
-              // billing options differ per type — snap to that type's default
-              setValue("invoiceTrigger", v === "one_time" ? "on_create" : "on_period_start", {
-                shouldDirty: true,
-              });
-              setValue("invoiceDay", null, { shouldDirty: true });
-            }}
-            options={[
-              { value: "subscription", label: "Subscription" },
-              { value: "one_time", label: "One-time" },
-            ]}
-          />
-        </div>
+        {!isInternal && (
+          <div>
+            <Label>Type</Label>
+            <Segmented
+              value={type === "internal" ? "subscription" : type}
+              onChange={(v) => {
+                setValue("type", v as ServiceFormValues["type"], { shouldDirty: true });
+                // billing options differ per type — snap to that type's default
+                setValue("invoiceTrigger", v === "one_time" ? "on_create" : "on_period_start", {
+                  shouldDirty: true,
+                });
+                setValue("invoiceDay", null, { shouldDirty: true });
+              }}
+              options={[
+                { value: "subscription", label: "Subscription" },
+                { value: "one_time", label: "One-time" },
+              ]}
+            />
+          </div>
+        )}
+
+        {isInternal && (
+          <p className="rounded-(--radius-field) bg-[#f7f8fa] px-3 py-2 text-[12px] text-muted">
+            Internal category — recurring firm-internal tasks, no client and no billing. Add task
+            templates to it (rhythm, deadline, checklist, assignees) below after saving.
+          </p>
+        )}
 
         <div>
           <Label>Color</Label>
@@ -504,6 +595,7 @@ function ServiceEditorModal({
           </div>
         </div>
 
+        {!isInternal && (
         <div className="rounded-[10px] border border-[#e6e9ee] p-3.5">
           <Label>Billing — when is the invoice issued</Label>
           <div className="flex flex-wrap gap-1.5">
@@ -611,10 +703,11 @@ function ServiceEditorModal({
             service is added to a client.
           </p>
           <p className="mt-1 text-[12px] text-faint">
-            Work rhythm and planned time live on the item's tasks — expand the row and use
-            “+ Add task to item”.
+            Work rhythm and planned time live on the item's task templates — expand the row and use
+            “+ Add task template”.
           </p>
         </div>
+        )}
 
         {/* default-for-new-clients — one-time services only, at most one in the catalog */}
         {type === "one_time" && (
@@ -653,6 +746,8 @@ const templateFormSchema = z
     deadlineOffsetDays: z.number().int().min(0).max(90).nullable(),
     estimatedMinutes: z.number().int().min(1).nullable(),
     defaultChecklist: z.array(z.string()),
+    description: z.string(),
+    defaultAssigneeIds: z.array(z.string()),
   })
   .refine(rhythmValid, { path: ["dayOfPeriod"], message: "Day/month don't fit the frequency" });
 type TemplateFormValues = z.infer<typeof templateFormSchema>;
@@ -670,8 +765,11 @@ function TaskTemplateModal({
 }) {
   const add = useAddTemplate();
   const update = useUpdateTemplate();
+  const { data: users } = useUsers();
   // one-time service = job presets: always "once", no rhythm (self-heals stray legacy rows)
   const isOneTime = service.type === "one_time";
+  // internal templates also carry a description + default assignees (seeded onto generated tasks)
+  const isInternal = service.type === "internal";
   const {
     register,
     handleSubmit,
@@ -688,6 +786,8 @@ function TaskTemplateModal({
       deadlineOffsetDays: template?.deadlineOffsetDays ?? null,
       estimatedMinutes: template?.estimatedMinutes ?? null,
       defaultChecklist: template?.defaultChecklist ?? [],
+      description: template?.description ?? "",
+      defaultAssigneeIds: template?.defaultAssigneeIds ?? [],
     },
   });
 
@@ -709,6 +809,7 @@ function TaskTemplateModal({
     const input = {
       ...values,
       defaultChecklist: values.defaultChecklist.map((s) => s.trim()).filter(Boolean),
+      description: values.description.trim() || null,
     };
     try {
       if (template) {
@@ -727,15 +828,7 @@ function TaskTemplateModal({
 
   return (
     <Modal
-      title={
-        isOneTime
-          ? template
-            ? `Edit job preset — “${service.name}”`
-            : `Job preset for “${service.name}”`
-          : template
-            ? `Edit task — “${service.name}”`
-            : `Task for “${service.name}”`
-      }
+      title={`${template ? "Edit" : "New"} ${isOneTime ? "job preset" : "task template"} — “${service.name}”`}
       open={open}
       onClose={onClose}
       footer={
@@ -744,7 +837,7 @@ function TaskTemplateModal({
             Cancel
           </Button>
           <Button type="submit" form="template-form" disabled={isSubmitting}>
-            {isSubmitting ? "Saving…" : template ? "Save" : "Add task"}
+            {isSubmitting ? "Saving…" : template ? "Save" : "Add template"}
           </Button>
         </>
       }
@@ -767,11 +860,22 @@ function TaskTemplateModal({
           oneTime={isOneTime}
         />
 
+        {isInternal && (
+          <div>
+            <Label>Description (seeded onto each generated task)</Label>
+            <Textarea
+              className="h-[70px]"
+              placeholder="What this internal task is about…"
+              {...register("description")}
+            />
+          </div>
+        )}
+
         <div>
           <div className="mb-1.5 block text-[12px] font-medium text-ink-700">
             Default checklist{" "}
             <span className="font-normal text-muted">
-              — seeded onto each task; per-client override on the subscription
+              {isInternal ? "— seeded onto each generated task" : "— seeded onto each task; per-client override on the subscription"}
             </span>
           </div>
           <ChecklistEditor
@@ -779,6 +883,27 @@ function TaskTemplateModal({
             onChange={(next) => setValue("defaultChecklist", next, { shouldDirty: true })}
           />
         </div>
+
+        {isInternal && (
+          <div>
+            <Label>Assignees (optional — who these tasks go to)</Label>
+            <AssigneePicker
+              users={users ?? []}
+              selected={(id) => watch("defaultAssigneeIds").includes(id)}
+              onToggle={(id) => {
+                const cur = watch("defaultAssigneeIds");
+                setValue(
+                  "defaultAssigneeIds",
+                  cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id],
+                  { shouldDirty: true },
+                );
+              }}
+            />
+            {(users ?? []).length === 0 && (
+              <span className="text-[12px] text-faint">No team members yet.</span>
+            )}
+          </div>
+        )}
         {serverError && <p className="text-[12px] text-danger-text">{serverError}</p>}
       </form>
     </Modal>

@@ -82,12 +82,16 @@ export function updateServiceWithDefault(
 }
 
 export async function countServiceUsage(serviceId: string) {
-  const [subscriptions, categories, people] = await prisma.$transaction([
+  const [subscriptions, categories, people, tasks] = await prisma.$transaction([
     prisma.subscription.count({ where: { serviceId } }),
     prisma.clientServiceCategory.count({ where: { serviceId } }),
     prisma.clientPerson.count({ where: { serviceId } }),
+    // generated tasks belong to the service (internal services have no subscriptions/categories,
+    // so tasks are their only usage — without this an internal service could be hard-deleted,
+    // cascade-dropping its templates and orphaning already-generated tasks)
+    prisma.task.count({ where: { serviceId } }),
   ]);
-  return { subscriptions, categories, people };
+  return { subscriptions, categories, people, tasks };
 }
 
 export function deleteService(id: string) {

@@ -133,7 +133,6 @@ model User {
   paymentsCreated     Payment[]            @relation("PaymentCreatedBy")
   paymentAuditLogs    PaymentAuditLog[]
   uploadedFiles       File[]               @relation("FileUploadedBy")
-  defaultForTemplates TaskTemplate[]       @relation("TemplateDefaultAssignee")
 }
 
 model AuthToken {
@@ -234,14 +233,14 @@ model TaskTemplate {
   deadlineOffsetDays Int? // deadline = createdAt + offset; null = no deadline
   estimatedMinutes   Int? // planned labor default; per-task override via Task.plannedMinutes
   defaultChecklist   Json? // string[] of default checklist steps → seeded onto generated/created tasks
-  defaultAssigneeId  String?     @db.Uuid
+  description        String? // seeded into the generated task's description
+  defaultAssigneeIds Json? // uuid[] of default assignees → seeded onto generated tasks
   billable           Boolean     @default(true)
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
 
-  service         Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  defaultAssignee User?   @relation("TemplateDefaultAssignee", fields: [defaultAssigneeId], references: [id])
-  tasks           Task[]
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  tasks   Task[]
 
   @@index([serviceId])
 }
@@ -448,6 +447,8 @@ model Task {
   comments     TaskComment[]
 
   @@unique([subscriptionId, taskTemplateId, periodKey])
+  // partial unique index `Task_internal_template_period` (raw SQL, not expressible here) — dedups
+  // internal generated tasks by (taskTemplateId, periodKey) when subscriptionId IS NULL
   @@index([clientId])
   @@index([createdById])
   @@index([done])
