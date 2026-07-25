@@ -125,6 +125,7 @@ model User {
   sessions            Session[]
   taskAssignments     TaskAssignee[]
   tasksCreated        Task[]               @relation("TaskCreatedBy")
+  taskComments        TaskComment[]        @relation("TaskCommentAuthor")
   timeEntries         TimeEntry[]
   timeEntriesCreated  TimeEntry[]          @relation("TimeEntryCreatedBy")
   meetingParticipants MeetingParticipant[]
@@ -444,6 +445,7 @@ model Task {
   assignees    TaskAssignee[]
   timeEntries  TimeEntry[]
   subtasks     Subtask[]
+  comments     TaskComment[]
 
   @@unique([subscriptionId, taskTemplateId, periodKey])
   @@index([clientId])
@@ -500,6 +502,20 @@ model Subtask {
   order  Int     @default(0)
 
   task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+}
+
+// Free-text note on a task — people leave notes for themselves or colleagues.
+model TaskComment {
+  id        String   @id @default(uuid()) @db.Uuid
+  taskId    String   @db.Uuid
+  authorId  String   @db.Uuid
+  body      String
+  createdAt DateTime @default(now())
+
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author User @relation("TaskCommentAuthor", fields: [authorId], references: [id])
 
   @@index([taskId])
 }

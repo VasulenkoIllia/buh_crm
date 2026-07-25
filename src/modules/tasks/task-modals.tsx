@@ -18,10 +18,12 @@ import { Segmented } from "@/shared/ui/segmented";
 import { DoneToggle, TaskTimerButton } from "./task-controls";
 import { fmtDuration } from "./timer";
 import {
+  useAddComment,
   useAddTimeEntry,
   useArchiveTask,
   useAssignees,
   useCreateTask,
+  useDeleteComment,
   useDeleteTimeEntry,
   useSetSubtasks,
   useTaskColumns,
@@ -873,6 +875,13 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
             )}
             <SubtasksSection task={task} disabled={locked} />
             <TimeLog task={task} isAdmin={isAdmin} userName={userName} />
+            <CommentsSection
+              task={task}
+              currentUserId={user?.id}
+              isAdmin={isAdmin}
+              userName={userName}
+              disabled={locked}
+            />
           </div>
         </div>
       </div>
@@ -1035,6 +1044,82 @@ function SubtasksSection({ task, disabled }: { task: Task; disabled?: boolean })
               }
             }}
           />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Free-text notes on the task — anyone posts; delete your own (or admin). Read-only when locked. */
+function CommentsSection({
+  task,
+  currentUserId,
+  isAdmin,
+  userName,
+  disabled,
+}: {
+  task: Task;
+  currentUserId?: string;
+  isAdmin: boolean;
+  userName: (id: string | null) => string;
+  disabled?: boolean;
+}) {
+  const addComment = useAddComment();
+  const removeComment = useDeleteComment();
+  const [body, setBody] = useState("");
+
+  const post = () => {
+    const b = body.trim();
+    if (!b) return;
+    addComment.mutate({ id: task.id, body: b }, { onSuccess: () => setBody("") });
+  };
+
+  return (
+    <div>
+      <div className="mb-1 text-[11px] font-medium uppercase tracking-[.4px] text-muted-400">
+        Comments{task.comments.length > 0 && ` · ${task.comments.length}`}
+      </div>
+      {task.comments.length === 0 && <p className="text-[12px] text-faint">No notes yet.</p>}
+      <div className="space-y-2">
+        {task.comments.map((c) => (
+          <div key={c.id} className="rounded-(--radius-field) bg-[#f7f8fa] px-3 py-2 text-[13px]">
+            <div className="mb-0.5 flex items-center gap-2 text-[11px] text-muted">
+              <span className="font-medium text-ink-700">{userName(c.authorId)}</span>
+              <span>
+                {new Date(c.createdAt).toLocaleString("en-GB", {
+                  day: "2-digit",
+                  month: "2-digit",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
+              {!disabled && (isAdmin || c.authorId === currentUserId) && (
+                <button
+                  type="button"
+                  className="ml-auto font-medium text-muted hover:text-danger hover:underline"
+                  onClick={() => removeComment.mutate(c.id)}
+                >
+                  Delete
+                </button>
+              )}
+            </div>
+            <div className="whitespace-pre-wrap break-words text-ink-700">{c.body}</div>
+          </div>
+        ))}
+      </div>
+      {!disabled && (
+        <div className="mt-2 space-y-1.5">
+          <Textarea
+            className="h-[52px]"
+            placeholder="Add a note for yourself or the team…"
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+          />
+          <div className="flex justify-end">
+            <Button size="sm" disabled={!body.trim() || addComment.isPending} onClick={post}>
+              Post note
+            </Button>
+          </div>
         </div>
       )}
     </div>

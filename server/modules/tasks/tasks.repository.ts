@@ -5,6 +5,7 @@ const taskInclude = {
   assignees: { select: { userId: true } },
   subtasks: { orderBy: { order: "asc" } },
   timeEntries: { orderBy: { startedAt: "asc" } },
+  comments: { orderBy: { createdAt: "asc" } },
   invoice: { select: { id: true, number: true, amount: true, issuedAt: true, dueDate: true } },
 } satisfies Prisma.TaskInclude;
 
@@ -92,6 +93,20 @@ export async function setSubtasks(taskId: string, rows: { text: string; done: bo
       data: rows.map((r, order) => ({ taskId, order, ...r })),
     }),
   ]);
+}
+
+// ── comments ─────────────────────────────────────────────────────────────────
+
+export function addComment(taskId: string, authorId: string, body: string) {
+  return prisma.taskComment.create({ data: { taskId, authorId, body } });
+}
+
+export function findComment(id: string) {
+  return prisma.taskComment.findUnique({ where: { id } });
+}
+
+export function deleteComment(id: string) {
+  return prisma.taskComment.delete({ where: { id } });
 }
 
 // ── lookups for validation ───────────────────────────────────────────────────

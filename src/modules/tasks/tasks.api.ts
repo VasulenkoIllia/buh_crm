@@ -199,3 +199,21 @@ export function useDeleteTimeEntry() {
     onSuccess: invalidate,
   });
 }
+
+export function useAddComment() {
+  const invalidate = useInvalidateTasks();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: string }) =>
+      api<Task>(`/api/tasks/${id}/comments`, { method: "POST", body: { body } }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteComment() {
+  const invalidate = useInvalidateTasks();
+  return useMutation({
+    mutationFn: (commentId: string) =>
+      api<Task>(`/api/tasks/comments/${commentId}`, { method: "DELETE" }),
+    onSuccess: invalidate,
+  });
+}

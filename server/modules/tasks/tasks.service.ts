@@ -1,6 +1,7 @@
 import type {
   AddTimeEntryInput,
   CreateColumnInput,
+  CreateTaskCommentInput,
   CreateTaskInput,
   SetSubtasksInput,
   StartTimerInput,
@@ -11,7 +12,7 @@ import type {
   UpdateTimeEntryInput,
 } from "@shared/schema/task.js";
 import type { Prisma, User } from "../../generated/prisma/client.js";
-import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../../core/errors.js";
 import { issueJobInvoice } from "./invoicing.js";
 import * as repo from "./tasks.repository.js";
 
@@ -66,6 +67,13 @@ export function toTaskDto(task: repo.TaskRecord) {
       comment: e.comment,
       source: e.source,
       createdById: e.createdById,
+    })),
+    comments: task.comments.map((c) => ({
+      id: c.id,
+      taskId: c.taskId,
+      authorId: c.authorId,
+      body: c.body,
+      createdAt: c.createdAt.toISOString(),
     })),
     trackedSeconds: task.timeEntries.reduce((sum, e) => sum + (e.seconds ?? 0), 0),
     createdAt: task.createdAt.toISOString(),
@@ -317,6 +325,25 @@ export async function setSubtasks(id: string, input: SetSubtasksInput) {
   if (!task || task.archivedAt) throw new NotFoundError("Task not found");
   await repo.setSubtasks(id, input.subtasks);
   return getTask(id);
+}
+
+// ── comments (any authenticated user; delete = own comment or admin) ───────────
+
+export async function addComment(taskId: string, input: CreateTaskCommentInput, actor: User) {
+  const task = await repo.findTask(taskId);
+  if (!task || task.archivedAt) throw new NotFoundError("Task not found");
+  await repo.addComment(taskId, actor.id, input.body);
+  return getTask(taskId);
+}
+
+export async function deleteComment(commentId: string, actor: User) {
+  const comment = await repo.findComment(commentId);
+  if (!comment) throw new NotFoundError("Comment not found");
+  if (comment.authorId !== actor.id && actor.role !== "admin") {
+    throw new ForbiddenError("You can only delete your own comments");
+  }
+  await repo.deleteComment(commentId);
+  return getTask(comment.taskId);
 }
 
 export async function archiveTask(id: string, actor: User) {

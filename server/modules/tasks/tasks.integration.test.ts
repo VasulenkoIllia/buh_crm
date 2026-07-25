@@ -594,6 +594,74 @@ describe("tasks", () => {
     expect(manual.json().subtasks.map((x: { text: string }) => x.text)).toEqual(["A", "B"]);
   });
 
+  it("task comments: anyone posts; delete own or (admin) anyone; empty body rejected", async () => {
+    const t = await app.inject({
+      method: "POST",
+      url: "/api/tasks",
+      headers: { cookie: userCookie },
+      payload: { title: "Commented task", assignees: [userId] },
+    });
+    const taskId = t.json().id as string;
+
+    const c1 = await app.inject({
+      method: "POST",
+      url: `/api/tasks/${taskId}/comments`,
+      headers: { cookie: userCookie },
+      payload: { body: "  Started the reconciliation  " },
+    });
+    expect(c1.statusCode).toBe(201);
+    expect(c1.json().comments).toHaveLength(1);
+    expect(c1.json().comments[0]).toMatchObject({
+      body: "Started the reconciliation",
+      authorId: userId,
+    });
+
+    const bad = await app.inject({
+      method: "POST",
+      url: `/api/tasks/${taskId}/comments`,
+      headers: { cookie: userCookie },
+      payload: { body: "   " },
+    });
+    expect(bad.statusCode).toBe(400);
+
+    const c2 = await app.inject({
+      method: "POST",
+      url: `/api/tasks/${taskId}/comments`,
+      headers: { cookie: adminCookie },
+      payload: { body: "Looks good" },
+    });
+    const comments = c2.json().comments as { id: string; authorId: string }[];
+    expect(comments).toHaveLength(2);
+    const own = comments.find((c) => c.authorId === userId)!;
+    const adminComment = comments.find((c) => c.authorId === adminId)!;
+
+    // a non-author, non-admin can't delete someone else's comment
+    const forbidden = await app.inject({
+      method: "DELETE",
+      url: `/api/tasks/comments/${adminComment.id}`,
+      headers: { cookie: userCookie },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    // delete your own
+    const delOwn = await app.inject({
+      method: "DELETE",
+      url: `/api/tasks/comments/${own.id}`,
+      headers: { cookie: userCookie },
+    });
+    expect(delOwn.statusCode).toBe(200);
+    expect(delOwn.json().comments).toHaveLength(1);
+
+    // admin deletes anyone's
+    const delAdmin = await app.inject({
+      method: "DELETE",
+      url: `/api/tasks/comments/${adminComment.id}`,
+      headers: { cookie: adminCookie },
+    });
+    expect(delAdmin.statusCode).toBe(200);
+    expect(delAdmin.json().comments).toHaveLength(0);
+  });
+
   it("timer: one per user, switch closes with a comment, admin manages time", async () => {
     const mk = async (title: string) => {
       const res = await app.inject({

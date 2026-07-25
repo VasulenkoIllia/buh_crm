@@ -5,6 +5,7 @@ import { uuid } from "@shared/schema/common.js";
 import {
   addTimeEntryInput,
   createColumnInput,
+  createTaskCommentInput,
   createTaskInput,
   setSubtasksInput,
   startTimerInput,
@@ -19,6 +20,7 @@ import * as service from "./tasks.service.js";
 
 const idParams = z.object({ id: uuid });
 const entryParams = z.object({ entryId: uuid });
+const commentParams = z.object({ commentId: uuid });
 
 export async function registerRoutes(instance: FastifyInstance) {
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -122,5 +124,21 @@ export async function registerRoutes(instance: FastifyInstance) {
       reply
         .status(201)
         .send(await service.addTimeEntry(request.currentUser!, request.params.id, request.body)),
+  );
+
+  // ── comments (any user adds; delete = own comment or admin) ────────────────
+  app.post(
+    "/:id/comments",
+    { preHandler: requireAuth, schema: { params: idParams, body: createTaskCommentInput } },
+    async (request, reply) =>
+      reply
+        .status(201)
+        .send(await service.addComment(request.params.id, request.body, request.currentUser!)),
+  );
+
+  app.delete(
+    "/comments/:commentId",
+    { preHandler: requireAuth, schema: { params: commentParams } },
+    async (request) => service.deleteComment(request.params.commentId, request.currentUser!),
   );
 }

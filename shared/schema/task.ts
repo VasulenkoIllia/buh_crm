@@ -37,6 +37,16 @@ export const timeEntrySchema = z.object({
 });
 export type TimeEntry = z.infer<typeof timeEntrySchema>;
 
+/** A free-text note on a task (for self or colleagues) — separate from the time-entry comment. */
+export const taskCommentSchema = z.object({
+  id: uuid,
+  taskId: uuid,
+  authorId: uuid,
+  body: z.string(),
+  createdAt: z.iso.datetime(),
+});
+export type TaskComment = z.infer<typeof taskCommentSchema>;
+
 export const taskSchema = z.object({
   id: uuid,
   title: z.string().min(1),
@@ -75,6 +85,7 @@ export const taskSchema = z.object({
   assignees: z.array(uuid),
   subtasks: z.array(subtaskSchema),
   timeEntries: z.array(timeEntrySchema),
+  comments: z.array(taskCommentSchema),
   /** Σ seconds of CLOSED intervals (a running one adds live elapsed client-side) */
   trackedSeconds: z.number().int(),
   createdAt: z.iso.datetime(),
@@ -148,6 +159,11 @@ export const setSubtasksInput = z.object({
     .max(50),
 });
 export type SetSubtasksInput = z.infer<typeof setSubtasksInput>;
+
+export const createTaskCommentInput = z.object({
+  body: z.string().trim().min(1).max(4000),
+});
+export type CreateTaskCommentInput = z.infer<typeof createTaskCommentInput>;
 
 export const taskListQuery = z.object({
   view: z.enum(["board", "table"]).default("board"),
