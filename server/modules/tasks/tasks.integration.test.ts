@@ -196,6 +196,7 @@ describe("tasks", () => {
     const task = internal.json();
     expect(task.kind).toBe("free");
     expect(task.clientId).toBeNull();
+    expect(task.createdById).toBe(userId); // manual task records its creator
     const priorities = await prisma.priority.findMany();
     expect(task.priorityId).toBe(priorities.find((p) => p.isDefault)!.id);
     const fixedCol = await prisma.taskColumn.findFirstOrThrow({ where: { isFixed: true } });
@@ -406,6 +407,7 @@ describe("tasks", () => {
     expect(generated!.kind).toBe("sub");
     expect(generated!.periodKey).toBe(monthKey);
     expect(generated!.assignees).toHaveLength(0);
+    expect(generated!.createdById).toBeNull(); // scheduler-generated → no human creator ("Auto")
     expect(generated!.plannedMinutes).toBe(120);
     // composed title: client · service · template · date (no company on this client)
     expect(generated!.title).toContain("GenClient Tasks");

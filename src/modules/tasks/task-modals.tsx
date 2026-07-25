@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import type { Task, TimeEntry } from "@shared/schema/task";
+import type { Task, TimeEntry, UpdateTaskInput } from "@shared/schema/task";
 import { useAuth } from "@/app/auth";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { ClientFormModal, useClient, useClients } from "@/modules/clients";
@@ -9,19 +9,19 @@ import { useSettings } from "@/modules/settings";
 import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
-import { Input, Label, Select } from "@/shared/ui/field";
+import { Chip } from "@/shared/ui/chip";
+import { Input, Label, Select, Textarea } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
 import { Segmented } from "@/shared/ui/segmented";
-import { TimerCommentModal, fmtDuration, useElapsed } from "./timer";
+import { DoneToggle, TaskTimerButton } from "./task-controls";
+import { fmtDuration } from "./timer";
 import {
-  useActiveTimer,
   useAddTimeEntry,
   useArchiveTask,
   useAssignees,
   useCreateTask,
   useDeleteTimeEntry,
   useSetSubtasks,
-  useStartTimer,
   useTaskColumns,
   useUpdateTask,
   useUpdateTimeEntry,
@@ -224,7 +224,7 @@ export function TaskFormModal({
     >
       <div className="space-y-3.5">
         {editing && (
-          <p className="rounded-(--radius-field) bg-[#eef1fb] px-3 py-2 text-[12px] text-[#2f4fd6]">
+          <p className="rounded-(--radius-field) bg-[#eef1fb] px-3 py-2 text-[12px] text-primary-link">
             {task!.kind === "sub"
               ? "📅 Generated from a subscription — target & billing are managed there."
               : "Editing workflow fields — the target (client/service) can't be changed here."}
@@ -295,7 +295,7 @@ export function TaskFormModal({
                     </Select>
                   </div>
                 ) : (
-                  <p className="rounded-(--radius-field) bg-[#fdf5f5] px-3 py-2 text-[12px] text-[#c23434]">
+                  <p className="rounded-(--radius-field) bg-[#fdf5f5] px-3 py-2 text-[12px] text-danger-text">
                     This client has no active services — add one on the client card first.
                   </p>
                 )
@@ -350,7 +350,7 @@ export function TaskFormModal({
         )}
 
         {editing && task!.invoice && (
-          <p className="rounded-(--radius-field) bg-[#eef1fb] px-3 py-2 text-[12px] text-[#2f4fd6]">
+          <p className="rounded-(--radius-field) bg-[#eef1fb] px-3 py-2 text-[12px] text-primary-link">
             💰 Invoice {task!.invoice.number} · ${(task!.invoice.amount / 100).toFixed(2)} — price locked.
           </p>
         )}
@@ -438,8 +438,8 @@ export function TaskFormModal({
 
         <div>
           <Label>Description</Label>
-          <textarea
-            className="h-[74px] w-full resize-none rounded-(--radius-field) border border-border px-3 py-2 text-[13px] outline-none focus:border-primary"
+          <Textarea
+            className="h-[74px]"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
@@ -597,25 +597,35 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
   const { data: columns } = useTaskColumns();
   const update = useUpdateTask();
   const archive = useArchiveTask();
-  const [editOpen, setEditOpen] = useState(false);
 
   const isAdmin = user?.role === "admin";
   const client = clientsResp?.items.find((c) => c.id === task.clientId);
   const service = services?.find((s) => s.id === task.serviceId);
-  const priority = settings?.priorities.find((p) => p.id === task.priorityId);
-  const column = columns?.find((c) => c.id === task.statusColumnId);
   const userName = (id: string | null) => {
     const u = team?.find((x) => x.id === id);
     return u ? `${u.firstName} ${u.lastName}` : "—";
   };
+  // every field edits inline → one small PATCH per change (each sends only its own field)
+  const patch = (input: UpdateTaskInput) => update.mutate({ id: task.id, input });
+  const updateError = update.error instanceof ApiError ? update.error.message : null;
 
-  if (editOpen) {
-    return <TaskFormModal task={task} onClose={() => setEditOpen(false)} />;
-  }
+  const editableAmount = task.kind === "once" && !task.invoice;
+  const createdBy = task.createdById
+    ? task.createdById === user?.id
+      ? "you"
+      : userName(task.createdById)
+    : "auto (generated)";
+  const toggleAssignee = (id: string) =>
+    patch({
+      assignees: task.assignees.includes(id)
+        ? task.assignees.filter((x) => x !== id)
+        : [...task.assignees, id],
+    });
 
   return (
     <Modal
-      title={task.title}
+      title="Task"
+      size="md"
       open
       onClose={onClose}
       footer={
@@ -633,9 +643,6 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
           >
             Archive
           </Button>
-          <Button variant="secondary" onClick={() => setEditOpen(true)}>
-            Edit
-          </Button>
           <Button variant="secondary" onClick={onClose}>
             Close
           </Button>
@@ -643,92 +650,142 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
       }
     >
       <div className="space-y-4">
-        {/* status row */}
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="flex cursor-pointer items-center gap-2 text-[13px] font-medium">
-            <input
-              type="checkbox"
-              checked={task.done}
-              disabled={update.isPending}
-              onChange={(e) =>
-                update.mutate({ id: task.id, input: { done: e.target.checked } })
-              }
-            />
-            Done
-          </label>
-          <span className="rounded-[5px] bg-[#eef0f3] px-2 py-[2px] text-[11px] capitalize text-ink-700">
-            {column?.name ?? "—"}
-          </span>
-          {priority && (
-            <span
-              className="rounded-[5px] px-2 py-[2px] text-[11px] font-semibold"
-              style={{ color: priority.color, backgroundColor: `${priority.color}1a` }}
-            >
-              {priority.name}
-            </span>
-          )}
-          {task.kind === "sub" && (
-            <span className="rounded-[5px] bg-[#eef1fb] px-2 py-[2px] text-[11px] text-[#2f4fd6]">
-              📅 auto · {task.periodKey}
-            </span>
-          )}
-          {task.kind === "free" && !task.clientId && (
-            <span className="rounded-[5px] bg-[#f6efdc] px-2 py-[2px] text-[11px] text-[#8b6a1f]">
-              internal
-            </span>
-          )}
-          {task.kind === "free" && task.clientId && (
-            <span className="rounded-[5px] bg-[#e2f4f0] px-2 py-[2px] text-[11px] text-[#0e7a6b]">
-              included in the plan
-            </span>
-          )}
+        {/* title (inline) + big green done */}
+        <div className="flex items-start gap-3">
+          <InlineTitle value={task.title} onSave={(title) => patch({ title })} />
+          {/* for a billable one-time job, don't let "done" fire (→ invoice) while an
+              unsaved price patch is still in flight — it would bill the stale amount */}
+          <DoneToggle task={task} disabled={editableAmount && update.isPending} />
         </div>
 
-        {/* meta grid */}
-        <div className="grid grid-cols-2 gap-x-6 gap-y-2.5 text-[13px]">
-          <MetaField label="Client">
+        {/* an inline PATCH was rejected (e.g. an out-of-range value) — say so, don't fail silently */}
+        {updateError && (
+          <p className="rounded-(--radius-field) bg-[#fdf5f5] px-3 py-2 text-[12px] text-danger-text">
+            {updateError}
+          </p>
+        )}
+
+        {/* kind + billing + provenance chips */}
+        <div className="flex flex-wrap items-center gap-2 text-[12px]">
+          {task.kind === "sub" && <Chip tone="blue">📅 auto · {task.periodKey}</Chip>}
+          {task.kind === "free" && !task.clientId && <Chip tone="amber">internal</Chip>}
+          {task.kind === "free" && task.clientId && <Chip tone="teal">included in the plan</Chip>}
+          {task.invoice && (
+            <Chip tone="blue" strong>
+              💰 {task.invoice.number}
+            </Chip>
+          )}
+          <span className="text-muted-400">
+            Created by <span className="text-ink-700">{createdBy}</span> ·{" "}
+            {new Date(task.createdAt).toLocaleDateString("en-GB")}
+          </span>
+        </div>
+
+        {/* inline meta grid */}
+        <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-[13px]">
+          <Field label="Column">
+            <Select
+              value={task.statusColumnId}
+              onChange={(e) => patch({ statusColumnId: e.target.value })}
+            >
+              {(columns ?? []).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Priority">
+            <Select value={task.priorityId} onChange={(e) => patch({ priorityId: e.target.value })}>
+              {(settings?.priorities ?? []).map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Client">
             {client ? (
               <Link to={`/clients/${client.id}`} className="text-primary-link hover:underline">
                 {client.displayName}
               </Link>
             ) : (
-              "—"
+              <span className="text-muted">—</span>
             )}
-          </MetaField>
-          <MetaField label="Service">
-            {service ? <ServiceChip name={service.name} color={service.color} /> : "—"}
-          </MetaField>
-          <MetaField label="Deadline">
-            {task.deadline ? new Date(task.deadline).toLocaleDateString("en-GB") : "—"}
-          </MetaField>
-          <MetaField label="Planned / tracked">
-            {task.plannedMinutes != null ? `${task.plannedMinutes} min` : "—"} ·{" "}
-            {fmtDuration(task.trackedSeconds)}
-          </MetaField>
-          {task.amount != null && (
-            <MetaField label="Job price">${(task.amount / 100).toFixed(2)}</MetaField>
+          </Field>
+          <Field label="Service">
+            {service ? <ServiceChip name={service.name} color={service.color} /> : <span className="text-muted">—</span>}
+          </Field>
+          <Field label="Deadline">
+            <Input
+              className="w-40"
+              type="date"
+              value={task.deadline ? task.deadline.slice(0, 10) : ""}
+              onChange={(e) => patch({ deadline: e.target.value || null })}
+            />
+          </Field>
+          <Field label="Planned / tracked">
+            <div className="flex items-center gap-1.5">
+              <InlineNumber
+                value={task.plannedMinutes}
+                onSave={(v) => patch({ plannedMinutes: v })}
+              />
+              <span className="text-muted">min · {fmtDuration(task.trackedSeconds)}</span>
+            </div>
+          </Field>
+          {editableAmount && (
+            <Field label="Job price">
+              <div className="flex items-center gap-1">
+                <span className="text-muted">$</span>
+                <InlineNumber
+                  min={0}
+                  value={task.amount != null ? task.amount / 100 : null}
+                  onSave={(v) => patch({ amount: v != null ? Math.round(v * 100) : null })}
+                />
+              </div>
+            </Field>
           )}
           {task.invoice && (
-            <MetaField label="Invoice">
-              <span className="font-medium text-[#2f4fd6]">💰 {task.invoice.number}</span> · $
+            <Field label="Invoice">
+              <span className="font-medium text-primary-link">💰 {task.invoice.number}</span> · $
               {(task.invoice.amount / 100).toFixed(2)}
               {task.invoice.dueDate &&
                 ` · due ${new Date(task.invoice.dueDate).toLocaleDateString("en-GB")}`}
-            </MetaField>
-          )}
-          <MetaField label="Assignees">
-            {task.assignees.length === 0 ? "unassigned" : task.assignees.map(userName).join(", ")}
-          </MetaField>
-          {task.description && (
-            <div className="col-span-2">
-              <MetaField label="Description">
-                <span className="whitespace-pre-wrap">{task.description}</span>
-              </MetaField>
-            </div>
+            </Field>
           )}
         </div>
 
-        <TimerControls task={task} />
+        <div>
+          <Label>Assignees</Label>
+          <div className="flex flex-wrap gap-1.5">
+            {(team ?? [])
+              .filter((u) => u.status === "active" || task.assignees.includes(u.id))
+              .map((u) => (
+                <button
+                  key={u.id}
+                  type="button"
+                  // assignees is a full-array replace read from the task prop; block a
+                  // second toggle until the first PATCH's refetch lands, else it clobbers
+                  disabled={update.isPending}
+                  className={cn(pill(task.assignees.includes(u.id)), "disabled:opacity-60")}
+                  onClick={() => toggleAssignee(u.id)}
+                >
+                  {u.firstName} {u.lastName}
+                  {u.status === "blocked" && " ⛔"}
+                </button>
+              ))}
+          </div>
+        </div>
+
+        <div>
+          <Label>Description</Label>
+          <InlineTextarea
+            value={task.description ?? ""}
+            onSave={(d) => patch({ description: d || null })}
+          />
+        </div>
+
+        <TaskTimerButton task={task} />
         <SubtasksSection task={task} />
         <TimeLog task={task} isAdmin={isAdmin} userName={userName} />
       </div>
@@ -736,58 +793,81 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
   );
 }
 
-function MetaField({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <div className="mb-[3px] text-[11px] uppercase tracking-[.4px] text-muted-400">{label}</div>
+      <div className="mb-1 text-[11px] uppercase tracking-[.4px] text-muted-400">{label}</div>
       <div className="text-ink-700">{children}</div>
     </div>
   );
 }
 
-/** Start/stop on THIS task, honoring the one-timer-per-user rule. */
-function TimerControls({ task }: { task: Task }) {
-  const { data: timer } = useActiveTimer();
-  const start = useStartTimer();
-  const [modal, setModal] = useState<"stop" | "switch" | null>(null);
-  const mine = timer?.taskId === task.id;
-  const elapsed = useElapsed(mine ? timer?.startedAt : undefined);
-
+/** Big inline title — saves on blur, ignores empty. */
+function InlineTitle({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+  const [t, setT] = useState(value);
+  useEffect(() => setT(value), [value]); // resync when the task refetches
   return (
-    <div className="flex items-center gap-3 rounded-(--radius-field) bg-[#f7f8fa] px-3 py-2.5">
-      {mine ? (
-        <>
-          <span className="animate-pulse text-[13px] font-bold text-[#3355dd]">
-            ⏱ {fmtDuration(elapsed)}
-          </span>
-          <Button size="sm" variant="secondary" onClick={() => setModal("stop")}>
-            Stop
-          </Button>
-        </>
-      ) : (
-        <>
-          <span className="text-[13px] text-muted">
-            {timer ? `Timer runs on “${timer.taskTitle}”` : "No timer running"}
-          </span>
-          <Button
-            size="sm"
-            onClick={() => {
-              if (timer) setModal("switch"); // close the old interval with a comment first
-              else start.mutate({ taskId: task.id });
-            }}
-          >
-            ▶ Start
-          </Button>
-        </>
-      )}
-      {modal && timer && (
-        <TimerCommentModal
-          timer={timer}
-          next={modal === "switch" ? { taskId: task.id, title: task.title } : undefined}
-          onClose={() => setModal(null)}
-        />
-      )}
-    </div>
+    <textarea
+      rows={1}
+      className="min-w-0 flex-1 resize-none rounded-(--radius-field) border border-transparent bg-transparent px-1 py-0.5 text-[16px] font-semibold leading-snug hover:border-border focus:border-primary focus:bg-surface focus:outline-none"
+      value={t}
+      onChange={(e) => setT(e.target.value)}
+      // Enter commits (a title is single-line) instead of inserting a newline
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          e.currentTarget.blur();
+        }
+      }}
+      onBlur={() => {
+        const v = t.trim();
+        if (v && v !== value) onSave(v);
+        else setT(value);
+      }}
+    />
+  );
+}
+
+function InlineTextarea({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+  const [t, setT] = useState(value);
+  useEffect(() => setT(value), [value]);
+  return (
+    <Textarea
+      className="h-[70px]"
+      value={t}
+      onChange={(e) => setT(e.target.value)}
+      onBlur={() => t !== value && onSave(t)}
+    />
+  );
+}
+
+/** Inline number — saves on blur; empty = null. Reverts NaN / below-`min` (no doomed PATCH). */
+function InlineNumber({
+  value,
+  onSave,
+  min = 1,
+}: {
+  value: number | null;
+  onSave: (v: number | null) => void;
+  min?: number;
+}) {
+  const [t, setT] = useState(value != null ? String(value) : "");
+  useEffect(() => setT(value != null ? String(value) : ""), [value]);
+  const revert = () => setT(value != null ? String(value) : "");
+  return (
+    <Input
+      className="w-20"
+      type="number"
+      min={min}
+      value={t}
+      onChange={(e) => setT(e.target.value)}
+      onBlur={() => {
+        const raw = t.trim();
+        const next = raw ? Number(raw) : null;
+        if (next != null && (Number.isNaN(next) || next < min)) return revert();
+        if (next !== value) onSave(next);
+      }}
+    />
   );
 }
 
@@ -878,7 +958,7 @@ function TimeLog({
         <div key={e.id} className="flex items-start gap-2 border-b border-divider py-1.5 text-[13px] last:border-0">
           <span className="font-medium">{userName(e.userId)}</span>
           {e.stoppedAt === null ? (
-            <span className="animate-pulse text-[12px] font-semibold text-[#3355dd]">running…</span>
+            <span className="animate-pulse text-[12px] font-semibold text-primary">running…</span>
           ) : (
             <span className="tabular-nums text-muted">{fmtDuration(e.seconds ?? 0)}</span>
           )}

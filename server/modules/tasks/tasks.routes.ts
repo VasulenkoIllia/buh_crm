@@ -87,7 +87,8 @@ export async function registerRoutes(instance: FastifyInstance) {
   app.post(
     "/",
     { preHandler: requireAuth, schema: { body: createTaskInput } },
-    async (request, reply) => reply.status(201).send(await service.createTask(request.body)),
+    async (request, reply) =>
+      reply.status(201).send(await service.createTask(request.body, request.currentUser!)),
   );
 
   app.get(

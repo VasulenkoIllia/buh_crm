@@ -4,12 +4,11 @@ import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { useSettings } from "@/modules/settings";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
+import { Chip } from "@/shared/ui/chip";
+import { isOverdue, fmtDate } from "./lib";
 import { TaskDetailsModal, TaskFormModal, type Target } from "./task-modals";
 import { fmtDuration } from "./timer";
 import { useAssignees, useTasksFor } from "./tasks.api";
-
-const isOverdue = (t: Task) => !t.done && !!t.deadline && new Date(t.deadline) < new Date();
-const fmtDue = (iso: string) => new Date(iso).toLocaleDateString("en-GB");
 
 /**
  * A client's or lead's tasks — the rollup list on their card. Read + open
@@ -108,25 +107,29 @@ function TaskRow({
       style={!overdue && priorityColor ? { borderLeft: `3px solid ${priorityColor}` } : undefined}
       className={cn(
         "mb-1.5 flex w-full items-center gap-2 rounded-[8px] border border-border bg-surface px-3 py-2 text-left text-[13px] hover:bg-divider/30",
-        overdue && "border-2 border-[#d63c3c]",
+        overdue && "border-2 border-danger",
         task.done && "opacity-70",
       )}
     >
-      {task.done && <span className="text-[#1f8f3a]">✓</span>}
-      <span className={cn("min-w-0 truncate font-medium", task.done && "text-[#6b7280] line-through")}>
+      {task.done && <span className="text-success">✓</span>}
+      <span className={cn("min-w-0 truncate font-medium", task.done && "text-muted line-through")}>
         {task.title}
       </span>
       {serviceName && <ServiceChip name={serviceName.name} color={serviceName.color} />}
       {task.kind === "sub" && (
-        <span className="rounded-[5px] bg-[#eef1fb] px-[6px] py-[1px] text-[11px] text-[#2f4fd6]">📅 auto</span>
+        <Chip tone="blue" size="sm">
+          📅 auto
+        </Chip>
       )}
       {task.invoice && (
-        <span className="rounded-[5px] bg-[#eef1fb] px-[6px] py-[1px] text-[11px] font-medium text-[#2f4fd6]">
+        <Chip tone="blue" size="sm" strong>
           💰 {task.invoice.number}
-        </span>
+        </Chip>
       )}
       {task.kind === "free" && task.clientId && (
-        <span className="rounded-[5px] bg-[#e2f4f0] px-[6px] py-[1px] text-[11px] text-[#0e7a6b]">included</span>
+        <Chip tone="teal" size="sm">
+          included
+        </Chip>
       )}
       <span className="ml-auto flex-none text-[12px] text-muted">
         {assigneeNames || "unassigned"}
@@ -137,10 +140,10 @@ function TaskRow({
       <span
         className={cn(
           "flex-none text-[12px]",
-          overdue ? "font-semibold text-[#d63c3c]" : "text-muted-400",
+          overdue ? "font-semibold text-danger" : "text-muted-400",
         )}
       >
-        {task.deadline ? fmtDue(task.deadline) : "—"}
+        {task.deadline ? fmtDate(task.deadline) : "—"}
       </span>
     </button>
   );

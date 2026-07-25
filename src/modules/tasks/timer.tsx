@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { ApiError } from "@/shared/lib/api";
 import { Button } from "@/shared/ui/button";
+import { Textarea } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
 import { useActiveTimer, useStartTimer, useStopTimer, type ActiveTimer } from "./tasks.api";
 
@@ -87,8 +89,8 @@ export function TimerCommentModal({
           <div className="mb-1 text-[12px] font-medium text-ink-700">
             What did you do? <span className="text-danger-text">*</span>
           </div>
-          <textarea
-            className="h-[74px] w-full resize-none rounded-(--radius-field) border border-border px-3 py-2 text-[13px] outline-none focus:border-primary"
+          <Textarea
+            className="h-[74px]"
             value={comment}
             autoFocus
             onChange={(e) => setComment(e.target.value)}
@@ -107,6 +109,7 @@ export function TimerCommentModal({
 /** Always-visible running timer in the app header (any page). */
 export function TimerBar() {
   const { data: timer } = useActiveTimer();
+  const navigate = useNavigate();
   const [stopOpen, setStopOpen] = useState(false);
   const elapsed = useElapsed(timer?.startedAt);
 
@@ -115,9 +118,15 @@ export function TimerBar() {
   return (
     <div className="flex items-center gap-2 rounded-(--radius-field) border border-[#cdd7f7] bg-[#eef1fb] px-3 py-1.5 text-[13px]">
       <span className="animate-pulse font-bold text-[#3355dd]">⏱</span>
-      <span className="max-w-44 truncate font-medium text-ink-700" title={timer.taskTitle}>
+      {/* click the running task to open it (works from any page) */}
+      <button
+        type="button"
+        className="max-w-44 truncate font-medium text-ink-700 hover:text-primary-link hover:underline"
+        title={`Open “${timer.taskTitle}”`}
+        onClick={() => navigate(`/tasks?task=${timer.taskId}`)}
+      >
         {timer.taskTitle}
-      </span>
+      </button>
       <span className="font-bold tabular-nums text-[#3355dd]">{fmtDuration(elapsed)}</span>
       <button
         type="button"

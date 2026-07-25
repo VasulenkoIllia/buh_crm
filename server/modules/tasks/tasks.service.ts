@@ -38,6 +38,7 @@ export function toTaskDto(task: repo.TaskRecord) {
     subscriptionId: task.subscriptionId,
     taskTemplateId: task.taskTemplateId,
     periodKey: task.periodKey,
+    createdById: task.createdById,
     invoice: task.invoice
       ? {
           id: task.invoice.id,
@@ -180,7 +181,7 @@ async function resolvePriorityColumn(priorityId?: string, statusColumnId?: strin
  *  - Neither → internal free task (e.g. a standup).
  * kind, serviceId and companyId are DERIVED here — the client never sends them.
  */
-export async function createTask(input: CreateTaskInput) {
+export async function createTask(input: CreateTaskInput, actor: User) {
   await assertAssignable(input.assignees);
   const { priorityId, columnId } = await resolvePriorityColumn(input.priorityId, input.statusColumnId);
 
@@ -235,6 +236,7 @@ export async function createTask(input: CreateTaskInput) {
     plannedMinutes: input.plannedMinutes ?? null,
     amount,
     description: input.description ?? null,
+    createdById: actor.id, // manual task → the actor; generated tasks stay null ("Auto")
   });
   await repo.setAssignees(task.id, input.assignees);
 

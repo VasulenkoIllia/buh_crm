@@ -53,6 +53,19 @@ export const INVOICE_STATUS_COLORS: Record<string, ChipColors> = {
   overdue: { fg: "#c23434", bg: "#fbeaea" },
 };
 
+/**
+ * Neutral semantic tones for small inline status chips (`<Chip>`). These are the
+ * exact hexes the task chips have always used — deliberately distinct from the
+ * service/category palette above, so extracting them changes nothing visually.
+ */
+export type ChipTone = "blue" | "amber" | "teal" | "gray";
+export const CHIP_TONES: Record<ChipTone, ChipColors> = {
+  blue: { fg: "#2f4fd6", bg: "#eef1fb" },
+  amber: { fg: "#8b6a1f", bg: "#f6efdc" },
+  teal: { fg: "#0e7a6b", bg: "#e2f4f0" },
+  gray: { fg: "#41474f", bg: "#eef0f3" },
+};
+
 export const USER_STATUS_COLORS: Record<string, ChipColors> = {
   active: { fg: "#1f8f3a", bg: "#e6f4ea" },
   pending: { fg: "#b5651d", bg: "#f7ede2" },

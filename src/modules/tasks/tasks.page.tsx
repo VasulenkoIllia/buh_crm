@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   DndContext,
   PointerSensor,
@@ -15,7 +16,10 @@ import { useClients } from "@/modules/clients";
 import { useSettings } from "@/modules/settings";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
+import { Chip } from "@/shared/ui/chip";
 import { Segmented } from "@/shared/ui/segmented";
+import { isOverdue, fmtDay, initials } from "./lib";
+import { DoneToggle, TaskTimerButton } from "./task-controls";
 import { TaskDetailsModal, TaskFormModal } from "./task-modals";
 import {
   useAddColumn,
@@ -27,14 +31,6 @@ import {
   useUpdateTask,
   type AssigneeInfo,
 } from "./tasks.api";
-
-const isOverdue = (t: Task) => !t.done && !!t.deadline && new Date(t.deadline) < new Date();
-
-const fmtDue = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit" });
-
-export const initials = (u?: AssigneeInfo) =>
-  u ? `${u.firstName[0] ?? ""}${u.lastName[0] ?? ""}`.toUpperCase() : "?";
 
 type FilterPill = "all" | "mine" | "overdue";
 type Layout = "board" | "table";
@@ -55,6 +51,24 @@ export function TasksPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [formColumnId, setFormColumnId] = useState<string | undefined>();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // ?task=<id> (e.g. from the header timer bar) opens that task's details
+  const [searchParams, setSearchParams] = useSearchParams();
+  const taskParam = searchParams.get("task");
+  useEffect(() => {
+    if (taskParam) setSelectedId(taskParam);
+  }, [taskParam]);
+  // a ?task= that matches no loaded task (deleted/archived/bad id) can never be
+  // closed via the modal (it never opens) — drop the dead param once data is in
+  useEffect(() => {
+    if (taskParam && data && !data.items.some((t) => t.id === taskParam)) {
+      setSearchParams({}, { replace: true });
+      setSelectedId((cur) => (cur === taskParam ? null : cur));
+    }
+  }, [taskParam, data, setSearchParams]);
+  const closeDetails = () => {
+    setSelectedId(null);
+    if (taskParam) setSearchParams({}, { replace: true });
+  };
 
   const openNewTask = (columnId?: string) => {
     setFormColumnId(columnId);
@@ -90,7 +104,7 @@ export function TasksPage() {
               className={cn(
                 "rounded-[6px] px-[11px] py-[5px] text-[12px] font-medium capitalize",
                 pill === p
-                  ? "bg-[#1a1d21] text-white"
+                  ? "bg-ink text-white"
                   : "border border-border bg-surface text-muted",
               )}
             >
@@ -139,7 +153,7 @@ export function TasksPage() {
       {error && (
         <div className="m-6 rounded-[10px] border border-[#f0c9c9] bg-surface p-11 text-center">
           <div className="text-[28px]">⚠</div>
-          <div className="text-[15px] font-semibold text-[#c23434]">Couldn&apos;t load data</div>
+          <div className="text-[15px] font-semibold text-danger-text">Couldn&apos;t load data</div>
           <p className="mb-3 text-[13px] text-muted">Something went wrong while loading this list.</p>
           <Button onClick={() => void refetch()}>Retry</Button>
         </div>
@@ -170,7 +184,7 @@ export function TasksPage() {
           }}
         />
       )}
-      {selected && <TaskDetailsModal task={selected} onClose={() => setSelectedId(null)} />}
+      {selected && <TaskDetailsModal task={selected} onClose={closeDetails} />}
     </div>
   );
 }
@@ -367,6 +381,18 @@ function usePriority(priorityId: string) {
   return settings?.priorities.find((p) => p.id === priorityId);
 }
 
+/** Priority chip — tinted from the priority's own hex (10% bg). */
+function PriorityTag({ priority }: { priority: { name: string; color: string } }) {
+  return (
+    <span
+      className="inline-flex items-center rounded-(--radius-chip) px-2 py-[2px] text-[11px] font-semibold"
+      style={{ color: priority.color, backgroundColor: `${priority.color}1a` }}
+    >
+      {priority.name}
+    </span>
+  );
+}
+
 function BoardCard({
   task,
   team,
@@ -397,27 +423,30 @@ function BoardCard({
       className={cn(
         "cursor-pointer rounded-[9px] border border-border bg-surface px-3 py-[11px] shadow-[0_1px_2px_rgba(0,0,0,.04)]",
         isDragging && "z-10 opacity-80",
-        overdue && "border-2 border-[#d63c3c] shadow-[0_0_0_3px_rgba(214,60,60,.09)]",
+        overdue && "border-2 border-danger shadow-[0_0_0_3px_rgba(214,60,60,.09)]",
       )}
     >
-      <div className="text-[13px] font-semibold leading-[1.3]">
-        {overdue && <span className="mr-1 text-[#c23434]">⚠</span>}
-        {task.title}
+      <div className="flex items-start justify-between gap-2">
+        <div className="text-[13px] font-semibold leading-[1.3]">
+          {overdue && <span className="mr-1 text-danger-text">⚠</span>}
+          {task.title}
+        </div>
+        <DoneToggle task={task} compact />
       </div>
       {(task.clientId || service) && (
-        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] text-[#6b7280]">
+        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] text-muted">
           <ClientName clientId={task.clientId} />
           {service && <ServiceChip name={service.name} color={service.color} />}
         </div>
       )}
-      <div className={cn("mt-[5px] text-[12px]", overdue ? "font-semibold text-[#d63c3c]" : "text-[#6b7280]")}>
-        {task.deadline ? `Due: ${fmtDue(task.deadline)}` : "No deadline"}
+      <div className={cn("mt-[5px] text-[12px]", overdue ? "font-semibold text-danger" : "text-muted")}>
+        {task.deadline ? `Due: ${fmtDay(task.deadline)}` : "No deadline"}
       </div>
       <div className="mt-2 flex min-h-5 flex-wrap items-center gap-[5px]">
         {task.assignees.length === 0 ? (
-          <span className="rounded-[5px] bg-[#f6efdc] px-[7px] py-[2px] text-[11px] font-medium text-[#8b6a1f]">
+          <Chip tone="amber" strong>
             Unassigned
-          </span>
+          </Chip>
         ) : (
           <span className="flex items-center gap-1">
             {task.assignees.slice(0, 3).map((id) => {
@@ -427,8 +456,8 @@ function BoardCard({
                   key={id}
                   title={u ? `${u.firstName} ${u.lastName}${u.status === "blocked" ? " (blocked)" : ""}` : id}
                   className={cn(
-                    "flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[#dfe4ec] text-[10px] font-semibold text-[#41474f]",
-                    u?.status === "blocked" && "bg-[#fbeaea] text-[#c23434]",
+                    "flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[#dfe4ec] text-[10px] font-semibold text-ink-700",
+                    u?.status === "blocked" && "bg-danger-soft text-danger-text",
                   )}
                 >
                   {initials(u)}
@@ -440,44 +469,25 @@ function BoardCard({
             )}
           </span>
         )}
-        {priority && !priority.isDefault && (
-          <span
-            className="rounded-[5px] px-[7px] py-[2px] text-[11px] font-semibold"
-            style={{ color: priority.color, backgroundColor: `${priority.color}1a` }}
-          >
-            {priority.name}
-          </span>
-        )}
+        {priority && !priority.isDefault && <PriorityTag priority={priority} />}
         {task.subtasks.length > 0 && (
-          <span className="rounded-[5px] bg-[#eef0f3] px-[7px] py-[2px] text-[11px] text-ink-700">
+          <Chip tone="gray">
             ☑ {doneSubtasks}/{task.subtasks.length}
-          </span>
+          </Chip>
         )}
-        {task.kind === "free" && !task.clientId && (
-          <span className="rounded-[5px] bg-[#f6efdc] px-[7px] py-[2px] text-[11px] text-[#8b6a1f]">
-            internal
-          </span>
-        )}
-        {task.kind === "free" && task.clientId && (
-          <span className="rounded-[5px] bg-[#e2f4f0] px-[7px] py-[2px] text-[11px] text-[#0e7a6b]">
-            included
-          </span>
-        )}
+        {task.kind === "free" && !task.clientId && <Chip tone="amber">internal</Chip>}
+        {task.kind === "free" && task.clientId && <Chip tone="teal">included</Chip>}
         {task.invoice && (
-          <span className="rounded-[5px] bg-[#eef1fb] px-[7px] py-[2px] text-[11px] font-medium text-[#2f4fd6]">
+          <Chip tone="blue" strong>
             💰 {task.invoice.number}
-          </span>
+          </Chip>
         )}
-        {task.kind === "once" && !task.invoice && (
-          <span className="rounded-[5px] bg-[#f6efdc] px-[7px] py-[2px] text-[11px] text-[#8b6a1f]">
-            ⏳ unbilled
-          </span>
-        )}
-        {task.kind === "sub" && (
-          <span className="rounded-[5px] bg-[#eef1fb] px-[7px] py-[2px] text-[11px] text-[#2f4fd6]">
-            📅 auto
-          </span>
-        )}
+        {task.kind === "once" && !task.invoice && <Chip tone="amber">⏳ unbilled</Chip>}
+        {task.kind === "sub" && <Chip tone="blue">📅 auto</Chip>}
+      </div>
+      {/* start/stop the timer straight from the board */}
+      <div className="mt-2 flex justify-end">
+        <TaskTimerButton task={task} compact />
       </div>
     </div>
   );
@@ -506,11 +516,11 @@ function DoneGrid({ tasks, onOpen }: { tasks: Task[]; onOpen: (t: Task) => void 
           className="rounded-[9px] border border-border bg-surface px-3 py-[11px] text-left opacity-85 shadow-[0_1px_2px_rgba(0,0,0,.04)] hover:opacity-100"
         >
           <div className="text-[13px] font-semibold">
-            <span className="mr-1 text-[#1f8f3a]">✓</span>
-            <span className="text-[#6b7280] line-through">{t.title}</span>
+            <span className="mr-1 text-success">✓</span>
+            <span className="text-muted line-through">{t.title}</span>
           </div>
           <div className="mt-1 text-[12px] text-muted">
-            {t.deadline ? `Due was: ${fmtDue(t.deadline)}` : "No deadline"}
+            {t.deadline ? `Due was: ${fmtDay(t.deadline)}` : "No deadline"}
           </div>
         </button>
       ))}
@@ -578,25 +588,16 @@ function TaskTable({
                 {assignee ? `${assignee.firstName} ${assignee.lastName}` : "—"}
                 {t.assignees.length > 1 && ` +${t.assignees.length - 1}`}
               </span>
+              <span>{priority && <PriorityTag priority={priority} />}</span>
               <span>
-                {priority && (
-                  <span
-                    className="rounded-[5px] px-2 py-[2px] text-[11px] font-semibold"
-                    style={{ color: priority.color, backgroundColor: `${priority.color}1a` }}
-                  >
-                    {priority.name}
-                  </span>
-                )}
-              </span>
-              <span>
-                <span className="rounded-[5px] bg-[#eef0f3] px-2 py-[2px] text-[11px] capitalize text-ink-700">
+                <Chip tone="gray" className="capitalize">
                   {t.done ? "done" : (column?.name ?? "—")}
-                </span>
+                </Chip>
               </span>
-              <span className={cn("text-right tabular-nums", overdue && "font-semibold text-[#d63c3c]")}>
-                {t.deadline ? fmtDue(t.deadline) : "—"}
+              <span className={cn("text-right tabular-nums", overdue && "font-semibold text-danger")}>
+                {t.deadline ? fmtDay(t.deadline) : "—"}
               </span>
-              <span className="text-right tabular-nums text-[#6b7280]">
+              <span className="text-right tabular-nums text-muted">
                 {(t.trackedSeconds / 3600).toFixed(1)}
               </span>
             </button>
