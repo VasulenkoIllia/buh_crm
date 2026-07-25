@@ -662,6 +662,30 @@ describe("tasks", () => {
     expect(delAdmin.json().comments).toHaveLength(0);
   });
 
+  it("a completed task rejects starting a timer (reopen first)", async () => {
+    const t = await app.inject({
+      method: "POST",
+      url: "/api/tasks",
+      headers: { cookie: adminCookie },
+      payload: { title: "Done timer guard", assignees: [adminId] },
+    });
+    const taskId = t.json().id as string;
+    await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/${taskId}`,
+      headers: { cookie: adminCookie },
+      payload: { done: true },
+    });
+    // the done-check precedes the running-timer check, so this is state-independent
+    const start = await app.inject({
+      method: "POST",
+      url: "/api/tasks/timer/start",
+      headers: { cookie: adminCookie },
+      payload: { taskId },
+    });
+    expect(start.statusCode).toBe(400);
+  });
+
   it("timer: one per user, switch closes with a comment, admin manages time", async () => {
     const mk = async (title: string) => {
       const res = await app.inject({

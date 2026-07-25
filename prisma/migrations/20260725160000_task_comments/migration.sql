@@ -1,6 +1,6 @@
 -- Free-text notes on a task (for self or colleagues), separate from time-entry comments.
 CREATE TABLE "TaskComment" (
-  "id"        UUID NOT NULL DEFAULT gen_random_uuid(),
+  "id"        UUID NOT NULL,
   "taskId"    UUID NOT NULL,
   "authorId"  UUID NOT NULL,
   "body"      TEXT NOT NULL,

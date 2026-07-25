@@ -339,6 +339,10 @@ export async function addComment(taskId: string, input: CreateTaskCommentInput, 
 export async function deleteComment(commentId: string, actor: User) {
   const comment = await repo.findComment(commentId);
   if (!comment) throw new NotFoundError("Comment not found");
+  // guard the parent task BEFORE the delete — otherwise an archived task would delete
+  // the row then 404 on the getTask response (side effect with no confirmation)
+  const task = await repo.findTask(comment.taskId);
+  if (!task || task.archivedAt) throw new NotFoundError("Task not found");
   if (comment.authorId !== actor.id && actor.role !== "admin") {
     throw new ForbiddenError("You can only delete your own comments");
   }
@@ -380,6 +384,8 @@ export async function getActiveTimer(actor: User) {
 export async function startTimer(actor: User, input: StartTimerInput) {
   const task = await repo.findTask(input.taskId);
   if (!task || task.archivedAt) throw new NotFoundError("Task not found");
+  // a completed task is a snapshot — no tracking new time on finished work (reopen first)
+  if (task.done) throw new ValidationError("Task is completed — reopen it to track time");
 
   const running = await repo.findRunningEntry(actor.id);
   if (running && running.taskId === input.taskId) {

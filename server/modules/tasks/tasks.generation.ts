@@ -284,40 +284,60 @@ type GeneratedRow = ReturnType<typeof rowsForSubscription>[number];
 
 /**
  * Insert only the rows whose (subscriptionId, taskTemplateId, periodKey) doesn't exist yet,
- * seeding each new task's checklist as subtasks. Keeps generation idempotent (existing keys
- * skipped) AND never rewrites — a task's checklist is seeded once, at creation. `createMany`
- * can't nest subtasks, so new rows are created individually; a concurrent sweep that beats us
- * to the same key hits the unique index (P2002) and is skipped.
+ * Idempotent (the `(subscription, template, period)` unique index) AND never rewrites — a task's
+ * checklist is seeded once, at creation. Rows WITHOUT a checklist go in one bulk
+ * `createMany({ skipDuplicates })`; only rows WITH a checklist need per-row `create` (createMany
+ * can't nest subtasks), pre-filtered against existing keys with a race-safe P2002 fallback.
  */
 async function insertGeneratedTasks(rows: GeneratedRow[]): Promise<number> {
   if (rows.length === 0) return 0;
-  const key = (r: { subscriptionId: string; taskTemplateId: string; periodKey: string }) =>
-    `${r.subscriptionId}|${r.taskTemplateId}|${r.periodKey}`;
-  const subIds = [...new Set(rows.map((r) => r.subscriptionId))];
-  const existing = await prisma.task.findMany({
-    where: { subscriptionId: { in: subIds } },
-    select: { subscriptionId: true, taskTemplateId: true, periodKey: true },
-  });
-  const seen = new Set(existing.map((e) => key(e as GeneratedRow)));
-  let created = 0;
+
+  // split once: checklist-less rows (the common case) vs. rows that must seed subtasks
+  const plain: Omit<GeneratedRow, "checklist">[] = [];
+  const withChecklist: GeneratedRow[] = [];
   for (const row of rows) {
-    if (seen.has(key(row))) continue;
     const { checklist, ...task } = row;
-    try {
-      await prisma.task.create({
-        data: {
-          ...task,
-          subtasks: checklist.length
-            ? { create: checklist.map((text, order) => ({ text, order })) }
-            : undefined,
-        },
-      });
-      created++;
-    } catch (e) {
-      // a concurrent sweep created the same (sub, template, period) first → skip
-      if ((e as { code?: string }).code !== "P2002") throw e;
+    if (checklist.length === 0) plain.push(task);
+    else withChecklist.push(row);
+  }
+
+  let created = 0;
+
+  // bulk path — one idempotent insert (ON CONFLICT DO NOTHING via the unique index)
+  if (plain.length > 0) {
+    created += (await prisma.task.createMany({ data: plain, skipDuplicates: true })).count;
+  }
+
+  // checklist path — createMany can't nest subtasks, so create each NEW row individually.
+  if (withChecklist.length > 0) {
+    const key = (r: { subscriptionId: string | null; taskTemplateId: string | null; periodKey: string | null }) =>
+      `${r.subscriptionId}|${r.taskTemplateId}|${r.periodKey}`;
+    const uniq = <T,>(xs: (T | null)[]) => [...new Set(xs)].filter((x): x is T => x != null);
+    // scope the pre-check to exactly the candidate (sub, template, period) space — not all history
+    const existing = await prisma.task.findMany({
+      where: {
+        subscriptionId: { in: uniq(withChecklist.map((r) => r.subscriptionId)) },
+        taskTemplateId: { in: uniq(withChecklist.map((r) => r.taskTemplateId)) },
+        periodKey: { in: uniq(withChecklist.map((r) => r.periodKey)) },
+      },
+      select: { subscriptionId: true, taskTemplateId: true, periodKey: true },
+    });
+    const seen = new Set(existing.map(key));
+    for (const row of withChecklist) {
+      if (seen.has(key(row))) continue;
+      const { checklist, ...task } = row;
+      try {
+        await prisma.task.create({
+          data: { ...task, subtasks: { create: checklist.map((text, order) => ({ text, order })) } },
+        });
+        created++;
+      } catch (e) {
+        // a concurrent sweep created the same (sub, template, period) first → skip
+        if ((e as { code?: string }).code !== "P2002") throw e;
+      }
     }
   }
+
   return created;
 }
 
