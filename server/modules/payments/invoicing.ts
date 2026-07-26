@@ -1,6 +1,6 @@
 import { config } from "../../core/config.js";
-import { prisma } from "../../core/db.js";
 import type { Prisma } from "../../generated/prisma/client.js";
+import * as repo from "./payments.repository.js";
 
 /**
  * Invoice issuing — the single place a `number` is allocated and an Invoice row is
@@ -19,20 +19,6 @@ import type { Prisma } from "../../generated/prisma/client.js";
 export function firmYear(now: Date = new Date()): number {
   const s = new Intl.DateTimeFormat("en-CA", { timeZone: config.TZ }).format(now);
   return Number(s.slice(0, 4));
-}
-
-/** Bump and read the firm counter. Row-level locked → concurrent callers serialize. */
-async function allocateNumber(tx: Prisma.TransactionClient, year: number): Promise<string> {
-  // roll the year over first (no-op for everyone but the first caller of the new year)
-  await tx.firmProfile.updateMany({
-    where: { id: 1, OR: [{ invoiceCounterYear: null }, { invoiceCounterYear: { not: year } }] },
-    data: { invoiceCounterYear: year, invoiceCounter: 0 },
-  });
-  const firm = await tx.firmProfile.update({
-    where: { id: 1 },
-    data: { invoiceCounter: { increment: 1 } },
-  });
-  return `${firm.invoicePrefix}-${year}-${String(firm.invoiceCounter).padStart(firm.invoiceCounterDigits, "0")}`;
 }
 
 export interface IssueInvoiceInput {
@@ -60,12 +46,8 @@ const isUniqueOn = (err: unknown, field: string) =>
   ((err as { meta?: { target?: unknown } }).meta?.target as string[] | undefined)?.includes(field) ===
     true;
 
-/**
- * Issue one invoice. Retries only on a `number` collision (a legacy S6 number can
- * sit on a counter value we're about to hand out); any other unique violation —
- * notably (subscriptionId, periodKey) — is the caller's business and propagates.
- */
-export async function issueInvoice(input: IssueInvoiceInput) {
+/** The row to write, with the due date resolved from either an explicit date or `dueDays`. */
+function invoiceRow(input: IssueInvoiceInput) {
   const issuedAt = input.issuedAt ?? new Date();
   const dueDate =
     input.dueDate !== undefined
@@ -73,29 +55,31 @@ export async function issueInvoice(input: IssueInvoiceInput) {
       : input.dueDays != null
         ? new Date(issuedAt.getTime() + input.dueDays * 86_400_000)
         : null;
-  const year = firmYear(issuedAt);
+  const data: Omit<Prisma.InvoiceUncheckedCreateInput, "number"> = {
+    clientId: input.clientId,
+    companyId: input.companyId,
+    serviceId: input.serviceId,
+    subscriptionId: input.subscriptionId ?? null,
+    periodKey: input.periodKey ?? null,
+    description: input.description ?? null,
+    amount: input.amount,
+    issuedAt,
+    dueDate,
+    createdById: input.createdById ?? null,
+  };
+  return { data, year: firmYear(issuedAt) };
+}
 
+/**
+ * Issue one invoice. Retries only on a `number` collision (a legacy S6 number can
+ * sit on a counter value we're about to hand out); any other unique violation —
+ * notably (subscriptionId, periodKey) — is the caller's business and propagates.
+ */
+export async function issueInvoice(input: IssueInvoiceInput) {
+  const { data, year } = invoiceRow(input);
   for (let attempt = 0; ; attempt++) {
     try {
-      return await prisma.$transaction(async (tx) => {
-        const number = await allocateNumber(tx, year);
-        return tx.invoice.create({
-          data: {
-            number,
-            clientId: input.clientId,
-            companyId: input.companyId,
-            serviceId: input.serviceId,
-            subscriptionId: input.subscriptionId ?? null,
-            periodKey: input.periodKey ?? null,
-            description: input.description ?? null,
-            amount: input.amount,
-            issuedAt,
-            dueDate,
-            createdById: input.createdById ?? null,
-            ...(input.taskId ? { tasks: { connect: { id: input.taskId } } } : {}),
-          },
-        });
-      });
+      return await repo.inTransaction((tx) => repo.insertInvoice(tx, year, data, input.taskId));
     } catch (err) {
       if (attempt < 5 && isUniqueOn(err, "number")) continue; // burnt number → take the next one
       throw err;
@@ -104,10 +88,17 @@ export async function issueInvoice(input: IssueInvoiceInput) {
 }
 
 /**
- * One-time job billing (S6 entry point, kept as its own name so Tasks reads clearly).
- * Tasks calls this through the payments module index.
+ * Issue inside a transaction the CALLER already opened — used when the decision to bill and the
+ * billing itself have to be one atomic step (a one-time job's invoice is issued under the task's
+ * row lock). No retry loop here: a failed insert has to abort the caller's transaction, and the
+ * `number` collision it would retry can only come from pre-S7 rows the counter has long passed.
  */
-export function issueJobInvoice(input: {
+export function issueInvoiceIn(tx: Prisma.TransactionClient, input: IssueInvoiceInput) {
+  const { data, year } = invoiceRow(input);
+  return repo.insertInvoice(tx, year, data, input.taskId);
+}
+
+export interface JobInvoiceInput {
   taskId: string;
   clientId: string;
   companyId: string | null;
@@ -116,6 +107,19 @@ export function issueJobInvoice(input: {
   /** service.dueDays (per-client override wins) — invoice overdue after N days */
   dueDays: number | null;
   createdById?: string | null;
-}) {
-  return issueInvoice({ ...input, taskId: input.taskId });
+}
+
+/**
+ * One-time job billing (S6 entry point, kept as its own name so Tasks reads clearly).
+ *
+ * The task's row is locked FIRST and its `invoiceId` re-read inside the transaction: two people
+ * marking the same job done at the same moment would otherwise both see "not billed yet" and the
+ * client would get two invoices for one job. Returns null when someone else already billed it.
+ */
+export function issueJobInvoice(input: JobInvoiceInput) {
+  return repo.inTransaction(async (tx) => {
+    const task = await repo.lockTaskForInvoicing(tx, input.taskId);
+    if (task.invoiceId) return null; // already billed — by us a moment ago, or by whoever raced us
+    return issueInvoiceIn(tx, input);
+  });
 }

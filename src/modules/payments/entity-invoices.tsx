@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import type { Client } from "@shared/schema/client";
 import type { Invoice, InvoiceListQuery } from "@shared/schema/payment";
 import { cn } from "@/shared/lib/cn";
+import { fmtDate } from "@/shared/lib/format";
 import { fmtMoney } from "@/shared/lib/money";
 import { Button } from "@/shared/ui/button";
 import { Select } from "@/shared/ui/field";
@@ -10,7 +11,6 @@ import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
 import { InvoiceModal, NewInvoiceModal } from "./invoice-modals";
 import { useInvoices } from "./payments.api";
 
-const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-GB");
 const PAGE_SIZE = 25;
 
 const VIEWS: { key: InvoiceListQuery["filter"]; label: string }[] = [

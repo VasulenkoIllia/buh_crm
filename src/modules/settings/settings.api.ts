@@ -11,8 +11,8 @@ import type {
   UpdateSourceInput,
 } from "@shared/schema/settings";
 import { api } from "@/shared/lib/api";
+import { SETTINGS_KEY } from "@/shared/lib/query-keys";
 
-export const SETTINGS_KEY = ["settings"] as const;
 
 export function useSettings() {
   return useQuery({

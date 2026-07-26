@@ -8,9 +8,9 @@ import {
   todayInTz,
   toUtc,
 } from "../../core/dates.js";
-import { prisma } from "../../core/db.js";
 import { issueInvoice } from "./invoicing.js";
 import * as repo from "./payments.repository.js";
+import type { BillableSubscription } from "./payments.repository.js";
 
 /**
  * Scheduler job #2 (S7): subscription → ONE invoice per period.
@@ -87,32 +87,8 @@ export function issueDayFor(period: Period, trigger: string, invoiceDay: number 
   return invoiceDay == null ? period.start : calendarDay(period.start.y, period.start.m, invoiceDay);
 }
 
-const subscriptionQuery = {
-  where: {
-    active: true,
-    service: { type: "subscription" as const },
-    client: { archivedAt: null },
-  },
-  select: {
-    id: true,
-    clientId: true,
-    companyId: true,
-    serviceId: true,
-    amount: true,
-    period: true,
-    invoiceTrigger: true,
-    invoiceDay: true,
-    dueDays: true,
-    billingStartAt: true,
-    createdAt: true,
-    service: { select: { invoiceTrigger: true, invoiceDay: true, dueDays: true } },
-  },
-};
-
-type BillableSub = Awaited<ReturnType<typeof prisma.subscription.findMany<typeof subscriptionQuery>>>[number];
-
 /** Periods of one subscription that are due today and not invoiced yet. */
-function dueInvoices(sub: BillableSub, today: Day, issued: Set<string>, tz: string) {
+function dueInvoices(sub: BillableSubscription, today: Day, issued: Set<string>, tz: string) {
   // per-client billing timing wins over the service preset (S3 decision)
   const trigger = sub.invoiceTrigger ?? sub.service.invoiceTrigger;
   const invoiceDay = sub.invoiceDay ?? sub.service.invoiceDay;
@@ -147,7 +123,7 @@ function dueInvoices(sub: BillableSub, today: Day, issued: Set<string>, tz: stri
  * one client's bad row (or a transient DB error) must not stop the firm's billing run; the
  * sweep is idempotent, so whatever failed is retried on the next run.
  */
-async function issueDue(subs: BillableSub[]) {
+async function issueDue(subs: BillableSubscription[]) {
   if (subs.length === 0) return { created: 0, failed: 0 };
   const today = todayInTz(config.TZ);
   const existing = await repo.listPeriodKeys(subs.map((s) => s.id));
@@ -175,14 +151,11 @@ async function issueDue(subs: BillableSub[]) {
 
 /** Full sweep — the daily run AND the startup catch-up. */
 export async function generatePeriodInvoices() {
-  return issueDue(await prisma.subscription.findMany(subscriptionQuery));
+  return issueDue(await repo.listBillableSubscriptions());
 }
 
 /** Instant feedback when a subscription is added or reactivated on the client card. */
 export async function generateForSubscriptionInvoices(subscriptionId: string) {
-  const sub = await prisma.subscription.findFirst({
-    ...subscriptionQuery,
-    where: { ...subscriptionQuery.where, id: subscriptionId },
-  });
+  const sub = await repo.findBillableSubscription(subscriptionId);
   return issueDue(sub ? [sub] : []); // stopped / one-time / archived client → nothing to bill
 }

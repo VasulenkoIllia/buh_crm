@@ -2,7 +2,12 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { uuid } from "@shared/schema/common.js";
-import { convertLeadInput, createLeadInput, updateLeadInput } from "@shared/schema/lead.js";
+import {
+  convertLeadInput,
+  createLeadInput,
+  leadListQuery,
+  updateLeadInput,
+} from "@shared/schema/lead.js";
 import { requireAuth } from "../../core/auth.js";
 import * as service from "./leads.service.js";
 
@@ -12,8 +17,8 @@ export async function registerRoutes(instance: FastifyInstance) {
   const app = instance.withTypeProvider<ZodTypeProvider>();
   app.addHook("preHandler", requireAuth);
 
-  app.get("/", async () => {
-    return service.listLeads();
+  app.get("/", { schema: { querystring: leadListQuery } }, async (request) => {
+    return service.listLeads(request.query);
   });
 
   app.post("/", { schema: { body: createLeadInput } }, async (request, reply) => {

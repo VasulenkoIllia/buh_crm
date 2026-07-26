@@ -106,6 +106,9 @@ export const taskSchema = z.object({
 });
 export type Task = z.infer<typeof taskSchema>;
 
+// `isTaskOverdue` lives in shared/dates.ts — it's a pure rule with no zod in it, and the
+// frontend must be able to call it without pulling this schema module's runtime into the bundle.
+
 // ── Task inputs ──────────────────────────────────────────────────────────────
 
 const optionalText = z
@@ -186,6 +189,11 @@ export const taskListQuery = z.object({
   assigneeId: uuid.optional(),
   clientId: uuid.optional(),
   leadId: uuid.optional(),
+  /** only work whose deadline day has passed (open tasks) — the board's "Overdue" chip, in SQL */
+  overdue: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v === "true"),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(50),
 });

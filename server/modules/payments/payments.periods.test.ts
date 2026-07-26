@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { businessDateMs, isPastBusinessDate, isTaskOverdue } from "@shared/dates.js";
 import { deriveStatus } from "@shared/schema/payment.js";
+import { fromDate, todayBusinessMs } from "../../core/dates.js";
 import { issueDayFor, periodsInWindow } from "./payments.generation.js";
 
-// Pure billing-period math — the part of job #2 that decides WHICH period is billed and WHEN.
+// Pure billing-period math — the part of job #2 that decides WHICH period is billed and WHEN —
+// plus the shared business-date rule that decides what "late" means for invoices AND tasks.
 
 const day = (s: string) => {
   const [y, m, d] = s.split("-").map(Number);
@@ -68,6 +71,8 @@ describe("billing periods", () => {
 describe("invoice status", () => {
   const base = { amount: 10_000, paid: 0, dueDate: null, cancelledAt: null };
   const at = (iso: string) => new Date(iso);
+  /** the business date the reader is on */
+  const on = (isoDay: string) => businessDateMs(`${isoDay}T00:00:00Z`);
 
   it("cancelled and paid win over everything", () => {
     expect(deriveStatus({ ...base, cancelledAt: at("2026-07-01T00:00:00Z"), paid: 0 })).toBe("cancelled");
@@ -78,10 +83,58 @@ describe("invoice status", () => {
 
   it("overdue only after the whole due day has passed", () => {
     const due = "2026-07-25T00:00:00Z";
-    expect(deriveStatus({ ...base, dueDate: due }, at("2026-07-25T23:59:59Z"))).toBe("unpaid");
-    expect(deriveStatus({ ...base, dueDate: due }, at("2026-07-26T00:00:00Z"))).toBe("overdue");
+    expect(deriveStatus({ ...base, dueDate: due }, on("2026-07-25"))).toBe("unpaid");
+    expect(deriveStatus({ ...base, dueDate: due }, on("2026-07-26"))).toBe("overdue");
     // a part-paid invoice past its due day is overdue, not partial
-    expect(deriveStatus({ ...base, paid: 4_000, dueDate: due }, at("2026-07-27T09:00:00Z"))).toBe("overdue");
-    expect(deriveStatus({ ...base, paid: 4_000, dueDate: due }, at("2026-07-25T09:00:00Z"))).toBe("partial");
+    expect(deriveStatus({ ...base, paid: 4_000, dueDate: due }, on("2026-07-27"))).toBe("overdue");
+    expect(deriveStatus({ ...base, paid: 4_000, dueDate: due }, on("2026-07-25"))).toBe("partial");
+  });
+
+  it("a job invoice due later today is not late yet (timestamp due dates)", () => {
+    // job invoices carry a real timestamp (issue + N days), period invoices a midnight date —
+    // both are compared as calendar days, so neither is late on its own due day
+    const due = at("2026-07-25T14:30:00Z");
+    expect(deriveStatus({ ...base, dueDate: due }, on("2026-07-25"))).toBe("unpaid");
+    expect(deriveStatus({ ...base, dueDate: due }, on("2026-07-26"))).toBe("overdue");
+  });
+});
+
+describe("business dates (the one overdue rule)", () => {
+  const day = (isoDay: string) => businessDateMs(`${isoDay}T00:00:00Z`);
+
+  it("an item due today is due today, not late", () => {
+    expect(isPastBusinessDate("2026-07-26T00:00:00Z", day("2026-07-26"))).toBe(false);
+    expect(isPastBusinessDate("2026-07-26T00:00:00Z", day("2026-07-27"))).toBe(true);
+    expect(isPastBusinessDate("2026-07-26T00:00:00Z", day("2026-07-25"))).toBe(false);
+    expect(isPastBusinessDate(null, day("2030-01-01"))).toBe(false); // no deadline is never late
+  });
+
+  it("tasks and invoices answer 'late' the same way", () => {
+    const deadline = "2026-07-26T00:00:00Z";
+    // due today: neither the board's red ring nor the invoice pill fires
+    expect(isTaskOverdue({ done: false, deadline }, day("2026-07-26"))).toBe(false);
+    expect(deriveStatus({ amount: 100, paid: 0, dueDate: deadline, cancelledAt: null }, day("2026-07-26"))).toBe("unpaid");
+    // the day after: both do
+    expect(isTaskOverdue({ done: false, deadline }, day("2026-07-27"))).toBe(true);
+    expect(deriveStatus({ amount: 100, paid: 0, dueDate: deadline, cancelledAt: null }, day("2026-07-27"))).toBe("overdue");
+  });
+
+  it("a completed task is never overdue", () => {
+    expect(isTaskOverdue({ done: true, deadline: "2020-01-01T00:00:00Z" }, day("2026-07-26"))).toBe(false);
+  });
+
+  it("collapses a stored instant to its calendar day, whatever the time of day", () => {
+    const midnight = businessDateMs("2026-07-26T00:00:00Z");
+    expect(businessDateMs("2026-07-26T14:30:00Z")).toBe(midnight);
+    expect(businessDateMs("2026-07-26T23:59:59Z")).toBe(midnight);
+  });
+
+  it("the firm timezone decides 'today', not the process timezone", () => {
+    // 01:00 in Kyiv (UTC+3) is still 22:00 UTC the previous day. The sweep and the status rule
+    // read the firm's calendar, so work due on the 26th is late from Kyiv-midnight on the 27th.
+    const kyivJustAfterMidnight = new Date("2026-07-26T22:00:00Z");
+    expect(todayBusinessMs("Europe/Kyiv")).toBeTypeOf("number");
+    expect(fromDate(kyivJustAfterMidnight, "Europe/Kyiv")).toEqual({ y: 2026, m: 7, d: 27 });
+    expect(fromDate(kyivJustAfterMidnight, "UTC")).toEqual({ y: 2026, m: 7, d: 26 });
   });
 });

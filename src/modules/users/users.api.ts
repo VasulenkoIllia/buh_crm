@@ -7,8 +7,8 @@ import type {
 } from "@shared/schema/user";
 import { ME_QUERY_KEY } from "@/app/auth";
 import { api } from "@/shared/lib/api";
+import { USERS_KEY } from "@/shared/lib/query-keys";
 
-const USERS_KEY = ["users"] as const;
 
 export function useUsers() {
   return useQuery({

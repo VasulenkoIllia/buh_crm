@@ -3,16 +3,22 @@ import type {
   ConvertLeadInput,
   CreateLeadInput,
   Lead,
+  LeadList,
+  LeadListQuery,
   UpdateLeadInput,
 } from "@shared/schema/lead";
 import { api } from "@/shared/lib/api";
+import { CLIENTS_KEY, LEADS_KEY } from "@/shared/lib/query-keys";
 
-const LEADS_KEY = ["leads"] as const;
-
-export function useLeads() {
+/**
+ * The board and the archive are separate queries — each asks the server for its own side of the
+ * pipeline rather than pulling every lead the firm ever had and filtering it here.
+ */
+export function useLeads(scope: LeadListQuery["scope"] = "all") {
   return useQuery({
-    queryKey: LEADS_KEY,
-    queryFn: () => api<Lead[]>("/api/leads"),
+    queryKey: [...LEADS_KEY, scope],
+    queryFn: () => api<LeadList>(`/api/leads?scope=${scope}`),
+    placeholderData: (prev) => prev,
   });
 }
 
@@ -35,18 +41,22 @@ export function useUpdateLead() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateLeadInput }) =>
       api<Lead>(`/api/leads/${id}`, { method: "PATCH", body: input }),
-    // optimistic stage move — the card lands instantly, server confirms after
+    // optimistic stage move — the card lands instantly, server confirms after.
+    // Patches every cached lead list (board / archive / all) so whichever is on screen moves.
     onMutate: async ({ id, input }) => {
       if (!input.stage) return;
       await queryClient.cancelQueries({ queryKey: LEADS_KEY });
-      const previous = queryClient.getQueryData<Lead[]>(LEADS_KEY);
-      queryClient.setQueryData<Lead[]>(LEADS_KEY, (leads) =>
-        leads?.map((l) => (l.id === id ? { ...l, stage: input.stage! } : l)),
+      const previous = queryClient.getQueriesData<LeadList>({ queryKey: LEADS_KEY });
+      queryClient.setQueriesData<LeadList>({ queryKey: LEADS_KEY }, (list) =>
+        list && {
+          ...list,
+          items: list.items.map((l) => (l.id === id ? { ...l, stage: input.stage! } : l)),
+        },
       );
       return { previous };
     },
     onError: (_err, _vars, context) => {
-      if (context?.previous) queryClient.setQueryData(LEADS_KEY, context.previous);
+      for (const [key, data] of context?.previous ?? []) queryClient.setQueryData(key, data);
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: LEADS_KEY }),
   });
@@ -78,7 +88,7 @@ export function useConvertLead() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: LEADS_KEY });
-      queryClient.invalidateQueries({ queryKey: ["clients"] });
+      queryClient.invalidateQueries({ queryKey: CLIENTS_KEY });
     },
   });
 }

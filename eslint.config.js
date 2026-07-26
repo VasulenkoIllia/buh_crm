@@ -59,4 +59,40 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // Layering (architecture.md §3): routes → service → repository → Prisma. Only a module's
+    // repository holds queries, so schema knowledge stays in one file per module and a query is
+    // never hidden inside business logic. Type-only imports from the generated client are fine.
+    files: ["server/**/*.ts"],
+    ignores: [
+      "server/core/**", // core owns the client, sessions, bootstrap and the uploads/mail boundaries
+      "server/server.ts", // the entry point closes the connection on shutdown
+      "server/**/*.repository.ts",
+      "server/**/*.test.ts", // tests seed and assert against the database directly
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex: "core/db(\\.js)?$",
+              message:
+                "Database access belongs in the module's <module>.repository.ts (architecture.md §3).",
+            },
+            {
+              regex: "modules/[^/]+/(?!index(\\.js)?$)[^/]+$",
+              message:
+                "Import other modules only via their index.ts (module public surface).",
+            },
+            {
+              regex: "^\\.\\./[^./][^/]*/(?!index(\\.js)?$)[^/]+$",
+              message:
+                "Import sibling modules only via their index.ts (module public surface).",
+            },
+          ],
+        },
+      ],
+    },
+  },
 );

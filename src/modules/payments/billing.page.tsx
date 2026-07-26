@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import type { Invoice, InvoiceListQuery } from "@shared/schema/payment";
 import { useClient } from "@/modules/clients";
 import { cn } from "@/shared/lib/cn";
+import { fmtDate } from "@/shared/lib/format";
 import { fmtMoney } from "@/shared/lib/money";
 import { Button } from "@/shared/ui/button";
 import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
@@ -28,7 +29,6 @@ const FILTERS: { key: Filter; label: string }[] = [
 ];
 
 const GRID = "grid-cols-[34px_116px_1fr_150px_84px_92px_92px_86px_112px]";
-const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-GB");
 
 /** Billing / Unpaid — every invoice with what's been paid against it. */
 export function BillingPage() {

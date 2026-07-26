@@ -13,46 +13,41 @@ import type {
 } from "@shared/schema/task.js";
 import { deriveStatus } from "@shared/schema/payment.js";
 import type { Prisma, User } from "../../generated/prisma/client.js";
+import { config } from "../../core/config.js";
+import { dateToUtc, todayBusinessMs } from "../../core/dates.js";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../../core/errors.js";
+import { clientLabel } from "../../core/names.js";
 import { issueJobInvoice } from "../payments/index.js";
 import * as repo from "./tasks.repository.js";
 
-/** "YYYY-MM-DD" (business date) → UTC midnight. */
-const dateToUtc = (d: string) => new Date(`${d}T00:00:00Z`);
-
-/** individual → "First Last"; company → the company name (same rule as the clients module). */
-function clientLabel(c: {
-  type: "individual" | "company";
-  firstName: string | null;
-  lastName: string | null;
-  companyName: string | null;
-}): string {
-  if (c.type === "company") return c.companyName ?? "—";
-  return `${c.firstName ?? ""} ${c.lastName ?? ""}`.trim() || "—";
-}
-
 /** The job's invoice WITH its settlement state — same derivation rule as the Billing screen. */
-function toTaskInvoice(invoice: NonNullable<repo.TaskRecord["invoice"]>) {
-  const paid = invoice.payments.reduce((sum, p) => sum + p.amount, 0);
+function toTaskInvoice(invoice: NonNullable<repo.TaskRecord["invoice"]>, todayMs: number) {
+  const paid = invoice.paidTotal;
   return {
     id: invoice.id,
     number: invoice.number,
     amount: invoice.amount,
     paid,
     balance: invoice.cancelledAt ? 0 : Math.max(0, invoice.amount - paid),
-    status: deriveStatus({
-      amount: invoice.amount,
-      paid,
-      dueDate: invoice.dueDate,
-      cancelledAt: invoice.cancelledAt,
-    }),
+    status: deriveStatus(
+      {
+        amount: invoice.amount,
+        paid,
+        dueDate: invoice.dueDate,
+        cancelledAt: invoice.cancelledAt,
+      },
+      todayMs,
+    ),
     sentAt: invoice.sentAt?.toISOString() ?? null,
     issuedAt: invoice.issuedAt.toISOString(),
     dueDate: invoice.dueDate?.toISOString() ?? null,
   };
 }
 
-export function toTaskDto(task: repo.TaskRecord) {
+export function toTaskDto(
+  task: repo.TaskRecord,
+  todayMs: number = todayBusinessMs(config.TZ),
+) {
   return {
     id: task.id,
     title: task.title,
@@ -78,7 +73,7 @@ export function toTaskDto(task: repo.TaskRecord) {
     clientName: task.client ? clientLabel(task.client) : null,
     companyName: task.company?.name ?? null,
     leadName: task.lead?.name ?? null,
-    invoice: task.invoice ? toTaskInvoice(task.invoice) : null,
+    invoice: task.invoice ? toTaskInvoice(task.invoice, todayMs) : null,
     assignees: task.assignees.map((a) => a.userId),
     subtasks: task.subtasks.map((s) => ({
       id: s.id,
@@ -114,6 +109,14 @@ export function toTaskDto(task: repo.TaskRecord) {
 /** Team directory for assignee pickers (id + name + status; blocked shown with a badge). */
 export function listAssignees() {
   return repo.listUserDirectory();
+}
+
+/** Clients with live work, for the board's client filter — every one of them, not a page. */
+export async function listTaskClients() {
+  const clients = await repo.listClientsWithTasks();
+  return clients
+    .map((c) => ({ id: c.id, name: clientLabel(c) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // ── columns ──────────────────────────────────────────────────────────────────
@@ -159,6 +162,7 @@ export async function removeColumn(id: string) {
 const BOARD_LIMIT = 500;
 
 export async function listTasks(query: TaskListQuery) {
+  const today = todayBusinessMs(config.TZ);
   const where: Prisma.TaskWhereInput = { archivedAt: null };
   // status now applies to both views: the board asks for open work, its Done view asks for done
   if (query.status === "open") where.done = false;
@@ -167,6 +171,13 @@ export async function listTasks(query: TaskListQuery) {
   if (query.assigneeId) where.assignees = { some: { userId: query.assigneeId } };
   if (query.clientId) where.clientId = query.clientId;
   if (query.leadId) where.leadId = query.leadId;
+  // "overdue" is answered by SQL, not by filtering the page in the browser — otherwise the
+  // filter would only ever search the rows the board happened to load. Same business-date rule
+  // as `isTaskOverdue`: the whole deadline day must have passed.
+  if (query.overdue) {
+    where.done = false;
+    where.deadline = { lt: new Date(today) };
+  }
   // an archived client's work leaves everyone's board — the data stays untouched, so restoring
   // the client (S11) brings the tasks back; their invoices deliberately stay in Billing
   where.OR = [{ clientId: null }, { client: { archivedAt: null } }];
@@ -179,7 +190,8 @@ export async function listTasks(query: TaskListQuery) {
     take,
   });
   return {
-    items: items.map(toTaskDto),
+    // one "today" for the whole page — every row's invoice status is decided against the same day
+    items: items.map((task) => toTaskDto(task, today)),
     total,
     page: paged ? query.page : 1,
     pageSize: paged ? query.pageSize : take,

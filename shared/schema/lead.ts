@@ -18,6 +18,28 @@ export const leadSchema = z.object({
 });
 export type Lead = z.infer<typeof leadSchema>;
 
+/**
+ * The two lists the Leads screen shows. The board only ever wants live leads and the archive
+ * only closed ones, so each asks the database for its own side instead of pulling the whole
+ * table and filtering it in the browser. Both are capped — see `LEAD_LIST_LIMIT`.
+ */
+export const leadListQuery = z.object({
+  /** `in_process` = the pipeline board · `closed` = won + lost (the archive view) */
+  scope: z.enum(["in_process", "closed", "all"]).default("all"),
+});
+export type LeadListQuery = z.infer<typeof leadListQuery>;
+
+/** A sales pipeline this long is a data problem, not a screen — the list says when it's capped. */
+export const LEAD_LIST_LIMIT = 500;
+
+export const leadListSchema = z.object({
+  items: z.array(leadSchema),
+  total: z.number().int(),
+  /** more leads match than were returned — narrow the view (mirrors the tasks board) */
+  truncated: z.boolean(),
+});
+export type LeadList = z.infer<typeof leadListSchema>;
+
 // ── DTOs ─────────────────────────────────────────────────────────────────────
 
 const contactRule = { message: "At least one of phone or email is required" };

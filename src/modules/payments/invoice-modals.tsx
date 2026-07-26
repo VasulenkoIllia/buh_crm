@@ -6,6 +6,7 @@ import { useCatalog } from "@/modules/catalog";
 import { useClient, useClients } from "@/modules/clients";
 import { useAssignees } from "@/modules/tasks";
 import { cn } from "@/shared/lib/cn";
+import { fmtDate, todayIso } from "@/shared/lib/format";
 import { fmtMoney, moneyInputValue, parseMoney } from "@/shared/lib/money";
 import { AssigneePicker } from "@/shared/ui/assignee-picker";
 import { Button } from "@/shared/ui/button";
@@ -25,9 +26,6 @@ import {
   useSetDelivery,
   useUpdateInvoice,
 } from "./payments.api";
-
-const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-GB");
-const todayIso = () => new Date().toISOString().slice(0, 10);
 
 // ── invoice detail + payments ────────────────────────────────────────────────
 

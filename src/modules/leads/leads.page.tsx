@@ -12,6 +12,7 @@ import { Link } from "react-router-dom";
 import type { LeadStage } from "@shared/schema/enums";
 import type { Lead } from "@shared/schema/lead";
 import { cn } from "@/shared/lib/cn";
+import { fmtDate } from "@/shared/lib/format";
 import { Button } from "@/shared/ui/button";
 import { StatusPill } from "@/shared/ui/pill";
 import { Segmented } from "@/shared/ui/segmented";
@@ -31,17 +32,23 @@ const STAGES: Array<{ key: LeadStage; label: string }> = [
 ];
 
 export function LeadsPage() {
-  const { data: leads, isLoading, error } = useLeads();
   const update = useUpdateLead();
   const [formOpen, setFormOpen] = useState(false);
   const [selected, setSelected] = useState<Lead | null>(null);
   // won/lost leads leave the board automatically — they live in the archive view
   const [view, setView] = useState<"board" | "archive">("board");
 
+  // two queries, two sides of the pipeline: the board never loads the archive and vice versa.
+  // Both stay mounted so the "Archive (N)" count is live without re-fetching on every switch.
+  const board = useLeads("in_process");
+  const archive = useLeads("closed");
+  const { isLoading, error } = view === "board" ? board : archive;
+
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
-  const active = useMemo(() => (leads ?? []).filter((l) => l.outcome === "in_process"), [leads]);
-  const closed = useMemo(() => (leads ?? []).filter((l) => l.outcome !== "in_process"), [leads]);
+  const active = useMemo(() => board.data?.items ?? [], [board.data]);
+  const closed = archive.data?.items ?? [];
+  const leads = view === "board" ? board.data : archive.data;
 
   const byStage = useMemo(() => {
     const map = new Map<LeadStage, Lead[]>(STAGES.map((s) => [s.key, []]));
@@ -67,8 +74,8 @@ export function LeadsPage() {
         <span className="text-[13px] text-muted-400">
           {leads
             ? view === "board"
-              ? `${active.length} ${active.length === 1 ? "lead" : "leads"} · sales pipeline`
-              : `${closed.length} won or lost`
+              ? `${board.data?.total ?? 0} ${board.data?.total === 1 ? "lead" : "leads"} · sales pipeline`
+              : `${archive.data?.total ?? 0} won or lost`
             : "sales pipeline"}
         </span>
         <div className="ml-auto flex items-center gap-3">
@@ -77,13 +84,19 @@ export function LeadsPage() {
             onChange={setView}
             options={[
               { value: "board", label: "Board" },
-              { value: "archive", label: `Archive (${closed.length})` },
+              { value: "archive", label: `Archive (${archive.data?.total ?? 0})` },
             ]}
           />
           <Button onClick={() => setFormOpen(true)}>+ New lead</Button>
         </div>
       </div>
 
+      {leads?.truncated && (
+        <p className="flex-none bg-[#f7ede2] px-6 py-2 text-[12px] text-[#b5651d]">
+          Showing the {leads.items.length} newest of {leads.total} — a pipeline this long usually
+          means old leads need closing.
+        </p>
+      )}
       {isLoading && <p className="p-6 text-[13px] text-muted">Loading…</p>}
       {error && <p className="p-6 text-[13px] text-danger-text">Failed to load leads.</p>}
 
@@ -147,7 +160,7 @@ function LeadArchive({ leads, onOpen }: { leads: Lead[]; onOpen: (lead: Lead) =>
               )}
               <span className="ml-auto truncate text-[12px] text-muted">{contact}</span>
               <span className="flex-none text-[12px] text-muted-400">
-                {new Date(lead.createdAt).toLocaleDateString("en-GB")}
+                {fmtDate(lead.createdAt)}
               </span>
             </button>
           );
@@ -244,7 +257,10 @@ function LeadCard({ lead, onOpen }: { lead: Lead; onOpen: () => void }) {
 }
 
 function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => void }) {
-  const { data: leads } = useLeads();
+  // both lists are already in cache (the page keeps them mounted) — read the lead from whichever
+  // holds it now, so Mark lost / Reopen, which move it between them, update the open card
+  const { data: board } = useLeads("in_process");
+  const { data: archive } = useLeads("closed");
   const { data: settings } = useSettings();
   const { data: services } = useCatalog();
   const markLost = useMarkLost();
@@ -252,7 +268,9 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
   const [editOpen, setEditOpen] = useState(false);
   const [convertOpen, setConvertOpen] = useState(false);
 
-  const lead = leads?.find((l) => l.id === initial.id) ?? initial;
+  const lead =
+    [...(board?.items ?? []), ...(archive?.items ?? [])].find((l) => l.id === initial.id) ??
+    initial;
   const locked = lead.outcome === "won";
 
   if (editOpen) {
@@ -298,7 +316,7 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
           <LeadField label="Source" value={sourceName ?? null} />
           <LeadField
             label="Created"
-            value={new Date(lead.createdAt).toLocaleDateString("en-GB")}
+            value={fmtDate(lead.createdAt)}
           />
           <div className="col-span-2">
             <div className="mb-[3px] text-[11px] uppercase tracking-[.4px] text-muted-400">

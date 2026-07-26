@@ -13,6 +13,7 @@ import type {
   UpdatePaymentInput,
 } from "@shared/schema/payment";
 import { api } from "@/shared/lib/api";
+import { CLIENTS_KEY, INVOICES_KEY, TASKS_KEY } from "@/shared/lib/query-keys";
 
 export interface InvoiceListResponse {
   items: Invoice[];
@@ -32,12 +33,6 @@ export interface AuditEntry {
   createdAt: string;
 }
 
-export const INVOICES_KEY = ["invoices"] as const;
-// Literal on purpose: the client card imports this module (its Invoices tab), so importing the
-// keys back from @/modules/clients / @/modules/tasks would add ESM cycle edges through their
-// indexes for two constant strings. Both roots are stable (`clients.api`, `tasks.api`).
-const CLIENTS_KEY = ["clients"] as const;
-const TASKS_KEY = ["tasks"] as const;
 
 export function useInvoices(query: Partial<InvoiceListQuery>) {
   const params = new URLSearchParams();

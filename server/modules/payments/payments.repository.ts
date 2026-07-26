@@ -22,6 +22,17 @@ export type InvoiceRecord = Prisma.InvoiceGetPayload<{ include: typeof invoiceIn
 const LIST_ORDER = [{ issuedAt: "desc" as const }, { number: "desc" as const }];
 
 /**
+ * Settlement as SQL. `paidTotal` is stored, so "still owed" / "settled" are field-to-field
+ * comparisons the database can index and count — the service composes these into its filter
+ * chips instead of reading invoices to decide. (Field references are a Prisma construct, so
+ * they live here rather than in the service.)
+ */
+export const OWED: Prisma.InvoiceWhereInput = { paidTotal: { lt: prisma.invoice.fields.amount } };
+export const SETTLED: Prisma.InvoiceWhereInput = {
+  paidTotal: { gte: prisma.invoice.fields.amount },
+};
+
+/**
  * One page of the list. Every filter — including settlement — is expressible in SQL now that
  * `paidTotal` is stored, so the database does the paging; nothing is scanned in memory.
  */
@@ -103,6 +114,98 @@ export function listPeriodKeys(subscriptionIds: string[]) {
   return prisma.invoice.findMany({
     where: { subscriptionId: { in: subscriptionIds } },
     select: { subscriptionId: true, periodKey: true },
+  });
+}
+
+// ── the per-period billing sweep (scheduler job #2) ──────────────────────────
+
+/**
+ * What the sweep bills: ACTIVE subscriptions of subscription-type services belonging to a live
+ * client, with the fields the billing rule needs (per-client override + the service preset).
+ */
+const billableSubscription = {
+  where: {
+    active: true,
+    service: { type: "subscription" as const },
+    client: { archivedAt: null },
+  },
+  select: {
+    id: true,
+    clientId: true,
+    companyId: true,
+    serviceId: true,
+    amount: true,
+    period: true,
+    invoiceTrigger: true,
+    invoiceDay: true,
+    dueDays: true,
+    billingStartAt: true,
+    createdAt: true,
+    service: { select: { invoiceTrigger: true, invoiceDay: true, dueDays: true } },
+  },
+} satisfies Prisma.SubscriptionFindManyArgs;
+
+export type BillableSubscription = Prisma.SubscriptionGetPayload<typeof billableSubscription>;
+
+export function listBillableSubscriptions(): Promise<BillableSubscription[]> {
+  return prisma.subscription.findMany(billableSubscription);
+}
+
+/** The same row for one subscription — instant feedback when it's added or reactivated. */
+export function findBillableSubscription(id: string): Promise<BillableSubscription | null> {
+  return prisma.subscription.findFirst({
+    ...billableSubscription,
+    where: { ...billableSubscription.where, id },
+  });
+}
+
+// ── issuing (numbering + insert, in one transaction) ─────────────────────────
+
+/**
+ * Bump and read the firm's invoice counter. The `update` takes a row lock, so concurrent
+ * issues serialize on it and a rolled-back transaction gives the number back.
+ */
+async function allocateNumber(tx: Prisma.TransactionClient, year: number): Promise<string> {
+  // roll the year over first (no-op for everyone but the first caller of the new year)
+  await tx.firmProfile.updateMany({
+    where: { id: 1, OR: [{ invoiceCounterYear: null }, { invoiceCounterYear: { not: year } }] },
+    data: { invoiceCounterYear: year, invoiceCounter: 0 },
+  });
+  const firm = await tx.firmProfile.update({
+    where: { id: 1 },
+    data: { invoiceCounter: { increment: 1 } },
+  });
+  return `${firm.invoicePrefix}-${year}-${String(firm.invoiceCounter).padStart(firm.invoiceCounterDigits, "0")}`;
+}
+
+/** Allocate a number and insert the invoice. Runs in `tx` so both succeed or neither does. */
+export async function insertInvoice(
+  tx: Prisma.TransactionClient,
+  year: number,
+  data: Omit<Prisma.InvoiceUncheckedCreateInput, "number">,
+  taskId?: string | null,
+) {
+  const number = await allocateNumber(tx, year);
+  return tx.invoice.create({
+    data: { ...data, number, ...(taskId ? { tasks: { connect: { id: taskId } } } : {}) },
+  });
+}
+
+/** Run `fn` in a transaction — used by the issuer to wrap numbering + insert. */
+export function inTransaction<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  return prisma.$transaction(fn);
+}
+
+/**
+ * Take the row lock on a task and hand back what billing needs to decide. Used so two
+ * concurrent "mark done" requests on the same one-time job can't both pass the
+ * "no invoice yet" check and bill the client twice.
+ */
+export async function lockTaskForInvoicing(tx: Prisma.TransactionClient, taskId: string) {
+  return tx.task.update({
+    where: { id: taskId },
+    data: { updatedAt: new Date() }, // the write is what takes the lock
+    select: { id: true, invoiceId: true, amount: true },
   });
 }
 

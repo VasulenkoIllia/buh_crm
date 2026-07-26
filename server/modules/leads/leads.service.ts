@@ -1,10 +1,11 @@
 import type {
   ConvertLeadInput,
   CreateLeadInput,
+  LeadListQuery,
   UpdateLeadInput,
 } from "@shared/schema/lead.js";
-import type { Lead } from "../../generated/prisma/client.js";
-import { prisma } from "../../core/db.js";
+import { LEAD_LIST_LIMIT } from "@shared/schema/lead.js";
+import type { Lead, Prisma } from "../../generated/prisma/client.js";
 import { NotFoundError, ValidationError } from "../../core/errors.js";
 import { applyDefaultClientService } from "../clients/index.js";
 import * as repo from "./leads.repository.js";
@@ -12,7 +13,7 @@ import * as repo from "./leads.repository.js";
 /** New/changed service on a lead must exist and be active (existing refs stay untouched). */
 async function assertActiveService(serviceId: string | null | undefined, current?: string | null) {
   if (!serviceId || serviceId === current) return;
-  const service = await prisma.service.findUnique({ where: { id: serviceId } });
+  const service = await repo.findService(serviceId);
   if (!service || !service.active) throw new ValidationError("Unknown or inactive service");
   // internal services are firm-internal recurring tasks — not a lead's/client's service
   if (service.type === "internal") throw new ValidationError("Internal services aren't client-facing");
@@ -35,9 +36,17 @@ function toLeadDto(lead: Lead) {
   };
 }
 
-export async function listLeads() {
-  const leads = await repo.listLeads();
-  return leads.map(toLeadDto);
+/**
+ * The board asks for live leads, the archive for closed ones — each side is a database query,
+ * not a filter over every lead the firm ever had.
+ */
+export async function listLeads(query: LeadListQuery) {
+  const where: Prisma.LeadWhereInput = { archivedAt: null };
+  if (query.scope === "in_process") where.outcome = "in_process";
+  if (query.scope === "closed") where.outcome = { not: "in_process" };
+
+  const { items, total } = await repo.listLeads(where, LEAD_LIST_LIMIT);
+  return { items: items.map(toLeadDto), total, truncated: total > items.length };
 }
 
 export async function createLead(input: CreateLeadInput) {

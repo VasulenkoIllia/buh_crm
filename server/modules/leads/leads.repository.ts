@@ -2,15 +2,24 @@ import type { Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../core/db.js";
 import { ConflictError } from "../../core/errors.js";
 
-export function listLeads() {
-  return prisma.lead.findMany({
-    where: { archivedAt: null },
-    orderBy: { createdAt: "desc" },
-  });
+export async function listLeads(where: Prisma.LeadWhereInput, take: number) {
+  const [items, total] = await prisma.$transaction([
+    prisma.lead.findMany({ where, orderBy: { createdAt: "desc" }, take }),
+    prisma.lead.count({ where }),
+  ]);
+  return { items, total };
 }
 
 export function findLead(id: string) {
   return prisma.lead.findUnique({ where: { id } });
+}
+
+/** The catalog service a lead points at — validated on write (active + client-facing). */
+export function findService(id: string) {
+  return prisma.service.findUnique({
+    where: { id },
+    select: { id: true, active: true, type: true },
+  });
 }
 
 export function createLead(data: Prisma.LeadCreateInput) {

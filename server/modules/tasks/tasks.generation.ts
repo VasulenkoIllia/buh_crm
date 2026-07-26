@@ -12,7 +12,9 @@ import {
   todayInTz,
   toUtc,
 } from "../../core/dates.js";
-import { prisma } from "../../core/db.js";
+import { clientLabel } from "../../core/names.js";
+import * as repo from "./tasks.repository.js";
+import type { GeneratingSubscription, InternalService } from "./tasks.repository.js";
 
 /**
  * Scheduler job #1 (S6): subscription → tasks, ON THE RHYTHM DAY (decision
@@ -99,53 +101,8 @@ interface GenerationDeps {
   columnId: string;
 }
 
-async function loadDeps(): Promise<GenerationDeps | null> {
-  const [priority, column] = await Promise.all([
-    prisma.priority.findFirst({ where: { isDefault: true } }),
-    prisma.taskColumn.findFirst({ where: { isFixed: true } }),
-  ]);
-  if (!priority || !column) return null; // bootstrap hasn't run — nothing to do
-  return { priorityId: priority.id, columnId: column.id };
-}
-
-type SubWithTemplates = {
-  id: string;
-  clientId: string;
-  companyId: string | null;
-  serviceId: string;
-  createdAt: Date;
-  rhythmOverrides: unknown;
-  client: {
-    type: "individual" | "company";
-    firstName: string | null;
-    lastName: string | null;
-    companyName: string | null;
-  };
-  company: { name: string } | null;
-  service: {
-    name: string;
-    taskTemplates: {
-      id: string;
-      name: string;
-      periodicity: string;
-      dayOfPeriod: number | null;
-      monthOfPeriod: number | null;
-      deadlineOffsetDays: number | null;
-      estimatedMinutes: number | null;
-      defaultChecklist: unknown;
-      createdAt: Date;
-    }[];
-  };
-};
-
-/** individual → "First Last"; company → the company name. */
-function clientLabel(c: SubWithTemplates["client"]): string {
-  if (c.type === "company") return c.companyName ?? "—";
-  return `${c.firstName ?? ""} ${c.lastName ?? ""}`.trim() || "—";
-}
-
 /** Auto-task title: "client · company (if any) · service · template · date". */
-function generatedTitle(sub: SubWithTemplates, templateName: string, date: Day): string {
+function generatedTitle(sub: GeneratingSubscription, templateName: string, date: Day): string {
   return [
     clientLabel(sub.client),
     sub.company?.name,
@@ -157,7 +114,12 @@ function generatedTitle(sub: SubWithTemplates, templateName: string, date: Day):
     .join(" · ");
 }
 
-function rowsForSubscription(sub: SubWithTemplates, deps: GenerationDeps, today: Day, tz: string) {
+function rowsForSubscription(
+  sub: GeneratingSubscription,
+  deps: GenerationDeps,
+  today: Day,
+  tz: string,
+) {
   const overrides = rhythmOverridesSchema.catch({}).parse(sub.rhythmOverrides ?? {});
   const subStart = fromDate(sub.createdAt, tz);
 
@@ -200,36 +162,6 @@ function rowsForSubscription(sub: SubWithTemplates, deps: GenerationDeps, today:
   });
 }
 
-const subscriptionQuery = {
-  where: {
-    active: true,
-    service: { type: "subscription" as const },
-    client: { archivedAt: null },
-  },
-  include: {
-    client: { select: { type: true, firstName: true, lastName: true, companyName: true } },
-    company: { select: { name: true } },
-    service: {
-      select: {
-        name: true,
-        taskTemplates: {
-          select: {
-            id: true,
-            name: true,
-            periodicity: true,
-            dayOfPeriod: true,
-            monthOfPeriod: true,
-            deadlineOffsetDays: true,
-            estimatedMinutes: true,
-            defaultChecklist: true,
-            createdAt: true,
-          },
-        },
-      },
-    },
-  },
-};
-
 /** Distinct non-null values — used to scope the existing-keys pre-check `IN` lists. */
 const uniq = <T,>(xs: (T | null)[]) => [...new Set(xs)].filter((x): x is T => x != null);
 
@@ -258,7 +190,7 @@ async function insertGeneratedTasks(rows: GeneratedRow[]): Promise<number> {
 
   // bulk path — one idempotent insert (ON CONFLICT DO NOTHING via the unique index)
   if (plain.length > 0) {
-    created += (await prisma.task.createMany({ data: plain, skipDuplicates: true })).count;
+    created += await repo.createTasksSkippingDuplicates(plain);
   }
 
   // checklist path — createMany can't nest subtasks, so create each NEW row individually.
@@ -266,22 +198,17 @@ async function insertGeneratedTasks(rows: GeneratedRow[]): Promise<number> {
     const key = (r: { subscriptionId: string | null; taskTemplateId: string | null; periodKey: string | null }) =>
       `${r.subscriptionId}|${r.taskTemplateId}|${r.periodKey}`;
     // scope the pre-check to exactly the candidate (sub, template, period) space — not all history
-    const existing = await prisma.task.findMany({
-      where: {
-        subscriptionId: { in: uniq(withChecklist.map((r) => r.subscriptionId)) },
-        taskTemplateId: { in: uniq(withChecklist.map((r) => r.taskTemplateId)) },
-        periodKey: { in: uniq(withChecklist.map((r) => r.periodKey)) },
-      },
-      select: { subscriptionId: true, taskTemplateId: true, periodKey: true },
+    const existing = await repo.listExistingGeneratedKeys({
+      subscriptionId: { in: uniq(withChecklist.map((r) => r.subscriptionId)) },
+      taskTemplateId: { in: uniq(withChecklist.map((r) => r.taskTemplateId)) },
+      periodKey: { in: uniq(withChecklist.map((r) => r.periodKey)) },
     });
     const seen = new Set(existing.map(key));
     for (const row of withChecklist) {
       if (seen.has(key(row))) continue;
       const { checklist, ...task } = row;
       try {
-        await prisma.task.create({
-          data: { ...task, subtasks: { create: checklist.map((text, order) => ({ text, order })) } },
-        });
+        await repo.createTaskWithChildren(task, checklist);
         created++;
       } catch (e) {
         // a concurrent sweep created the same (sub, template, period) first → skip
@@ -295,69 +222,25 @@ async function insertGeneratedTasks(rows: GeneratedRow[]): Promise<number> {
 
 /** Full sweep — the daily run AND the startup catch-up (same idempotent scan). */
 export async function generateSubscriptionTasks() {
-  const deps = await loadDeps();
-  if (!deps) return { created: 0 };
+  const deps = await repo.findGenerationDefaults();
+  if (!deps) return { created: 0 }; // bootstrap hasn't run — nothing to do
   const today = todayInTz(config.TZ);
-  const subs = await prisma.subscription.findMany(subscriptionQuery);
+  const subs = await repo.listGeneratingSubscriptions();
   const rows = subs.flatMap((sub) => rowsForSubscription(sub, deps, today, config.TZ));
   return { created: await insertGeneratedTasks(rows) };
 }
 
 /** Instant feedback after a subscription is added/tuned on the client card. */
 export async function generateForSubscription(subscriptionId: string) {
-  const deps = await loadDeps();
+  const deps = await repo.findGenerationDefaults();
   if (!deps) return { created: 0 };
-  const sub = await prisma.subscription.findFirst({
-    ...subscriptionQuery,
-    where: { ...subscriptionQuery.where, id: subscriptionId },
-  });
+  const sub = await repo.findGeneratingSubscription(subscriptionId);
   if (!sub) return { created: 0 }; // stopped / one-time / archived client — nothing to generate
   const rows = rowsForSubscription(sub, deps, todayInTz(config.TZ), config.TZ);
   return { created: await insertGeneratedTasks(rows) };
 }
 
 // ── internal task templates (recurring firm-internal tasks: no client, no billing) ────────────
-
-type InternalService = {
-  id: string;
-  name: string;
-  taskTemplates: {
-    id: string;
-    name: string;
-    periodicity: string;
-    dayOfPeriod: number | null;
-    monthOfPeriod: number | null;
-    deadlineOffsetDays: number | null;
-    estimatedMinutes: number | null;
-    defaultChecklist: unknown;
-    description: string | null;
-    defaultAssigneeIds: unknown;
-    createdAt: Date;
-  }[];
-};
-
-const internalServiceQuery = {
-  where: { active: true, type: "internal" as const },
-  select: {
-    id: true,
-    name: true,
-    taskTemplates: {
-      select: {
-        id: true,
-        name: true,
-        periodicity: true,
-        dayOfPeriod: true,
-        monthOfPeriod: true,
-        deadlineOffsetDays: true,
-        estimatedMinutes: true,
-        defaultChecklist: true,
-        description: true,
-        defaultAssigneeIds: true,
-        createdAt: true,
-      },
-    },
-  },
-};
 
 /** Rows for one internal service's templates. Title: `service · template · date`; no client. */
 function internalRows(svc: InternalService, deps: GenerationDeps, today: Day, tz: string) {
@@ -393,13 +276,10 @@ async function insertInternalTasks(rows: InternalRow[]): Promise<number> {
   if (rows.length === 0) return 0;
   const key = (r: { taskTemplateId: string | null; periodKey: string | null }) =>
     `${r.taskTemplateId}|${r.periodKey}`;
-  const existing = await prisma.task.findMany({
-    where: {
-      subscriptionId: null,
-      taskTemplateId: { in: uniq(rows.map((r) => r.taskTemplateId)) },
-      periodKey: { in: uniq(rows.map((r) => r.periodKey)) },
-    },
-    select: { taskTemplateId: true, periodKey: true },
+  const existing = await repo.listExistingGeneratedKeys({
+    subscriptionId: null,
+    taskTemplateId: { in: uniq(rows.map((r) => r.taskTemplateId)) },
+    periodKey: { in: uniq(rows.map((r) => r.periodKey)) },
   });
   const seen = new Set(existing.map(key));
   let created = 0;
@@ -407,19 +287,7 @@ async function insertInternalTasks(rows: InternalRow[]): Promise<number> {
     if (seen.has(key(row))) continue;
     const { checklist, assigneeIds, ...task } = row;
     try {
-      await prisma.task.create({
-        data: {
-          ...task,
-          subtasks: checklist.length
-            ? { create: checklist.map((text, order) => ({ text, order })) }
-            : undefined,
-          // dedupe — a duplicate userId would hit the TaskAssignee PK (P2002) and, since the catch
-          // below can't tell it from the (template,period) race, silently drop the task forever
-          assignees: assigneeIds.length
-            ? { create: [...new Set(assigneeIds)].map((userId) => ({ userId })) }
-            : undefined,
-        },
-      });
+      await repo.createTaskWithChildren(task, checklist, assigneeIds);
       created++;
     } catch (e) {
       if ((e as { code?: string }).code !== "P2002") throw e;
@@ -430,17 +298,15 @@ async function insertInternalTasks(rows: InternalRow[]): Promise<number> {
 
 /** Full sweep for internal task templates — runs alongside the subscription sweep. */
 export async function generateInternalTasks() {
-  const deps = await loadDeps();
+  const deps = await repo.findGenerationDefaults();
   if (!deps) return { created: 0 };
   const today = todayInTz(config.TZ);
-  const services = await prisma.service.findMany(internalServiceQuery);
+  const services = await repo.listInternalServices();
   const rows = services.flatMap((svc) => internalRows(svc, deps, today, config.TZ));
   if (rows.length === 0) return { created: 0 };
   // only ACTIVE users get freshly assigned (same invariant manual create/update enforce) —
   // a template member blocked after being set is dropped, not carried onto new tasks
-  const active = new Set(
-    (await prisma.user.findMany({ where: { status: "active" }, select: { id: true } })).map((u) => u.id),
-  );
+  const active = new Set(await repo.listActiveUserIds());
   for (const row of rows) row.assigneeIds = row.assigneeIds.filter((id) => active.has(id));
   return { created: await insertInternalTasks(rows) };
 }

@@ -11,28 +11,25 @@ import type {
 } from "@shared/schema/payment.js";
 import { deriveStatus } from "@shared/schema/payment.js";
 import type { Prisma, User } from "../../generated/prisma/client.js";
+import { config } from "../../core/config.js";
+import { dateToUtc, todayBusinessMs } from "../../core/dates.js";
 import { NotFoundError, ValidationError } from "../../core/errors.js";
-import { prisma } from "../../core/db.js";
+import { clientLabel, personName } from "../../core/names.js";
 import { issueInvoice } from "./invoicing.js";
 import * as repo from "./payments.repository.js";
 
-/** "YYYY-MM-DD" (business date) → UTC midnight. */
-const dateToUtc = (d: string) => new Date(`${d}T00:00:00Z`);
+/**
+ * What an invoice still owes. `paidTotal` is the stored Σ of its payments, kept in step inside
+ * every payment transaction — the ONE figure the DTO, the SQL filters and every rule below read,
+ * so a screen and a guard can never disagree about how much came in.
+ */
+const balanceOf = (inv: { amount: number; paidTotal: number; cancelledAt: Date | null }) =>
+  inv.cancelledAt ? 0 : Math.max(0, inv.amount - inv.paidTotal);
 
-const personName = (u: { firstName: string | null; lastName: string | null } | null) =>
-  u ? `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || "—" : "—";
-
-function clientLabel(c: {
-  type: "individual" | "company";
-  firstName: string | null;
-  lastName: string | null;
-  companyName: string | null;
-}): string {
-  if (c.type === "company") return c.companyName ?? "—";
-  return `${c.firstName ?? ""} ${c.lastName ?? ""}`.trim() || "—";
-}
-
-export function toInvoiceDto(inv: repo.InvoiceRecord, now: Date = new Date()) {
+export function toInvoiceDto(
+  inv: repo.InvoiceRecord,
+  todayMs: number = todayBusinessMs(config.TZ),
+) {
   const paid = inv.paidTotal;
   return {
     id: inv.id,
@@ -49,8 +46,11 @@ export function toInvoiceDto(inv: repo.InvoiceRecord, now: Date = new Date()) {
     amount: inv.amount,
     paid,
     // a cancelled invoice owes nothing — it drops out of debt and the unpaid list
-    balance: inv.cancelledAt ? 0 : Math.max(0, inv.amount - paid),
-    status: deriveStatus({ amount: inv.amount, paid, dueDate: inv.dueDate, cancelledAt: inv.cancelledAt }, now),
+    balance: balanceOf(inv),
+    status: deriveStatus(
+      { amount: inv.amount, paid, dueDate: inv.dueDate, cancelledAt: inv.cancelledAt },
+      todayMs,
+    ),
     dueDate: inv.dueDate?.toISOString() ?? null,
     issuedAt: inv.issuedAt.toISOString(),
     cancelledAt: inv.cancelledAt?.toISOString() ?? null,
@@ -86,6 +86,7 @@ export type InvoiceDto = ReturnType<typeof toInvoiceDto>;
  * memory, so the screen behaves the same with a hundred invoices or a hundred thousand.
  */
 export async function listInvoices(query: InvoiceListQuery) {
+  const todayMs = todayBusinessMs(config.TZ);
   // structural scope shared by every chip: this client / company / search text
   const base: Prisma.InvoiceWhereInput = {};
   if (query.clientId) base.clientId = query.clientId;
@@ -103,14 +104,12 @@ export async function listInvoices(query: InvoiceListQuery) {
     ];
   }
 
-  // Settlement lives in SQL now: `paidTotal` is stored, so "still owed" is a field-to-field
+  // Settlement lives in SQL: `paidTotal` is stored, so "still owed" is a field-to-field
   // comparison and "overdue" adds the due-day boundary — no invoice is read to decide a filter.
-  const owed: Prisma.InvoiceWhereInput = { paidTotal: { lt: prisma.invoice.fields.amount } };
-  const settled: Prisma.InvoiceWhereInput = { paidTotal: { gte: prisma.invoice.fields.amount } };
-  // overdue = the whole due DAY has passed (same rule as `deriveStatus`)
-  const startOfToday = new Date();
-  startOfToday.setUTCHours(0, 0, 0, 0);
-  const pastDue: Prisma.InvoiceWhereInput = { dueDate: { lt: startOfToday } };
+  const { OWED: owed, SETTLED: settled } = repo;
+  // overdue = the whole due DAY has passed, counted in the FIRM's timezone — exactly the
+  // boundary `deriveStatus` uses, so the chip count and the row's own pill always agree
+  const pastDue: Prisma.InvoiceWhereInput = { dueDate: { lt: new Date(todayMs) } };
 
   const live = { ...base, cancelledAt: null, archivedAt: null };
   const scopes: Record<InvoiceListQuery["filter"], Prisma.InvoiceWhereInput> = {
@@ -138,7 +137,7 @@ export async function listInvoices(query: InvoiceListQuery) {
   ]);
 
   return {
-    items: rows.map((inv) => toInvoiceDto(inv)),
+    items: rows.map((inv) => toInvoiceDto(inv, todayMs)),
     total,
     page: query.page,
     pageSize: query.pageSize,
@@ -229,8 +228,7 @@ export async function updateInvoice(id: string, input: UpdateInvoiceInput, user:
   if (!invoice) throw new NotFoundError("Invoice not found");
   if (invoice.cancelledAt) throw new ValidationError("A cancelled invoice can't be edited");
 
-  const paid = invoice.payments.reduce((sum, p) => sum + p.amount, 0);
-  if (input.amount !== undefined && input.amount < paid) {
+  if (input.amount !== undefined && input.amount < invoice.paidTotal) {
     throw new ValidationError("The amount can't be less than what's already been paid");
   }
 
@@ -267,8 +265,7 @@ export async function setArchived(input: BulkArchiveInput, user: User) {
   const eligible = invoices.filter((inv) => {
     if (!input.archived) return inv.archivedAt != null;
     if (inv.archivedAt) return false;
-    const paid = inv.payments.reduce((sum, p) => sum + p.amount, 0);
-    return inv.cancelledAt != null || paid >= inv.amount; // nothing owed
+    return balanceOf(inv) === 0; // nothing owed (settled or voided)
   });
   if (eligible.length > 0) {
     await repo.setArchived(eligible.map((inv) => inv.id), input.archived, user.id);
@@ -284,8 +281,7 @@ export async function setArchived(input: BulkArchiveInput, user: User) {
 async function unarchiveIfOwed(invoiceId: string) {
   const invoice = await repo.findInvoice(invoiceId);
   if (!invoice?.archivedAt || invoice.cancelledAt) return;
-  const paid = invoice.payments.reduce((sum, p) => sum + p.amount, 0);
-  if (invoice.amount - paid > 0) await repo.clearArchived([invoiceId]);
+  if (balanceOf(invoice) > 0) await repo.clearArchived([invoiceId]);
 }
 
 /** Bulk "mark as sent" from the list — same rule as the single toggle, cancelled ones skipped. */
@@ -417,9 +413,9 @@ export async function markPaid(input: MarkPaidInput, user: User) {
   let skipped = 0;
 
   for (const invoice of invoices) {
-    const balance = invoice.amount - invoice.payments.reduce((sum, p) => sum + p.amount, 0);
-    if (invoice.cancelledAt || balance <= 0) {
-      skipped++;
+    const balance = balanceOf(invoice);
+    if (balance <= 0) {
+      skipped++; // cancelled or already settled
       continue;
     }
     const { payment } = await repo.createPaymentChecked({

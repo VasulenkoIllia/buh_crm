@@ -369,6 +369,131 @@ describe("tasks", () => {
     expect(completed.json().invoice).toMatchObject({ amount: 8000 });
   });
 
+  it("two people completing the same job at once bill the client only once", async () => {
+    const clientId = await makeClient("Race");
+    const svc = await app.inject({
+      method: "POST",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+      payload: { name: "Race On Complete", type: "one_time", invoiceTrigger: "on_complete" },
+    });
+    const sub = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions`,
+      headers: { cookie: adminCookie },
+      payload: { serviceId: svc.json().id, amount: 7000 },
+    });
+    const subId = sub
+      .json()
+      .subscriptions.find((s: { serviceId: string }) => s.serviceId === svc.json().id).id;
+    const job = await app.inject({
+      method: "POST",
+      url: "/api/tasks",
+      headers: { cookie: adminCookie },
+      payload: { title: "Race job", clientId, subscriptionId: subId, assignees: [adminId] },
+    });
+    const jobId = job.json().id;
+
+    // both requests read "not billed yet" before either writes — the task row lock inside
+    // issueJobInvoice is what stops the client getting two invoices for one job
+    await Promise.all([
+      app.inject({
+        method: "PATCH",
+        url: `/api/tasks/${jobId}`,
+        headers: { cookie: adminCookie },
+        payload: { done: true },
+      }),
+      app.inject({
+        method: "PATCH",
+        url: `/api/tasks/${jobId}`,
+        headers: { cookie: userCookie },
+        payload: { done: true },
+      }),
+    ]);
+
+    const invoices = await prisma.invoice.count({ where: { clientId } });
+    expect(invoices).toBe(1);
+  });
+
+  it("filters and pages on the server: overdue, assignee and client are SQL, the table pages", async () => {
+    const clientId = await makeClient("Filters");
+    const other = await makeClient("Unfiltered");
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    const today = new Date().toISOString().slice(0, 10);
+
+    const make = (title: string, extra: Record<string, unknown>) =>
+      app.inject({
+        method: "POST",
+        url: "/api/tasks",
+        headers: { cookie: adminCookie },
+        payload: { title, assignees: [], ...extra },
+      });
+
+    const late = await make("Late filing", { deadline: yesterday });
+    // due TODAY is not late — the whole deadline day has to pass first
+    await make("Due today", { deadline: today });
+    await make("Later", { deadline: tomorrow });
+    await make("Mine", { assignees: [userId] });
+
+    // a client task always goes through one of that client's services
+    const svc = await app.inject({
+      method: "POST",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+      payload: { name: "Filter Service", type: "subscription" },
+    });
+    const sub = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions`,
+      headers: { cookie: adminCookie },
+      payload: { serviceId: svc.json().id, amount: 1000 },
+    });
+    const subId = sub
+      .json()
+      .subscriptions.find((s: { serviceId: string }) => s.serviceId === svc.json().id).id;
+    await make("Client work", { clientId, subscriptionId: subId });
+
+    const list = async (qs: string) => {
+      const res = await app.inject({ method: "GET", url: `/api/tasks?${qs}`, headers: { cookie: adminCookie } });
+      expect(res.statusCode).toBe(200);
+      return res.json();
+    };
+
+    const overdue = await list("view=board&status=open&overdue=true");
+    const overdueTitles = overdue.items.map((t: { title: string }) => t.title);
+    expect(overdueTitles).toContain("Late filing");
+    expect(overdueTitles).not.toContain("Due today");
+    expect(overdueTitles).not.toContain("Later");
+
+    const mine = await list(`view=board&status=open&assigneeId=${userId}`);
+    expect(mine.items.map((t: { title: string }) => t.title)).toEqual(["Mine"]);
+
+    const byClient = await list(`view=board&status=open&clientId=${clientId}`);
+    expect(byClient.items).toHaveLength(1);
+    expect(byClient.items[0].title).toBe("Client work");
+
+    // the table pages through the whole result set instead of slicing a board payload
+    const page1 = await list("view=table&status=open&pageSize=2&page=1");
+    const page2 = await list("view=table&status=open&pageSize=2&page=2");
+    expect(page1.items).toHaveLength(2);
+    expect(page1.total).toBeGreaterThan(2);
+    expect(page1.page).toBe(1);
+    expect(page2.page).toBe(2);
+    const overlap = page1.items.filter((a: { id: string }) =>
+      page2.items.some((b: { id: string }) => b.id === a.id),
+    );
+    expect(overlap).toHaveLength(0);
+
+    // the client filter's option list covers every client with work, not just a loaded page
+    const clients = await app.inject({ method: "GET", url: "/api/tasks/clients", headers: { cookie: adminCookie } });
+    const names = clients.json().map((c: { name: string }) => c.name);
+    expect(names).toContain("Filters Tasks");
+    expect(names).not.toContain("Unfiltered Tasks"); // no tasks → not offered as a filter
+    expect(other).toBeTruthy();
+    expect(late.statusCode).toBe(201);
+  });
+
   it("generates tasks on the rhythm day, idempotently, honoring per-client overrides", async () => {
     const { d, weekday, monthKey } = todayParts();
 

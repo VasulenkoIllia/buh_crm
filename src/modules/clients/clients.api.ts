@@ -7,8 +7,8 @@ import type {
   UpdateClientInput,
   UpdateSubscriptionInput,
 } from "@shared/schema/client";
-import { CATALOG_KEY } from "@/modules/catalog";
 import { api } from "@/shared/lib/api";
+import { CATALOG_KEY, CLIENTS_KEY } from "@/shared/lib/query-keys";
 
 export interface ClientListResponse {
   items: Client[];
@@ -26,7 +26,6 @@ export interface ClientFile {
   createdAt: string;
 }
 
-const CLIENTS_KEY = ["clients"] as const;
 
 export function useClients(query: Partial<ClientListQuery>, opts?: { enabled?: boolean }) {
   const params = new URLSearchParams();

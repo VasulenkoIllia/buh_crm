@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { cn } from "@/shared/lib/cn";
+import { initials } from "@/shared/lib/format";
 import type { PublicUser } from "@shared/schema/user";
 
 const SIZES = { sm: "h-6 w-6 text-[10px]", md: "h-8 w-8 text-[12px]", lg: "h-16 w-16 text-[20px]" };
@@ -15,8 +16,6 @@ export function UserAvatar({
   version?: number;
 }) {
   const [failed, setFailed] = useState(false);
-  const initials =
-    `${user.firstName?.[0] ?? ""}${user.lastName?.[0] ?? ""}`.toUpperCase() || "?";
 
   if (user.avatarFileId && !failed) {
     return (
@@ -35,7 +34,7 @@ export function UserAvatar({
         SIZES[size],
       )}
     >
-      {initials}
+      {initials(user)}
     </span>
   );
 }

@@ -10,9 +10,9 @@ import type {
   UpdateTimeEntryInput,
 } from "@shared/schema/task";
 import { api } from "@/shared/lib/api";
+import { CLIENTS_KEY, INVOICES_KEY, TASKS_KEY } from "@/shared/lib/query-keys";
 
-export const TASKS_KEY = ["tasks"] as const;
-const TIMER_KEY = ["tasks", "timer"] as const;
+const TIMER_KEY = [...TASKS_KEY, "timer"] as const;
 
 export interface TaskListResponse {
   /** board only: more matching work exists than the board renders */
@@ -37,15 +37,55 @@ export interface ActiveTimer {
   startedAt: string;
 }
 
-/** The board fetch — all live tasks; filtering/grouping is client-side. */
-/** The board asks the server for one side of the work — open, or done — never both at once. */
-export function useTasks(view: "active" | "done" = "active") {
-  const status = view === "done" ? "done" : "open";
+/** What the Tasks screen is asking for. Every one of these is answered by SQL. */
+export interface TaskQuery {
+  /** open work (the board) or completed work (the Done view) */
+  status: "open" | "done";
+  /** board = grouped into columns, capped; table = a real page of results */
+  view: "board" | "table";
+  /** only work whose deadline day has passed */
+  overdue?: boolean;
+  assigneeId?: string;
+  clientId?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+/**
+ * The Tasks screen's fetch. Filters travel to the SERVER — a chip must search all the work,
+ * not just the rows this page happened to load — and the table pages through the full set
+ * while the board takes one capped slice and says so (`truncated`).
+ */
+export function useTasks(query: TaskQuery) {
+  const params = new URLSearchParams({ view: query.view, status: query.status });
+  if (query.overdue) params.set("overdue", "true");
+  if (query.assigneeId) params.set("assigneeId", query.assigneeId);
+  if (query.clientId) params.set("clientId", query.clientId);
+  if (query.view === "table") {
+    params.set("page", String(query.page ?? 1));
+    params.set("pageSize", String(query.pageSize ?? TABLE_PAGE_SIZE));
+  }
   return useQuery({
-    queryKey: [...TASKS_KEY, "list", status],
-    queryFn: () => api<TaskListResponse>(`/api/tasks?view=board&status=${status}`),
+    queryKey: [...TASKS_KEY, "list", params.toString()],
+    queryFn: () => api<TaskListResponse>(`/api/tasks?${params}`),
     placeholderData: (prev) => prev,
   });
+}
+
+export const TABLE_PAGE_SIZE = 50;
+
+/** The team directory, for the board's client filter and assignee names. */
+export function useTaskClients() {
+  return useQuery({
+    queryKey: [...TASKS_KEY, "clients"],
+    queryFn: () => api<TaskTargetInfo[]>("/api/tasks/clients"),
+    staleTime: 60_000,
+  });
+}
+
+export interface TaskTargetInfo {
+  id: string;
+  name: string;
 }
 
 /** A single client's or lead's tasks — the rollup lists on their cards. */
@@ -79,11 +119,6 @@ function useInvalidateTasks() {
   return () => queryClient.invalidateQueries({ queryKey: TASKS_KEY });
 }
 
-// Literal, like the payments module does in reverse: the two modules already reference each
-// other (payments needs the assignee directory), so importing their keys would close a cycle
-// for two constant strings. Both roots are stable (`payments.api`, `clients.api`).
-const INVOICES_KEY = ["invoices"] as const;
-const CLIENTS_KEY = ["clients"] as const;
 
 /**
  * Creating or completing a billable one-time job ISSUES AN INVOICE server-side, which moves the

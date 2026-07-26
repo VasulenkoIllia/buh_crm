@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isPastBusinessDate, localBusinessTodayMs } from "../dates.js";
 import { money, paginated, uuid } from "./common.js";
 import { invoiceDelivery, invoiceStatus } from "./enums.js";
 
@@ -81,25 +82,24 @@ export type InvoiceList = z.infer<typeof invoiceListSchema>;
 // ── derived status (shared rule) ─────────────────────────────────────────────
 
 /**
- * cancelled > paid > overdue > partial > unpaid. `now` is injectable for tests.
+ * cancelled > paid > overdue > partial > unpaid.
  *
  * Overdue starts once the whole due DAY has passed — due dates are business dates in the UI
  * ("due 08/08/2026"), and the stored value is a midnight date for period invoices but a real
- * timestamp for job invoices (issue + N days). Comparing against the end of the due day keeps
- * both kinds honest: an invoice due today is never already late.
+ * timestamp for job invoices (issue + N days). Both are compared as calendar days by the shared
+ * `isPastBusinessDate`, so an invoice due today is never already late. The SAME rule decides an
+ * overdue TASK (`isTaskOverdue`) and the Billing overdue filter in SQL — one definition, one answer.
+ *
+ * `todayMs` is today as a business date (see shared/dates.ts) — injectable for tests, and passed
+ * explicitly by the server so the firm timezone decides the day, not the process timezone.
  */
 export function deriveStatus(
   invoice: { amount: number; paid: number; dueDate: Date | string | null; cancelledAt: Date | string | null },
-  now: Date = new Date(),
+  todayMs: number = localBusinessTodayMs(),
 ): z.infer<typeof invoiceStatus> {
   if (invoice.cancelledAt) return "cancelled";
   if (invoice.paid >= invoice.amount) return "paid";
-  const due = invoice.dueDate == null ? null : new Date(invoice.dueDate);
-  if (due) {
-    const endOfDueDay =
-      Date.UTC(due.getUTCFullYear(), due.getUTCMonth(), due.getUTCDate()) + 86_400_000;
-    if (now.getTime() >= endOfDueDay) return "overdue";
-  }
+  if (isPastBusinessDate(invoice.dueDate, todayMs)) return "overdue";
   return invoice.paid > 0 ? "partial" : "unpaid";
 }
 

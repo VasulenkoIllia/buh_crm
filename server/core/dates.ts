@@ -68,3 +68,13 @@ export function isoWeekMonday(year: number, week: number): Day {
 /** DD.MM.YYYY — the label format used in generated titles. */
 export const dayLabel = ({ y, m, d }: Day) =>
   `${String(d).padStart(2, "0")}.${String(m).padStart(2, "0")}.${y}`;
+
+/** "YYYY-MM-DD" from the API (a business date) → the UTC midnight we store it at. */
+export const dateToUtc = (d: string) => new Date(`${d}T00:00:00Z`);
+
+/**
+ * Today as a business date, in the FIRM timezone — the value `deriveStatus` / `isTaskOverdue`
+ * and the Billing overdue filter all compare against. Read from `config.TZ` rather than the
+ * process timezone, for the same reason the scheduler pins its cron timezone explicitly.
+ */
+export const todayBusinessMs = (tz: string) => toUtc(todayInTz(tz)).getTime();

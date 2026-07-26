@@ -22,9 +22,11 @@ import { isOverdue, fmtDay, initials } from "./lib";
 import { DoneToggle, TaskTimerButton } from "./task-controls";
 import { TaskDetailsModal, TaskFormModal } from "./task-modals";
 import {
+  TABLE_PAGE_SIZE,
   useAddColumn,
   useAssignees,
   useDeleteColumn,
+  useTaskClients,
   useTaskColumns,
   useTasks,
   useUpdateColumn,
@@ -39,14 +41,31 @@ type ViewTab = "active" | "done";
 export function TasksPage() {
   const { user } = useAuth();
   const [view, setView] = useState<ViewTab>("active");
-  const { data, isLoading, error, refetch } = useTasks(view);
-  const { data: columns } = useTaskColumns();
-  const { data: team } = useAssignees();
-
   const [pill, setPill] = useState<FilterPill>("all");
   const [clientFilter, setClientFilter] = useState("");
   const [assigneeFilter, setAssigneeFilter] = useState("");
   const [layout, setLayout] = useState<Layout>("board");
+  const [page, setPage] = useState(1);
+
+  // Every filter is a SERVER filter: a chip has to search all the work, not just the rows this
+  // page loaded. "Mine" is just an assignee filter with the signed-in user in it.
+  const { data, isLoading, error, refetch } = useTasks({
+    status: view === "done" ? "done" : "open",
+    view: layout,
+    overdue: pill === "overdue",
+    assigneeId: pill === "mine" ? user?.id : assigneeFilter || undefined,
+    clientId: clientFilter || undefined,
+    page,
+    pageSize: TABLE_PAGE_SIZE,
+  });
+  const { data: columns } = useTaskColumns();
+  const { data: team } = useAssignees();
+  const { data: taskClients } = useTaskClients();
+
+  // any filter change starts the table back at page 1 — page 7 of the old result set is nonsense
+  useEffect(() => {
+    setPage(1);
+  }, [view, layout, pill, clientFilter, assigneeFilter]);
   const [formOpen, setFormOpen] = useState(false);
   const [formColumnId, setFormColumnId] = useState<string | undefined>();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -74,24 +93,10 @@ export function TasksPage() {
     setFormOpen(true);
   };
 
-  const tasks = useMemo(() => {
-    let list = data?.items ?? [];
-    if (pill === "mine" && user) list = list.filter((t) => t.assignees.includes(user.id));
-    if (pill === "overdue") list = list.filter(isOverdue);
-    if (clientFilter) list = list.filter((t) => t.clientId === clientFilter);
-    if (assigneeFilter) list = list.filter((t) => t.assignees.includes(assigneeFilter));
-    return list;
-  }, [data, pill, user, clientFilter, assigneeFilter]);
-
-  // the client filter lists the targets that actually have tasks here — built from the loaded
-  // board itself, so it neither needs a clients request nor caps out at a page of clients
-  const targetOptions = useMemo(() => {
-    const byId = new Map<string, string>();
-    for (const t of data?.items ?? []) {
-      if (t.clientId && t.clientName) byId.set(t.clientId, t.clientName);
-    }
-    return [...byId].sort((a, b) => a[1].localeCompare(b[1]));
-  }, [data]);
+  // the server already applied every filter — this is exactly the page it returned
+  const tasks = data?.items ?? [];
+  const targetOptions = taskClients ?? [];
+  const pageCount = Math.max(1, Math.ceil((data?.total ?? 0) / TABLE_PAGE_SIZE));
 
   const selected = selectedId ? (data?.items ?? []).find((t) => t.id === selectedId) : null;
 
@@ -122,13 +127,18 @@ export function TasksPage() {
         </div>
         <select className={selectCls} value={clientFilter} onChange={(e) => setClientFilter(e.target.value)}>
           <option value="">All clients</option>
-          {targetOptions.map(([id, name]) => (
-            <option key={id} value={id}>
-              {name}
+          {targetOptions.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
             </option>
           ))}
         </select>
-        <select className={selectCls} value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)}>
+        <select
+          className={selectCls}
+          value={assigneeFilter}
+          disabled={pill === "mine"} // "Mine" already IS an assignee filter
+          onChange={(e) => setAssigneeFilter(e.target.value)}
+        >
           <option value="">All assignees</option>
           {(team ?? []).map((u) => (
             <option key={u.id} value={u.id}>
@@ -159,8 +169,15 @@ export function TasksPage() {
 
       {data?.truncated && (
         <p className="flex-none bg-[#f7ede2] px-6 py-2 text-[12px] text-[#b5651d]">
-          Showing the {data.items.length} most recent of {data.total} open tasks — narrow by client
-          or assignee, or use the Table view to page through all of them.
+          Showing the {data.items.length} most recent of {data.total} matching tasks — narrow by
+          client or assignee, or switch to the Table view, which pages through all of them.{" "}
+          <button
+            type="button"
+            className="font-semibold underline"
+            onClick={() => setLayout("table")}
+          >
+            Open the table
+          </button>
         </p>
       )}
       {isLoading && <p className="p-6 text-[13px] text-muted">Loading…</p>}
@@ -186,7 +203,10 @@ export function TasksPage() {
         <DoneGrid tasks={tasks} onOpen={(t) => setSelectedId(t.id)} />
       )}
       {data && columns && layout === "table" && (
-        <TaskTable columns={columns} tasks={tasks} team={team ?? []} onOpen={(t) => setSelectedId(t.id)} />
+        <div className="flex min-h-0 flex-1 flex-col">
+          <TaskTable columns={columns} tasks={tasks} team={team ?? []} onOpen={(t) => setSelectedId(t.id)} />
+          <Pager page={data.page} pageCount={pageCount} total={data.total} onPage={setPage} />
+        </div>
       )}
 
       {formOpen && (
@@ -552,6 +572,36 @@ function DoneGrid({ tasks, onOpen }: { tasks: Task[]; onOpen: (t: Task) => void 
 }
 
 // ── table ────────────────────────────────────────────────────────────────────
+
+/** Table paging. The board takes one capped slice; the table walks the whole result set. */
+function Pager({
+  page,
+  pageCount,
+  total,
+  onPage,
+}: {
+  page: number;
+  pageCount: number;
+  total: number;
+  onPage: (p: number) => void;
+}) {
+  if (total === 0) return null;
+  return (
+    <div className="flex flex-none items-center justify-between border-t border-border bg-surface px-6 py-2.5 text-[12px] text-muted">
+      <span>
+        Page {page} of {pageCount} · {total} task{total === 1 ? "" : "s"}
+      </span>
+      <div className="flex gap-2">
+        <Button variant="secondary" disabled={page <= 1} onClick={() => onPage(page - 1)}>
+          Previous
+        </Button>
+        <Button variant="secondary" disabled={page >= pageCount} onClick={() => onPage(page + 1)}>
+          Next
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 function TaskTable({
   columns,

@@ -1,17 +1,12 @@
+import { isTaskOverdue } from "@shared/dates";
 import type { Task } from "@shared/schema/task";
-import type { AssigneeInfo } from "./tasks.api";
 
-/** An active task past its deadline. */
-export const isOverdue = (t: Task) =>
-  !t.done && !!t.deadline && new Date(t.deadline) < new Date();
+/**
+ * An open task whose whole deadline DAY has passed. The rule lives in `shared/dates.ts` and is
+ * the same one the invoice status uses, so the board's red ring, the "Overdue" chip and an
+ * overdue invoice all mean one thing — and a task due TODAY is due today, not late.
+ */
+export const isOverdue = (t: Task) => isTaskOverdue(t);
 
-/** dd/mm — compact, for board cards & tight rows. */
-export const fmtDay = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit" });
-
-/** dd/mm/yyyy — full date, for rollup rows. (Was a second, name-colliding `fmtDue`.) */
-export const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-GB");
-
-/** Two-letter avatar initials from a team member. */
-export const initials = (u?: AssigneeInfo) =>
-  u ? `${u.firstName[0] ?? ""}${u.lastName[0] ?? ""}`.toUpperCase() : "?";
+// formatting is app-wide, not task-specific — re-exported so the board's imports stay short
+export { fmtDate, fmtDay, initials } from "@/shared/lib/format";

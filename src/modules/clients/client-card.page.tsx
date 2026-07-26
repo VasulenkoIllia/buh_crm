@@ -8,6 +8,7 @@ import { EntityTasks } from "@/modules/tasks";
 import { useSettings } from "@/modules/settings";
 import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
+import { fmtDate } from "@/shared/lib/format";
 import { Button } from "@/shared/ui/button";
 import { ClientFormModal } from "./client-form";
 import { ClientPeopleModal } from "./client-people-modal";
@@ -302,7 +303,7 @@ function ProfileTab({ client }: { client: Client }) {
         <div>
           <FieldLabel>Created</FieldLabel>
           <div className="text-[14px]">
-            {new Date(client.createdAt).toLocaleDateString("en-GB")}
+            {fmtDate(client.createdAt)}
           </div>
         </div>
         <div>

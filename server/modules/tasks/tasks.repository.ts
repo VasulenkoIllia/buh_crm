@@ -11,17 +11,18 @@ const taskInclude = {
   timeEntries: { orderBy: { startedAt: "asc" } },
   comments: { orderBy: { createdAt: "asc" } },
   invoice: {
-    // payments/cancelledAt ride along so the task can show its own billing state (paid / partial /
-    // overdue) without a second round-trip — derived by the shared `deriveStatus`, never stored
+    // paidTotal/cancelledAt ride along so the task can show its own billing state (paid / partial
+    // / overdue) without a second round-trip — the status itself is derived by the shared
+    // `deriveStatus`, never stored, and `paidTotal` is the same figure Billing filters on
     select: {
       id: true,
       number: true,
       amount: true,
+      paidTotal: true,
       issuedAt: true,
       dueDate: true,
       sentAt: true,
       cancelledAt: true,
-      payments: { select: { amount: true } },
     },
   },
 } satisfies Prisma.TaskInclude;
@@ -168,6 +169,17 @@ export function findUser(id: string) {
   return prisma.user.findUnique({ where: { id } });
 }
 
+/**
+ * The clients that actually have live work — the board's client filter. Built from the whole
+ * task table, not from the page the board happened to load, so the filter can reach every client.
+ */
+export function listClientsWithTasks() {
+  return prisma.client.findMany({
+    where: { archivedAt: null, tasks: { some: { archivedAt: null } } },
+    select: { id: true, type: true, firstName: true, lastName: true, companyName: true },
+  });
+}
+
 /** Lightweight team directory for assignee pickers + name rendering (all-auth). */
 export function listUserDirectory() {
   return prisma.user.findMany({
@@ -240,4 +252,136 @@ export function updateEntry(id: string, data: Prisma.TimeEntryUncheckedUpdateInp
 
 export function deleteEntry(id: string) {
   return prisma.timeEntry.delete({ where: { id } });
+}
+
+// ── the generation sweeps (scheduler job #1) ─────────────────────────────────
+
+/** What every generated task needs: the default priority and the fixed entry column. */
+export async function findGenerationDefaults() {
+  const [priority, column] = await Promise.all([
+    prisma.priority.findFirst({ where: { isDefault: true } }),
+    prisma.taskColumn.findFirst({ where: { isFixed: true } }),
+  ]);
+  return priority && column ? { priorityId: priority.id, columnId: column.id } : null;
+}
+
+/**
+ * Subscriptions that generate tasks: ACTIVE, on a subscription-type service, for a live client —
+ * with the client/company/service labels the composed title needs and the templates to expand.
+ */
+const generatingSubscription = {
+  where: {
+    active: true,
+    service: { type: "subscription" as const },
+    client: { archivedAt: null },
+  },
+  include: {
+    client: { select: { type: true, firstName: true, lastName: true, companyName: true } },
+    company: { select: { name: true } },
+    service: {
+      select: {
+        name: true,
+        taskTemplates: {
+          select: {
+            id: true,
+            name: true,
+            periodicity: true,
+            dayOfPeriod: true,
+            monthOfPeriod: true,
+            deadlineOffsetDays: true,
+            estimatedMinutes: true,
+            defaultChecklist: true,
+            createdAt: true,
+          },
+        },
+      },
+    },
+  },
+} satisfies Prisma.SubscriptionFindManyArgs;
+
+export type GeneratingSubscription = Prisma.SubscriptionGetPayload<typeof generatingSubscription>;
+
+export function listGeneratingSubscriptions(): Promise<GeneratingSubscription[]> {
+  return prisma.subscription.findMany(generatingSubscription);
+}
+
+export function findGeneratingSubscription(id: string): Promise<GeneratingSubscription | null> {
+  return prisma.subscription.findFirst({
+    ...generatingSubscription,
+    where: { ...generatingSubscription.where, id },
+  });
+}
+
+/** Active internal (firm-only) services and their recurring templates. */
+const internalService = {
+  where: { active: true, type: "internal" as const },
+  select: {
+    id: true,
+    name: true,
+    taskTemplates: {
+      select: {
+        id: true,
+        name: true,
+        periodicity: true,
+        dayOfPeriod: true,
+        monthOfPeriod: true,
+        deadlineOffsetDays: true,
+        estimatedMinutes: true,
+        defaultChecklist: true,
+        description: true,
+        defaultAssigneeIds: true,
+        createdAt: true,
+      },
+    },
+  },
+} satisfies Prisma.ServiceFindManyArgs;
+
+export type InternalService = Prisma.ServiceGetPayload<typeof internalService>;
+
+export function listInternalServices(): Promise<InternalService[]> {
+  return prisma.service.findMany(internalService);
+}
+
+/** Bulk insert of generated tasks; the unique key makes it insert-or-skip. */
+export async function createTasksSkippingDuplicates(rows: Prisma.TaskUncheckedCreateInput[]) {
+  const { count } = await prisma.task.createMany({ data: rows, skipDuplicates: true });
+  return count;
+}
+
+/**
+ * One generated task with its checklist (and, for internal templates, its default crew).
+ * `createMany` can't nest rows, so anything with children is created individually.
+ */
+export function createTaskWithChildren(
+  task: Prisma.TaskUncheckedCreateInput,
+  checklist: string[],
+  assigneeIds: string[] = [],
+) {
+  return prisma.task.create({
+    data: {
+      ...task,
+      subtasks: checklist.length
+        ? { create: checklist.map((text, order) => ({ text, order })) }
+        : undefined,
+      // dedupe — a duplicate userId would hit the TaskAssignee PK (P2002) and, since the sweep's
+      // catch can't tell it from the (template, period) race, silently drop the task forever
+      assignees: assigneeIds.length
+        ? { create: [...new Set(assigneeIds)].map((userId) => ({ userId })) }
+        : undefined,
+    },
+  });
+}
+
+/** Which (subscription, template, period) keys already exist — the sweep's pre-check. */
+export function listExistingGeneratedKeys(where: Prisma.TaskWhereInput) {
+  return prisma.task.findMany({
+    where,
+    select: { subscriptionId: true, taskTemplateId: true, periodKey: true },
+  });
+}
+
+/** The ids of every active team member — internal templates only seed active assignees. */
+export async function listActiveUserIds() {
+  const users = await prisma.user.findMany({ where: { status: "active" }, select: { id: true } });
+  return users.map((u) => u.id);
 }

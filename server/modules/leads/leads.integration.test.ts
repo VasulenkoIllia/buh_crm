@@ -107,6 +107,29 @@ describe("leads", () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it("serves the board and the archive as separate queries", async () => {
+    const closed = await app.inject({
+      method: "POST",
+      url: "/api/leads",
+      headers: { cookie },
+      payload: { name: "Closed Lead", phone: "+380670000009" },
+    });
+    const closedId = closed.json().id;
+    await app.inject({ method: "POST", url: `/api/leads/${closedId}/mark-lost`, headers: { cookie } });
+
+    const board = await app.inject({ method: "GET", url: "/api/leads?scope=in_process", headers: { cookie } });
+    const archive = await app.inject({ method: "GET", url: "/api/leads?scope=closed", headers: { cookie } });
+
+    const boardIds = board.json().items.map((l: { id: string }) => l.id);
+    const archiveIds = archive.json().items.map((l: { id: string }) => l.id);
+    // a closed lead leaves the pipeline entirely — the board never has to filter it out
+    expect(boardIds).toContain(leadId);
+    expect(boardIds).not.toContain(closedId);
+    expect(archiveIds).toEqual([closedId]);
+    expect(board.json().truncated).toBe(false);
+    expect(archive.json().total).toBe(1);
+  });
+
   it("marks lost, blocks moving a lost lead, then reopens", async () => {
     const lost = await app.inject({
       method: "POST",

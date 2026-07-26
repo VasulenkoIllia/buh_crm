@@ -7,8 +7,7 @@ import type {
   UpdateTaskTemplateInput,
 } from "@shared/schema/catalog";
 import { api } from "@/shared/lib/api";
-
-export const CATALOG_KEY = ["catalog"] as const;
+import { CATALOG_KEY } from "@/shared/lib/query-keys";
 
 /** The whole catalog (active + inactive) — dropdowns filter to active themselves. */
 export function useCatalog() {

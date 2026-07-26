@@ -9,6 +9,7 @@ import { LeadFormModal, useLeads } from "@/modules/leads";
 import { useSettings } from "@/modules/settings";
 import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
+import { fmtDate, todayPlus } from "@/shared/lib/format";
 import { fmtMoney } from "@/shared/lib/money";
 import { AssigneePicker } from "@/shared/ui/assignee-picker";
 import { Button } from "@/shared/ui/button";
@@ -34,12 +35,6 @@ import {
   useUpdateTask,
   useUpdateTimeEntry,
 } from "./tasks.api";
-
-const todayPlus = (days: number) => {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-};
 
 // ── create / edit ────────────────────────────────────────────────────────────
 
@@ -488,11 +483,11 @@ function ClientLeadSearch({
     { tab: "all", search: searching ? query.trim() : undefined, pageSize: searching ? 20 : 6 },
     { enabled: open },
   );
-  const { data: leads } = useLeads();
+  // only live leads can be picked as a task target — the server sends just those
+  const { data: leads } = useLeads("in_process");
 
   const clientMatches = clientsResp?.items ?? [];
-  const leadMatches = (leads ?? [])
-    .filter((l) => l.outcome === "in_process")
+  const leadMatches = (leads?.items ?? [])
     .filter((l) => !searching || l.name.toLowerCase().includes(q))
     .slice(0, searching ? 6 : 4);
 
@@ -590,7 +585,6 @@ function ClientLeadSearch({
 
 export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () => void }) {
   const { user } = useAuth();
-  const { data: clientsResp } = useClients({ tab: "all", pageSize: 100 });
   const { data: services } = useCatalog();
   const { data: settings } = useSettings();
   const { data: team } = useAssignees();
@@ -599,7 +593,6 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
   const archive = useArchiveTask();
 
   const isAdmin = user?.role === "admin";
-  const client = clientsResp?.items.find((c) => c.id === task.clientId);
   const service = services?.find((s) => s.id === task.serviceId);
   const userName = (id: string | null) => {
     const u = team?.find((x) => x.id === id);
@@ -702,7 +695,7 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
           )}
           <span className="text-muted-400">
             Created by <span className="text-ink-700">{createdBy}</span> ·{" "}
-            {new Date(task.createdAt).toLocaleDateString("en-GB")}
+            {fmtDate(task.createdAt)}
           </span>
         </div>
 
@@ -749,13 +742,16 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
               ))}
             </Select>
           </Field>
-          <Field label="Client">
-            {client ? (
-              <Link to={`/clients/${client.id}`} className="text-primary-link hover:underline">
-                {client.displayName}
+          <Field label={task.leadId ? "Lead" : "Client"}>
+            {task.clientId && task.clientName ? (
+              <Link to={`/clients/${task.clientId}`} className="text-primary-link hover:underline">
+                {task.clientName}
+                {task.companyName ? <span className="text-muted"> · {task.companyName}</span> : null}
               </Link>
             ) : (
-              <span className="text-muted">—</span>
+              <span className={task.leadName ? undefined : "text-muted"}>
+                {task.leadName ?? "—"}
+              </span>
             )}
           </Field>
           <Field label="Service">
@@ -888,7 +884,7 @@ function InvoiceField({ invoice }: { invoice: NonNullable<Task["invoice"]> }) {
         {invoice.balance > 0 && invoice.paid > 0 && ` · left ${fmtMoney(invoice.balance)}`}
         {invoice.dueDate && (
           <span className={cn(invoice.status === "overdue" && "text-danger-text")}>
-            {` · due ${new Date(invoice.dueDate).toLocaleDateString("en-GB")}`}
+            {` · due ${fmtDate(invoice.dueDate)}`}
           </span>
         )}
       </div>
