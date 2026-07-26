@@ -283,6 +283,17 @@ function BoardColumn({
         isOver && "outline-1 outline-dashed outline-[#b9c1cc]",
       )}
     >
+      {/* header + add button stay put at the top of the column: adding tasks must never push
+          the primary action down, and it stays reachable while the cards scroll past */}
+      <div
+        className={cn(
+          "sticky top-0 z-10 -mx-[9px] -mt-[10px] bg-[#f4f6f8] px-[9px] pb-2 pt-[10px]",
+          // a sticky box is already positioned, so the ::before anchors to it — no `relative`
+          // (that would override position:sticky). It masks the board's own top padding, where a
+          // card would otherwise slide through the gap above the pinned header.
+          "before:absolute before:inset-x-0 before:bottom-full before:h-4 before:bg-[#f4f6f8]",
+        )}
+      >
       <div className="flex items-center gap-1.5 px-1 pb-2">
         {isAdmin && !column.isFixed ? (
           <input
@@ -332,21 +343,22 @@ function BoardColumn({
           )}
         </div>
       </div>
+        {/* the primary way to create a task in this column */}
+        <button
+          type="button"
+          onClick={onAdd}
+          className="flex w-full items-center justify-center gap-1.5 rounded-[8px] border border-dashed border-[#b7e0c5] bg-[#eef8f1] py-2.5 text-[13px] font-semibold text-[#1f8f3a] transition-colors hover:border-[#8fd0a6] hover:bg-[#e2f2e8]"
+        >
+          <span className="text-[16px] leading-none">+</span> New task
+        </button>
+      </div>
       <div className="flex flex-col gap-2">
         {tasks.map((task) => (
           <BoardCard key={task.id} task={task} team={team} onOpen={() => onOpen(task)} />
         ))}
-        {/* prominent add button — the primary way to create a task in this column */}
-        <button
-          type="button"
-          onClick={onAdd}
-          className={cn(
-            "flex items-center justify-center gap-1.5 rounded-[8px] border border-dashed border-[#b7e0c5] bg-[#eef8f1] font-semibold text-[#1f8f3a] transition-colors hover:border-[#8fd0a6] hover:bg-[#e2f2e8]",
-            tasks.length === 0 ? "py-[22px] text-[14px]" : "py-2.5 text-[13px]",
-          )}
-        >
-          <span className="text-[16px] leading-none">+</span> New task
-        </button>
+        {tasks.length === 0 && (
+          <p className="py-6 text-center text-[12px] text-[#9aa1ab]">No tasks here yet</p>
+        )}
       </div>
     </div>
   );
