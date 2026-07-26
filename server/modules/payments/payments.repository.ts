@@ -1,0 +1,272 @@
+import type { Prisma } from "../../generated/prisma/client.js";
+import { prisma } from "../../core/db.js";
+
+const invoiceInclude = {
+  client: {
+    select: { type: true, firstName: true, lastName: true, companyName: true, archivedAt: true },
+  },
+  company: { select: { name: true } },
+  service: { select: { name: true } },
+  sentBy: { select: { firstName: true, lastName: true } },
+  cancelledBy: { select: { firstName: true, lastName: true } },
+  archivedBy: { select: { firstName: true, lastName: true } },
+  payments: {
+    orderBy: { paidAt: "asc" },
+    include: { createdBy: { select: { firstName: true, lastName: true } } },
+  },
+  tasks: { select: { id: true, title: true }, take: 1 },
+} satisfies Prisma.InvoiceInclude;
+
+export type InvoiceRecord = Prisma.InvoiceGetPayload<{ include: typeof invoiceInclude }>;
+
+const LIST_ORDER = [{ issuedAt: "desc" as const }, { number: "desc" as const }];
+
+/**
+ * One page of the list. Every filter — including settlement — is expressible in SQL now that
+ * `paidTotal` is stored, so the database does the paging; nothing is scanned in memory.
+ */
+export function listInvoicePage(where: Prisma.InvoiceWhereInput, skip: number, take: number) {
+  return prisma.invoice.findMany({ where, include: invoiceInclude, orderBy: LIST_ORDER, skip, take });
+}
+
+/** Receivable / overdue across the WHOLE filtered set (not just the page). */
+export async function sumInvoices(where: Prisma.InvoiceWhereInput) {
+  const agg = await prisma.invoice.aggregate({ where, _sum: { amount: true, paidTotal: true } });
+  return (agg._sum.amount ?? 0) - (agg._sum.paidTotal ?? 0);
+}
+
+export function countInvoices(where: Prisma.InvoiceWhereInput) {
+  return prisma.invoice.count({ where });
+}
+
+export function findInvoice(id: string) {
+  return prisma.invoice.findUnique({ where: { id }, include: invoiceInclude });
+}
+
+export function findInvoices(ids: string[]) {
+  return prisma.invoice.findMany({ where: { id: { in: ids } }, include: invoiceInclude });
+}
+
+/** Stamp (or clear) the "handed to the client" mark. */
+export function setInvoiceDelivery(id: string, sent: boolean, userId: string) {
+  return prisma.invoice.update({
+    where: { id },
+    data: sent ? { sentAt: new Date(), sentById: userId } : { sentAt: null, sentById: null },
+    include: invoiceInclude,
+  });
+}
+
+export function updateInvoice(id: string, data: Prisma.InvoiceUncheckedUpdateInput) {
+  return prisma.invoice.update({ where: { id }, data, include: invoiceInclude });
+}
+
+/** Keep a linked job's price in step with its invoice (the task price is locked to it). */
+export function syncTaskAmounts(invoiceId: string, amount: number) {
+  return prisma.task.updateMany({ where: { invoiceId }, data: { amount } });
+}
+
+/** Archive / restore a set of invoices in one statement (callers pre-check the rules). */
+export function setArchived(ids: string[], archived: boolean, userId: string) {
+  return prisma.invoice.updateMany({
+    where: { id: { in: ids } },
+    data: archived
+      ? { archivedAt: new Date(), archivedById: userId }
+      : { archivedAt: null, archivedById: null },
+  });
+}
+
+/** Restore without an actor — used when a correction puts money back on the invoice. */
+export function clearArchived(ids: string[]) {
+  return prisma.invoice.updateMany({
+    where: { id: { in: ids } },
+    data: { archivedAt: null, archivedById: null },
+  });
+}
+
+export function setDeliveryMany(ids: string[], sent: boolean, userId: string) {
+  return prisma.invoice.updateMany({
+    where: { id: { in: ids } },
+    data: sent ? { sentAt: new Date(), sentById: userId } : { sentAt: null, sentById: null },
+  });
+}
+
+export function cancelInvoice(id: string, userId: string) {
+  return prisma.invoice.update({
+    where: { id },
+    data: { cancelledAt: new Date(), cancelledById: userId },
+    include: invoiceInclude,
+  });
+}
+
+/** Per-period invoices already issued for these subscriptions (idempotency pre-check). */
+export function listPeriodKeys(subscriptionIds: string[]) {
+  return prisma.invoice.findMany({
+    where: { subscriptionId: { in: subscriptionIds } },
+    select: { subscriptionId: true, periodKey: true },
+  });
+}
+
+// ── payments ─────────────────────────────────────────────────────────────────
+
+export type PaymentRecord = Prisma.PaymentGetPayload<{
+  include: { invoice: { select: { id: true; amount: true; cancelledAt: true } } };
+}>;
+
+export function findPayment(id: string): Promise<PaymentRecord | null> {
+  return prisma.payment.findUnique({
+    where: { id },
+    include: { invoice: { select: { id: true, amount: true, cancelledAt: true } } },
+  });
+}
+
+/** Σ of the OTHER payments on this invoice — the headroom an edit must respect. */
+export async function sumOtherPayments(invoiceId: string, exceptPaymentId?: string) {
+  const agg = await prisma.payment.aggregate({
+    where: { invoiceId, ...(exceptPaymentId ? { id: { not: exceptPaymentId } } : {}) },
+    _sum: { amount: true },
+  });
+  return agg._sum.amount ?? 0;
+}
+
+/**
+ * Register a payment with the balance re-checked under a row lock: the invoice row is
+ * touched first, so two payments racing on the same invoice serialize instead of both
+ * seeing the old balance and together overshooting the total.
+ */
+export async function createPaymentChecked(data: Prisma.PaymentUncheckedCreateInput) {
+  return prisma.$transaction(async (tx) => {
+    const invoice = await tx.invoice.update({
+      where: { id: data.invoiceId as string },
+      data: { updatedAt: new Date() }, // takes the row lock for the rest of this transaction
+      select: { amount: true, cancelledAt: true },
+    });
+    if (invoice.cancelledAt) return { payment: null, reason: "cancelled" as const };
+    const paid = await tx.payment.aggregate({
+      where: { invoiceId: data.invoiceId as string },
+      _sum: { amount: true },
+    });
+    const balance = invoice.amount - (paid._sum.amount ?? 0);
+    if (balance <= 0) return { payment: null, reason: "settled" as const };
+    if ((data.amount as number) > balance) return { payment: null, reason: "over" as const, balance };
+    const payment = await tx.payment.create({ data });
+    await syncPaidTotal(tx, data.invoiceId as string);
+    return { payment, reason: null };
+  });
+}
+
+/**
+ * Re-derive `Invoice.paidTotal` from the payments — always recompute rather than nudge a delta,
+ * so the stored figure can never drift from the rows it summarises. Runs inside the caller's
+ * transaction, which already holds the invoice row lock.
+ */
+async function syncPaidTotal(tx: Prisma.TransactionClient, invoiceId: string) {
+  const agg = await tx.payment.aggregate({ where: { invoiceId }, _sum: { amount: true } });
+  await tx.invoice.update({
+    where: { id: invoiceId },
+    data: { paidTotal: agg._sum.amount ?? 0 },
+  });
+}
+
+export function updatePayment(id: string, invoiceId: string, data: Prisma.PaymentUncheckedUpdateInput) {
+  return prisma.$transaction(async (tx) => {
+    const payment = await tx.payment.update({ where: { id }, data });
+    await syncPaidTotal(tx, invoiceId);
+    return payment;
+  });
+}
+
+export function deletePayment(id: string, invoiceId: string) {
+  return prisma.$transaction(async (tx) => {
+    await tx.payment.delete({ where: { id } });
+    await syncPaidTotal(tx, invoiceId);
+  });
+}
+
+// ── audit journal (who / when / before → after) ───────────────────────────────
+
+export function writeAudit(entry: Prisma.PaymentAuditLogUncheckedCreateInput) {
+  return prisma.paymentAuditLog.create({ data: entry });
+}
+
+export function listAudit(invoiceId: string) {
+  return prisma.paymentAuditLog.findMany({
+    where: { invoiceId },
+    orderBy: { createdAt: "desc" },
+    include: { byUser: { select: { firstName: true, lastName: true } } },
+  });
+}
+
+// ── debt (Σ open balance per client) ──────────────────────────────────────────
+
+/** Σ (amount − paidTotal) per client, computed by the database. */
+export function groupOpenBalances(clientIds: string[]) {
+  return prisma.invoice.groupBy({
+    by: ["clientId"],
+    where: { clientId: { in: clientIds }, cancelledAt: null },
+    _sum: { amount: true, paidTotal: true },
+  });
+}
+
+// ── manual invoice targets ───────────────────────────────────────────────────
+
+export function findClient(id: string) {
+  return prisma.client.findUnique({
+    where: { id },
+    select: { id: true, archivedAt: true },
+  });
+}
+
+export function findSubscription(id: string) {
+  return prisma.subscription.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      clientId: true,
+      companyId: true,
+      serviceId: true,
+      active: true,
+      dueDays: true,
+      service: { select: { name: true, dueDays: true, type: true } },
+    },
+  });
+}
+
+export function countActiveUsers(ids: string[]) {
+  return prisma.user.count({ where: { id: { in: ids }, status: "active" } });
+}
+
+/**
+ * The task an "invoice + task" manual issue opens. Written here rather than through the
+ * Tasks module on purpose: Tasks depends on Payments (job billing), so the reverse import
+ * would be a cycle. The billing fields are already resolved above, so no derivation is lost.
+ */
+export async function createInvoiceTask(data: {
+  title: string;
+  clientId: string;
+  companyId: string | null;
+  serviceId: string | null;
+  subscriptionId: string | null;
+  amount: number;
+  invoiceId: string;
+  description: string | null;
+  createdById: string;
+  assigneeIds: string[];
+}) {
+  const [priority, column] = await Promise.all([
+    prisma.priority.findFirst({ where: { isDefault: true } }),
+    prisma.taskColumn.findFirst({ where: { isFixed: true } }),
+  ]);
+  if (!priority || !column) return null; // bootstrap hasn't run — the invoice still stands
+  const { assigneeIds, ...task } = data;
+  return prisma.task.create({
+    data: {
+      ...task,
+      kind: "once",
+      priorityId: priority.id,
+      statusColumnId: column.id,
+      assignees: assigneeIds.length
+        ? { create: [...new Set(assigneeIds)].map((userId) => ({ userId })) }
+        : undefined,
+    },
+  });
+}

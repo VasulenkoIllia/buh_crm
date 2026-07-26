@@ -2,11 +2,28 @@ import type { Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../core/db.js";
 
 const taskInclude = {
+  // target labels ride along so no screen has to resolve ids against a (capped) client list
+  client: { select: { type: true, firstName: true, lastName: true, companyName: true } },
+  company: { select: { name: true } },
+  lead: { select: { name: true } },
   assignees: { select: { userId: true } },
   subtasks: { orderBy: { order: "asc" } },
   timeEntries: { orderBy: { startedAt: "asc" } },
   comments: { orderBy: { createdAt: "asc" } },
-  invoice: { select: { id: true, number: true, amount: true, issuedAt: true, dueDate: true } },
+  invoice: {
+    // payments/cancelledAt ride along so the task can show its own billing state (paid / partial /
+    // overdue) without a second round-trip — derived by the shared `deriveStatus`, never stored
+    select: {
+      id: true,
+      number: true,
+      amount: true,
+      issuedAt: true,
+      dueDate: true,
+      sentAt: true,
+      cancelledAt: true,
+      payments: { select: { amount: true } },
+    },
+  },
 } satisfies Prisma.TaskInclude;
 
 export type TaskRecord = Prisma.TaskGetPayload<{ include: typeof taskInclude }>;

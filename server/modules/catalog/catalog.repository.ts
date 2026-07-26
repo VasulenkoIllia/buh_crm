@@ -82,7 +82,7 @@ export function updateServiceWithDefault(
 }
 
 export async function countServiceUsage(serviceId: string) {
-  const [subscriptions, categories, people, tasks] = await prisma.$transaction([
+  const [subscriptions, categories, people, tasks, invoices] = await prisma.$transaction([
     prisma.subscription.count({ where: { serviceId } }),
     prisma.clientServiceCategory.count({ where: { serviceId } }),
     prisma.clientPerson.count({ where: { serviceId } }),
@@ -90,8 +90,11 @@ export async function countServiceUsage(serviceId: string) {
     // so tasks are their only usage — without this an internal service could be hard-deleted,
     // cascade-dropping its templates and orphaning already-generated tasks)
     prisma.task.count({ where: { serviceId } }),
+    // billing history keeps a service alive too — deleting it would break the FK (and the
+    // invoice would lose what it was for)
+    prisma.invoice.count({ where: { serviceId } }),
   ]);
-  return { subscriptions, categories, people, tasks };
+  return { subscriptions, categories, people, tasks, invoices };
 }
 
 export function deleteService(id: string) {

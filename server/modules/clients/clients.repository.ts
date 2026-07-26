@@ -54,8 +54,16 @@ export function updateClient(id: string, data: Prisma.ClientUpdateInput) {
   return prisma.client.update({ where: { id }, data, include: clientInclude });
 }
 
-/** Replaces the client's company list (companies are per-client text, 1:N). */
-export async function setClientCompanies(clientId: string, names: string[]) {
+/**
+ * Reconcile the client's company list BY NAME — never delete-and-recreate.
+ *
+ * Companies are a reporting/billing dimension: subscriptions, tasks and issued invoices point at
+ * a company row. Recreating them on every save handed out new ids and (via the FK) silently blanked
+ * that dimension on history — re-saving a client's form was enough to lose it. So: keep the rows
+ * whose name is still in the list (refresh their order), insert only genuinely new names, and
+ * report the ones that would be dropped so the caller can refuse when something still points there.
+ */
+export async function reconcileClientCompanies(clientId: string, names: string[]) {
   // case-insensitive dedup, first occurrence wins (decision: companies are a report/invoice
   // dimension — duplicates would silently split totals; mirrors the TagInput behaviour)
   const seen = new Set<string>();
@@ -67,12 +75,43 @@ export async function setClientCompanies(clientId: string, names: string[]) {
       seen.add(key);
       return true;
     });
-  await prisma.$transaction([
-    prisma.company.deleteMany({ where: { clientId } }),
-    prisma.company.createMany({
-      data: unique.map((name, order) => ({ clientId, name, order })),
-    }),
+
+  const existing = await prisma.company.findMany({ where: { clientId } });
+  const byName = new Map(existing.map((c) => [c.name.toLowerCase(), c]));
+  const keep = new Map<string, { id: string; order: number }>();
+  const create: { clientId: string; name: string; order: number }[] = [];
+
+  unique.forEach((name, order) => {
+    const match = byName.get(name.toLowerCase());
+    if (match) keep.set(match.id, { id: match.id, order });
+    else create.push({ clientId, name, order });
+  });
+  const removed = existing.filter((c) => !keep.has(c.id));
+
+  return {
+    removed, // the caller decides whether dropping these is allowed
+    apply: () =>
+      prisma.$transaction([
+        ...[...keep.values()].map((c) =>
+          prisma.company.update({ where: { id: c.id }, data: { order: c.order } }),
+        ),
+        ...(removed.length
+          ? [prisma.company.deleteMany({ where: { id: { in: removed.map((c) => c.id) } } })]
+          : []),
+        ...(create.length ? [prisma.company.createMany({ data: create })] : []),
+      ]),
+  };
+}
+
+/** What still points at these companies — a referenced company may not be dropped. */
+export async function countCompanyReferences(companyIds: string[]) {
+  if (companyIds.length === 0) return { subscriptions: 0, tasks: 0, invoices: 0 };
+  const [subscriptions, tasks, invoices] = await prisma.$transaction([
+    prisma.subscription.count({ where: { companyId: { in: companyIds } } }),
+    prisma.task.count({ where: { companyId: { in: companyIds } } }),
+    prisma.invoice.count({ where: { companyId: { in: companyIds } } }),
   ]);
+  return { subscriptions, tasks, invoices };
 }
 
 export interface PersonData {
@@ -162,7 +201,9 @@ export function createSubscription(data: {
   invoiceDay: number | null;
   dueDays: number | null;
 }) {
-  return prisma.subscription.create({ data });
+  // billingStartAt = the billing anchor (S7): invoicing starts with the CURRENT period,
+  // never before it — see payments.generation.ts
+  return prisma.subscription.create({ data: { ...data, billingStartAt: new Date() } });
 }
 
 export function findSubscription(clientId: string, id: string) {

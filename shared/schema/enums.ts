@@ -42,9 +42,14 @@ export type LeadStage = z.infer<typeof leadStage>;
 export const leadOutcome = z.enum(["in_process", "won", "lost"]);
 export type LeadOutcome = z.infer<typeof leadOutcome>;
 
-/** Derived, never stored. */
-export const invoiceStatus = z.enum(["unpaid", "partial", "paid", "overdue"]);
+/** derived, never stored: cancelled > paid > overdue > partial > unpaid */
+export const invoiceStatus = z.enum(["unpaid", "partial", "paid", "overdue", "cancelled"]);
 export type InvoiceStatus = z.infer<typeof invoiceStatus>;
+
+/** Where the invoice is in getting to the client — independent of whether it's been paid.
+ *  Derived from `Invoice.sentAt`; email/PDF delivery (S10) will extend this, not replace it. */
+export const invoiceDelivery = z.enum(["created", "sent"]);
+export type InvoiceDelivery = z.infer<typeof invoiceDelivery>;
 
 export const notificationKind = z.enum(["task", "meeting", "invoice", "system"]);
 export type NotificationKind = z.infer<typeof notificationKind>;

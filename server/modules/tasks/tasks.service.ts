@@ -11,13 +11,46 @@ import type {
   UpdateTaskInput,
   UpdateTimeEntryInput,
 } from "@shared/schema/task.js";
+import { deriveStatus } from "@shared/schema/payment.js";
 import type { Prisma, User } from "../../generated/prisma/client.js";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../../core/errors.js";
-import { issueJobInvoice } from "./invoicing.js";
+import { issueJobInvoice } from "../payments/index.js";
 import * as repo from "./tasks.repository.js";
 
 /** "YYYY-MM-DD" (business date) → UTC midnight. */
 const dateToUtc = (d: string) => new Date(`${d}T00:00:00Z`);
+
+/** individual → "First Last"; company → the company name (same rule as the clients module). */
+function clientLabel(c: {
+  type: "individual" | "company";
+  firstName: string | null;
+  lastName: string | null;
+  companyName: string | null;
+}): string {
+  if (c.type === "company") return c.companyName ?? "—";
+  return `${c.firstName ?? ""} ${c.lastName ?? ""}`.trim() || "—";
+}
+
+/** The job's invoice WITH its settlement state — same derivation rule as the Billing screen. */
+function toTaskInvoice(invoice: NonNullable<repo.TaskRecord["invoice"]>) {
+  const paid = invoice.payments.reduce((sum, p) => sum + p.amount, 0);
+  return {
+    id: invoice.id,
+    number: invoice.number,
+    amount: invoice.amount,
+    paid,
+    balance: invoice.cancelledAt ? 0 : Math.max(0, invoice.amount - paid),
+    status: deriveStatus({
+      amount: invoice.amount,
+      paid,
+      dueDate: invoice.dueDate,
+      cancelledAt: invoice.cancelledAt,
+    }),
+    sentAt: invoice.sentAt?.toISOString() ?? null,
+    issuedAt: invoice.issuedAt.toISOString(),
+    dueDate: invoice.dueDate?.toISOString() ?? null,
+  };
+}
 
 export function toTaskDto(task: repo.TaskRecord) {
   return {
@@ -40,15 +73,12 @@ export function toTaskDto(task: repo.TaskRecord) {
     taskTemplateId: task.taskTemplateId,
     periodKey: task.periodKey,
     createdById: task.createdById,
-    invoice: task.invoice
-      ? {
-          id: task.invoice.id,
-          number: task.invoice.number,
-          amount: task.invoice.amount,
-          issuedAt: task.invoice.issuedAt.toISOString(),
-          dueDate: task.invoice.dueDate?.toISOString() ?? null,
-        }
-      : null,
+    // labels travel with the task: the board used to resolve them from a page of clients,
+    // which silently blanked names past the first 100
+    clientName: task.client ? clientLabel(task.client) : null,
+    companyName: task.company?.name ?? null,
+    leadName: task.lead?.name ?? null,
+    invoice: task.invoice ? toTaskInvoice(task.invoice) : null,
     assignees: task.assignees.map((a) => a.userId),
     subtasks: task.subtasks.map((s) => ({
       id: s.id,
@@ -125,29 +155,36 @@ export async function removeColumn(id: string) {
 
 // ── tasks ────────────────────────────────────────────────────────────────────
 
+/** The board is a working surface, not an archive — cap it and SAY so when it's capped. */
+const BOARD_LIMIT = 500;
+
 export async function listTasks(query: TaskListQuery) {
   const where: Prisma.TaskWhereInput = { archivedAt: null };
-  if (query.view === "table") {
-    if (query.status === "open") where.done = false;
-    if (query.status === "done") where.done = true;
-  }
+  // status now applies to both views: the board asks for open work, its Done view asks for done
+  if (query.status === "open") where.done = false;
+  if (query.status === "done") where.done = true;
   if (query.search) where.title = { contains: query.search, mode: "insensitive" };
   if (query.assigneeId) where.assignees = { some: { userId: query.assigneeId } };
   if (query.clientId) where.clientId = query.clientId;
   if (query.leadId) where.leadId = query.leadId;
+  // an archived client's work leaves everyone's board — the data stays untouched, so restoring
+  // the client (S11) brings the tasks back; their invoices deliberately stay in Billing
+  where.OR = [{ clientId: null }, { client: { archivedAt: null } }];
 
-  // the board always shows everything open+done (done styling is per-card)
   const paged = query.view === "table";
+  const take = paged ? query.pageSize : BOARD_LIMIT;
   const { items, total } = await repo.listTasks({
     where,
     skip: paged ? (query.page - 1) * query.pageSize : 0,
-    take: paged ? query.pageSize : 1000,
+    take,
   });
   return {
     items: items.map(toTaskDto),
     total,
     page: paged ? query.page : 1,
-    pageSize: paged ? query.pageSize : 1000,
+    pageSize: paged ? query.pageSize : take,
+    /** board only: there is more work than the board shows — narrow the filters */
+    truncated: !paged && total > items.length,
   };
 }
 
@@ -255,7 +292,15 @@ export async function createTask(input: CreateTaskInput, actor: User) {
   }
 
   if (kind === "once" && billNow && amount != null && clientId) {
-    await issueJobInvoice({ taskId: task.id, clientId, companyId, serviceId, amount, dueDays });
+    await issueJobInvoice({
+      taskId: task.id,
+      clientId,
+      companyId,
+      serviceId,
+      amount,
+      dueDays,
+      createdById: actor.id,
+    });
   }
   return getTask(task.id);
 }

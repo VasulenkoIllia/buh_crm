@@ -48,6 +48,17 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // this suite now creates tasks + invoices (company-dimension and archive cases) — leave the
+  // database as clean as we found it, or the next suite trips over the foreign keys
+  await prisma.payment.deleteMany();
+  await prisma.invoice.deleteMany();
+  await prisma.taskAssignee.deleteMany();
+  await prisma.subtask.deleteMany();
+  await prisma.task.deleteMany();
+  await prisma.subscription.deleteMany();
+  await prisma.company.deleteMany();
+  await prisma.client.deleteMany();
+  await prisma.service.deleteMany();
   await app.close();
 });
 
@@ -275,5 +286,120 @@ describe("clients", () => {
       headers: { cookie },
     });
     expect(del.statusCode).toBe(200);
+  });
+  it("re-saving a client keeps the company dimension on its subscriptions and invoices", async () => {
+    // companies used to be deleted+recreated on every save, so the new ids silently blanked
+    // (FK SetNull) the company on subscriptions, tasks and ISSUED INVOICES
+    const service = await prisma.service.create({
+      data: { name: "Company FK service", color: "#2f4fd6", type: "subscription", defaultAmount: 5_000 },
+    });
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/clients",
+      headers: { cookie },
+      payload: {
+        type: "individual",
+        firstName: "Company",
+        lastName: "Dimension",
+        companyNames: ["Alpha Ltd", "Beta Ltd"],
+        people: [],
+      },
+    });
+    const client = created.json();
+    const alpha = client.companies.find((c: { name: string }) => c.name === "Alpha Ltd");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/clients/${client.id}/subscriptions`,
+      headers: { cookie },
+      payload: { serviceId: service.id, amount: 5_000, period: "month", companyId: alpha.id },
+    });
+
+    // an ordinary edit that re-sends the same company list
+    const resaved = await app.inject({
+      method: "PATCH",
+      url: `/api/clients/${client.id}`,
+      headers: { cookie },
+      payload: { phone: "+380000000000", companyNames: ["Alpha Ltd", "Beta Ltd"] },
+    });
+    expect(resaved.statusCode).toBe(200);
+    expect(resaved.json().companies.find((c: { name: string }) => c.name === "Alpha Ltd").id).toBe(
+      alpha.id,
+    );
+    expect(resaved.json().subscriptions[0].companyId).toBe(alpha.id);
+
+    const invoices = await app.inject({
+      method: "GET",
+      url: `/api/invoices?clientId=${client.id}`,
+      headers: { cookie },
+    });
+    expect(invoices.json().items[0].companyName).toBe("Alpha Ltd");
+
+    // and a company something still points at can't just be dropped
+    const drop = await app.inject({
+      method: "PATCH",
+      url: `/api/clients/${client.id}`,
+      headers: { cookie },
+      payload: { companyNames: ["Beta Ltd"] },
+    });
+    expect(drop.statusCode).toBe(409);
+    expect(drop.json().error.message).toContain("Alpha Ltd");
+
+    // an unused one still goes away
+    const ok = await app.inject({
+      method: "PATCH",
+      url: `/api/clients/${client.id}`,
+      headers: { cookie },
+      payload: { companyNames: ["Alpha Ltd"] },
+    });
+    expect(ok.json().companies.map((c: { name: string }) => c.name)).toEqual(["Alpha Ltd"]);
+  });
+
+  it("archiving a client takes their tasks off the board but leaves the invoices", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/clients",
+      headers: { cookie },
+      payload: { type: "individual", firstName: "Gone", lastName: "Away", companyNames: [], people: [] },
+    });
+    const client = created.json();
+    const service = await prisma.service.create({
+      data: { name: "Archived client job", color: "#1f8f3a", type: "one_time", defaultAmount: 1_000 },
+    });
+    const sub = await app.inject({
+      method: "POST",
+      url: `/api/clients/${client.id}/subscriptions`,
+      headers: { cookie },
+      payload: { serviceId: service.id, amount: 1_000, period: "month" },
+    });
+    await app.inject({
+      method: "POST",
+      url: "/api/tasks",
+      headers: { cookie },
+      payload: {
+        title: "Work for a client about to be archived",
+        clientId: client.id,
+        subscriptionId: sub.json().subscriptions[0].id,
+        amount: 1_000,
+        assignees: [],
+      },
+    });
+
+    const before = await app.inject({ method: "GET", url: "/api/tasks?view=board", headers: { cookie } });
+    expect(before.json().items.some((t: { clientId: string }) => t.clientId === client.id)).toBe(true);
+
+    await app.inject({ method: "POST", url: `/api/clients/${client.id}/archive`, headers: { cookie } });
+
+    const after = await app.inject({ method: "GET", url: "/api/tasks?view=board", headers: { cookie } });
+    expect(after.json().items.some((t: { clientId: string }) => t.clientId === client.id)).toBe(false);
+
+    // the money stays visible — archiving a client must not hide what they owe
+    const invoices = await app.inject({
+      method: "GET",
+      url: `/api/invoices?clientId=${client.id}`,
+      headers: { cookie },
+    });
+    expect(invoices.json().items).toHaveLength(1);
+    expect(invoices.json().items[0].clientArchived).toBe(true);
   });
 });

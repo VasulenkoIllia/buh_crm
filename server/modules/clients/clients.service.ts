@@ -8,7 +8,8 @@ import type {
 } from "@shared/schema/client.js";
 import { rhythmOverridesSchema } from "@shared/schema/catalog.js";
 import type { Prisma, User } from "../../generated/prisma/client.js";
-import { NotFoundError, ValidationError } from "../../core/errors.js";
+import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
+import { debtByClient, generateForSubscriptionInvoices } from "../payments/index.js";
 import { generateForSubscription } from "../tasks/index.js";
 import { MAX_FILE_SIZE, deleteFileBytes, saveFileBytes } from "../../core/files.js";
 import * as repo from "./clients.repository.js";
@@ -25,7 +26,7 @@ function displayName(c: {
 
 /** isRegular = regularOverride ?? has an active SUBSCRIPTION-type sub (cross-cutting rule).
  * One-time subs are just containers ad-hoc jobs flow through — they never make a client regular. */
-export function toClientDto(client: repo.ClientRecord) {
+export function toClientDto(client: repo.ClientRecord, debt = 0) {
   return {
     id: client.id,
     categories: client.categories.map((c) => c.serviceId),
@@ -67,7 +68,7 @@ export function toClientDto(client: repo.ClientRecord) {
       phone: p.phone,
       email: p.email,
     })),
-    debt: 0, // derived in Payments (S7)
+    debt, // Σ open invoice balance — derived in Payments (S7), passed in by the caller
     createdAt: client.createdAt.toISOString(),
     archivedAt: client.archivedAt?.toISOString() ?? null,
   };
@@ -122,8 +123,9 @@ export async function listClients(query: ClientListQuery) {
     }),
     repo.countClientsByTab(REGULAR_FILTER),
   ]);
+  const debts = await debtByClient(items.map((c) => c.id));
   return {
-    items: items.map(toClientDto),
+    items: items.map((c) => toClientDto(c, debts[c.id] ?? 0)),
     total,
     page: query.page,
     pageSize: query.pageSize,
@@ -134,7 +136,8 @@ export async function listClients(query: ClientListQuery) {
 export async function getClient(id: string) {
   const client = await repo.findClient(id);
   if (!client || client.archivedAt) throw new NotFoundError("Client not found");
-  return toClientDto(client);
+  const debts = await debtByClient([id]);
+  return toClientDto(client, debts[id] ?? 0);
 }
 
 function toClientFields(input: CreateClientInput | UpdateClientInput, isCreate: boolean) {
@@ -154,6 +157,29 @@ function toClientFields(input: CreateClientInput | UpdateClientInput, isCreate: 
     fields.source = { disconnect: true }; // clearing the source (update only)
   }
   return fields;
+}
+
+/**
+ * Save the client's company list. Companies are the billing/reporting dimension carried by
+ * subscriptions, tasks and issued invoices, so a company that something still points at can't
+ * just disappear — the save is refused with the reason instead of silently orphaning history.
+ */
+async function applyCompanies(clientId: string, names: string[]) {
+  const { removed, apply } = await repo.reconcileClientCompanies(clientId, names);
+  if (removed.length > 0) {
+    const refs = await repo.countCompanyReferences(removed.map((c) => c.id));
+    const used = [
+      refs.subscriptions && `${refs.subscriptions} subscription(s)`,
+      refs.tasks && `${refs.tasks} task(s)`,
+      refs.invoices && `${refs.invoices} invoice(s)`,
+    ].filter(Boolean);
+    if (used.length > 0) {
+      throw new ConflictError(
+        `"${removed.map((c) => c.name).join('", "')}" is still used by ${used.join(", ")} — move those to another company (or to the client) before removing it`,
+      );
+    }
+  }
+  await apply();
 }
 
 /** Normalize the people payload for the repo (optional fields → null). */
@@ -181,7 +207,7 @@ export async function createClient(input: CreateClientInput) {
     ...(toClientFields(input, true) as Prisma.ClientCreateInput),
     type: input.type,
   });
-  if (input.companyNames.length > 0) await repo.setClientCompanies(client.id, input.companyNames);
+  if (input.companyNames.length > 0) await applyCompanies(client.id, input.companyNames);
   if (input.people.length > 0) {
     await repo.setClientPeople(client.id, mapPeople(input.people));
   }
@@ -229,7 +255,7 @@ export async function updateClient(id: string, input: UpdateClientInput) {
 
   if (input.people !== undefined) await assertPeopleServicesClientFacing(input.people);
   await repo.updateClient(id, toClientFields(input, false));
-  if (input.companyNames !== undefined) await repo.setClientCompanies(id, input.companyNames);
+  if (input.companyNames !== undefined) await applyCompanies(id, input.companyNames);
   if (input.people !== undefined) {
     await repo.setClientPeople(id, mapPeople(input.people));
   }
@@ -270,10 +296,11 @@ export async function addSubscription(clientId: string, input: CreateSubscriptio
     invoiceDay: input.invoiceDay ?? null,
     dueDays: input.dueDays ?? null,
   });
-  // instant feedback: today's-due tasks appear right away (idempotent; no-op for one-time).
-  // best-effort — a generation hiccup must NOT fail the (already-committed) subscription;
-  // the daily scheduler sweep + startup catch-up will fill anything missed.
+  // instant feedback: today's-due tasks and this period's invoice appear right away
+  // (both idempotent; no-op for one-time). Best-effort — a generation hiccup must NOT fail the
+  // (already-committed) subscription; the daily scheduler sweeps + startup catch-up fill any gap.
   await generateForSubscription(created.id).catch(() => {});
+  await generateForSubscriptionInvoices(created.id).catch(() => {});
   return getClient(clientId);
 }
 
@@ -319,12 +346,19 @@ export async function updateSubscription(
       }
     }
   }
-  await repo.updateSubscription(subscriptionId, input);
+  // reactivation moves the billing anchor to today — a paused subscription is never
+  // back-billed for the periods it slept through (user decision 2026-07-25)
+  const reactivated = input.active === true && !sub.active;
+  await repo.updateSubscription(subscriptionId, {
+    ...input,
+    ...(reactivated ? { billingStartAt: new Date() } : {}),
+  });
   // rhythm overrides / reactivation may make today's tasks due — sweep this sub now
   // (best-effort; the scheduler self-heals so a hiccup never fails the saved edit)
   if (input.rhythmOverrides !== undefined || input.active === true) {
     await generateForSubscription(subscriptionId).catch(() => {});
   }
+  if (reactivated) await generateForSubscriptionInvoices(subscriptionId).catch(() => {});
   return getClient(clientId);
 }
 

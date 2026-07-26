@@ -4,6 +4,7 @@ import { config } from "./core/config.js";
 import { disconnectDb } from "./core/db.js";
 import { ensureUploadsDir } from "./core/files.js";
 import { registerJob, startScheduler, stopScheduler } from "./core/scheduler.js";
+import { generatePeriodInvoices } from "./modules/payments/index.js";
 import { generateInternalTasks, generateSubscriptionTasks } from "./modules/tasks/index.js";
 
 async function main() {
@@ -32,6 +33,26 @@ async function main() {
     cronExpr: "5 3 * * *", // daily 03:05 firm time
     run: () => runGeneration("run"),
     catchUp: () => runGeneration("catch-up"),
+  });
+
+  // S7 job #2: one invoice per subscription period, issued on the service's billing day.
+  // Same idempotent sweep for the daily run and the startup catch-up (unique subscription+period).
+  const runBilling = async (label: "run" | "catch-up") => {
+    try {
+      const { created, failed } = await generatePeriodInvoices();
+      if (created > 0) app.log.info({ created, label }, "period invoices issued");
+      // per-subscription failures are isolated inside the sweep; surface them so a client
+      // that silently stops being billed is visible in the logs
+      if (failed > 0) app.log.error({ failed, label }, "period invoice sweep skipped subscriptions");
+    } catch (err) {
+      app.log.error({ err }, "period invoice sweep failed");
+    }
+  };
+  registerJob({
+    name: "period-invoice-generation",
+    cronExpr: "20 3 * * *", // daily 03:20 firm time, just after the task sweep
+    run: () => runBilling("run"),
+    catchUp: () => runBilling("catch-up"),
   });
 
   await app.listen({ port: config.PORT, host: "0.0.0.0" });

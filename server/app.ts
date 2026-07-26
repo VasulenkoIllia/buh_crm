@@ -17,6 +17,7 @@ import { authModule } from "./modules/auth/index.js";
 import { catalogModule } from "./modules/catalog/index.js";
 import { clientsModule } from "./modules/clients/index.js";
 import { leadsModule } from "./modules/leads/index.js";
+import { paymentsModule } from "./modules/payments/index.js";
 import { settingsModule } from "./modules/settings/index.js";
 import { tasksModule } from "./modules/tasks/index.js";
 import { usersModule } from "./modules/users/index.js";
@@ -83,6 +84,7 @@ export async function buildApp() {
   await app.register(clientsModule, { prefix: "/api/clients" }); // S4 (partial — no Catalog yet)
   await app.register(leadsModule, { prefix: "/api/leads" }); // S5 (partial — no Catalog/Calendar yet)
   await app.register(tasksModule, { prefix: "/api/tasks" }); // S6
+  await app.register(paymentsModule, { prefix: "/api/invoices" }); // S7
 
   // ── Serve the built SPA in production (single-container: API + web) ────────
   // Vite builds the frontend into ./dist; this app serves it and falls back to
