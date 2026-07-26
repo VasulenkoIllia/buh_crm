@@ -15,6 +15,8 @@ export const TASKS_KEY = ["tasks"] as const;
 const TIMER_KEY = ["tasks", "timer"] as const;
 
 export interface TaskListResponse {
+  /** board only: more matching work exists than the board renders */
+  truncated?: boolean;
   items: Task[];
   total: number;
   page: number;
@@ -36,10 +38,13 @@ export interface ActiveTimer {
 }
 
 /** The board fetch — all live tasks; filtering/grouping is client-side. */
-export function useTasks() {
+/** The board asks the server for one side of the work — open, or done — never both at once. */
+export function useTasks(view: "active" | "done" = "active") {
+  const status = view === "done" ? "done" : "open";
   return useQuery({
-    queryKey: [...TASKS_KEY, "list"],
-    queryFn: () => api<TaskListResponse>("/api/tasks?view=board"),
+    queryKey: [...TASKS_KEY, "list", status],
+    queryFn: () => api<TaskListResponse>(`/api/tasks?view=board&status=${status}`),
+    placeholderData: (prev) => prev,
   });
 }
 
@@ -74,8 +79,28 @@ function useInvalidateTasks() {
   return () => queryClient.invalidateQueries({ queryKey: TASKS_KEY });
 }
 
+// Literal, like the payments module does in reverse: the two modules already reference each
+// other (payments needs the assignee directory), so importing their keys would close a cycle
+// for two constant strings. Both roots are stable (`payments.api`, `clients.api`).
+const INVOICES_KEY = ["invoices"] as const;
+const CLIENTS_KEY = ["clients"] as const;
+
+/**
+ * Creating or completing a billable one-time job ISSUES AN INVOICE server-side, which moves the
+ * client's debt. Those two mutations therefore refresh billing as well — otherwise the Billing
+ * screen and the client card keep showing yesterday's numbers.
+ */
+function useInvalidateTasksAndBilling() {
+  const queryClient = useQueryClient();
+  return () => {
+    void queryClient.invalidateQueries({ queryKey: TASKS_KEY });
+    void queryClient.invalidateQueries({ queryKey: INVOICES_KEY });
+    void queryClient.invalidateQueries({ queryKey: CLIENTS_KEY });
+  };
+}
+
 export function useCreateTask() {
-  const invalidate = useInvalidateTasks();
+  const invalidate = useInvalidateTasksAndBilling();
   return useMutation({
     mutationFn: (input: CreateTaskInput) => api<Task>("/api/tasks", { method: "POST", body: input }),
     onSuccess: invalidate,
@@ -83,7 +108,7 @@ export function useCreateTask() {
 }
 
 export function useUpdateTask() {
-  const invalidate = useInvalidateTasks();
+  const invalidate = useInvalidateTasksAndBilling();
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateTaskInput }) =>
       api<Task>(`/api/tasks/${id}`, { method: "PATCH", body: input }),

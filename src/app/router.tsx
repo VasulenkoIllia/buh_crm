@@ -1,4 +1,4 @@
-import { createBrowserRouter, Outlet } from "react-router-dom";
+import { createBrowserRouter, Navigate, Outlet, useLocation } from "react-router-dom";
 import { AuthProvider, PublicOnly, RequireAdmin, RequireAuth } from "./auth";
 import { AppLayout } from "./layout";
 import { ComingSoon } from "./coming-soon";
@@ -14,7 +14,14 @@ import { SettingsPage } from "@/modules/settings";
 import { ClientCardPage, ClientsPage } from "@/modules/clients";
 import { LeadsPage } from "@/modules/leads";
 import { ServicesPage } from "@/modules/catalog";
+import { BillingPage } from "@/modules/payments";
 import { TasksPage } from "@/modules/tasks";
+
+/** Old /unpaid path → /billing, preserving ?invoice= / ?client= deep links. */
+function RedirectToBilling() {
+  const { search } = useLocation();
+  return <Navigate to={{ pathname: "/billing", search }} replace />;
+}
 
 function Root() {
   return (
@@ -54,7 +61,10 @@ export const router = createBrowserRouter([
               { path: "clients", element: <ClientsPage /> },
               { path: "clients/:id", element: <ClientCardPage /> },
               { path: "leads", element: <LeadsPage /> },
-              { path: "unpaid", element: <ComingSoon module="Unpaid" stage="S7" /> },
+              { path: "billing", element: <BillingPage /> },
+              // the screen was called "Unpaid" until 2026-07-25 — keep old links (and any
+              // bookmarks) working, query string and all
+              { path: "unpaid", element: <RedirectToBilling /> },
               { path: "calendar", element: <ComingSoon module="Calendar" stage="S8" /> },
               { path: "services", element: <ServicesPage /> },
               { path: "mailouts", element: <ComingSoon module="Mailouts" stage="S10" /> },

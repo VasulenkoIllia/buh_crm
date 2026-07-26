@@ -4,6 +4,7 @@ import type { Client } from "@shared/schema/client";
 import type { Service } from "@shared/schema/catalog";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { cn } from "@/shared/lib/cn";
+import { fmtMoney } from "@/shared/lib/money";
 import { Button } from "@/shared/ui/button";
 import { ClientFormModal } from "./client-form";
 import { useClients, useUpdateClient } from "./clients.api";
@@ -206,7 +207,7 @@ function ClientRow({
   const companies = client.companies.map((c) => c.name).join(", ") || "—";
   const debt =
     client.debt > 0 ? (
-      <span className="text-danger-text">${(client.debt / 100).toFixed(2)}</span>
+      <span className="text-danger-text">{fmtMoney(client.debt)}</span>
     ) : (
       <span className="text-muted">—</span>
     );
@@ -250,7 +251,7 @@ function ClientRow({
           {nameCell}
           <div className="truncate text-ink-700">{companies}</div>
           <div className="tabular-nums">
-            {activeSubs.length > 0 ? `$${(subsTotal / 100).toFixed(0)}` : "—"}
+            {activeSubs.length > 0 ? fmtMoney(subsTotal) : "—"}
           </div>
           <div className="truncate text-muted">{subsPeriods}</div>
           {category}

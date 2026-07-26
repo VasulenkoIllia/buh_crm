@@ -12,6 +12,7 @@ import {
 } from "@/modules/catalog";
 import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
+import { fmtMoney } from "@/shared/lib/money";
 import { Button } from "@/shared/ui/button";
 import { ChecklistEditor } from "@/shared/ui/checklist-editor";
 import { Input, Label, Select } from "@/shared/ui/field";
@@ -215,7 +216,7 @@ export function SubscriptionList({ client }: { client: Client }) {
                 <span className="text-[12px] text-[#9aa1ab]">· {taskCount} tasks</span>
               )}
               {company && <span className="text-[12px] text-muted">({company})</span>}
-              <span className="ml-auto tabular-nums">${(sub.amount / 100).toFixed(2)}</span>
+              <span className="ml-auto tabular-nums">{fmtMoney(sub.amount)}</span>
               <span className="text-[12px] text-muted">
                 {service?.type === "one_time"
                   ? "per job" // container for manual jobs — period/billing don't apply
@@ -709,7 +710,7 @@ export function AddServiceModal({
                 {s.type === "subscription" ? "Subscription" : "One-time"}
               </span>
               <span className="ml-auto text-[12px] text-muted">
-                {s.defaultAmount != null ? `$${(s.defaultAmount / 100).toFixed(0)} expected` : "—"}
+                {s.defaultAmount != null ? `${fmtMoney(s.defaultAmount)} expected` : "—"}
               </span>
             </button>
           ))}

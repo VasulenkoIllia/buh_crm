@@ -51,6 +51,8 @@ export const INVOICE_STATUS_COLORS: Record<string, ChipColors> = {
   partial: { fg: "#b5651d", bg: "#f7ede2" },
   paid: { fg: "#1f8f3a", bg: "#e6f4ea" },
   overdue: { fg: "#c23434", bg: "#fbeaea" },
+  // voided (S7): reads as inactive — it owes nothing and sits out of every working list
+  cancelled: { fg: "#9aa1ab", bg: "#f1f3f6" },
 };
 
 /**

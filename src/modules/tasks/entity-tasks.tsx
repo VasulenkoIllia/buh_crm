@@ -5,6 +5,7 @@ import { useSettings } from "@/modules/settings";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { Chip } from "@/shared/ui/chip";
+import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
 import { isOverdue, fmtDate } from "./lib";
 import { TaskDetailsModal, TaskFormModal, type Target } from "./task-modals";
 import { fmtDuration } from "./timer";
@@ -122,9 +123,7 @@ function TaskRow({
         </Chip>
       )}
       {task.invoice && (
-        <Chip tone="blue" size="sm" strong>
-          💰 {task.invoice.number}
-        </Chip>
+        <InvoiceStatusPill status={task.invoice.status} prefix="💰" size="sm" />
       )}
       {task.kind === "free" && task.clientId && (
         <Chip tone="teal" size="sm">

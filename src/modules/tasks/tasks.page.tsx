@@ -12,11 +12,11 @@ import {
 import type { Task, TaskColumn } from "@shared/schema/task";
 import { useAuth } from "@/app/auth";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
-import { useClients } from "@/modules/clients";
 import { useSettings } from "@/modules/settings";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { Chip } from "@/shared/ui/chip";
+import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
 import { Segmented } from "@/shared/ui/segmented";
 import { isOverdue, fmtDay, initials } from "./lib";
 import { DoneToggle, TaskTimerButton } from "./task-controls";
@@ -38,16 +38,15 @@ type ViewTab = "active" | "done";
 
 export function TasksPage() {
   const { user } = useAuth();
-  const { data, isLoading, error, refetch } = useTasks();
+  const [view, setView] = useState<ViewTab>("active");
+  const { data, isLoading, error, refetch } = useTasks(view);
   const { data: columns } = useTaskColumns();
   const { data: team } = useAssignees();
-  const { data: clientsResp } = useClients({ tab: "all", pageSize: 100 });
 
   const [pill, setPill] = useState<FilterPill>("all");
   const [clientFilter, setClientFilter] = useState("");
   const [assigneeFilter, setAssigneeFilter] = useState("");
   const [layout, setLayout] = useState<Layout>("board");
-  const [view, setView] = useState<ViewTab>("active");
   const [formOpen, setFormOpen] = useState(false);
   const [formColumnId, setFormColumnId] = useState<string | undefined>();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -77,13 +76,22 @@ export function TasksPage() {
 
   const tasks = useMemo(() => {
     let list = data?.items ?? [];
-    list = list.filter((t) => (view === "done" ? t.done : !t.done));
     if (pill === "mine" && user) list = list.filter((t) => t.assignees.includes(user.id));
     if (pill === "overdue") list = list.filter(isOverdue);
     if (clientFilter) list = list.filter((t) => t.clientId === clientFilter);
     if (assigneeFilter) list = list.filter((t) => t.assignees.includes(assigneeFilter));
     return list;
-  }, [data, view, pill, user, clientFilter, assigneeFilter]);
+  }, [data, pill, user, clientFilter, assigneeFilter]);
+
+  // the client filter lists the targets that actually have tasks here — built from the loaded
+  // board itself, so it neither needs a clients request nor caps out at a page of clients
+  const targetOptions = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const t of data?.items ?? []) {
+      if (t.clientId && t.clientName) byId.set(t.clientId, t.clientName);
+    }
+    return [...byId].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [data]);
 
   const selected = selectedId ? (data?.items ?? []).find((t) => t.id === selectedId) : null;
 
@@ -114,9 +122,9 @@ export function TasksPage() {
         </div>
         <select className={selectCls} value={clientFilter} onChange={(e) => setClientFilter(e.target.value)}>
           <option value="">All clients</option>
-          {(clientsResp?.items ?? []).map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.displayName}
+          {targetOptions.map(([id, name]) => (
+            <option key={id} value={id}>
+              {name}
             </option>
           ))}
         </select>
@@ -149,6 +157,12 @@ export function TasksPage() {
         </div>
       </div>
 
+      {data?.truncated && (
+        <p className="flex-none bg-[#f7ede2] px-6 py-2 text-[12px] text-[#b5651d]">
+          Showing the {data.items.length} most recent of {data.total} open tasks — narrow by client
+          or assignee, or use the Table view to page through all of them.
+        </p>
+      )}
       {isLoading && <p className="p-6 text-[13px] text-muted">Loading…</p>}
       {error && (
         <div className="m-6 rounded-[10px] border border-[#f0c9c9] bg-surface p-11 text-center">
@@ -435,7 +449,7 @@ function BoardCard({
       </div>
       {(task.clientId || service) && (
         <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] text-muted">
-          <ClientName clientId={task.clientId} />
+          <TargetName task={task} />
           {service && <ServiceChip name={service.name} color={service.color} />}
         </div>
       )}
@@ -478,9 +492,7 @@ function BoardCard({
         {task.kind === "free" && !task.clientId && <Chip tone="amber">internal</Chip>}
         {task.kind === "free" && task.clientId && <Chip tone="teal">included</Chip>}
         {task.invoice && (
-          <Chip tone="blue" strong>
-            💰 {task.invoice.number}
-          </Chip>
+          <InvoiceStatusPill status={task.invoice.status} prefix="💰" size="sm" />
         )}
         {task.kind === "once" && !task.invoice && <Chip tone="amber">⏳ unbilled</Chip>}
         {task.kind === "sub" && <Chip tone="blue">📅 auto</Chip>}
@@ -493,10 +505,9 @@ function BoardCard({
   );
 }
 
-function ClientName({ clientId }: { clientId: string | null }) {
-  const { data: clientsResp } = useClients({ tab: "all", pageSize: 100 });
-  if (!clientId) return null;
-  const name = clientsResp?.items.find((c) => c.id === clientId)?.displayName;
+/** The task carries its own target label (server-side) — no clients page to look it up in. */
+function TargetName({ task }: { task: Task }) {
+  const name = task.clientName ?? task.leadName;
   return name ? <span>{name}</span> : null;
 }
 
@@ -582,7 +593,7 @@ function TaskTable({
               />
               <span className="min-w-0 truncate font-medium">{t.title}</span>
               <span className="min-w-0 truncate text-muted">
-                <ClientName clientId={t.clientId} />
+                <TargetName task={t} />
               </span>
               <span className="min-w-0 truncate text-muted">
                 {assignee ? `${assignee.firstName} ${assignee.lastName}` : "—"}

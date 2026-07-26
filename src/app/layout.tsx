@@ -25,7 +25,7 @@ const NAV = [
   { to: "/tasks", label: "Tasks", icon: Kanban },
   { to: "/clients", label: "Clients", icon: Users },
   { to: "/leads", label: "Leads", icon: UserRound },
-  { to: "/unpaid", label: "Unpaid", icon: CircleDollarSign },
+  { to: "/billing", label: "Billing", icon: CircleDollarSign },
   { to: "/calendar", label: "Calendar", icon: Calendar },
   { to: "/services", label: "Services", icon: Layers },
   { to: "/mailouts", label: "Mailouts", icon: Mail },

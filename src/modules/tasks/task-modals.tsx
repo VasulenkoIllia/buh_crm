@@ -9,11 +9,13 @@ import { LeadFormModal, useLeads } from "@/modules/leads";
 import { useSettings } from "@/modules/settings";
 import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
+import { fmtMoney } from "@/shared/lib/money";
 import { AssigneePicker } from "@/shared/ui/assignee-picker";
 import { Button } from "@/shared/ui/button";
 import { ChecklistEditor } from "@/shared/ui/checklist-editor";
 import { Chip } from "@/shared/ui/chip";
 import { Input, Label, Select, Textarea } from "@/shared/ui/field";
+import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
 import { Modal } from "@/shared/ui/modal";
 import { pillCls } from "@/shared/ui/pill";
 import { Segmented } from "@/shared/ui/segmented";
@@ -354,7 +356,7 @@ export function TaskFormModal({
 
         {editing && task!.invoice && (
           <p className="rounded-(--radius-field) bg-[#eef1fb] px-3 py-2 text-[12px] text-primary-link">
-            💰 Invoice {task!.invoice.number} · ${(task!.invoice.amount / 100).toFixed(2)} — price locked.
+            💰 Invoice {task!.invoice.number} · {fmtMoney(task!.invoice.amount)} — price locked.
           </p>
         )}
 
@@ -805,14 +807,7 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
               </div>
             </Field>
           )}
-          {task.invoice && (
-            <Field label="Invoice">
-              <span className="font-medium text-primary-link">💰 {task.invoice.number}</span> · $
-              {(task.invoice.amount / 100).toFixed(2)}
-              {task.invoice.dueDate &&
-                ` · due ${new Date(task.invoice.dueDate).toLocaleDateString("en-GB")}`}
-            </Field>
-          )}
+          {task.invoice && <InvoiceField invoice={task.invoice} />}
         </div>
 
         <div>
@@ -859,6 +854,45 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
         </div>
       </div>
     </Modal>
+  );
+}
+
+/**
+ * The job's invoice on the task card: what was billed, how much of it is settled, whether it
+ * has been sent — and a way straight into the invoice itself (Billing opens it via ?invoice=).
+ */
+function InvoiceField({ invoice }: { invoice: NonNullable<Task["invoice"]> }) {
+  return (
+    <Field label="Invoice">
+      <div className="flex flex-wrap items-center gap-2">
+        <Link
+          to={`/billing?invoice=${invoice.id}`}
+          className="font-medium text-primary-link hover:underline"
+        >
+          💰 {invoice.number}
+        </Link>
+        <InvoiceStatusPill status={invoice.status} size="sm" />
+        {invoice.sentAt ? (
+          <Chip tone="teal" size="sm">
+            ✉ sent
+          </Chip>
+        ) : (
+          <Chip tone="gray" size="sm">
+            not sent
+          </Chip>
+        )}
+      </div>
+      <div className="mt-1 text-[12px] text-muted">
+        {fmtMoney(invoice.amount)}
+        {invoice.paid > 0 && ` · paid ${fmtMoney(invoice.paid)}`}
+        {invoice.balance > 0 && invoice.paid > 0 && ` · left ${fmtMoney(invoice.balance)}`}
+        {invoice.dueDate && (
+          <span className={cn(invoice.status === "overdue" && "text-danger-text")}>
+            {` · due ${new Date(invoice.dueDate).toLocaleDateString("en-GB")}`}
+          </span>
+        )}
+      </div>
+    </Field>
   );
 }
 

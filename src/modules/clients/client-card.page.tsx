@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { Check, Download, Trash2 } from "lucide-react";
 import type { Client } from "@shared/schema/client";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
+import { EntityInvoices } from "@/modules/payments";
 import { EntityTasks } from "@/modules/tasks";
 import { useSettings } from "@/modules/settings";
 import { ApiError } from "@/shared/lib/api";
@@ -32,7 +33,6 @@ const TABS = [
 type TabKey = (typeof TABS)[number]["key"];
 
 const TAB_STAGE: Partial<Record<TabKey, string>> = {
-  invoices: "S7",
   meetings: "S8",
 };
 
@@ -133,6 +133,7 @@ export function ClientCardPage() {
       {tab === "tasks" && (
         <EntityTasks target={{ kind: "client", id: client.id, label: client.displayName }} />
       )}
+      {tab === "invoices" && <EntityInvoices client={client} />}
       {tab === "services" && <ServicesTab client={client} />}
       {tab === "files" && <FilesTab clientId={client.id} />}
       {TAB_STAGE[tab] && (
