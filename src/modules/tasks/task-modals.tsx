@@ -19,6 +19,7 @@ import { Input, Label, Select, Textarea } from "@/shared/ui/field";
 import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
 import { Modal } from "@/shared/ui/modal";
 import { pillCls } from "@/shared/ui/pill";
+import { SearchSelect } from "@/shared/ui/search-select";
 import { Segmented } from "@/shared/ui/segmented";
 import { DoneToggle, TaskTimerButton } from "./task-controls";
 import { fmtDuration } from "./timer";
@@ -207,6 +208,7 @@ export function TaskFormModal({
     <Modal
       title={task ? "Edit task" : "New task"}
       open
+      size="lg"
       onClose={onClose}
       footer={
         <>
@@ -222,36 +224,54 @@ export function TaskFormModal({
         </>
       }
     >
-      <div className="space-y-3.5">
+      {/*
+        Two columns so the whole form fits without scrolling: WHAT the task is on the left
+        (type, name, target, service, price), HOW it's run on the right (column, priority,
+        time, deadline, people, steps). Collapses to one column on a narrow window.
+      */}
+      <div className="grid grid-cols-1 gap-x-5 gap-y-3 md:grid-cols-2">
         {editing && (
-          <p className="rounded-(--radius-field) bg-[#eef1fb] px-3 py-2 text-[12px] text-primary-link">
+          <p className="rounded-(--radius-field) bg-[#eef1fb] px-3 py-2 text-[12px] text-primary-link md:col-span-2">
             {task!.kind === "sub"
               ? "📅 Generated from a subscription — target & billing are managed there."
               : "Editing workflow fields — the target (client/service) can't be changed here."}
           </p>
         )}
 
-        {!editing && (
+        {/* ── left: what the task is ─────────────────────────────────────── */}
+        <div className="space-y-3">
+          {!editing && (
+            <div>
+              <Label>Task type</Label>
+              <Segmented
+                value={type}
+                onChange={(v) => {
+                  setType(v as "client" | "internal");
+                  setTarget(null);
+                  setSubscriptionId("");
+                  setAmount(null);
+                }}
+                options={[
+                  { value: "client", label: "Client / lead work" },
+                  { value: "internal", label: "Internal" },
+                ]}
+              />
+            </div>
+          )}
+
+          {/* the name comes first: it's what you always fill, and where the cursor lands */}
           <div>
-            <Label>Task type</Label>
-            <Segmented
-              value={type}
-              onChange={(v) => {
-                setType(v as "client" | "internal");
-                setTarget(null);
-                setSubscriptionId("");
-                setAmount(null);
-              }}
-              options={[
-                { value: "client", label: "Client / lead work" },
-                { value: "internal", label: "Internal" },
-              ]}
+            <Label>Task name</Label>
+            <Input
+              autoFocus
+              value={title}
+              placeholder="e.g. Prepare the VAT report"
+              onChange={(e) => setTitle(e.target.value)}
             />
           </div>
-        )}
 
-        {!editing && type === "client" && (
-          <>
+          {!editing && type === "client" && (
+            <>
             <div>
               <Label>Client or lead</Label>
               <ClientLeadSearch
@@ -276,23 +296,26 @@ export function TaskFormModal({
                 client.subscriptions.filter((s) => s.active).length > 0 ? (
                   <div>
                     <Label>Which service (company is set by it)</Label>
-                    <Select value={subscriptionId} onChange={(e) => pickSubscription(e.target.value)}>
-                      <option value="">— pick a service —</option>
-                      {client.subscriptions
+                    {/* a multi-company client can carry a long list — searchable */}
+                    <SearchSelect
+                      value={subscriptionId}
+                      onChange={pickSubscription}
+                      placeholder="Search this client's services…"
+                      emptyLabel="— pick a service —"
+                      options={client.subscriptions
                         .filter((s) => s.active)
                         .map((s) => {
                           const svc = services?.find((x) => x.id === s.serviceId);
                           const co = s.companyId
                             ? client.companies.find((c) => c.id === s.companyId)?.name
                             : "main";
-                          return (
-                            <option key={s.id} value={s.id}>
-                              {svc?.name ?? "service"} · {co}
-                              {svc?.type === "one_time" ? " · one-time (billable)" : " · included"}
-                            </option>
-                          );
+                          return {
+                            value: s.id,
+                            label: `${svc?.name ?? "service"} · ${co}`,
+                            hint: svc?.type === "one_time" ? "· one-time (billable)" : "· included",
+                          };
                         })}
-                    </Select>
+                    />
                   </div>
                 ) : (
                   <p className="rounded-(--radius-field) bg-[#fdf5f5] px-3 py-2 text-[12px] text-danger-text">
@@ -301,38 +324,33 @@ export function TaskFormModal({
                 )
               ) : null)}
 
-            {subscription && (
-              <p className="rounded-(--radius-field) bg-[#f7f8fa] px-3 py-2 text-[12px] text-muted">
-                {companyName ? `Company: ${companyName}. ` : "Client (main). "}
-                {isOneTimeJob
-                  ? "One-time job — an invoice is issued per the service rule."
-                  : "Extra work included in the subscription — no charge."}
-              </p>
-            )}
+              {subscription && (
+                <p className="rounded-(--radius-field) bg-[#f7f8fa] px-3 py-2 text-[12px] text-muted">
+                  {companyName ? `Company: ${companyName}` : "Client (main)"} ·{" "}
+                  {isOneTimeJob
+                    ? "billable job — invoice per the service rule"
+                    : "included in the subscription — no charge"}
+                </p>
+              )}
 
-            {isOneTimeJob && subService && subService.taskTemplates.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
-                <span className="text-muted">Preset:</span>
-                {subService.taskTemplates.map((t) => (
-                  <button key={t.id} type="button" className={pillCls(false)} onClick={() => applyPreset(t.id)}>
-                    {t.name}
-                  </button>
-                ))}
-              </div>
-            )}
-          </>
-        )}
+              {isOneTimeJob && subService && subService.taskTemplates.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
+                  <span className="text-muted">Preset:</span>
+                  {subService.taskTemplates.map((t) => (
+                    <button key={t.id} type="button" className={pillCls(false)} onClick={() => applyPreset(t.id)}>
+                      {t.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
 
-        <div>
-          <Label>Task name</Label>
-          <Input value={title} placeholder="e.g. Prepare the VAT report" onChange={(e) => setTitle(e.target.value)} />
-        </div>
-
-        {isOneTimeJob && (!editing || !task!.invoice) && (
-          <div className="rounded-(--radius-field) bg-[#f7f8fa] p-3">
-            <Label>Price for this job</Label>
-            <div className="flex items-center gap-2">
-              <span className="text-[13px] text-muted">$</span>
+          {/* one row: the line above already says an invoice follows the service's rule */}
+          {isOneTimeJob && (!editing || !task!.invoice) && (
+            <div className="flex items-center gap-2 rounded-(--radius-field) bg-[#f7f8fa] px-3 py-2">
+              <span className="text-[12px] font-medium text-ink-700">Price for this job</span>
+              <span className="ml-auto text-[13px] text-muted">$</span>
               <Input
                 className="w-28"
                 type="number"
@@ -343,57 +361,59 @@ export function TaskFormModal({
                 }
               />
             </div>
-            <p className="mt-1 text-[12px] text-faint">
-              An invoice is issued for this amount per the service billing rule.
+          )}
+
+          {editing && task!.invoice && (
+            <p className="rounded-(--radius-field) bg-[#eef1fb] px-3 py-2 text-[12px] text-primary-link">
+              💰 Invoice {task!.invoice.number} · {fmtMoney(task!.invoice.amount)} — price locked.
             </p>
-          </div>
-        )}
+          )}
+        </div>
 
-        {editing && task!.invoice && (
-          <p className="rounded-(--radius-field) bg-[#eef1fb] px-3 py-2 text-[12px] text-primary-link">
-            💰 Invoice {task!.invoice.number} · {fmtMoney(task!.invoice.amount)} — price locked.
-          </p>
-        )}
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label>Column</Label>
-            <Select value={statusColumnId} onChange={(e) => setStatusColumnId(e.target.value)}>
-              <option value="">New (default)</option>
-              {(columns ?? [])
-                .filter((c) => !c.isFixed)
-                .map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
+        {/* ── right: how it's run ────────────────────────────────────────── */}
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Column</Label>
+              <Select value={statusColumnId} onChange={(e) => setStatusColumnId(e.target.value)}>
+                <option value="">New (default)</option>
+                {(columns ?? [])
+                  .filter((c) => !c.isFixed)
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+              </Select>
+            </div>
+            <div>
+              <Label>Priority</Label>
+              <Select value={priorityId} onChange={(e) => setPriorityId(e.target.value)}>
+                <option value="">Default</option>
+                {(settings?.priorities ?? []).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
                   </option>
                 ))}
-            </Select>
+              </Select>
+            </div>
           </div>
-          <div>
-            <Label>Priority</Label>
-            <Select value={priorityId} onChange={(e) => setPriorityId(e.target.value)}>
-              <option value="">Default</option>
-              {(settings?.priorities ?? []).map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </Select>
+
+          <div className="grid grid-cols-[7rem_1fr] gap-3">
+            <div>
+              <Label>Planned (min)</Label>
+              <Input
+                type="number"
+                min={1}
+                value={plannedMinutes ?? ""}
+                onChange={(e) => setPlannedMinutes(e.target.value ? Number(e.target.value) : null)}
+              />
+            </div>
+            <div>
+              <Label>Deadline (optional)</Label>
+              <Input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+            </div>
           </div>
-        </div>
-
-        <div>
-          <Label>Planned time (min)</Label>
-          <Input
-            type="number"
-            min={1}
-            value={plannedMinutes ?? ""}
-            onChange={(e) => setPlannedMinutes(e.target.value ? Number(e.target.value) : null)}
-          />
-        </div>
-
-        <div>
-          <Label>Deadline (optional)</Label>
           <div className="flex flex-wrap items-center gap-1.5">
             {[1, 2, 5].map((d) => (
               <button
@@ -408,39 +428,35 @@ export function TaskFormModal({
             <button type="button" className={pillCls(deadline === "")} onClick={() => setDeadline("")}>
               none
             </button>
-            <Input
-              className="w-36"
-              type="date"
-              value={deadline}
-              onChange={(e) => setDeadline(e.target.value)}
+          </div>
+
+          <div>
+            <Label>Assignees</Label>
+            <AssigneePicker
+              users={team ?? []}
+              selected={(id) => assignees.has(id)}
+              onToggle={toggleAssignee}
+            />
+          </div>
+
+          <div>
+            <Label>Checklist</Label>
+            <ChecklistEditor value={subtasks} onChange={setSubtasks} />
+          </div>
+
+          <div>
+            <Label>Description</Label>
+            <Textarea
+              className="h-[60px]"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
             />
           </div>
         </div>
 
-        <div>
-          <Label>Assignees</Label>
-          <AssigneePicker
-            users={team ?? []}
-            selected={(id) => assignees.has(id)}
-            onToggle={toggleAssignee}
-          />
-        </div>
-
-        <div>
-          <Label>Description</Label>
-          <Textarea
-            className="h-[74px]"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </div>
-
-        <div>
-          <Label>Checklist</Label>
-          <ChecklistEditor value={subtasks} onChange={setSubtasks} />
-        </div>
-
-        {serverError && <p className="text-[12px] text-danger-text">{serverError}</p>}
+        {serverError && (
+          <p className="text-[12px] text-danger-text md:col-span-2">{serverError}</p>
+        )}
       </div>
     </Modal>
   );

@@ -17,6 +17,7 @@ import { FormField, Input, Label, Textarea } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
 import { pillCls } from "@/shared/ui/pill";
 import { Segmented } from "@/shared/ui/segmented";
+import { Tabs } from "@/shared/ui/tabs";
 import {
   useAddTemplate,
   useCatalog,
@@ -110,36 +111,7 @@ export function ServicesPage() {
           : "Internal recurring tasks (no client, no billing): each template auto-generates a firm-internal task on its rhythm."}
       </p>
 
-      <div className="mb-4 flex gap-1 border-b border-border">
-        {TABS.map((t) => {
-          const isActive = tab === t.value;
-          const Icon = t.icon;
-          return (
-            <button
-              key={t.value}
-              type="button"
-              onClick={() => setTab(t.value)}
-              className={cn(
-                "-mb-px flex items-center gap-2 border-b-2 px-3 pb-2.5 pt-1.5 text-[13px] font-medium transition-colors",
-                isActive
-                  ? "border-primary text-ink"
-                  : "border-transparent text-muted hover:text-ink-700",
-              )}
-            >
-              <Icon size={15} strokeWidth={2} />
-              {t.label}
-              <span
-                className={cn(
-                  "rounded-full px-1.5 py-px text-[11px] font-semibold tabular-nums",
-                  isActive ? "bg-primary/10 text-primary-link" : "bg-divider text-muted",
-                )}
-              >
-                {t.count}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      <Tabs className="mb-4" value={tab} onChange={setTab} options={TABS} />
 
       {shown.length === 0 ? (
         <div className="rounded-(--radius-panel) border border-dashed border-[#cfd4db] bg-surface p-12 text-center">
@@ -537,6 +509,8 @@ function ServiceEditorModal({
         >
           <Input
             id="s-name"
+            // the name is the first thing you type — open the modal and start typing
+            autoFocus
             placeholder={isInternal ? "e.g. Compliance" : "e.g. Bookkeeping"}
             error={!!errors.name}
             {...register("name")}

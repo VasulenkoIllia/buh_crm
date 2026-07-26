@@ -11,9 +11,10 @@ import { fmtMoney, moneyInputValue, parseMoney } from "@/shared/lib/money";
 import { AssigneePicker } from "@/shared/ui/assignee-picker";
 import { Button } from "@/shared/ui/button";
 import { Chip } from "@/shared/ui/chip";
-import { FormField, Input, Select, Textarea } from "@/shared/ui/field";
+import { FormField, Input, Textarea } from "@/shared/ui/field";
 import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
 import { Modal } from "@/shared/ui/modal";
+import { SearchSelect } from "@/shared/ui/search-select";
 import { Segmented } from "@/shared/ui/segmented";
 import {
   useAddPayment,
@@ -600,21 +601,23 @@ export function NewInvoiceModal({
         </FormField>
 
         <FormField label="Service (optional — pins the company target)">
-          <Select
+          <SearchSelect
             value={subscriptionId}
-            onChange={(e) => setSubscriptionId(e.target.value)}
+            onChange={setSubscriptionId}
             disabled={!clientId}
-          >
-            <option value="">No service — a plain charge</option>
-            {subscriptions.map((s) => (
-              <option key={s.id} value={s.id}>
-                {serviceName(s.serviceId)}
-                {s.companyId
-                  ? ` · ${client.data?.companies.find((c) => c.id === s.companyId)?.name ?? "company"}`
-                  : ""}
-              </option>
-            ))}
-          </Select>
+            placeholder={clientId ? "Search this client's services…" : "Pick a client first"}
+            emptyLabel="No service — a plain charge"
+            options={
+              clientId
+                ? subscriptions.map((s) => ({
+                    value: s.id,
+                    label: s.companyId
+                      ? `${serviceName(s.serviceId)} · ${client.data?.companies.find((c) => c.id === s.companyId)?.name ?? "company"}`
+                      : serviceName(s.serviceId),
+                  }))
+                : []
+            }
+          />
         </FormField>
 
         <FormField label="Description">

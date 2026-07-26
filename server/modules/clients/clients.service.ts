@@ -244,13 +244,11 @@ export async function updateClient(id: string, input: UpdateClientInput) {
   // runs when `type` is in the patch, which routine edits omit)
   const type = input.type ?? existing.type;
   const firstName = input.firstName !== undefined ? input.firstName : existing.firstName;
-  const lastName = input.lastName !== undefined ? input.lastName : existing.lastName;
   const companyName = input.companyName !== undefined ? input.companyName : existing.companyName;
-  const valid = type === "individual" ? !!firstName && !!lastName : !!companyName;
+  // last name stays optional — only what makes the client identifiable is enforced
+  const valid = type === "individual" ? !!firstName : !!companyName;
   if (!valid) {
-    throw new ValidationError(
-      "Individual needs first and last name; company needs a company name",
-    );
+    throw new ValidationError("Individual needs a first name; company needs a company name");
   }
 
   if (input.people !== undefined) await assertPeopleServicesClientFacing(input.people);

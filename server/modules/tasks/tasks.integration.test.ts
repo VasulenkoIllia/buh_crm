@@ -466,6 +466,13 @@ describe("tasks", () => {
     expect(overdueTitles).not.toContain("Due today");
     expect(overdueTitles).not.toContain("Later");
 
+    // filters NARROW each other — they never overwrite. "Overdue" is open work by definition,
+    // so combining it with status=done must return nothing rather than quietly listing open
+    // tasks under a "Done" heading.
+    const contradiction = await list("view=board&status=done&overdue=true");
+    expect(contradiction.items).toHaveLength(0);
+    expect(contradiction.total).toBe(0);
+
     const mine = await list(`view=board&status=open&assigneeId=${userId}`);
     expect(mine.items.map((t: { title: string }) => t.title)).toEqual(["Mine"]);
 
@@ -492,6 +499,60 @@ describe("tasks", () => {
     expect(names).not.toContain("Unfiltered Tasks"); // no tasks → not offered as a filter
     expect(other).toBeTruthy();
     expect(late.statusCode).toBe(201);
+  });
+
+  // the Done view is a WINDOW over completed work, not the whole history
+  it("stamps completedAt and windows the Done view by it", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/tasks",
+      headers: { cookie: adminCookie },
+      payload: { title: "Finished today", clientId: null, leadId: null, subscriptionId: null },
+    });
+    const taskId = created.json().id;
+    expect(created.json().completedAt).toBeNull(); // open work carries no stamp
+
+    const done = await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/${taskId}`,
+      headers: { cookie: adminCookie },
+      payload: { done: true },
+    });
+    expect(done.json().completedAt).not.toBeNull();
+
+    const inWindow = await app.inject({
+      method: "GET",
+      url: "/api/tasks?view=board&status=done&doneWithinDays=7",
+      headers: { cookie: adminCookie },
+    });
+    expect(inWindow.json().items.map((t: { id: string }) => t.id)).toContain(taskId);
+
+    // backdate it beyond the window — same task, now out of view
+    await prisma.task.update({
+      where: { id: taskId },
+      data: { completedAt: new Date(Date.now() - 30 * 86_400_000) },
+    });
+    const stillWeek = await app.inject({
+      method: "GET",
+      url: "/api/tasks?view=board&status=done&doneWithinDays=7",
+      headers: { cookie: adminCookie },
+    });
+    expect(stillWeek.json().items.map((t: { id: string }) => t.id)).not.toContain(taskId);
+    const allTime = await app.inject({
+      method: "GET",
+      url: "/api/tasks?view=board&status=done",
+      headers: { cookie: adminCookie },
+    });
+    expect(allTime.json().items.map((t: { id: string }) => t.id)).toContain(taskId);
+
+    // reopening clears the stamp — it must never describe an old completion
+    const reopened = await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/${taskId}`,
+      headers: { cookie: adminCookie },
+      payload: { done: false },
+    });
+    expect(reopened.json().completedAt).toBeNull();
   });
 
   it("generates tasks on the rhythm day, idempotently, honoring per-client overrides", async () => {

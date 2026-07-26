@@ -7,6 +7,7 @@ import { fmtDate } from "@/shared/lib/format";
 import { fmtMoney } from "@/shared/lib/money";
 import { Button } from "@/shared/ui/button";
 import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
+import { FilterChips } from "@/shared/ui/tabs";
 import { InvoiceModal, NewInvoiceModal } from "./invoice-modals";
 import {
   useBulkArchive,
@@ -147,41 +148,20 @@ export function BillingPage() {
         </Button>
       </div>
 
-      <div className="mb-4 flex flex-wrap gap-2">
-        {FILTERS.map((f) => {
-          const active = filter === f.key;
-          const count = data?.counts[f.key];
-          return (
-            <button
-              key={f.key}
-              type="button"
-              onClick={() => {
-                setFilter(f.key);
-                resetView();
-              }}
-              className={cn(
-                "rounded-(--radius-field) px-3 py-1.5 text-[12px] font-medium",
-                active
-                  ? "bg-ink text-white"
-                  : "border border-border bg-surface text-ink-700 hover:bg-divider",
-                !active && f.key === "overdue" && count ? "text-danger-text" : "",
-              )}
-            >
-              {f.label}
-              {count !== undefined && (
-                <span
-                  className={cn(
-                    "ml-1.5 rounded-[10px] px-1.5 py-px text-[11px] font-semibold",
-                    active ? "bg-white/20 text-white" : "bg-[#e7eaef] text-muted-400",
-                  )}
-                >
-                  {count}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
+      <FilterChips
+        className="mb-4"
+        value={filter}
+        onChange={(key) => {
+          setFilter(key);
+          resetView();
+        }}
+        options={FILTERS.map((f) => ({
+          value: f.key,
+          label: f.label,
+          count: data?.counts[f.key],
+          tone: f.key === "overdue" ? ("danger" as const) : undefined,
+        }))}
+      />
 
       {loadError && (
         <div className="rounded-(--radius-panel) border border-[#f0c9c9] bg-surface p-11 text-center">

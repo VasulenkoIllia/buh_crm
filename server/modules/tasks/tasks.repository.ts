@@ -67,12 +67,13 @@ export async function listTasks(args: {
   where: Prisma.TaskWhereInput;
   skip: number;
   take: number;
+  orderBy?: Prisma.TaskOrderByWithRelationInput[];
 }) {
   const [items, total] = await prisma.$transaction([
     prisma.task.findMany({
       where: args.where,
       include: taskInclude,
-      orderBy: { createdAt: "desc" },
+      orderBy: args.orderBy ?? [{ createdAt: "desc" }],
       skip: args.skip,
       take: args.take,
     }),

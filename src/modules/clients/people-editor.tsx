@@ -3,7 +3,8 @@ import { isClientFacing } from "@shared/schema/catalog";
 import type { Client, ClientPersonInput } from "@shared/schema/client";
 import { useCatalog } from "@/modules/catalog";
 import { Button } from "@/shared/ui/button";
-import { Input, Select } from "@/shared/ui/field";
+import { Input } from "@/shared/ui/field";
+import { SearchSelect } from "@/shared/ui/search-select";
 
 /** One editable contact row. `role` isn't edited in the UI (kept null server-side). */
 export type PersonRow = {
@@ -62,24 +63,24 @@ export function PeopleEditor({
               value={row.name}
               onChange={(e) => set(i, { name: e.target.value })}
             />
-            <Select
-              className="flex-1"
-              aria-label="Service they handle"
-              value={row.serviceId}
-              onChange={(e) => set(i, { serviceId: e.target.value })}
-            >
-              <option value="">
-                {row.serviceLabel ? `${row.serviceLabel} (legacy)` : "Service they handle…"}
-              </option>
-              {services
-                ?.filter((s) => isClientFacing(s) && (s.active || s.id === row.serviceId))
-                .map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                    {!s.active ? " (inactive)" : ""}
-                  </option>
-                ))}
-            </Select>
+            <div className="flex-1">
+              <SearchSelect
+                ariaLabel="Service they handle"
+                value={row.serviceId}
+                onChange={(v) => set(i, { serviceId: v })}
+                placeholder={
+                  row.serviceLabel ? `${row.serviceLabel} (legacy)` : "Service they handle…"
+                }
+                emptyLabel={row.serviceLabel ? `${row.serviceLabel} (legacy)` : "—"}
+                options={(services ?? [])
+                  .filter((s) => isClientFacing(s) && (s.active || s.id === row.serviceId))
+                  .map((s) => ({
+                    value: s.id,
+                    label: s.name,
+                    hint: s.active ? undefined : "(inactive)",
+                  }))}
+              />
+            </div>
             <button
               type="button"
               aria-label="Remove person"

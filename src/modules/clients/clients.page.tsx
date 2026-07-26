@@ -6,6 +6,7 @@ import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { cn } from "@/shared/lib/cn";
 import { fmtMoney } from "@/shared/lib/money";
 import { Button } from "@/shared/ui/button";
+import { FilterChips } from "@/shared/ui/tabs";
 import { ClientFormModal } from "./client-form";
 import { useClients, useUpdateClient } from "./clients.api";
 
@@ -55,40 +56,19 @@ export function ClientsPage() {
         </Button>
       </div>
 
-      <div className="mb-4 flex gap-2">
-        {TABS.map((t) => {
-          const active = tab === t.key;
-          const count = data?.counts[t.key];
-          return (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => {
-                setTab(t.key);
-                setPage(1);
-              }}
-              className={cn(
-                "whitespace-nowrap rounded-(--radius-field) px-3.5 py-2 text-[13px] font-medium",
-                active
-                  ? "bg-primary text-white"
-                  : "border border-border bg-[#f1f3f6] text-ink-700 hover:bg-divider",
-              )}
-            >
-              {t.label}
-              {count !== undefined && (
-                <span
-                  className={cn(
-                    "ml-1.5 rounded-[10px] px-1.5 py-px text-[11px] font-semibold",
-                    active ? "bg-white/20 text-white" : "bg-[#e7eaef] text-muted-400",
-                  )}
-                >
-                  {count}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
+      <FilterChips
+        className="mb-4"
+        value={tab}
+        onChange={(key) => {
+          setTab(key);
+          setPage(1);
+        }}
+        options={TABS.map((t) => ({
+          value: t.key,
+          label: t.label,
+          count: data?.counts[t.key],
+        }))}
+      />
 
       {error && <p className="text-[13px] text-danger-text">Failed to load clients.</p>}
       {isLoading && <SkeletonList />}

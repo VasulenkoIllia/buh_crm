@@ -17,8 +17,11 @@ export function Segmented<T extends string>({
           type="button"
           onClick={() => onChange(opt.value)}
           className={cn(
-            "flex-1 rounded-(--radius-btn-sm) py-1.5 text-[13px] font-medium",
-            value === opt.value ? "bg-surface text-ink shadow-(--shadow-card)" : "text-muted",
+            // active = the same primary blue every other tab uses (see shared/ui/tabs.tsx)
+            "flex-1 rounded-(--radius-btn-sm) px-3 py-1.5 text-[13px] font-medium transition-colors",
+            value === opt.value
+              ? "bg-primary text-white shadow-(--shadow-card)"
+              : "text-muted hover:text-ink",
           )}
         >
           {opt.label}

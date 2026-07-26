@@ -17,6 +17,8 @@ import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { Chip } from "@/shared/ui/chip";
 import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
+import { SearchSelect } from "@/shared/ui/search-select";
+import { FilterChips } from "@/shared/ui/tabs";
 import { Segmented } from "@/shared/ui/segmented";
 import { isOverdue, fmtDay, initials } from "./lib";
 import { DoneToggle, TaskTimerButton } from "./task-controls";
@@ -38,6 +40,18 @@ type FilterPill = "all" | "mine" | "overdue";
 type Layout = "board" | "table";
 type ViewTab = "active" | "done";
 
+/**
+ * Completed work only accumulates, so the Done view shows a window of it and says which.
+ * A week is what people actually look back over; "All" is there when you're hunting something old.
+ */
+const DONE_PERIODS = [
+  { value: "7", label: "Last 7 days" },
+  { value: "30", label: "Last 30 days" },
+  { value: "90", label: "Last 90 days" },
+  { value: "all", label: "All time" },
+] as const;
+type DonePeriod = (typeof DONE_PERIODS)[number]["value"];
+
 export function TasksPage() {
   const { user } = useAuth();
   const [view, setView] = useState<ViewTab>("active");
@@ -45,15 +59,23 @@ export function TasksPage() {
   const [clientFilter, setClientFilter] = useState("");
   const [assigneeFilter, setAssigneeFilter] = useState("");
   const [layout, setLayout] = useState<Layout>("board");
+  const [donePeriod, setDonePeriod] = useState<DonePeriod>("7");
   const [page, setPage] = useState(1);
+
+  // The state chips belong to the Active view; Done shows period chips instead. A chip left
+  // selected in one view must not keep filtering invisibly in the other — "Overdue" carried
+  // into Done would ask for work that is both open and finished.
+  const done = view === "done";
+  const mineOnly = !done && pill === "mine";
 
   // Every filter is a SERVER filter: a chip has to search all the work, not just the rows this
   // page loaded. "Mine" is just an assignee filter with the signed-in user in it.
   const { data, isLoading, error, refetch } = useTasks({
-    status: view === "done" ? "done" : "open",
+    status: done ? "done" : "open",
     view: layout,
-    overdue: pill === "overdue",
-    assigneeId: pill === "mine" ? user?.id : assigneeFilter || undefined,
+    overdue: !done && pill === "overdue",
+    doneWithinDays: done && donePeriod !== "all" ? Number(donePeriod) : undefined,
+    assigneeId: mineOnly ? user?.id : assigneeFilter || undefined,
     clientId: clientFilter || undefined,
     page,
     pageSize: TABLE_PAGE_SIZE,
@@ -65,7 +87,7 @@ export function TasksPage() {
   // any filter change starts the table back at page 1 — page 7 of the old result set is nonsense
   useEffect(() => {
     setPage(1);
-  }, [view, layout, pill, clientFilter, assigneeFilter]);
+  }, [view, layout, pill, clientFilter, assigneeFilter, donePeriod]);
   const [formOpen, setFormOpen] = useState(false);
   const [formColumnId, setFormColumnId] = useState<string | undefined>();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -100,52 +122,54 @@ export function TasksPage() {
 
   const selected = selectedId ? (data?.items ?? []).find((t) => t.id === selectedId) : null;
 
-  const selectCls =
-    "rounded-[7px] border border-border bg-surface px-2.5 py-[7px] text-[13px] text-ink-700";
 
   return (
     <div className="-m-6 flex h-[calc(100vh-3.5rem)] flex-col">
       {/* header bar */}
       <div className="flex flex-none flex-wrap items-center gap-3 border-b border-border bg-surface px-6 pb-3 pt-4">
         <h1 className="text-[18px] font-semibold">Tasks</h1>
-        <div className="flex gap-1.5">
-          {(["all", "mine", "overdue"] as const).map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => setPill(p)}
-              className={cn(
-                "rounded-[6px] px-[11px] py-[5px] text-[12px] font-medium capitalize",
-                pill === p
-                  ? "bg-ink text-white"
-                  : "border border-border bg-surface text-muted",
-              )}
-            >
-              {p}
-            </button>
-          ))}
+        {/* the Done view is a period, not a state — the same chips, a different question */}
+        {done ? (
+          <FilterChips
+            value={donePeriod}
+            onChange={setDonePeriod}
+            options={DONE_PERIODS.map((p) => ({ value: p.value, label: p.label }))}
+          />
+        ) : (
+          <FilterChips
+            value={pill}
+            onChange={setPill}
+            options={[
+              { value: "all", label: "All" },
+              { value: "mine", label: "Mine" },
+              { value: "overdue", label: "Overdue" },
+            ]}
+          />
+        )}
+        {/* searchable: this lists every client with live work — a plain dropdown stops
+            being usable long before the firm does */}
+        <div className="w-44">
+          <SearchSelect
+            value={clientFilter}
+            onChange={setClientFilter}
+            placeholder="All clients"
+            emptyLabel="All clients"
+            options={targetOptions.map((c) => ({ value: c.id, label: c.name }))}
+          />
         </div>
-        <select className={selectCls} value={clientFilter} onChange={(e) => setClientFilter(e.target.value)}>
-          <option value="">All clients</option>
-          {targetOptions.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-        <select
-          className={selectCls}
-          value={assigneeFilter}
-          disabled={pill === "mine"} // "Mine" already IS an assignee filter
-          onChange={(e) => setAssigneeFilter(e.target.value)}
-        >
-          <option value="">All assignees</option>
-          {(team ?? []).map((u) => (
-            <option key={u.id} value={u.id}>
-              {u.firstName} {u.lastName}
-            </option>
-          ))}
-        </select>
+        <div className={cn("w-44", mineOnly && "pointer-events-none opacity-50")}>
+          {/* "Mine" already IS an assignee filter — the picker goes quiet rather than fighting it */}
+          <SearchSelect
+            value={mineOnly ? "" : assigneeFilter}
+            onChange={setAssigneeFilter}
+            placeholder="All assignees"
+            emptyLabel="All assignees"
+            options={(team ?? []).map((u) => ({
+              value: u.id,
+              label: `${u.firstName} ${u.lastName}`,
+            }))}
+          />
+        </div>
         <div className="ml-auto flex items-center gap-2">
           <Segmented
             value={layout}
@@ -190,7 +214,7 @@ export function TasksPage() {
         </div>
       )}
 
-      {data && columns && layout === "board" && view === "active" && (
+      {data && columns && layout === "board" && !done && (
         <Board
           columns={columns}
           tasks={tasks}
@@ -199,8 +223,13 @@ export function TasksPage() {
           onAddInColumn={openNewTask}
         />
       )}
-      {data && layout === "board" && view === "done" && (
-        <DoneGrid tasks={tasks} onOpen={(t) => setSelectedId(t.id)} />
+      {data && layout === "board" && done && (
+        <DoneGrid
+          tasks={tasks}
+          period={donePeriod}
+          onWiden={() => setDonePeriod("all")}
+          onOpen={(t) => setSelectedId(t.id)}
+        />
       )}
       {data && columns && layout === "table" && (
         <div className="flex min-h-0 flex-1 flex-col">
@@ -545,9 +574,29 @@ function TargetName({ task }: { task: Task }) {
 
 // ── done grid ────────────────────────────────────────────────────────────────
 
-function DoneGrid({ tasks, onOpen }: { tasks: Task[]; onOpen: (t: Task) => void }) {
+function DoneGrid({
+  tasks,
+  period,
+  onWiden,
+  onOpen,
+}: {
+  tasks: Task[];
+  period: DonePeriod;
+  onWiden: () => void;
+  onOpen: (t: Task) => void;
+}) {
   if (tasks.length === 0) {
-    return <p className="p-6 text-[13px] text-muted">No completed tasks yet.</p>;
+    // don't claim "nothing was ever finished" when a window is on and older work may exist
+    return period === "all" ? (
+      <p className="p-6 text-[13px] text-muted">No completed tasks yet.</p>
+    ) : (
+      <p className="p-6 text-[13px] text-muted">
+        Nothing completed in this period.{" "}
+        <button type="button" className="text-primary-link hover:underline" onClick={onWiden}>
+          Look at all time
+        </button>
+      </p>
+    );
   }
   return (
     <div className="grid flex-1 auto-rows-min grid-cols-4 gap-2.5 overflow-auto p-3.5">

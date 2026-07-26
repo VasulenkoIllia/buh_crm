@@ -92,14 +92,62 @@ describe("clients", () => {
     expect(body.debt).toBe(0);
   });
 
-  it("rejects an individual without a name", async () => {
+  // the last name is optional (user, 2026-07-26) — a first name alone identifies the client
+  it("accepts an individual with only a first name", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/clients",
       headers: { cookie },
-      payload: { type: "individual", firstName: "OnlyFirst", email: "x@example.com" },
+      payload: { type: "individual", firstName: "Lesya", email: "lesya@example.com" },
+    });
+    expect(res.statusCode).toBe(201);
+    const body = res.json();
+    expect(body.lastName).toBeNull();
+    expect(body.displayName).toBe("Lesya"); // no trailing space from the missing half
+  });
+
+  it("rejects an individual with no first name at all", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/clients",
+      headers: { cookie },
+      payload: { type: "individual", lastName: "Petrenko", email: "x@example.com" },
     });
     expect(res.statusCode).toBe(400);
+  });
+
+  // an edit must not be able to strip the name either — the merged check runs on PATCH
+  it("rejects clearing the first name on an existing individual", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/clients",
+      headers: { cookie },
+      payload: { type: "individual", firstName: "Olha", lastName: "Koval" },
+    });
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/clients/${created.json().id}`,
+      headers: { cookie },
+      payload: { firstName: null },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("lets an edit drop the last name", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/clients",
+      headers: { cookie },
+      payload: { type: "individual", firstName: "Ihor", lastName: "Bondar" },
+    });
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/clients/${created.json().id}`,
+      headers: { cookie },
+      payload: { lastName: null },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().displayName).toBe("Ihor");
   });
 
   it("creates a company-type client (displayName = company name)", async () => {

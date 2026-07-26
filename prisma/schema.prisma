@@ -427,6 +427,9 @@ model Task {
   priorityId     String    @db.Uuid
   statusColumnId String    @db.Uuid
   done           Boolean   @default(false)
+  // when `done` was set — the Done view filters by it ("last 7 days") and S12 reports on it.
+  // Cleared on reopen, so it always describes the CURRENT completion, not an old one.
+  completedAt    DateTime?
   deadline       DateTime?
   plannedMinutes Int?
   amount         Int? // minor units; one-off price -> invoice
@@ -465,6 +468,7 @@ model Task {
   @@index([clientId])
   @@index([createdById])
   @@index([done])
+  @@index([completedAt])
   @@index([deadline])
   @@index([archivedAt])
 }

@@ -42,7 +42,6 @@ export type LeadList = z.infer<typeof leadListSchema>;
 
 // ── DTOs ─────────────────────────────────────────────────────────────────────
 
-const contactRule = { message: "At least one of phone or email is required" };
 const optionalTrimmed = z
   .string()
   .transform((v) => v.trim() || null)
@@ -60,7 +59,11 @@ const leadFields = z.object({
   description: optionalTrimmed,
 });
 
-export const createLeadInput = leadFields.refine((v) => v.phone || v.email, contactRule);
+/**
+ * Only the name is required (user, 2026-07-26 — supersedes the S5 "at least one contact" rule).
+ * A lead often arrives as nothing but a name and a note; the contacts get filled in later.
+ */
+export const createLeadInput = leadFields;
 export type CreateLeadInput = z.infer<typeof createLeadInput>;
 
 /** Partial edit; stage moves come through here too (kanban drag). */
@@ -71,7 +74,8 @@ export type UpdateLeadInput = z.infer<typeof updateLeadInput>;
 
 /**
  * Convert dialog — reviewed by the user before the client is created.
- * type-aware: individual → firstName+lastName; company → companyName + optional contact.
+ * type-aware: individual → first name (last optional, same as a client created by hand — a
+ * one-word lead name splits to a first name only); company → companyName + optional contact.
  */
 export const convertLeadInput = z
   .object({
@@ -85,8 +89,7 @@ export const convertLeadInput = z
     sourceId: uuid.nullable().optional(),
     description: optionalTrimmed,
   })
-  .refine(
-    (v) => (v.type === "individual" ? !!v.firstName && !!v.lastName : !!v.companyName),
-    { message: "Individual needs first and last name; company needs a company name" },
-  );
+  .refine((v) => (v.type === "individual" ? !!v.firstName : !!v.companyName), {
+    message: "Individual needs a first name; company needs a company name",
+  });
 export type ConvertLeadInput = z.infer<typeof convertLeadInput>;

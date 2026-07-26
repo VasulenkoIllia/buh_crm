@@ -102,6 +102,7 @@ export function toTaskDto(
     })),
     trackedSeconds: task.timeEntries.reduce((sum, e) => sum + (e.seconds ?? 0), 0),
     createdAt: task.createdAt.toISOString(),
+    completedAt: task.completedAt?.toISOString() ?? null,
     archivedAt: task.archivedAt?.toISOString() ?? null,
   };
 }
@@ -163,24 +164,40 @@ const BOARD_LIMIT = 500;
 
 export async function listTasks(query: TaskListQuery) {
   const today = todayBusinessMs(config.TZ);
-  const where: Prisma.TaskWhereInput = { archivedAt: null };
-  // status now applies to both views: the board asks for open work, its Done view asks for done
-  if (query.status === "open") where.done = false;
-  if (query.status === "done") where.done = true;
-  if (query.search) where.title = { contains: query.search, mode: "insensitive" };
-  if (query.assigneeId) where.assignees = { some: { userId: query.assigneeId } };
-  if (query.clientId) where.clientId = query.clientId;
-  if (query.leadId) where.leadId = query.leadId;
+  // Every filter is ANDed rather than assigned onto one object: two filters that touch the same
+  // field (status=done + overdue, which is open-only) must NARROW to nothing, not silently
+  // overwrite each other and answer a question nobody asked.
+  const and: Prisma.TaskWhereInput[] = [];
+
+  // status applies to both views: the board asks for open work, its Done view asks for done
+  if (query.status === "open") and.push({ done: false });
+  if (query.status === "done") {
+    and.push({ done: true });
+    // Completed work only piles up, so the Done view shows a WINDOW of it (default: the last
+    // week) instead of everything the firm has ever finished. Counted in whole business days
+    // from the firm's today, so "7 days" means the last seven calendar days, not 168 hours.
+    // (`completedAt` is a real timestamp, so the oldest day's cut lands on UTC midnight rather
+    // than the firm's — a few hours of slack at the far edge of a week-wide window.)
+    if (query.doneWithinDays) {
+      and.push({
+        completedAt: { gte: new Date(today - (query.doneWithinDays - 1) * 86_400_000) },
+      });
+    }
+  }
+  if (query.search) and.push({ title: { contains: query.search, mode: "insensitive" } });
+  if (query.assigneeId) and.push({ assignees: { some: { userId: query.assigneeId } } });
+  if (query.clientId) and.push({ clientId: query.clientId });
+  if (query.leadId) and.push({ leadId: query.leadId });
   // "overdue" is answered by SQL, not by filtering the page in the browser — otherwise the
   // filter would only ever search the rows the board happened to load. Same business-date rule
-  // as `isTaskOverdue`: the whole deadline day must have passed.
-  if (query.overdue) {
-    where.done = false;
-    where.deadline = { lt: new Date(today) };
-  }
+  // as `isTaskOverdue`: the whole deadline day must have passed. Overdue is open work by
+  // definition, so asking for it alongside status=done correctly yields nothing.
+  if (query.overdue) and.push({ done: false, deadline: { lt: new Date(today) } });
   // an archived client's work leaves everyone's board — the data stays untouched, so restoring
   // the client (S11) brings the tasks back; their invoices deliberately stay in Billing
-  where.OR = [{ clientId: null }, { client: { archivedAt: null } }];
+  and.push({ OR: [{ clientId: null }, { client: { archivedAt: null } }] });
+
+  const where: Prisma.TaskWhereInput = { archivedAt: null, AND: and };
 
   const paged = query.view === "table";
   const take = paged ? query.pageSize : BOARD_LIMIT;
@@ -188,6 +205,11 @@ export async function listTasks(query: TaskListQuery) {
     where,
     skip: paged ? (query.page - 1) * query.pageSize : 0,
     take,
+    // finished work reads newest-finished-first; open work newest-created-first
+    orderBy:
+      query.status === "done"
+        ? [{ completedAt: "desc" }, { createdAt: "desc" }] // legacy rows have no stamp
+        : undefined,
   });
   return {
     // one "today" for the whole page — every row's invoice status is decided against the same day
@@ -344,7 +366,11 @@ export async function updateTask(id: string, input: UpdateTaskInput) {
     ...(input.title !== undefined ? { title: input.title } : {}),
     ...(input.priorityId !== undefined ? { priorityId: input.priorityId } : {}),
     ...(input.statusColumnId !== undefined ? { statusColumnId: input.statusColumnId } : {}),
-    ...(input.done !== undefined ? { done: input.done } : {}),
+    // stamp WHEN it was finished (the Done view filters on it); reopening clears the stamp,
+    // so it always describes the current completion rather than an old one
+    ...(input.done !== undefined
+      ? { done: input.done, completedAt: input.done ? new Date() : null }
+      : {}),
     ...(input.deadline !== undefined
       ? { deadline: input.deadline ? dateToUtc(input.deadline) : null }
       : {}),

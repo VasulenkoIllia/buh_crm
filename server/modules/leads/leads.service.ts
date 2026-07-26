@@ -68,12 +68,8 @@ export async function updateLead(id: string, input: UpdateLeadInput) {
   if (lead.outcome === "lost") {
     throw new ValidationError("Reopen this lead before editing or moving it");
   }
-  // an edit must not leave the lead without any contact
-  const phone = input.phone !== undefined ? input.phone : lead.phone;
-  const email = input.email !== undefined ? input.email : lead.email;
-  if (!phone && !email) {
-    throw new ValidationError("At least one of phone or email is required");
-  }
+  // contacts are optional (user, 2026-07-26): a lead may be a name and a note, and an edit
+  // may clear the phone or the email again — only the name has to survive
   await assertActiveService(input.serviceId, lead.serviceId);
   return toLeadDto(await repo.updateLead(id, input));
 }

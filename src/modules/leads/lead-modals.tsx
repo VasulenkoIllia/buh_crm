@@ -9,25 +9,23 @@ import { ApiError } from "@/shared/lib/api";
 import { Button } from "@/shared/ui/button";
 import { FormField, Input, Label, Select } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
+import { SearchSelect } from "@/shared/ui/search-select";
 import { Segmented } from "@/shared/ui/segmented";
 import { useCatalog } from "@/modules/catalog";
 import { useSettings } from "@/modules/settings";
 import { useConvertLead, useCreateLead, useUpdateLead } from "./leads.api";
 
-const leadFormSchema = z
-  .object({
-    type: z.enum(["individual", "company"]),
-    name: z.string().min(1, "Required"),
-    phone: z.string(),
-    email: z.union([z.email("Invalid email"), z.literal("")]),
-    serviceId: z.string(),
-    sourceId: z.string(),
-    description: z.string(),
-  })
-  .refine((v) => v.phone.trim() || v.email, {
-    path: ["phone"],
-    message: "Phone or email is required",
-  });
+// only the name is required — a lead often arrives as a name and a note, with the phone or
+// email filled in later (user, 2026-07-26; same rule server-side)
+const leadFormSchema = z.object({
+  type: z.enum(["individual", "company"]),
+  name: z.string().min(1, "Required"),
+  phone: z.string(),
+  email: z.union([z.email("Invalid email"), z.literal("")]),
+  serviceId: z.string(),
+  sourceId: z.string(),
+  description: z.string(),
+});
 type LeadFormValues = z.infer<typeof leadFormSchema>;
 
 export function LeadFormModal({
@@ -136,6 +134,8 @@ export function LeadFormModal({
         >
           <Input
             id="l-name"
+            // the name is the first thing you type — open the modal and start typing
+            autoFocus
             placeholder={type === "company" ? "e.g. Romashka LLC" : "e.g. Petro Tkach"}
             error={!!errors.name}
             {...register("name")}
@@ -161,17 +161,21 @@ export function LeadFormModal({
           </FormField>
         </div>
         <FormField label="Service they came for" htmlFor="l-service">
-          <Select id="l-service" {...register("serviceId")}>
-            <option value="">—</option>
-            {services
-              ?.filter((s) => isClientFacing(s) && (s.active || s.id === lead?.serviceId))
-              .map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                  {!s.active ? " (inactive)" : ""}
-                </option>
-              ))}
-          </Select>
+          {/* searchable: the catalog grows past what a plain dropdown is comfortable to scan */}
+          <SearchSelect
+            id="l-service"
+            placeholder="Search services…"
+            value={watch("serviceId")}
+            onChange={(v) => setValue("serviceId", v, { shouldDirty: true })}
+            options={(services ?? [])
+              // an inactive service stays listed while it's the one already picked (history)
+              .filter((s) => isClientFacing(s) && (s.active || s.id === lead?.serviceId))
+              .map((s) => ({
+                value: s.id,
+                label: s.name,
+                hint: s.active ? undefined : "(inactive)",
+              }))}
+          />
         </FormField>
         <FormField label="Source" htmlFor="l-source">
           <Select id="l-source" {...register("sourceId")}>
@@ -212,9 +216,10 @@ const convertFormSchema = z
     email: z.union([z.email("Invalid email"), z.literal("")]),
     address: z.string(),
   })
-  .refine((v) => (v.type === "individual" ? v.firstName.trim() && v.lastName.trim() : true), {
+  // last name optional — a one-word lead name ("Lesya") splits to a first name only
+  .refine((v) => (v.type === "individual" ? v.firstName.trim() : true), {
     path: ["firstName"],
-    message: "First and last name are required",
+    message: "First name is required",
   })
   .refine((v) => (v.type === "company" ? v.companyName.trim() : true), {
     path: ["companyName"],

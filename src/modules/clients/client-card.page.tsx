@@ -10,6 +10,7 @@ import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
 import { fmtDate } from "@/shared/lib/format";
 import { Button } from "@/shared/ui/button";
+import { Tabs } from "@/shared/ui/tabs";
 import { ClientFormModal } from "./client-form";
 import { ClientPeopleModal } from "./client-people-modal";
 import { AddServiceModal, CategoriesModal, SubscriptionList } from "./client-services";
@@ -109,24 +110,12 @@ export function ClientCardPage() {
         </div>
       </div>
 
-      {/* tabs */}
-      <div className="mb-[18px] mt-3.5 flex gap-0.5 border-b border-border">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => setTab(t.key)}
-            className={cn(
-              "-mb-px px-3.5 py-2 text-[13px] font-medium",
-              tab === t.key
-                ? "border-b-2 border-primary text-primary-link"
-                : "text-muted hover:text-ink",
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        className="mb-[18px] mt-3.5"
+        value={tab}
+        onChange={setTab}
+        options={TABS.map((t) => ({ value: t.key, label: t.label }))}
+      />
 
       {/* company view (multi-company clients) */}
       {tab === "profile" && <ProfileTab client={client} />}

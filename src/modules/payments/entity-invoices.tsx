@@ -8,6 +8,7 @@ import { fmtMoney } from "@/shared/lib/money";
 import { Button } from "@/shared/ui/button";
 import { Select } from "@/shared/ui/field";
 import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
+import { FilterChips } from "@/shared/ui/tabs";
 import { InvoiceModal, NewInvoiceModal } from "./invoice-modals";
 import { useInvoices } from "./payments.api";
 
@@ -67,36 +68,18 @@ export function EntityInvoices({ client }: { client: Client }) {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex gap-1.5">
-          {VIEWS.map((v) => (
-            <button
-              key={v.key}
-              type="button"
-              onClick={() => {
-                setView(v.key);
-                reset();
-              }}
-              className={cn(
-                "rounded-(--radius-chip) px-2.5 py-1 text-[12px] font-medium",
-                view === v.key
-                  ? "bg-ink text-white"
-                  : "border border-border bg-surface text-ink-700 hover:bg-divider",
-              )}
-            >
-              {v.label}
-              {data && (
-                <span
-                  className={cn(
-                    "ml-1.5 rounded-[10px] px-1.5 py-px text-[11px] font-semibold",
-                    view === v.key ? "bg-white/20 text-white" : "bg-[#e7eaef] text-muted-400",
-                  )}
-                >
-                  {data.counts[v.key]}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
+        <FilterChips
+          value={view}
+          onChange={(key) => {
+            setView(key);
+            reset();
+          }}
+          options={VIEWS.map((v) => ({
+            value: v.key,
+            label: v.label,
+            count: data?.counts[v.key],
+          }))}
+        />
 
         {client.companies.length > 0 && (
           <Select

@@ -52,14 +52,19 @@ afterAll(async () => {
 describe("leads", () => {
   let leadId: string;
 
-  it("requires at least one contact", async () => {
+  // contacts are optional (user, 2026-07-26 — supersedes the S5 "at least one contact" rule):
+  // a lead often arrives as a name and a note, with the phone/email filled in later
+  it("creates a lead with no contact details at all", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/leads",
       headers: { cookie },
       payload: { name: "No Contact" },
     });
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(201);
+    const body = res.json();
+    expect(body.phone).toBeNull();
+    expect(body.email).toBeNull();
   });
 
   it("creates a lead at first_contact", async () => {
@@ -87,14 +92,15 @@ describe("leads", () => {
     expect(res.json().stage).toBe("set_up_meeting");
   });
 
-  it("cannot strip the last contact on edit", async () => {
+  it("lets an edit clear the last contact", async () => {
     const res = await app.inject({
       method: "PATCH",
       url: `/api/leads/${leadId}`,
       headers: { cookie },
       payload: { phone: null },
     });
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().phone).toBeNull();
   });
 
   it("rejects a whitespace-only lead name", async () => {

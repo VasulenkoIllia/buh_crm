@@ -106,18 +106,21 @@ const clientFields = z.object({
   people: z.array(clientPersonInput).max(50).default([]),
 });
 
-/** individual → first+last required; company → companyName required. */
+/**
+ * The minimum that makes a client identifiable: an individual needs a first name, a company
+ * needs its name. The LAST name is optional (user, 2026-07-26) — plenty of clients are known
+ * by one name, and `displayName` already trims a missing half away.
+ */
 const requireByType = (v: {
   type: "individual" | "company";
   firstName?: string | null;
-  lastName?: string | null;
   companyName?: string | null;
 }) => {
-  if (v.type === "individual") return !!v.firstName && !!v.lastName;
+  if (v.type === "individual") return !!v.firstName;
   return !!v.companyName;
 };
 const requireMsg = {
-  message: "Individual needs first and last name; company needs a company name",
+  message: "Individual needs a first name; company needs a company name",
 };
 
 export const createClientInput = clientFields.refine(requireByType, requireMsg);

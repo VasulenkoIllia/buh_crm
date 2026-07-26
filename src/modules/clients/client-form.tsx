@@ -27,9 +27,10 @@ const formSchema = z
     description: z.string(),
     regular: z.boolean(),
   })
-  .refine((v) => (v.type === "individual" ? v.firstName.trim() && v.lastName.trim() : true), {
+  // the last name is optional — plenty of clients go by one name (same rule server-side)
+  .refine((v) => (v.type === "individual" ? v.firstName.trim() : true), {
     path: ["firstName"],
-    message: "First and last name are required",
+    message: "First name is required",
   })
   .refine((v) => (v.type === "company" ? v.companyName.trim() : true), {
     path: ["companyName"],
@@ -178,6 +179,8 @@ export function ClientFormModal({
           <FormField label="Company name" htmlFor="c-company" error={errors.companyName?.message}>
             <Input
               id="c-company"
+              // a company client is named by its company — that's the field to land in
+              autoFocus
               placeholder="e.g. Romashka LLC"
               error={!!errors.companyName}
               {...register("companyName")}
@@ -193,6 +196,9 @@ export function ClientFormModal({
           >
             <Input
               id="c-first"
+              // an individual is named by their own name; a company's contact is optional, so
+              // for a company the cursor belongs in the company name above instead
+              autoFocus={!isCompany}
               placeholder="e.g. Ivan"
               error={!!errors.firstName}
               {...register("firstName")}

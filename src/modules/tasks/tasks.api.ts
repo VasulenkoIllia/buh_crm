@@ -45,6 +45,8 @@ export interface TaskQuery {
   view: "board" | "table";
   /** only work whose deadline day has passed */
   overdue?: boolean;
+  /** Done view: how many days back to include (undefined = everything ever completed) */
+  doneWithinDays?: number;
   assigneeId?: string;
   clientId?: string;
   page?: number;
@@ -59,6 +61,7 @@ export interface TaskQuery {
 export function useTasks(query: TaskQuery) {
   const params = new URLSearchParams({ view: query.view, status: query.status });
   if (query.overdue) params.set("overdue", "true");
+  if (query.doneWithinDays) params.set("doneWithinDays", String(query.doneWithinDays));
   if (query.assigneeId) params.set("assigneeId", query.assigneeId);
   if (query.clientId) params.set("clientId", query.clientId);
   if (query.view === "table") {

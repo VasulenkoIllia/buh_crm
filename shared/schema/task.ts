@@ -102,6 +102,8 @@ export const taskSchema = z.object({
   /** Σ seconds of CLOSED intervals (a running one adds live elapsed client-side) */
   trackedSeconds: z.number().int(),
   createdAt: z.iso.datetime(),
+  /** when it was marked done (null while open) — what the Done view's date window filters on */
+  completedAt: z.iso.datetime().nullable(),
   archivedAt: z.iso.datetime().nullable(),
 });
 export type Task = z.infer<typeof taskSchema>;
@@ -194,6 +196,11 @@ export const taskListQuery = z.object({
     .enum(["true", "false"])
     .optional()
     .transform((v) => v === "true"),
+  /**
+   * Done view only: how far back to look, in whole days (7 = today plus the six before it).
+   * Omitted = every completed task ever, which is what the screen must not default to.
+   */
+  doneWithinDays: z.coerce.number().int().min(1).max(3650).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(50),
 });
