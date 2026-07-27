@@ -5,8 +5,8 @@ import { z } from "zod";
 export const userRole = z.enum(["admin", "user"]);
 export type UserRole = z.infer<typeof userRole>;
 
-export const clientType = z.enum(["individual", "company"]);
-export type ClientType = z.infer<typeof clientType>;
+// (2026-07-26: `clientType` is gone — a client is just a client, and the companies it holds are
+// real rows. See modules/decisions-log.md.)
 
 export const userStatus = z.enum(["invited", "pending", "active", "blocked"]);
 export type UserStatus = z.infer<typeof userStatus>;

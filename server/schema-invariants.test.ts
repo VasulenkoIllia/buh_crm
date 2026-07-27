@@ -29,6 +29,12 @@ const REQUIRED = [
     guarantees: "at most one service is the default added to every new client",
     mustMatch: /ON public\."Service".*WHERE.*"autoAddToNewClients"/is,
   },
+  {
+    // a FUNCTIONAL index — Prisma can't express lower(name) either, so it lands here too
+    name: "Company_name_key_ci",
+    guarantees: "a company name identifies one company across the whole firm (case-insensitive)",
+    mustMatch: /ON public\."Company".*lower\(name\)/is,
+  },
 ];
 
 describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {

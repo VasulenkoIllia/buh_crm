@@ -36,8 +36,7 @@ async function seed() {
 
   await prisma.client.createMany({
     data: Array.from({ length: CLIENTS }, (_, i) => ({
-      type: "individual" as const,
-      firstName: `Scale${i}`,
+            firstName: `Scale${i}`,
       lastName: `Client${i}`,
     })),
   });

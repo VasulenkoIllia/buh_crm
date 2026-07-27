@@ -22,8 +22,8 @@ async function assertActiveService(serviceId: string | null | undefined, current
 function toLeadDto(lead: Lead) {
   return {
     id: lead.id,
-    type: lead.type,
     name: lead.name,
+    companyName: lead.companyName,
     phone: lead.phone,
     email: lead.email,
     serviceId: lead.serviceId,
@@ -101,10 +101,10 @@ export async function convert(id: string, input: ConvertLeadInput) {
   }
 
   const { client, lead: updated } = await repo.convertLead(id, {
-    type: input.type,
-    firstName: input.firstName ?? null,
+    firstName: input.firstName,
     lastName: input.lastName ?? null,
-    companyName: input.type === "company" ? (input.companyName ?? null) : null,
+    // the company label rides straight over — it was never an identity on either side
+    companyName: input.companyName ?? null,
     phone: input.phone ?? null,
     email: input.email ?? null,
     address: input.address ?? null,

@@ -206,7 +206,7 @@ describe("catalog", () => {
       method: "POST",
       url: "/api/clients",
       headers: { cookie: adminCookie },
-      payload: { type: "individual", firstName: "Sub", lastName: "Client", companyNames: [], people: [] },
+      payload: { firstName: "Sub", lastName: "Client", companies: [], people: [] },
     });
     const clientId = created.json().id;
     expect(created.json().isRegular).toBe(false);
@@ -248,7 +248,7 @@ describe("catalog", () => {
       method: "POST",
       url: "/api/clients",
       headers: { cookie: adminCookie },
-      payload: { type: "individual", firstName: "Adhoc", lastName: "Client", companyNames: [], people: [] },
+      payload: { firstName: "Adhoc", lastName: "Client", companies: [], people: [] },
     });
     const clientId = created.json().id;
 
@@ -285,7 +285,7 @@ describe("catalog", () => {
       method: "POST",
       url: "/api/clients",
       headers: { cookie: adminCookie },
-      payload: { type: "individual", firstName: "Bill", lastName: "Override", companyNames: [], people: [] },
+      payload: { firstName: "Bill", lastName: "Override", companies: [], people: [] },
     });
     const clientId = created.json().id;
 
@@ -348,7 +348,7 @@ describe("catalog", () => {
       method: "POST",
       url: "/api/clients",
       headers: { cookie: adminCookie },
-      payload: { type: "individual", firstName: "Due", lastName: "Days", companyNames: [], people: [] },
+      payload: { firstName: "Due", lastName: "Days", companies: [], people: [] },
     });
     const clientId = created.json().id;
     const sub = await app.inject({
@@ -390,7 +390,7 @@ describe("catalog", () => {
       method: "POST",
       url: "/api/clients",
       headers: { cookie: adminCookie },
-      payload: { type: "individual", firstName: "Cat", lastName: "Chips", companyNames: [], people: [] },
+      payload: { firstName: "Cat", lastName: "Chips", companies: [], people: [] },
     });
     const clientId = created.json().id;
 
@@ -443,7 +443,7 @@ describe("catalog", () => {
       method: "POST",
       url: "/api/clients",
       headers: { cookie: adminCookie },
-      payload: { type: "individual", firstName: "Cat2", lastName: "Chips", companyNames: [], people: [] },
+      payload: { firstName: "Cat2", lastName: "Chips", companies: [], people: [] },
     });
     const inactiveAdd = await app.inject({
       method: "PUT",
@@ -459,7 +459,7 @@ describe("catalog", () => {
       method: "POST",
       url: "/api/clients",
       headers: { cookie: adminCookie },
-      payload: { type: "individual", firstName: "Merge", lastName: "Check", companyNames: [], people: [] },
+      payload: { firstName: "Merge", lastName: "Check", companies: [], people: [] },
     });
     const clientId = created.json().id;
     const sub = await app.inject({
@@ -504,10 +504,9 @@ describe("catalog", () => {
       url: "/api/clients",
       headers: { cookie: adminCookie },
       payload: {
-        type: "individual",
         firstName: "Dup",
         lastName: "Rule",
-        companyNames: ["Alpha LLC"],
+        companies: [{ name: "Alpha LLC" }],
         people: [],
       },
     });
@@ -560,7 +559,7 @@ describe("catalog", () => {
       method: "POST",
       url: "/api/clients",
       headers: { cookie: adminCookie },
-      payload: { type: "individual", firstName: "Ov", lastName: "Client", companyNames: [], people: [] },
+      payload: { firstName: "Ov", lastName: "Client", companies: [], people: [] },
     });
     const clientId = created.json().id;
     const sub = await app.inject({
@@ -700,13 +699,13 @@ describe("catalog", () => {
       method: "POST",
       url: "/api/leads",
       headers: { cookie: adminCookie },
-      payload: { type: "individual", name: "Converted WithService", phone: "+380501110000", serviceId },
+      payload: { name: "Converted WithService", phone: "+380501110000", serviceId },
     });
     const convert = await app.inject({
       method: "POST",
       url: `/api/leads/${lead.json().id}/convert`,
       headers: { cookie: adminCookie },
-      payload: { type: "individual", firstName: "Converted", lastName: "WithService" },
+      payload: { firstName: "Converted", lastName: "WithService" },
     });
     expect(convert.statusCode).toBe(200);
     const client = await app.inject({
@@ -722,7 +721,7 @@ describe("catalog", () => {
       method: "POST",
       url: "/api/leads",
       headers: { cookie: adminCookie },
-      payload: { type: "individual", name: "Lead WithService", phone: "+380501112233", serviceId },
+      payload: { name: "Lead WithService", phone: "+380501112233", serviceId },
     });
     expect(lead.statusCode).toBe(201);
     expect(lead.json().serviceId).toBe(serviceId);
@@ -732,10 +731,9 @@ describe("catalog", () => {
       url: "/api/clients",
       headers: { cookie: adminCookie },
       payload: {
-        type: "individual",
         firstName: "Person",
         lastName: "Service",
-        companyNames: [],
+        companies: [],
         people: [{ name: "Handler", serviceId }],
       },
     });
@@ -792,7 +790,7 @@ describe("catalog", () => {
       method: "POST",
       url: "/api/clients",
       headers: { cookie: adminCookie },
-      payload: { type: "individual", firstName: "Auto", lastName: "One", companyNames: [], people: [] },
+      payload: { firstName: "Auto", lastName: "One", companies: [], people: [] },
     });
     expect(c1.statusCode).toBe(201);
     const subs1 = c1.json().subscriptions;
@@ -818,13 +816,13 @@ describe("catalog", () => {
       method: "POST",
       url: "/api/leads",
       headers: { cookie: adminCookie },
-      payload: { type: "individual", name: "Convert Auto", phone: "+380500009999" },
+      payload: { name: "Convert Auto", phone: "+380500009999" },
     });
     const convert = await app.inject({
       method: "POST",
       url: `/api/leads/${lead.json().id}/convert`,
       headers: { cookie: adminCookie },
-      payload: { type: "individual", firstName: "Convert", lastName: "Auto" },
+      payload: { firstName: "Convert", lastName: "Auto" },
     });
     expect(convert.statusCode).toBe(200);
     const converted = await app.inject({
@@ -845,7 +843,7 @@ describe("catalog", () => {
       method: "POST",
       url: "/api/clients",
       headers: { cookie: adminCookie },
-      payload: { type: "individual", firstName: "No", lastName: "Default", companyNames: [], people: [] },
+      payload: { firstName: "No", lastName: "Default", companies: [], people: [] },
     });
     expect(c2.json().subscriptions).toHaveLength(0);
 

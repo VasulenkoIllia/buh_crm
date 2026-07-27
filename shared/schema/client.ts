@@ -1,11 +1,21 @@
 import { z } from "zod";
 import { rhythmOverridesSchema } from "./catalog.js";
 import { money, uuid } from "./common.js";
-import { billingPeriod, clientType, invoiceTrigger } from "./enums.js";
+import { billingPeriod, invoiceTrigger } from "./enums.js";
 
+/**
+ * A company OWNED BY ONE CLIENT — the dimension `companyId` points at on subscriptions, tasks
+ * and invoices. `name` is unique across the whole system, case-insensitively. `email` is where
+ * this company's invoices will go once S10 lands; with none set, the client's own email is the
+ * fallback. A client that holds no companies is the ordinary case: everything hangs off the
+ * client directly (`companyId = null`).
+ */
 export const companySchema = z.object({
   id: uuid,
   name: z.string().min(1),
+  phone: z.string().nullable(),
+  email: z.string().nullable(),
+  description: z.string().nullable(),
 });
 export type Company = z.infer<typeof companySchema>;
 
@@ -44,11 +54,11 @@ export const clientSchema = z.object({
   /** category chips + subscription rows join against the catalog list client-side */
   categories: z.array(uuid),
   subscriptions: z.array(subscriptionSchema),
-  type: clientType,
-  firstName: z.string().nullable(),
+  firstName: z.string(),
   lastName: z.string().nullable(),
+  /** informational label only ("trades as / works at") — never the client's identity */
   companyName: z.string().nullable(),
-  /** individual → "First Last"; company → companyName (main). Computed server-side. */
+  /** "First Last", trimmed. Computed server-side. */
   displayName: z.string(),
   phone: z.string().nullable(),
   email: z.email().nullable(),
@@ -89,10 +99,29 @@ export const clientPersonInput = z.object({
 });
 export type ClientPersonInput = z.infer<typeof clientPersonInput>;
 
+/**
+ * One company as the client's editor sends it. `id` present = an existing row being edited (so a
+ * rename keeps the same company, and everything pointing at it follows); absent = a new one.
+ * Only the name is required — the create form uses that to add companies by name alone, and the
+ * card's Companies tab fills in the rest.
+ */
+export const companyInput = z.object({
+  id: uuid.optional(),
+  name: z.string().trim().min(1, "Company name is required").max(160),
+  phone: optionalTrimmed,
+  email: z.preprocess(
+    (v) => (typeof v === "string" ? v.trim() || null : v),
+    z.email().nullable().optional(),
+  ),
+  description: optionalTrimmed,
+});
+export type CompanyInput = z.infer<typeof companyInput>;
+
 const clientFields = z.object({
-  type: clientType,
-  firstName: optionalTrimmed,
+  /** the client's identity — the last name is optional (user, 2026-07-26) */
+  firstName: z.string().trim().min(1, "First name is required"),
   lastName: optionalTrimmed,
+  /** informational label only; the client's real companies are the list below */
   companyName: optionalTrimmed,
   phone: optionalTrimmed,
   email: z.email().nullable().optional(),
@@ -100,40 +129,20 @@ const clientFields = z.object({
   sourceId: uuid.nullable().optional(),
   description: optionalTrimmed,
   regularOverride: z.boolean().nullable().optional(),
-  /** additional companies — plain text names, per client (order preserved) */
-  companyNames: z.array(z.string().min(1)).max(50).default([]),
+  /** the client's companies, in display order — a full replace of the list */
+  companies: z.array(companyInput).max(50).default([]),
   /** the "People" tab */
   people: z.array(clientPersonInput).max(50).default([]),
 });
 
-/**
- * The minimum that makes a client identifiable: an individual needs a first name, a company
- * needs its name. The LAST name is optional (user, 2026-07-26) — plenty of clients are known
- * by one name, and `displayName` already trims a missing half away.
- */
-const requireByType = (v: {
-  type: "individual" | "company";
-  firstName?: string | null;
-  companyName?: string | null;
-}) => {
-  if (v.type === "individual") return !!v.firstName;
-  return !!v.companyName;
-};
-const requireMsg = {
-  message: "Individual needs a first name; company needs a company name",
-};
-
-export const createClientInput = clientFields.refine(requireByType, requireMsg);
+export const createClientInput = clientFields;
 export type CreateClientInput = z.infer<typeof createClientInput>;
 
-export const updateClientInput = clientFields
-  .partial()
-  .extend({
-    // stay truly optional on PATCH (no default) so omitting them leaves the lists untouched
-    companyNames: z.array(z.string().min(1)).max(50).optional(),
-    people: z.array(clientPersonInput).max(50).optional(),
-  })
-  .refine((v) => v.type === undefined || requireByType(v as never), requireMsg);
+export const updateClientInput = clientFields.partial().extend({
+  // stay truly optional on PATCH (no default) so omitting them leaves the lists untouched
+  companies: z.array(companyInput).max(50).optional(),
+  people: z.array(clientPersonInput).max(50).optional(),
+});
 export type UpdateClientInput = z.infer<typeof updateClientInput>;
 
 // ── Subscriptions & categories (S3) ─────────────────────────────────────────

@@ -91,7 +91,8 @@ export function EntityInvoices({ client }: { client: Client }) {
             }}
           >
             <option value="">All companies</option>
-            <option value="root">{client.type === "company" ? "Main company" : "The client"}</option>
+            {/* companyId = null — billed to the client directly, with no company involved */}
+            <option value="root">No company (the client)</option>
             {client.companies.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}

@@ -184,7 +184,9 @@ function ClientRow({
   onOpen: () => void;
 }) {
   const update = useUpdateClient();
-  const companies = client.companies.map((c) => c.name).join(", ") || "—";
+  // the companies they actually hold; the plain `companyName` label stands in when there are none
+  const companies =
+    client.companies.map((c) => c.name).join(", ") || client.companyName || "—";
   const debt =
     client.debt > 0 ? (
       <span className="text-danger-text">{fmtMoney(client.debt)}</span>

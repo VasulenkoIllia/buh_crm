@@ -255,33 +255,27 @@ model TaskTemplate {
 
 // ── Clients ──────────────────────────────────────────────────────────────────
 
-// Client model reset 2026-07-18: one entity with a type; companies + people are
-// per-client text lists (not shared). See modules/decisions-log.md.
-enum ClientType {
-  individual
-  company
-}
-
+// Client model rework 2026-07-26 (supersedes the 2026-07-18 "one entity with a type" reset):
+// a client is just a client — no individual/company discriminator. `companyName` survives as a
+// plain informational label; the COMPANIES a client holds are real rows below.
 model Client {
-  id              String     @id @default(uuid()) @db.Uuid
-  type            ClientType @default(individual)
-  // individual: firstName+lastName. company: companyName (title) + optional contact firstName/lastName.
-  firstName       String?
+  id              String    @id @default(uuid()) @db.Uuid
+  firstName       String // the client's identity — required; lastName is optional
   lastName        String?
-  companyName     String?
+  companyName     String? // informational only ("works at / trades as"), never an identity
   phone           String?
   email           String?
   address         String?
-  sourceId        String?    @db.Uuid
+  sourceId        String?   @db.Uuid
   regularOverride Boolean? // isRegular = regularOverride ?? hasActiveSubscription (computed)
   description     String?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
   archivedAt      DateTime?
-  archivedById    String?    @db.Uuid
+  archivedById    String?   @db.Uuid
 
   source        SourceOption?           @relation(fields: [sourceId], references: [id])
-  companies     Company[] // 1:N — additional/related companies (just names), per client
+  companies     Company[] // 1:N — the client's companies (see below)
   people        ClientPerson[] // the "People" tab
   categories    ClientServiceCategory[]
   subscriptions Subscription[]
@@ -293,18 +287,27 @@ model Client {
   convertedLead Lead?                   @relation("LeadConvertedClient")
 
   @@index([archivedAt])
-  @@index([type])
 }
 
-// A company is now a plain per-client text label (1:N), used as the invoicing /
-// task / report dimension. NOT shared across clients.
+/// A company OWNED BY ONE CLIENT (2026-07-26) — the invoicing / task / report dimension that
+/// `companyId` points at. A client may hold many; a company belongs to exactly one.
+/// `companyId = null` anywhere else means "the client directly, no company" — which is the
+/// normal case for a client that holds none.
+/// `name` is unique across the WHOLE system, case-insensitively: the unique index lives in raw
+/// SQL (`Company_name_key_ci` on lower(name)) because Prisma can't express a functional index —
+/// see server/schema-invariants.test.ts, which guards it.
 model Company {
-  id        String   @id @default(uuid()) @db.Uuid
-  clientId  String   @db.Uuid
-  name      String
-  order     Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id       String  @id @default(uuid()) @db.Uuid
+  clientId String  @db.Uuid
+  name     String
+  // optional contact details — `email` is where this company's invoices will be sent (S10);
+  // with none set the client's own email is the fallback
+  phone       String?
+  email       String?
+  description String?
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   client        Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
   subscriptions Subscription[]
@@ -379,8 +382,10 @@ model Subscription {
 
 model Lead {
   id                String      @id @default(uuid()) @db.Uuid
-  type              ClientType  @default(individual) // company or individual — carried to the client on convert
-  name              String // person name, or the company name for a company lead
+  name              String // the person to talk to
+  // informational, mirrors Client.companyName — carried straight over on convert (2026-07-26,
+  // when leads lost their individual/company discriminator along with clients)
+  companyName       String?
   phone             String?
   email             String?
   serviceId         String?     @db.Uuid

@@ -4,7 +4,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { X } from "lucide-react";
 import type { Client } from "@shared/schema/client";
-import type { ClientType } from "@shared/schema/enums";
 import { ApiError } from "@/shared/lib/api";
 import { Button } from "@/shared/ui/button";
 import { FormField, Input, Label, Select } from "@/shared/ui/field";
@@ -14,28 +13,20 @@ import { useSettings } from "@/modules/settings";
 import { useCreateClient, useUpdateClient } from "./clients.api";
 import { PeopleEditor, peopleToRows, rowsToPeopleInput, type PersonRow } from "./people-editor";
 
-const formSchema = z
-  .object({
-    type: z.enum(["individual", "company"]),
-    firstName: z.string(),
-    lastName: z.string(),
-    companyName: z.string(),
-    phone: z.string(),
-    email: z.union([z.email("Invalid email"), z.literal("")]),
-    address: z.string(),
-    sourceId: z.string(),
-    description: z.string(),
-    regular: z.boolean(),
-  })
-  // the last name is optional — plenty of clients go by one name (same rule server-side)
-  .refine((v) => (v.type === "individual" ? v.firstName.trim() : true), {
-    path: ["firstName"],
-    message: "First name is required",
-  })
-  .refine((v) => (v.type === "company" ? v.companyName.trim() : true), {
-    path: ["companyName"],
-    message: "Company name is required",
-  });
+// A client is just a client (2026-07-26) — no individual/company switch. The first name
+// identifies them; the last name and the company LABEL are both optional, and the companies
+// they actually hold are real rows managed on the card's Companies tab.
+const formSchema = z.object({
+  firstName: z.string().trim().min(1, "First name is required"),
+  lastName: z.string(),
+  companyName: z.string(),
+  phone: z.string(),
+  email: z.union([z.email("Invalid email"), z.literal("")]),
+  address: z.string(),
+  sourceId: z.string(),
+  description: z.string(),
+  regular: z.boolean(),
+});
 type FormValues = z.infer<typeof formSchema>;
 
 export function ClientFormModal({
@@ -67,7 +58,6 @@ export function ClientFormModal({
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      type: client?.type ?? "individual",
       firstName: client?.firstName ?? "",
       lastName: client?.lastName ?? "",
       companyName: client?.companyName ?? "",
@@ -79,9 +69,6 @@ export function ClientFormModal({
       regular: client?.isRegular ?? false,
     },
   });
-
-  const type = watch("type");
-  const isCompany = type === "company";
 
   const close = () => {
     reset();
@@ -104,17 +91,17 @@ export function ClientFormModal({
         : undefined;
 
     const base = {
-      type: values.type as ClientType,
-      firstName: values.firstName || null,
+      firstName: values.firstName.trim(),
       lastName: values.lastName || null,
-      companyName: isCompany ? values.companyName || null : null,
+      companyName: values.companyName || null,
       phone: values.phone || null,
       email: values.email || null,
       address: values.address || null,
       sourceId: values.sourceId || null,
       description: values.description || null,
       ...(regularOverride !== undefined ? { regularOverride } : {}),
-      companyNames,
+      // quick add by name only — phone/email/description are filled in on the Companies tab
+      companies: companyNames.map((name) => ({ name })),
     };
     // People are managed via the dedicated modal on the client card. On create we seed the
     // initial list here; on edit we omit `people` so the profile form never overwrites it.
@@ -151,17 +138,25 @@ export function ClientFormModal({
     >
       <form id="client-form" onSubmit={onSubmit} className="space-y-3" noValidate>
         <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label>Client type</Label>
-            <Segmented
-              value={type}
-              onChange={(v) => setValue("type", v as ClientType, { shouldDirty: true })}
-              options={[
-                { value: "company", label: "Company" },
-                { value: "individual", label: "Individual" },
-              ]}
+          <FormField label="First name" htmlFor="c-first" error={errors.firstName?.message}>
+            <Input
+              id="c-first"
+              // the name is what identifies a client — start typing straight away
+              autoFocus
+              placeholder="e.g. Ivan"
+              error={!!errors.firstName}
+              {...register("firstName")}
             />
-          </div>
+          </FormField>
+          <FormField label="Last name" htmlFor="c-last">
+            <Input id="c-last" placeholder="e.g. Petrenko" {...register("lastName")} />
+          </FormField>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <FormField label="Company (label)" htmlFor="c-company">
+            <Input id="c-company" placeholder="e.g. Romashka LLC" {...register("companyName")} />
+          </FormField>
           <div>
             <Label>Engagement model</Label>
             <Segmented
@@ -173,40 +168,6 @@ export function ClientFormModal({
               ]}
             />
           </div>
-        </div>
-
-        {isCompany && (
-          <FormField label="Company name" htmlFor="c-company" error={errors.companyName?.message}>
-            <Input
-              id="c-company"
-              // a company client is named by its company — that's the field to land in
-              autoFocus
-              placeholder="e.g. Romashka LLC"
-              error={!!errors.companyName}
-              {...register("companyName")}
-            />
-          </FormField>
-        )}
-
-        <div className="grid grid-cols-2 gap-3">
-          <FormField
-            label={isCompany ? "Contact — first name" : "First name"}
-            htmlFor="c-first"
-            error={errors.firstName?.message}
-          >
-            <Input
-              id="c-first"
-              // an individual is named by their own name; a company's contact is optional, so
-              // for a company the cursor belongs in the company name above instead
-              autoFocus={!isCompany}
-              placeholder="e.g. Ivan"
-              error={!!errors.firstName}
-              {...register("firstName")}
-            />
-          </FormField>
-          <FormField label={isCompany ? "Contact — last name" : "Last name"} htmlFor="c-last">
-            <Input id="c-last" placeholder="e.g. Petrenko" {...register("lastName")} />
-          </FormField>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -233,7 +194,9 @@ export function ClientFormModal({
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label>{isCompany ? "Related companies" : "Companies"}</Label>
+            <Label>Companies</Label>
+            {/* names only here — phone / email / description are filled in on the card's
+                Companies tab, where each company is a full record */}
             <TagInput
               value={companyNames}
               onChange={setCompanyNames}

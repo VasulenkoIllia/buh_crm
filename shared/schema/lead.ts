@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { uuid } from "./common.js";
-import { clientType, leadOutcome, leadStage } from "./enums.js";
+import { leadOutcome, leadStage } from "./enums.js";
 
 export const leadSchema = z.object({
   id: uuid,
-  type: clientType,
   name: z.string().min(1),
+  /** informational, mirrors Client.companyName — carried straight over on convert */
+  companyName: z.string().nullable(),
   phone: z.string().nullable(),
   email: z.email().nullable(),
   serviceId: uuid.nullable(),
@@ -49,8 +50,8 @@ const optionalTrimmed = z
   .optional();
 
 const leadFields = z.object({
-  type: clientType.default("individual"),
   name: z.string().trim().min(1, "Required"),
+  companyName: optionalTrimmed,
   phone: optionalTrimmed,
   email: z.email().nullable().optional(),
   /** the catalog service the lead came for (S3) */
@@ -73,23 +74,18 @@ export const updateLeadInput = leadFields.partial().extend({
 export type UpdateLeadInput = z.infer<typeof updateLeadInput>;
 
 /**
- * Convert dialog — reviewed by the user before the client is created.
- * type-aware: individual → first name (last optional, same as a client created by hand — a
- * one-word lead name splits to a first name only); company → companyName + optional contact.
+ * Convert dialog — reviewed by the user before the client is created. Same shape as a
+ * hand-created client: a first name identifies it, the last name is optional, and `companyName`
+ * rides along as the informational label it already was on the lead.
  */
-export const convertLeadInput = z
-  .object({
-    type: clientType,
-    firstName: optionalTrimmed,
-    lastName: optionalTrimmed,
-    companyName: optionalTrimmed,
-    phone: optionalTrimmed,
-    email: z.email().nullable().optional(),
-    address: optionalTrimmed,
-    sourceId: uuid.nullable().optional(),
-    description: optionalTrimmed,
-  })
-  .refine((v) => (v.type === "individual" ? !!v.firstName : !!v.companyName), {
-    message: "Individual needs a first name; company needs a company name",
-  });
+export const convertLeadInput = z.object({
+  firstName: z.string().trim().min(1, "First name is required"),
+  lastName: optionalTrimmed,
+  companyName: optionalTrimmed,
+  phone: optionalTrimmed,
+  email: z.email().nullable().optional(),
+  address: optionalTrimmed,
+  sourceId: uuid.nullable().optional(),
+  description: optionalTrimmed,
+});
 export type ConvertLeadInput = z.infer<typeof convertLeadInput>;

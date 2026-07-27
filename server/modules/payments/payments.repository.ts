@@ -3,7 +3,7 @@ import { prisma } from "../../core/db.js";
 
 const invoiceInclude = {
   client: {
-    select: { type: true, firstName: true, lastName: true, companyName: true, archivedAt: true },
+    select: { firstName: true, lastName: true, archivedAt: true },
   },
   company: { select: { name: true } },
   service: { select: { name: true } },

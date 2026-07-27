@@ -3,7 +3,7 @@ import { prisma } from "../../core/db.js";
 
 const taskInclude = {
   // target labels ride along so no screen has to resolve ids against a (capped) client list
-  client: { select: { type: true, firstName: true, lastName: true, companyName: true } },
+  client: { select: { firstName: true, lastName: true } },
   company: { select: { name: true } },
   lead: { select: { name: true } },
   assignees: { select: { userId: true } },
@@ -177,7 +177,7 @@ export function findUser(id: string) {
 export function listClientsWithTasks() {
   return prisma.client.findMany({
     where: { archivedAt: null, tasks: { some: { archivedAt: null } } },
-    select: { id: true, type: true, firstName: true, lastName: true, companyName: true },
+    select: { id: true, firstName: true, lastName: true },
   });
 }
 
@@ -277,7 +277,7 @@ const generatingSubscription = {
     client: { archivedAt: null },
   },
   include: {
-    client: { select: { type: true, firstName: true, lastName: true, companyName: true } },
+    client: { select: { firstName: true, lastName: true } },
     company: { select: { name: true } },
     service: {
       select: {

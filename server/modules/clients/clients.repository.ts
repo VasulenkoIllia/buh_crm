@@ -54,53 +54,92 @@ export function updateClient(id: string, data: Prisma.ClientUpdateInput) {
   return prisma.client.update({ where: { id }, data, include: clientInclude });
 }
 
+export interface CompanyRecordInput {
+  /** present = an existing row being edited (a rename keeps the same id, so history follows) */
+  id?: string;
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  description?: string | null;
+}
+
 /**
- * Reconcile the client's company list BY NAME — never delete-and-recreate.
+ * Reconcile the client's companies — never delete-and-recreate.
  *
- * Companies are a reporting/billing dimension: subscriptions, tasks and issued invoices point at
- * a company row. Recreating them on every save handed out new ids and (via the FK) silently blanked
- * that dimension on history — re-saving a client's form was enough to lose it. So: keep the rows
- * whose name is still in the list (refresh their order), insert only genuinely new names, and
- * report the ones that would be dropped so the caller can refuse when something still points there.
+ * Companies are the reporting/billing dimension: subscriptions, tasks and issued invoices point
+ * at a company row. Recreating them on every save handed out new ids and (via the FK) silently
+ * blanked that dimension on history — re-saving a client's form was enough to lose it. So rows
+ * are matched by **id** when the editor sends one (which is what makes renaming safe) and by name
+ * otherwise, updated in place, and the ones that would be dropped are reported so the caller can
+ * refuse while something still points at them.
  */
-export async function reconcileClientCompanies(clientId: string, names: string[]) {
-  // case-insensitive dedup, first occurrence wins (decision: companies are a report/invoice
-  // dimension — duplicates would silently split totals; mirrors the TagInput behaviour)
+export async function reconcileClientCompanies(clientId: string, input: CompanyRecordInput[]) {
+  // case-insensitive dedup within the payload itself, first occurrence wins — duplicates would
+  // silently split a client's totals across two rows
   const seen = new Set<string>();
-  const unique = names
-    .map((n) => n.trim())
-    .filter((n) => {
-      const key = n.toLowerCase();
-      if (!n || seen.has(key)) return false;
+  const unique = input
+    .map((c) => ({ ...c, name: c.name.trim() }))
+    .filter((c) => {
+      const key = c.name.toLowerCase();
+      if (!c.name || seen.has(key)) return false;
       seen.add(key);
       return true;
     });
 
   const existing = await prisma.company.findMany({ where: { clientId } });
+  const byId = new Map(existing.map((c) => [c.id, c]));
   const byName = new Map(existing.map((c) => [c.name.toLowerCase(), c]));
-  const keep = new Map<string, { id: string; order: number }>();
-  const create: { clientId: string; name: string; order: number }[] = [];
 
-  unique.forEach((name, order) => {
-    const match = byName.get(name.toLowerCase());
-    if (match) keep.set(match.id, { id: match.id, order });
-    else create.push({ clientId, name, order });
+  const update: { id: string; data: Prisma.CompanyUncheckedUpdateInput }[] = [];
+  const create: Prisma.CompanyUncheckedCreateInput[] = [];
+  const keptIds = new Set<string>();
+
+  unique.forEach((c, order) => {
+    const match = (c.id && byId.get(c.id)) || byName.get(c.name.toLowerCase());
+    const fields = {
+      name: c.name,
+      phone: c.phone ?? null,
+      email: c.email ?? null,
+      description: c.description ?? null,
+      order,
+    };
+    if (match) {
+      keptIds.add(match.id);
+      update.push({ id: match.id, data: fields });
+    } else {
+      create.push({ clientId, ...fields });
+    }
   });
-  const removed = existing.filter((c) => !keep.has(c.id));
+  const removed = existing.filter((c) => !keptIds.has(c.id));
 
   return {
     removed, // the caller decides whether dropping these is allowed
     apply: () =>
       prisma.$transaction([
-        ...[...keep.values()].map((c) =>
-          prisma.company.update({ where: { id: c.id }, data: { order: c.order } }),
-        ),
+        ...update.map((u) => prisma.company.update({ where: { id: u.id }, data: u.data })),
         ...(removed.length
           ? [prisma.company.deleteMany({ where: { id: { in: removed.map((c) => c.id) } } })]
           : []),
         ...(create.length ? [prisma.company.createMany({ data: create })] : []),
       ]),
   };
+}
+
+/**
+ * Companies elsewhere in the system already holding any of these names (case-insensitive).
+ * A company name identifies one company for the whole firm, so the save is refused with the
+ * owner named rather than hitting the raw unique-index error.
+ */
+export function findCompaniesNamedElsewhere(clientId: string | null, names: string[]) {
+  if (names.length === 0) return Promise.resolve([]);
+  return prisma.company.findMany({
+    where: {
+      // null = the client doesn't exist yet (create) — nothing of theirs to exclude
+      ...(clientId ? { clientId: { not: clientId } } : {}),
+      OR: names.map((name) => ({ name: { equals: name, mode: "insensitive" as const } })),
+    },
+    select: { name: true, client: { select: { firstName: true, lastName: true } } },
+  });
 }
 
 /** What still points at these companies — a referenced company may not be dropped. */

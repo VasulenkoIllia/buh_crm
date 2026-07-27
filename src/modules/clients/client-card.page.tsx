@@ -12,6 +12,7 @@ import { fmtDate } from "@/shared/lib/format";
 import { Button } from "@/shared/ui/button";
 import { Tabs } from "@/shared/ui/tabs";
 import { ClientFormModal } from "./client-form";
+import { ClientCompaniesModal, CompaniesTab } from "./client-companies";
 import { ClientPeopleModal } from "./client-people-modal";
 import { AddServiceModal, CategoriesModal, SubscriptionList } from "./client-services";
 import {
@@ -25,6 +26,7 @@ import {
 
 const TABS = [
   { key: "profile", label: "Profile" },
+  { key: "companies", label: "Companies" },
   { key: "people", label: "People" },
   { key: "tasks", label: "Tasks" },
   { key: "invoices", label: "Invoices" },
@@ -45,14 +47,15 @@ export function ClientCardPage() {
   const archive = useArchiveClient();
   const [editOpen, setEditOpen] = useState(false);
   const [peopleOpen, setPeopleOpen] = useState(false);
+  const [companiesOpen, setCompaniesOpen] = useState(false);
   const [tab, setTab] = useState<TabKey>("profile");
 
   if (isLoading) return <p className="text-[13px] text-muted">Loading…</p>;
   if (error || !client)
     return <p className="text-[13px] text-danger-text">Client not found.</p>;
 
-  const typeLabel = client.type === "company" ? "Company" : "Private individual";
-  const companiesLabel = client.companies.map((c) => c.name).join(", ") || "—";
+  // the informational label, then the companies they actually hold
+  const companiesLabel = client.companies.map((c) => c.name).join(", ") || "no companies";
 
   const onArchive = async () => {
     if (!window.confirm("Archive this client? They disappear from lists (restorable from Archive).")) {
@@ -88,7 +91,7 @@ export function ClientCardPage() {
             )}
           </div>
           <div className="mt-0.5 text-[13px] text-muted-400">
-            {typeLabel} · {companiesLabel}
+            {[client.companyName, companiesLabel].filter(Boolean).join(" · ")}
           </div>
         </div>
         <div className="flex gap-2">
@@ -119,6 +122,9 @@ export function ClientCardPage() {
 
       {/* company view (multi-company clients) */}
       {tab === "profile" && <ProfileTab client={client} />}
+      {tab === "companies" && (
+        <CompaniesTab client={client} onManage={() => setCompaniesOpen(true)} />
+      )}
       {tab === "people" && <PeopleTab client={client} onManage={() => setPeopleOpen(true)} />}
       {tab === "tasks" && (
         <EntityTasks target={{ kind: "client", id: client.id, label: client.displayName }} />
@@ -137,6 +143,13 @@ export function ClientCardPage() {
       )}
       {peopleOpen && (
         <ClientPeopleModal open={peopleOpen} onClose={() => setPeopleOpen(false)} client={client} />
+      )}
+      {companiesOpen && (
+        <ClientCompaniesModal
+          open={companiesOpen}
+          onClose={() => setCompaniesOpen(false)}
+          client={client}
+        />
       )}
     </div>
   );
@@ -235,21 +248,20 @@ function ProfileTab({ client }: { client: Client }) {
       {/* profile grid (design: 2-col, uppercase labels) */}
       <div className="mb-4 grid grid-cols-1 gap-4 rounded-(--radius-panel) border border-border bg-surface p-5 sm:grid-cols-2 sm:gap-x-8">
         <div>
-          <FieldLabel>Type</FieldLabel>
-          <div className="text-[14px]">
-            {client.type === "company" ? "Company" : "Private individual"}
-          </div>
+          <FieldLabel>Name</FieldLabel>
+          <div className="text-[14px]">{client.displayName}</div>
         </div>
         <div>
-          <FieldLabel>{client.type === "company" ? "Contact person" : "Name"}</FieldLabel>
-          <div className="text-[14px]">
-            {`${client.firstName ?? ""} ${client.lastName ?? ""}`.trim() || "—"}
-          </div>
+          {/* the plain label on the client; the real companies are their own tab */}
+          <FieldLabel>Company (label)</FieldLabel>
+          <div className="text-[14px]">{client.companyName ?? "—"}</div>
         </div>
         <div className="sm:col-span-2">
           <FieldLabel>Companies</FieldLabel>
           <div className="text-[14px]">
-            {client.companies.map((c) => c.name).join(", ") || "—"}
+            {client.companies.length > 0
+              ? client.companies.map((c) => c.name).join(", ")
+              : "— billed directly on the client"}
           </div>
         </div>
         <div>

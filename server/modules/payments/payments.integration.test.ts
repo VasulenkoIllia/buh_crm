@@ -35,7 +35,7 @@ async function makeClient(first: string): Promise<string> {
     method: "POST",
     url: "/api/clients",
     headers: { cookie: adminCookie },
-    payload: { type: "individual", firstName: first, lastName: "Pay", companyNames: [], people: [] },
+    payload: { firstName: first, lastName: "Pay", companies: [], people: [] },
   });
   expect(res.statusCode).toBe(201);
   return res.json().id;

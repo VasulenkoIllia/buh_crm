@@ -65,25 +65,23 @@ afterAll(async () => {
 describe("clients", () => {
   let individualId: string;
 
-  it("creates an individual with companies + people", async () => {
+  it("creates a client with companies + people", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/clients",
       headers: { cookie },
       payload: {
-        type: "individual",
         firstName: "Ivan",
         lastName: "Petrenko",
         phone: "+380501112233",
         email: "ivan@example.com",
-        companyNames: ["Alpha LLC", "Beta Inc"],
+        companies: [{ name: "Alpha LLC" }, { name: "Beta Inc" }],
         people: [{ name: "Olena Book", serviceLabel: "Bookkeeping", phone: "+380671110000" }],
       },
     });
     expect(res.statusCode).toBe(201);
     const body = res.json();
     individualId = body.id;
-    expect(body.type).toBe("individual");
     expect(body.displayName).toBe("Ivan Petrenko");
     expect(body.companies.map((c: { name: string }) => c.name)).toEqual(["Alpha LLC", "Beta Inc"]);
     expect(body.people).toHaveLength(1);
@@ -93,12 +91,12 @@ describe("clients", () => {
   });
 
   // the last name is optional (user, 2026-07-26) — a first name alone identifies the client
-  it("accepts an individual with only a first name", async () => {
+  it("accepts a client with only a first name", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/clients",
       headers: { cookie },
-      payload: { type: "individual", firstName: "Lesya", email: "lesya@example.com" },
+      payload: { firstName: "Lesya", email: "lesya@example.com" },
     });
     expect(res.statusCode).toBe(201);
     const body = res.json();
@@ -106,23 +104,23 @@ describe("clients", () => {
     expect(body.displayName).toBe("Lesya"); // no trailing space from the missing half
   });
 
-  it("rejects an individual with no first name at all", async () => {
+  it("rejects a client with no first name at all", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/clients",
       headers: { cookie },
-      payload: { type: "individual", lastName: "Petrenko", email: "x@example.com" },
+      payload: { lastName: "Petrenko", email: "x@example.com" },
     });
     expect(res.statusCode).toBe(400);
   });
 
   // an edit must not be able to strip the name either — the merged check runs on PATCH
-  it("rejects clearing the first name on an existing individual", async () => {
+  it("rejects clearing the first name on an existing client", async () => {
     const created = await app.inject({
       method: "POST",
       url: "/api/clients",
       headers: { cookie },
-      payload: { type: "individual", firstName: "Olha", lastName: "Koval" },
+      payload: { firstName: "Olha", lastName: "Koval" },
     });
     const res = await app.inject({
       method: "PATCH",
@@ -138,7 +136,7 @@ describe("clients", () => {
       method: "POST",
       url: "/api/clients",
       headers: { cookie },
-      payload: { type: "individual", firstName: "Ihor", lastName: "Bondar" },
+      payload: { firstName: "Ihor", lastName: "Bondar" },
     });
     const res = await app.inject({
       method: "PATCH",
@@ -150,42 +148,86 @@ describe("clients", () => {
     expect(res.json().displayName).toBe("Ihor");
   });
 
-  it("creates a company-type client (displayName = company name)", async () => {
+  // `companyName` is a plain label now — it never was, and never becomes, a Company row
+  it("keeps companyName as a label, separate from the client's companies", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/clients",
       headers: { cookie },
       payload: {
-        type: "company",
         companyName: "Romashka LLC",
         firstName: "Petro",
         lastName: "Tkach",
-        companyNames: ["Romashka Trade LLC"],
+        companies: [{ name: "Romashka Trade LLC" }],
       },
     });
     expect(res.statusCode).toBe(201);
     const body = res.json();
-    expect(body.type).toBe("company");
-    expect(body.displayName).toBe("Romashka LLC");
+    expect(body.displayName).toBe("Petro Tkach"); // the person, never the label
+    expect(body.companyName).toBe("Romashka LLC");
     expect(body.companies.map((c: { name: string }) => c.name)).toEqual(["Romashka Trade LLC"]);
   });
 
-  it("rejects a company-type client without a company name", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/clients",
-      headers: { cookie },
-      payload: { type: "company", firstName: "No", lastName: "Company" },
-    });
-    expect(res.statusCode).toBe(400);
-  });
-
-  it("companies are per-client text (not shared)", async () => {
-    // Ivan(2) + Romashka Trade(1) = 3 rows total, none shared
+  it("a company belongs to exactly one client", async () => {
+    // Ivan(2) + Romashka Trade(1) = 3 rows total
     expect(await prisma.company.count()).toBe(3);
     const alphas = await prisma.company.findMany({ where: { name: "Alpha LLC" } });
     expect(alphas).toHaveLength(1);
     expect(alphas[0].clientId).toBe(individualId);
+  });
+
+  // a company name identifies ONE company for the whole firm (user, 2026-07-26)
+  it("refuses a company name another client already holds, and says who", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/clients",
+      headers: { cookie },
+      // different case on purpose — the rule is case-insensitive
+      payload: { firstName: "Copycat", companies: [{ name: "alpha llc" }] },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.message).toContain("Ivan Petrenko");
+    // and the refused create left NOTHING behind — the name is checked before anything is written
+    expect(await prisma.client.count({ where: { firstName: "Copycat" } })).toBe(0);
+  });
+
+  it("stores a company's own contact details and keeps its id across a rename", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/clients",
+      headers: { cookie },
+      payload: {
+        firstName: "Detail",
+        companies: [
+          {
+            name: "Detailed Co",
+            phone: "+380671234567",
+            email: "billing@detailed.co",
+            description: "invoices go to accounting",
+          },
+        ],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const company = created.json().companies[0];
+    expect(company).toMatchObject({
+      name: "Detailed Co",
+      phone: "+380671234567",
+      email: "billing@detailed.co",
+      description: "invoices go to accounting",
+    });
+
+    // renaming by id keeps the same row, so anything pointing at it follows along
+    const renamed = await app.inject({
+      method: "PATCH",
+      url: `/api/clients/${created.json().id}`,
+      headers: { cookie },
+      payload: { companies: [{ id: company.id, name: "Detailed Group", email: "ap@detailed.co" }] },
+    });
+    expect(renamed.statusCode).toBe(200);
+    expect(renamed.json().companies[0].id).toBe(company.id);
+    expect(renamed.json().companies[0].name).toBe("Detailed Group");
+    expect(renamed.json().companies[0].phone).toBeNull(); // omitted = cleared, it's a full replace
   });
 
   it("searches by company name", async () => {
@@ -204,7 +246,7 @@ describe("clients", () => {
       method: "PATCH",
       url: `/api/clients/${individualId}`,
       headers: { cookie },
-      payload: { regularOverride: true }, // no companyNames/people -> must not touch them
+      payload: { regularOverride: true }, // no companies/people -> must not touch them
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().isRegular).toBe(true);
@@ -254,7 +296,6 @@ describe("clients", () => {
       url: "/api/clients",
       headers: { cookie },
       payload: {
-        type: "individual",
         firstName: "A",
         lastName: "B",
         email: "ws@example.com",
@@ -346,10 +387,9 @@ describe("clients", () => {
       url: "/api/clients",
       headers: { cookie },
       payload: {
-        type: "individual",
         firstName: "Company",
         lastName: "Dimension",
-        companyNames: ["Alpha Ltd", "Beta Ltd"],
+        companies: [{ name: "Alpha Ltd" }, { name: "Beta Ltd" }],
         people: [],
       },
     });
@@ -368,7 +408,7 @@ describe("clients", () => {
       method: "PATCH",
       url: `/api/clients/${client.id}`,
       headers: { cookie },
-      payload: { phone: "+380000000000", companyNames: ["Alpha Ltd", "Beta Ltd"] },
+      payload: { phone: "+380000000000", companies: [{ name: "Alpha Ltd" }, { name: "Beta Ltd" }] },
     });
     expect(resaved.statusCode).toBe(200);
     expect(resaved.json().companies.find((c: { name: string }) => c.name === "Alpha Ltd").id).toBe(
@@ -388,7 +428,7 @@ describe("clients", () => {
       method: "PATCH",
       url: `/api/clients/${client.id}`,
       headers: { cookie },
-      payload: { companyNames: ["Beta Ltd"] },
+      payload: { companies: [{ name: "Beta Ltd" }] },
     });
     expect(drop.statusCode).toBe(409);
     expect(drop.json().error.message).toContain("Alpha Ltd");
@@ -398,7 +438,7 @@ describe("clients", () => {
       method: "PATCH",
       url: `/api/clients/${client.id}`,
       headers: { cookie },
-      payload: { companyNames: ["Alpha Ltd"] },
+      payload: { companies: [{ name: "Alpha Ltd" }] },
     });
     expect(ok.json().companies.map((c: { name: string }) => c.name)).toEqual(["Alpha Ltd"]);
   });
@@ -408,7 +448,7 @@ describe("clients", () => {
       method: "POST",
       url: "/api/clients",
       headers: { cookie },
-      payload: { type: "individual", firstName: "Gone", lastName: "Away", companyNames: [], people: [] },
+      payload: { firstName: "Gone", lastName: "Away", companies: [], people: [] },
     });
     const client = created.json();
     const service = await prisma.service.create({

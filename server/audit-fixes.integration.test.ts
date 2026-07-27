@@ -226,10 +226,9 @@ describe("clients", () => {
       url: "/api/clients",
       headers: { cookie },
       payload: {
-        type: "individual",
         firstName: "Dedup",
         lastName: "Test",
-        companyNames: ["Alpha LLC", "alpha llc", " ALPHA LLC ", "Beta"],
+        companies: [{ name: "Alpha LLC" }, { name: "alpha llc" }, { name: " ALPHA LLC " }, { name: "Beta" }],
         people: [],
       },
     });
@@ -247,10 +246,9 @@ describe("clients", () => {
       url: "/api/clients",
       headers: { cookie },
       payload: {
-        type: "individual",
         firstName: "Person",
         lastName: "Email",
-        companyNames: [],
+        companies: [],
         people: [{ name: "Contact", email: "not-an-email" }],
       },
     });
@@ -261,10 +259,9 @@ describe("clients", () => {
       url: "/api/clients",
       headers: { cookie },
       payload: {
-        type: "individual",
         firstName: "Person",
         lastName: "Email",
-        companyNames: [],
+        companies: [],
         people: [{ name: "Contact", email: "" }],
       },
     });
@@ -278,7 +275,7 @@ describe("clients", () => {
       method: "POST",
       url: "/api/clients",
       headers: { cookie },
-      payload: { type: "individual", firstName: "Arch", lastName: "Files", companyNames: [], people: [] },
+      payload: { firstName: "Arch", lastName: "Files", companies: [], people: [] },
     });
     const clientId = created.json().id;
 

@@ -4,16 +4,17 @@
  */
 
 export interface Nameable {
-  type: "individual" | "company";
-  firstName: string | null;
+  firstName: string;
   lastName: string | null;
-  companyName: string | null;
 }
 
-/** individual → "First Last"; company → the company name. Never empty — falls back to "—". */
+/**
+ * A client reads as "First Last" — there is no company/individual split any more (2026-07-26):
+ * the companies a client holds are their own rows, and `Client.companyName` is a label, not an
+ * identity. Never empty: `firstName` is required.
+ */
 export function clientLabel(c: Nameable): string {
-  if (c.type === "company") return c.companyName ?? "—";
-  return `${c.firstName ?? ""} ${c.lastName ?? ""}`.trim() || "—";
+  return `${c.firstName} ${c.lastName ?? ""}`.trim() || "—";
 }
 
 /** A team member's name for audit trails and "recorded by" lines. */

@@ -12,17 +12,8 @@ import { ConflictError, NotFoundError, ValidationError } from "../../core/errors
 import { debtByClient, generateForSubscriptionInvoices } from "../payments/index.js";
 import { generateForSubscription } from "../tasks/index.js";
 import { MAX_FILE_SIZE, deleteFileBytes, saveFileBytes } from "../../core/files.js";
+import { clientLabel } from "../../core/names.js";
 import * as repo from "./clients.repository.js";
-
-function displayName(c: {
-  type: "individual" | "company";
-  firstName: string | null;
-  lastName: string | null;
-  companyName: string | null;
-}): string {
-  if (c.type === "company") return c.companyName ?? "—";
-  return `${c.firstName ?? ""} ${c.lastName ?? ""}`.trim() || "—";
-}
 
 /** isRegular = regularOverride ?? has an active SUBSCRIPTION-type sub (cross-cutting rule).
  * One-time subs are just containers ad-hoc jobs flow through — they never make a client regular. */
@@ -44,11 +35,10 @@ export function toClientDto(client: repo.ClientRecord, debt = 0) {
       rhythmOverrides: rhythmOverridesSchema.catch({}).parse(s.rhythmOverrides ?? {}),
       active: s.active,
     })),
-    type: client.type,
     firstName: client.firstName,
     lastName: client.lastName,
     companyName: client.companyName,
-    displayName: displayName(client),
+    displayName: clientLabel(client),
     phone: client.phone,
     email: client.email,
     address: client.address,
@@ -58,7 +48,13 @@ export function toClientDto(client: repo.ClientRecord, debt = 0) {
       client.subscriptions.some((s) => s.active && s.service.type === "subscription"),
     regularOverride: client.regularOverride,
     description: client.description,
-    companies: client.companies.map((c) => ({ id: c.id, name: c.name })),
+    companies: client.companies.map((c) => ({
+      id: c.id,
+      name: c.name,
+      phone: c.phone,
+      email: c.email,
+      description: c.description,
+    })),
     people: client.people.map((p) => ({
       id: p.id,
       name: p.name,
@@ -142,8 +138,7 @@ export async function getClient(id: string) {
 
 function toClientFields(input: CreateClientInput | UpdateClientInput, isCreate: boolean) {
   const fields: Prisma.ClientUpdateInput = {};
-  if (input.type !== undefined) fields.type = input.type;
-  if (input.firstName !== undefined) fields.firstName = input.firstName ?? null;
+  if (input.firstName !== undefined) fields.firstName = input.firstName;
   if (input.lastName !== undefined) fields.lastName = input.lastName ?? null;
   if (input.companyName !== undefined) fields.companyName = input.companyName ?? null;
   if (input.phone !== undefined) fields.phone = input.phone ?? null;
@@ -160,12 +155,35 @@ function toClientFields(input: CreateClientInput | UpdateClientInput, isCreate: 
 }
 
 /**
- * Save the client's company list. Companies are the billing/reporting dimension carried by
- * subscriptions, tasks and issued invoices, so a company that something still points at can't
- * just disappear — the save is refused with the reason instead of silently orphaning history.
+ * A company NAME identifies one company for the whole firm, so a name another client already
+ * holds is refused with the owner named rather than surfacing a raw unique-index violation.
+ *
+ * Checked BEFORE the client row is written on create — otherwise a rejected save would leave a
+ * half-created client behind (`clientId` is null then: nothing of this client's is excluded yet).
  */
-async function applyCompanies(clientId: string, names: string[]) {
-  const { removed, apply } = await repo.reconcileClientCompanies(clientId, names);
+async function assertCompanyNamesFree(
+  clientId: string | null,
+  companies: repo.CompanyRecordInput[],
+) {
+  const names = companies.map((c) => c.name.trim()).filter(Boolean);
+  const taken = await repo.findCompaniesNamedElsewhere(clientId, names);
+  if (taken.length > 0) {
+    const [first] = taken;
+    throw new ConflictError(
+      `"${first.name}" already belongs to ${clientLabel(first.client)} — a company name identifies one company across the whole firm`,
+    );
+  }
+}
+
+/**
+ * Save the client's companies. A company that subscriptions, tasks or issued invoices still
+ * point at can't just disappear — the save is refused with the reason instead of silently
+ * orphaning that history.
+ */
+async function applyCompanies(clientId: string, companies: repo.CompanyRecordInput[]) {
+  await assertCompanyNamesFree(clientId, companies);
+  const { removed, apply } = await repo.reconcileClientCompanies(clientId, companies);
+
   if (removed.length > 0) {
     const refs = await repo.countCompanyReferences(removed.map((c) => c.id));
     const used = [
@@ -203,11 +221,10 @@ async function assertPeopleServicesClientFacing(people: CreateClientInput["peopl
 
 export async function createClient(input: CreateClientInput) {
   await assertPeopleServicesClientFacing(input.people);
-  const client = await repo.createClient({
-    ...(toClientFields(input, true) as Prisma.ClientCreateInput),
-    type: input.type,
-  });
-  if (input.companyNames.length > 0) await applyCompanies(client.id, input.companyNames);
+  // check before writing anything: a refused save must not leave a half-created client behind
+  await assertCompanyNamesFree(null, input.companies);
+  const client = await repo.createClient(toClientFields(input, true) as Prisma.ClientCreateInput);
+  if (input.companies.length > 0) await applyCompanies(client.id, input.companies);
   if (input.people.length > 0) {
     await repo.setClientPeople(client.id, mapPeople(input.people));
   }
@@ -240,20 +257,15 @@ export async function updateClient(id: string, input: UpdateClientInput) {
   const existing = await repo.findClient(id);
   if (!existing || existing.archivedAt) throw new NotFoundError("Client not found");
 
-  // re-validate the type invariant against the MERGED record (the Zod refine only
-  // runs when `type` is in the patch, which routine edits omit)
-  const type = input.type ?? existing.type;
-  const firstName = input.firstName !== undefined ? input.firstName : existing.firstName;
-  const companyName = input.companyName !== undefined ? input.companyName : existing.companyName;
-  // last name stays optional — only what makes the client identifiable is enforced
-  const valid = type === "individual" ? !!firstName : !!companyName;
-  if (!valid) {
-    throw new ValidationError("Individual needs a first name; company needs a company name");
+  // a PATCH may omit the name entirely, but it must never CLEAR it — the first name is what
+  // identifies the client (the last name and the companyName label stay optional)
+  if (input.firstName !== undefined && !input.firstName) {
+    throw new ValidationError("First name is required");
   }
 
   if (input.people !== undefined) await assertPeopleServicesClientFacing(input.people);
   await repo.updateClient(id, toClientFields(input, false));
-  if (input.companyNames !== undefined) await applyCompanies(id, input.companyNames);
+  if (input.companies !== undefined) await applyCompanies(id, input.companies);
   if (input.people !== undefined) {
     await repo.setClientPeople(id, mapPeople(input.people));
   }

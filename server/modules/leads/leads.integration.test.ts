@@ -167,7 +167,6 @@ describe("leads", () => {
       url: `/api/leads/${leadId}/convert`,
       headers: { cookie },
       payload: {
-        type: "individual",
         firstName: "Maria",
         lastName: "Bond",
         phone: "+380671234567",
@@ -179,7 +178,6 @@ describe("leads", () => {
     expect(lead.convertedClientId).toBe(clientId);
 
     const client = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
-    expect(client.type).toBe("individual");
     expect(client.firstName).toBe("Maria");
 
     // converted lead is read-only
@@ -195,30 +193,30 @@ describe("leads", () => {
       method: "POST",
       url: `/api/leads/${leadId}/convert`,
       headers: { cookie },
-      payload: { type: "individual", firstName: "X", lastName: "Y" },
+      payload: { firstName: "X", lastName: "Y" },
     });
     expect(again.statusCode).toBe(400);
   });
 
-  it("converts a company lead into a company client", async () => {
+  // 2026-07-26: a lead is a person with an optional company LABEL — no individual/company
+  // discriminator on either side any more, so convert is a straight field copy
+  it("carries the company label through convert", async () => {
     const created = await app.inject({
       method: "POST",
       url: "/api/leads",
       headers: { cookie },
-      payload: { type: "company", name: "Romashka LLC", email: "info@romashka.ua" },
+      payload: { name: "Petro Tkach", companyName: "Romashka LLC", email: "info@romashka.ua" },
     });
-    expect(created.json().type).toBe("company");
-    const companyLeadId = created.json().id;
+    expect(created.json().companyName).toBe("Romashka LLC");
 
     const res = await app.inject({
       method: "POST",
-      url: `/api/leads/${companyLeadId}/convert`,
+      url: `/api/leads/${created.json().id}/convert`,
       headers: { cookie },
       payload: {
-        type: "company",
-        companyName: "Romashka LLC",
         firstName: "Petro",
         lastName: "Tkach",
+        companyName: "Romashka LLC",
         email: "info@romashka.ua",
       },
     });
@@ -226,23 +224,23 @@ describe("leads", () => {
     const client = await prisma.client.findUniqueOrThrow({
       where: { id: res.json().clientId },
     });
-    expect(client.type).toBe("company");
-    expect(client.companyName).toBe("Romashka LLC");
     expect(client.firstName).toBe("Petro");
+    expect(client.companyName).toBe("Romashka LLC"); // a label, not a Company row
+    expect(await prisma.company.count({ where: { clientId: client.id } })).toBe(0);
   });
 
-  it("rejects a company convert without a company name", async () => {
+  it("rejects a convert with no first name", async () => {
     const created = await app.inject({
       method: "POST",
       url: "/api/leads",
       headers: { cookie },
-      payload: { type: "company", name: "NoName Co", phone: "+380000000000" },
+      payload: { name: "NoName Co", phone: "+380000000000" },
     });
     const res = await app.inject({
       method: "POST",
       url: `/api/leads/${created.json().id}/convert`,
       headers: { cookie },
-      payload: { type: "company", firstName: "A", lastName: "B" },
+      payload: { lastName: "B" },
     });
     expect(res.statusCode).toBe(400);
   });

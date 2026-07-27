@@ -37,7 +37,7 @@ async function makeClient(first: string): Promise<string> {
     method: "POST",
     url: "/api/clients",
     headers: { cookie: adminCookie },
-    payload: { type: "individual", firstName: first, lastName: "Tasks", companyNames: [], people: [] },
+    payload: { firstName: first, lastName: "Tasks", companies: [], people: [] },
   });
   expect(res.statusCode).toBe(201);
   return res.json().id;
@@ -207,7 +207,7 @@ describe("tasks", () => {
       method: "POST",
       url: "/api/leads",
       headers: { cookie: adminCookie },
-      payload: { type: "individual", name: "Task Lead", phone: "+380500000000" },
+      payload: { name: "Task Lead", phone: "+380500000000" },
     });
     const leadTask = await app.inject({
       method: "POST",

@@ -3,14 +3,12 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { isClientFacing } from "@shared/schema/catalog";
-import type { ClientType } from "@shared/schema/enums";
 import type { Lead } from "@shared/schema/lead";
 import { ApiError } from "@/shared/lib/api";
 import { Button } from "@/shared/ui/button";
-import { FormField, Input, Label, Select } from "@/shared/ui/field";
+import { FormField, Input, Select } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
 import { SearchSelect } from "@/shared/ui/search-select";
-import { Segmented } from "@/shared/ui/segmented";
 import { useCatalog } from "@/modules/catalog";
 import { useSettings } from "@/modules/settings";
 import { useConvertLead, useCreateLead, useUpdateLead } from "./leads.api";
@@ -18,8 +16,8 @@ import { useConvertLead, useCreateLead, useUpdateLead } from "./leads.api";
 // only the name is required — a lead often arrives as a name and a note, with the phone or
 // email filled in later (user, 2026-07-26; same rule server-side)
 const leadFormSchema = z.object({
-  type: z.enum(["individual", "company"]),
   name: z.string().min(1, "Required"),
+  companyName: z.string(),
   phone: z.string(),
   email: z.union([z.email("Invalid email"), z.literal("")]),
   serviceId: z.string(),
@@ -54,8 +52,8 @@ export function LeadFormModal({
   } = useForm<LeadFormValues>({
     resolver: zodResolver(leadFormSchema),
     defaultValues: {
-      type: lead?.type ?? "individual",
       name: lead?.name ?? "",
+      companyName: lead?.companyName ?? "",
       phone: lead?.phone ?? "",
       email: lead?.email ?? "",
       serviceId: lead?.serviceId ?? "",
@@ -64,7 +62,6 @@ export function LeadFormModal({
     },
   });
 
-  const type = watch("type");
 
   const close = () => {
     reset();
@@ -75,8 +72,8 @@ export function LeadFormModal({
 
   const onSubmit = handleSubmit(async (values) => {
     const input = {
-      type: values.type as ClientType,
       name: values.name,
+      companyName: values.companyName || null,
       phone: values.phone || null,
       email: values.email || null,
       serviceId: values.serviceId || null,
@@ -116,31 +113,22 @@ export function LeadFormModal({
       }
     >
       <form id="lead-form" onSubmit={onSubmit} className="space-y-4" noValidate>
-        <div>
-          <Label>Lead type</Label>
-          <Segmented
-            value={type}
-            onChange={(v) => setValue("type", v, { shouldDirty: true })}
-            options={[
-              { value: "company", label: "Company" },
-              { value: "individual", label: "Individual" },
-            ]}
-          />
+        <div className="grid grid-cols-2 gap-3">
+          <FormField label="Name" htmlFor="l-name" error={errors.name?.message}>
+            <Input
+              id="l-name"
+              // the name is the first thing you type — open the modal and start typing
+              autoFocus
+              placeholder="e.g. Petro Tkach"
+              error={!!errors.name}
+              {...register("name")}
+            />
+          </FormField>
+          {/* informational, like the client's — carried over as-is on convert */}
+          <FormField label="Company (optional)" htmlFor="l-company">
+            <Input id="l-company" placeholder="e.g. Romashka LLC" {...register("companyName")} />
+          </FormField>
         </div>
-        <FormField
-          label={type === "company" ? "Company name" : "Name"}
-          htmlFor="l-name"
-          error={errors.name?.message}
-        >
-          <Input
-            id="l-name"
-            // the name is the first thing you type — open the modal and start typing
-            autoFocus
-            placeholder={type === "company" ? "e.g. Romashka LLC" : "e.g. Petro Tkach"}
-            error={!!errors.name}
-            {...register("name")}
-          />
-        </FormField>
         <div className="grid grid-cols-2 gap-3">
           <FormField label="Phone" htmlFor="l-phone" error={errors.phone?.message}>
             <Input
@@ -204,27 +192,18 @@ export function LeadFormModal({
   );
 }
 
-// ── Convert dialog: type-aware reviewed fields → new client ──────────────────
+// ── Convert dialog: the reviewed fields become the new client ────────────────
 
-const convertFormSchema = z
-  .object({
-    type: z.enum(["individual", "company"]),
-    companyName: z.string(),
-    firstName: z.string(),
-    lastName: z.string(),
-    phone: z.string(),
-    email: z.union([z.email("Invalid email"), z.literal("")]),
-    address: z.string(),
-  })
-  // last name optional — a one-word lead name ("Lesya") splits to a first name only
-  .refine((v) => (v.type === "individual" ? v.firstName.trim() : true), {
-    path: ["firstName"],
-    message: "First name is required",
-  })
-  .refine((v) => (v.type === "company" ? v.companyName.trim() : true), {
-    path: ["companyName"],
-    message: "Company name is required",
-  });
+// Same shape as a hand-created client: the first name identifies it, the last name is optional
+// (a one-word lead name splits to a first name only), and the company is a plain label.
+const convertFormSchema = z.object({
+  firstName: z.string().trim().min(1, "First name is required"),
+  lastName: z.string(),
+  companyName: z.string(),
+  phone: z.string(),
+  email: z.union([z.email("Invalid email"), z.literal("")]),
+  address: z.string(),
+});
 type ConvertFormValues = z.infer<typeof convertFormSchema>;
 
 export function ConvertLeadModal({
@@ -244,34 +223,27 @@ export function ConvertLeadModal({
   const {
     register,
     handleSubmit,
-    watch,
-    setValue,
     formState: { errors, isSubmitting },
   } = useForm<ConvertFormValues>({
     resolver: zodResolver(convertFormSchema),
     defaultValues: {
-      type: lead.type,
-      companyName: lead.type === "company" ? lead.name : "",
-      firstName: lead.type === "individual" ? (first ?? "") : "",
-      lastName: lead.type === "individual" ? rest.join(" ") : "",
+      firstName: first ?? "",
+      lastName: rest.join(" "),
+      companyName: lead.companyName ?? "",
       phone: lead.phone ?? "",
       email: lead.email ?? "",
       address: "",
     },
   });
 
-  const type = watch("type");
-  const isCompany = type === "company";
-
   const onSubmit = handleSubmit(async (values) => {
     try {
       const { clientId } = await convert.mutateAsync({
         id: lead.id,
         input: {
-          type: values.type as ClientType,
-          firstName: values.firstName || null,
+          firstName: values.firstName.trim(),
           lastName: values.lastName || null,
-          companyName: isCompany ? values.companyName || null : null,
+          companyName: values.companyName || null,
           phone: values.phone || null,
           email: values.email || null,
           address: values.address || null,
@@ -309,48 +281,24 @@ export function ConvertLeadModal({
           Review the details — the lead becomes a new client. The lead stays as read-only
           history marked <b>won</b>.
         </p>
-        <div>
-          <Label>Client type</Label>
-          <Segmented
-            value={type}
-            onChange={(v) => setValue("type", v, { shouldDirty: true })}
-            options={[
-              { value: "company", label: "Company" },
-              { value: "individual", label: "Individual" },
-            ]}
-          />
-        </div>
-        {isCompany && (
-          <FormField
-            label="Company name"
-            htmlFor="cv-company"
-            error={errors.companyName?.message}
-          >
-            <Input
-              id="cv-company"
-              placeholder="e.g. Romashka LLC"
-              error={!!errors.companyName}
-              {...register("companyName")}
-            />
-          </FormField>
-        )}
         <div className="grid grid-cols-2 gap-3">
-          <FormField
-            label={isCompany ? "Contact — first name" : "First name"}
-            htmlFor="cv-first"
-            error={errors.firstName?.message}
-          >
+          <FormField label="First name" htmlFor="cv-first" error={errors.firstName?.message}>
             <Input
               id="cv-first"
+              autoFocus
               placeholder="e.g. Ivan"
               error={!!errors.firstName}
               {...register("firstName")}
             />
           </FormField>
-          <FormField label={isCompany ? "Contact — last name" : "Last name"} htmlFor="cv-last">
+          <FormField label="Last name" htmlFor="cv-last">
             <Input id="cv-last" placeholder="e.g. Petrenko" {...register("lastName")} />
           </FormField>
         </div>
+        <FormField label="Company (label)" htmlFor="cv-company">
+          {/* informational — the client's real companies are added on their card afterwards */}
+          <Input id="cv-company" placeholder="e.g. Romashka LLC" {...register("companyName")} />
+        </FormField>
         <div className="grid grid-cols-2 gap-3">
           <FormField label="Phone" htmlFor="cv-phone">
             <Input id="cv-phone" placeholder="+380 67 123 4567" {...register("phone")} />
