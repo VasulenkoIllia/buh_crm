@@ -64,8 +64,8 @@ export const clientSchema = z.object({
   email: z.email().nullable(),
   address: z.string().nullable(),
   sourceId: uuid.nullable(),
+  /** derived: holds an active subscription-type service. Not stored, not settable. */
   isRegular: z.boolean(),
-  regularOverride: z.boolean().nullable(),
   description: z.string().nullable(),
   companies: z.array(companySchema),
   people: z.array(clientPersonSchema),
@@ -128,7 +128,6 @@ const clientFields = z.object({
   address: optionalTrimmed,
   sourceId: uuid.nullable().optional(),
   description: optionalTrimmed,
-  regularOverride: z.boolean().nullable().optional(),
   /** the client's companies, in display order — a full replace of the list */
   companies: z.array(companyInput).max(50).default([]),
   /** the "People" tab */

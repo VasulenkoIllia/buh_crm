@@ -267,7 +267,6 @@ model Client {
   email           String?
   address         String?
   sourceId        String?   @db.Uuid
-  regularOverride Boolean? // isRegular = regularOverride ?? hasActiveSubscription (computed)
   description     String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt

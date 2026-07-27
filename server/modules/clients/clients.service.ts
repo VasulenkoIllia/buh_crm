@@ -15,8 +15,12 @@ import { MAX_FILE_SIZE, deleteFileBytes, saveFileBytes } from "../../core/files.
 import { clientLabel } from "../../core/names.js";
 import * as repo from "./clients.repository.js";
 
-/** isRegular = regularOverride ?? has an active SUBSCRIPTION-type sub (cross-cutting rule).
- * One-time subs are just containers ad-hoc jobs flow through — they never make a client regular. */
+/**
+ * `isRegular` is **purely derived** (user, 2026-07-26): a client is regular exactly while they
+ * hold an active SUBSCRIPTION-type service. Adding one makes them regular; stopping it makes them
+ * one-time again, with no stored flag that could drift from the services they actually have.
+ * One-time subs are just containers ad-hoc jobs flow through — they never count.
+ */
 export function toClientDto(client: repo.ClientRecord, debt = 0) {
   return {
     id: client.id,
@@ -43,10 +47,7 @@ export function toClientDto(client: repo.ClientRecord, debt = 0) {
     email: client.email,
     address: client.address,
     sourceId: client.sourceId,
-    isRegular:
-      client.regularOverride ??
-      client.subscriptions.some((s) => s.active && s.service.type === "subscription"),
-    regularOverride: client.regularOverride,
+    isRegular: client.subscriptions.some((s) => s.active && s.service.type === "subscription"),
     description: client.description,
     companies: client.companies.map((c) => ({
       id: c.id,
@@ -76,19 +77,9 @@ const ACTIVE_REGULAR_SUB: Prisma.SubscriptionWhereInput = {
   service: { type: "subscription" },
 };
 
-const REGULAR_FILTER: Prisma.ClientWhereInput = {
-  OR: [
-    { regularOverride: true },
-    { regularOverride: null, subscriptions: { some: ACTIVE_REGULAR_SUB } },
-  ],
-};
-
-const ONE_TIME_FILTER: Prisma.ClientWhereInput = {
-  OR: [
-    { regularOverride: false },
-    { regularOverride: null, subscriptions: { none: ACTIVE_REGULAR_SUB } },
-  ],
-};
+// the tab filters ARE the rule, expressed in SQL — nothing else decides who is regular
+const REGULAR_FILTER: Prisma.ClientWhereInput = { subscriptions: { some: ACTIVE_REGULAR_SUB } };
+const ONE_TIME_FILTER: Prisma.ClientWhereInput = { subscriptions: { none: ACTIVE_REGULAR_SUB } };
 
 export async function listClients(query: ClientListQuery) {
   const where: Prisma.ClientWhereInput = {
@@ -145,7 +136,6 @@ function toClientFields(input: CreateClientInput | UpdateClientInput, isCreate: 
   if (input.email !== undefined) fields.email = input.email ?? null;
   if (input.address !== undefined) fields.address = input.address ?? null;
   if (input.description !== undefined) fields.description = input.description ?? null;
-  if (input.regularOverride !== undefined) fields.regularOverride = input.regularOverride ?? null;
   if (input.sourceId) {
     fields.source = { connect: { id: input.sourceId } };
   } else if (!isCreate && input.sourceId !== undefined) {

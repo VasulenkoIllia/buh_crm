@@ -224,7 +224,7 @@ describe("catalog", () => {
     const catalog = await app.inject({ method: "GET", url: "/api/catalog", headers: { cookie: adminCookie } });
     expect(catalog.json()[0].clientsCount).toBe(1);
 
-    // deactivate → back to one-time (regularOverride stays null)
+    // deactivate → back to one-time, automatically (there is no flag to un-tick)
     const subId = sub.json().subscriptions[0].id;
     const off = await app.inject({
       method: "PATCH",

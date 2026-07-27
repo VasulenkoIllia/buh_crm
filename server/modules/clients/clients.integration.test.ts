@@ -241,53 +241,97 @@ describe("clients", () => {
     expect(body.items[0].displayName).toBe("Ivan Petrenko");
   });
 
-  it("a partial update (regular toggle only) keeps companies + people", async () => {
+  it("a partial update keeps companies + people untouched", async () => {
     const res = await app.inject({
       method: "PATCH",
       url: `/api/clients/${individualId}`,
       headers: { cookie },
-      payload: { regularOverride: true }, // no companies/people -> must not touch them
+      payload: { address: "Kyiv" }, // no companies/people -> must not touch them
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().isRegular).toBe(true);
     expect(res.json().companies).toHaveLength(2);
     expect(res.json().people).toHaveLength(1);
   });
 
-  it("cannot blank an individual's name via a partial update", async () => {
+  it("cannot blank a client's name via a partial update", async () => {
     const res = await app.inject({
       method: "PATCH",
       url: `/api/clients/${individualId}`,
       headers: { cookie },
-      payload: { firstName: "" }, // no `type` in the patch — must still be rejected
+      payload: { firstName: "" },
     });
     expect(res.statusCode).toBe(400);
   });
 
-  it("preserves an explicit regularOverride=false on an unrelated edit", async () => {
+  /**
+   * "Regular" is not a setting (user, 2026-07-26): it follows from the services the client holds.
+   * A subscription-type service makes them regular; stopping it makes them one-time again — and
+   * a one-time service never counts, however many of them there are.
+   */
+  it("derives regular from the subscriptions, and follows them both ways", async () => {
+    const client = await app.inject({
+      method: "POST",
+      url: "/api/clients",
+      headers: { cookie },
+      payload: { firstName: "Derived", lastName: "Regular" },
+    });
+    const clientId = client.json().id;
+    expect(client.json().isRegular).toBe(false);
+
+    const [oneTime, monthly] = await Promise.all([
+      prisma.service.create({ data: { name: "Derived one-off", color: "#000", type: "one_time" } }),
+      prisma.service.create({ data: { name: "Derived monthly", color: "#000", type: "subscription" } }),
+    ]);
+
+    // a one-time service is only a container for ad-hoc jobs — it never makes anyone regular
+    const withOneTime = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions`,
+      headers: { cookie },
+      payload: { serviceId: oneTime.id, amount: 5000 },
+    });
+    expect(withOneTime.json().isRegular).toBe(false);
+
+    const withSub = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions`,
+      headers: { cookie },
+      payload: { serviceId: monthly.id, amount: 10_000, period: "month" },
+    });
+    expect(withSub.json().isRegular).toBe(true);
+    const subId = withSub
+      .json()
+      .subscriptions.find((s: { serviceId: string }) => s.serviceId === monthly.id).id;
+
+    // …and stopping it hands them straight back to One-time, with nothing to un-tick
+    const stopped = await app.inject({
+      method: "PATCH",
+      url: `/api/clients/${clientId}/subscriptions/${subId}`,
+      headers: { cookie },
+      payload: { active: false },
+    });
+    expect(stopped.json().isRegular).toBe(false);
+
+    // the tab filters agree with the DTO — they are the same rule, expressed in SQL
+    const oneTimeTab = await app.inject({
+      method: "GET",
+      url: "/api/clients?tab=one_time&search=Derived",
+      headers: { cookie },
+    });
+    expect(oneTimeTab.json().items.map((c: { id: string }) => c.id)).toContain(clientId);
+
     await app.inject({
       method: "PATCH",
-      url: `/api/clients/${individualId}`,
+      url: `/api/clients/${clientId}/subscriptions/${subId}`,
       headers: { cookie },
-      payload: { regularOverride: false },
+      payload: { active: true },
     });
-    // edit an unrelated field WITHOUT sending regularOverride
-    const res = await app.inject({
-      method: "PATCH",
-      url: `/api/clients/${individualId}`,
+    const regularTab = await app.inject({
+      method: "GET",
+      url: "/api/clients?tab=regular&search=Derived",
       headers: { cookie },
-      payload: { address: "Kyiv" },
     });
-    expect(res.statusCode).toBe(200);
-    const dbClient = await prisma.client.findUniqueOrThrow({ where: { id: individualId } });
-    expect(dbClient.regularOverride).toBe(false);
-    // restore for later tests
-    await app.inject({
-      method: "PATCH",
-      url: `/api/clients/${individualId}`,
-      headers: { cookie },
-      payload: { regularOverride: true },
-    });
+    expect(regularTab.json().items.map((c: { id: string }) => c.id)).toContain(clientId);
   });
 
   it("rejects a whitespace-only person name", async () => {
@@ -305,15 +349,23 @@ describe("clients", () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it("regular tab honors the manual override", async () => {
-    const res = await app.inject({
-      method: "GET",
-      url: "/api/clients?tab=regular",
-      headers: { cookie },
-    });
-    const body = res.json();
-    expect(body.items.some((c: { id: string }) => c.id === individualId)).toBe(true);
-    expect(body.counts.regular).toBeGreaterThanOrEqual(1);
+  // the two tabs partition every client: there is no third state and no manual override
+  it("the tabs split every client between them, with no overlap", async () => {
+    const [regular, oneTime] = await Promise.all([
+      app.inject({ method: "GET", url: "/api/clients?tab=regular&pageSize=100", headers: { cookie } }),
+      app.inject({ method: "GET", url: "/api/clients?tab=one_time&pageSize=100", headers: { cookie } }),
+    ]);
+    const regularIds = regular.json().items.map((c: { id: string }) => c.id);
+    const oneTimeIds = oneTime.json().items.map((c: { id: string }) => c.id);
+
+    expect(regularIds.filter((id: string) => oneTimeIds.includes(id))).toHaveLength(0);
+    expect(regularIds.length + oneTimeIds.length).toBe(
+      regular.json().counts.regular + regular.json().counts.one_time,
+    );
+    // and each side matches what the DTO says about those clients
+    for (const c of [...regular.json().items, ...oneTime.json().items]) {
+      expect(c.isRegular).toBe(regularIds.includes(c.id));
+    }
   });
 
   it("archives a client — gone from lists and from GET", async () => {

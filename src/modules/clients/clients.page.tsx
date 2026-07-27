@@ -8,7 +8,7 @@ import { fmtMoney } from "@/shared/lib/money";
 import { Button } from "@/shared/ui/button";
 import { FilterChips } from "@/shared/ui/tabs";
 import { ClientFormModal } from "./client-form";
-import { useClients, useUpdateClient } from "./clients.api";
+import { useClients } from "./clients.api";
 
 const TABS = [
   { key: "one_time", label: "One-time" },
@@ -18,9 +18,9 @@ type TabKey = (typeof TABS)[number]["key"];
 
 const TAB_HINTS: Record<TabKey, string> = {
   one_time:
-    "One-time clients. Tick “Regular” (or add a subscription on the card) to move a client to the Regular tab.",
+    "One-time clients — no active subscription. Add a subscription service on the client's Services tab and they move to Regular automatically.",
   regular:
-    "Regular clients — active subscriptions with amount and period; manage them on the client card.",
+    "Regular clients — they hold an active subscription service. Stop it and the client returns to One-time.",
 };
 
 export function ClientsPage() {
@@ -136,11 +136,11 @@ export function ClientsPage() {
 }
 
 const GRID: Record<TabKey, string> = {
-  one_time: "grid-cols-[1.3fr_1fr_90px_130px_160px_1.1fr_140px_80px]",
+  one_time: "grid-cols-[1.3fr_1fr_130px_160px_1.1fr_140px_80px]",
   regular: "grid-cols-[1.3fr_1fr_110px_130px_150px_90px]",
 };
 const HEADERS: Record<TabKey, string[]> = {
-  one_time: ["Client", "Company", "Regular", "Phone", "Email", "Address", "Category", "Debt"],
+  one_time: ["Client", "Company", "Phone", "Email", "Address", "Category", "Debt"],
   regular: ["Name", "Company", "Amount", "Period", "Category", "Debt"],
 };
 
@@ -183,7 +183,6 @@ function ClientRow({
   serviceById: Map<string, Service>;
   onOpen: () => void;
 }) {
-  const update = useUpdateClient();
   // the companies they actually hold; the plain `companyName` label stands in when there are none
   const companies =
     client.companies.map((c) => c.name).join(", ") || client.companyName || "—";
@@ -243,19 +242,6 @@ function ClientRow({
         <>
           {nameCell}
           <div className="truncate text-ink-700">{companies}</div>
-          <div onClick={(e) => e.stopPropagation()}>
-            <input
-              type="checkbox"
-              checked={client.isRegular}
-              disabled={update.isPending}
-              onChange={(e) =>
-                update.mutate({
-                  id: client.id,
-                  input: { regularOverride: e.target.checked ? true : false },
-                })
-              }
-            />
-          </div>
           <div className="truncate text-muted">{client.phone ?? "—"}</div>
           <div className="truncate text-muted">{client.email ?? "—"}</div>
           <div className="truncate text-muted">{client.address ?? "—"}</div>

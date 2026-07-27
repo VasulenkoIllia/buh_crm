@@ -8,7 +8,6 @@ import { ApiError } from "@/shared/lib/api";
 import { Button } from "@/shared/ui/button";
 import { FormField, Input, Label, Select } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
-import { Segmented } from "@/shared/ui/segmented";
 import { useSettings } from "@/modules/settings";
 import { useCreateClient, useUpdateClient } from "./clients.api";
 import { PeopleEditor, peopleToRows, rowsToPeopleInput, type PersonRow } from "./people-editor";
@@ -25,7 +24,6 @@ const formSchema = z.object({
   address: z.string(),
   sourceId: z.string(),
   description: z.string(),
-  regular: z.boolean(),
 });
 type FormValues = z.infer<typeof formSchema>;
 
@@ -52,9 +50,7 @@ export function ClientFormModal({
     register,
     handleSubmit,
     reset,
-    watch,
-    setValue,
-    formState: { errors, isSubmitting, dirtyFields },
+    formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -66,7 +62,6 @@ export function ClientFormModal({
       address: client?.address ?? "",
       sourceId: client?.sourceId ?? "",
       description: client?.description ?? "",
-      regular: client?.isRegular ?? false,
     },
   });
 
@@ -78,18 +73,8 @@ export function ClientFormModal({
   };
 
   const onSubmit = handleSubmit(async (values) => {
-    // regularOverride is a 3-state value (true / false / null=auto) but the toggle is
-    // 2-state. On CREATE, seed it (one-time → null=auto so a later subscription can flip
-    // it). On EDIT, only send an explicit override when the toggle was actually changed —
-    // otherwise omit it so an existing override (incl. explicit `false`) is preserved.
-    const regularOverride: boolean | null | undefined = !client
-      ? values.regular
-        ? true
-        : null
-      : dirtyFields.regular
-        ? values.regular
-        : undefined;
-
+    // nothing here decides regular vs one-time — that follows from the services the client
+    // holds (see clients.service.ts), so the form has no say in it
     const base = {
       firstName: values.firstName.trim(),
       lastName: values.lastName || null,
@@ -99,7 +84,6 @@ export function ClientFormModal({
       address: values.address || null,
       sourceId: values.sourceId || null,
       description: values.description || null,
-      ...(regularOverride !== undefined ? { regularOverride } : {}),
       // quick add by name only — phone/email/description are filled in on the Companies tab
       companies: companyNames.map((name) => ({ name })),
     };
@@ -153,22 +137,9 @@ export function ClientFormModal({
           </FormField>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <FormField label="Company (label)" htmlFor="c-company">
-            <Input id="c-company" placeholder="e.g. Romashka LLC" {...register("companyName")} />
-          </FormField>
-          <div>
-            <Label>Engagement model</Label>
-            <Segmented
-              value={watch("regular") ? "regular" : "one_time"}
-              onChange={(v) => setValue("regular", v === "regular", { shouldDirty: true })}
-              options={[
-                { value: "one_time", label: "One-time" },
-                { value: "regular", label: "Regular" },
-              ]}
-            />
-          </div>
-        </div>
+        <FormField label="Company (label)" htmlFor="c-company">
+          <Input id="c-company" placeholder="e.g. Romashka LLC" {...register("companyName")} />
+        </FormField>
 
         <div className="grid grid-cols-2 gap-3">
           <FormField label="Phone" htmlFor="c-phone">

@@ -1,13 +1,12 @@
 import { useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Check, Download, Trash2 } from "lucide-react";
+import { Download, Trash2 } from "lucide-react";
 import type { Client } from "@shared/schema/client";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { EntityInvoices } from "@/modules/payments";
 import { EntityTasks } from "@/modules/tasks";
 import { useSettings } from "@/modules/settings";
 import { ApiError } from "@/shared/lib/api";
-import { cn } from "@/shared/lib/cn";
 import { fmtDate } from "@/shared/lib/format";
 import { Button } from "@/shared/ui/button";
 import { Tabs } from "@/shared/ui/tabs";
@@ -20,7 +19,6 @@ import {
   useClient,
   useClientFiles,
   useDeleteClientFile,
-  useUpdateClient,
   useUploadClientFile,
 } from "./clients.api";
 
@@ -237,9 +235,7 @@ function PeopleTab({ client, onManage }: { client: Client; onManage: () => void 
 function ProfileTab({ client }: { client: Client }) {
   const { data: settings } = useSettings();
   const { data: services } = useCatalog();
-  const update = useUpdateClient();
   const [categoriesOpen, setCategoriesOpen] = useState(false);
-  const [addServiceOpen, setAddServiceOpen] = useState(false);
   const sourceName = settings?.sources.find((s) => s.id === client.sourceId)?.name;
   const serviceById = new Map((services ?? []).map((s) => [s.id, s]));
 
@@ -323,56 +319,10 @@ function ProfileTab({ client }: { client: Client }) {
         📎 Client files are in the “Files” tab (up to 25 MB per file).
       </p>
 
-      {/* regular client section (design: checkbox card; subscriptions come with S3) */}
-      <div className="rounded-(--radius-panel) border border-border bg-surface px-5 py-[18px]">
-        <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            aria-label="Toggle regular client"
-            disabled={update.isPending}
-            onClick={() =>
-              update.mutate({
-                id: client.id,
-                input: { regularOverride: client.isRegular ? false : true },
-              })
-            }
-            className={cn(
-              "flex h-[18px] w-[18px] items-center justify-center rounded-[4px] border",
-              client.isRegular
-                ? "border-[#7a4fd6] bg-[#7a4fd6] text-white"
-                : "border-[#c7ccd3] bg-surface",
-            )}
-          >
-            {client.isRegular && <Check size={12} strokeWidth={3} />}
-          </button>
-          <span className="text-[15px] font-semibold">Regular client</span>
-          <span className="text-[12px] text-muted-400">
-            — the subscription section appears when checked
-          </span>
-        </div>
-        {client.isRegular && (
-          <div className="mt-3.5 rounded-(--radius-panel) border border-[#ece3fb] bg-[#faf7ff] px-4 py-3.5">
-            <SubscriptionList client={client} />
-            <Button
-              variant="secondary"
-              size="sm"
-              className="mt-2.5"
-              onClick={() => setAddServiceOpen(true)}
-            >
-              + Add service
-            </Button>
-            <p className="mt-2 text-[12px] text-faint">
-              Tasks are generated from subscriptions with the Tasks stage (S6).
-            </p>
-          </div>
-        )}
+      {/* "Regular" is not a setting — it follows from the services on the Services tab */}
       {categoriesOpen && (
         <CategoriesModal client={client} open onClose={() => setCategoriesOpen(false)} />
       )}
-      {addServiceOpen && (
-        <AddServiceModal client={client} open onClose={() => setAddServiceOpen(false)} />
-      )}
-      </div>
     </>
   );
 }
