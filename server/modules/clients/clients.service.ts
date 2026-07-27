@@ -2,7 +2,6 @@ import type {
   ClientListQuery,
   CreateClientInput,
   CreateSubscriptionInput,
-  SetClientCategoriesInput,
   UpdateClientInput,
   UpdateSubscriptionInput,
 } from "@shared/schema/client.js";
@@ -24,7 +23,11 @@ import * as repo from "./clients.repository.js";
 export function toClientDto(client: repo.ClientRecord, debt = 0) {
   return {
     id: client.id,
-    categories: client.categories.map((c) => c.serviceId),
+    // the services this client actually holds — a chip appears when a service is added and
+    // disappears when it's stopped. Nothing curated, nothing to keep in step by hand.
+    categories: [
+      ...new Set(client.subscriptions.filter((s) => s.active).map((s) => s.serviceId)),
+    ],
     subscriptions: client.subscriptions.map((s) => ({
       id: s.id,
       clientId: s.clientId,
@@ -38,6 +41,7 @@ export function toClientDto(client: repo.ClientRecord, debt = 0) {
       // validated on write; the parse also shields the API from malformed legacy blobs
       rhythmOverrides: rhythmOverridesSchema.catch({}).parse(s.rhythmOverrides ?? {}),
       active: s.active,
+      isDefault: s.isDefault,
     })),
     firstName: client.firstName,
     lastName: client.lastName,
@@ -296,6 +300,11 @@ export async function addSubscription(clientId: string, input: CreateSubscriptio
     invoiceDay: input.invoiceDay ?? null,
     dueDays: input.dueDays ?? null,
   });
+  // the first service a client gets is unambiguously their default — with one option there is
+  // nothing to choose. Later ones leave the existing default alone.
+  if ((await repo.countActiveSubscriptions(clientId)) === 1) {
+    await repo.setDefaultSubscription(clientId, created.id);
+  }
   // instant feedback: today's-due tasks and this period's invoice appear right away
   // (both idempotent; no-op for one-time). Best-effort — a generation hiccup must NOT fail the
   // (already-committed) subscription; the daily scheduler sweeps + startup catch-up fill any gap.
@@ -346,36 +355,40 @@ export async function updateSubscription(
       }
     }
   }
+  // The default service can't just be switched off — it is what prefills every service picker
+  // for this client, so losing it silently would be a surprise. Clear the flag first (moving it
+  // to another service, or dropping it), then stop the service.
+  if (input.active === false && sub.isDefault) {
+    throw new ConflictError(
+      "This is the client's default service — make another one the default (or clear it) before stopping this one",
+    );
+  }
+  // the default is what gets picked automatically, so it has to be a service they actually use
+  const willBeActive = input.active !== undefined ? input.active : sub.active;
+  if (input.isDefault === true && !willBeActive) {
+    throw new ValidationError("Only an active service can be the client's default");
+  }
   // reactivation moves the billing anchor to today — a paused subscription is never
   // back-billed for the periods it slept through (user decision 2026-07-25)
   const reactivated = input.active === true && !sub.active;
+  const { isDefault, ...fields } = input;
   await repo.updateSubscription(subscriptionId, {
-    ...input,
+    ...fields,
     ...(reactivated ? { billingStartAt: new Date() } : {}),
   });
+  // moving the flag clears the previous holder in the same transaction (one default per client)
+  if (isDefault === true) {
+    await repo.setDefaultSubscription(clientId, subscriptionId);
+  } else if (isDefault === false && sub.isDefault) {
+    // clearing only ever drops THIS one's flag — never another service's
+    await repo.setDefaultSubscription(clientId, null);
+  }
   // rhythm overrides / reactivation may make today's tasks due — sweep this sub now
   // (best-effort; the scheduler self-heals so a hiccup never fails the saved edit)
   if (input.rhythmOverrides !== undefined || input.active === true) {
     await generateForSubscription(subscriptionId).catch(() => {});
   }
   if (reactivated) await generateForSubscriptionInvoices(subscriptionId).catch(() => {});
-  return getClient(clientId);
-}
-
-export async function setCategories(clientId: string, input: SetClientCategoriesInput) {
-  const client = await getClient(clientId);
-  const ids = [...new Set(input.serviceIds)];
-  const count = await repo.countServicesByIds(ids);
-  if (count !== ids.length) {
-    throw new ValidationError("Unknown service in the category list");
-  }
-  // NEW chips must reference active services; existing ones may outlive a deactivation
-  const existing = new Set(client.categories);
-  const added = ids.filter((id) => !existing.has(id));
-  if (added.length > 0 && (await repo.countActiveServicesByIds(added)) !== added.length) {
-    throw new ValidationError("Can't add an inactive or internal service as a category");
-  }
-  await repo.setClientCategories(clientId, input.serviceIds);
   return getClient(clientId);
 }
 

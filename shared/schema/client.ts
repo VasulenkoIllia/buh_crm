@@ -46,12 +46,14 @@ export const subscriptionSchema = z.object({
   /** per-client task-template overrides keyed by templateId ({} = all inherit) */
   rhythmOverrides: rhythmOverridesSchema,
   active: z.boolean(),
+  /** the client's usual service — prefills their service pickers. At most one per client. */
+  isDefault: z.boolean(),
 });
 export type Subscription = z.infer<typeof subscriptionSchema>;
 
 export const clientSchema = z.object({
   id: uuid,
-  /** category chips + subscription rows join against the catalog list client-side */
+  /** derived: the services of the client's ACTIVE subscriptions (joined to the catalog in the UI) */
   categories: z.array(uuid),
   subscriptions: z.array(subscriptionSchema),
   firstName: z.string(),
@@ -179,6 +181,8 @@ export const updateSubscriptionInput = z
     period: billingPeriod.optional(),
     companyId: uuid.nullable().optional(),
     active: z.boolean().optional(),
+    /** make this the client's default service (clears the previous one) or drop the flag */
+    isDefault: z.boolean().optional(),
     /** full replace of the per-client task overrides map */
     rhythmOverrides: rhythmOverridesSchema.optional(),
     ...subscriptionBilling,
@@ -192,10 +196,6 @@ export const updateSubscriptionInput = z
 export type UpdateSubscriptionInput = z.infer<typeof updateSubscriptionInput>;
 
 /** Full replace of the client's category chip set. */
-export const setClientCategoriesInput = z.object({
-  serviceIds: z.array(uuid).max(20),
-});
-export type SetClientCategoriesInput = z.infer<typeof setClientCategoriesInput>;
 
 export const clientListQuery = z.object({
   /** "all" = no regularity filter (pickers); the clients screen uses the 2 tabs */

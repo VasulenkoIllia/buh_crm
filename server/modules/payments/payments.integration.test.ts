@@ -61,7 +61,6 @@ async function wipe() {
   await prisma.task.deleteMany();
   await prisma.invoice.deleteMany();
   await prisma.subscription.deleteMany();
-  await prisma.clientServiceCategory.deleteMany();
   await prisma.taskTemplate.deleteMany();
   await prisma.clientPerson.deleteMany();
   await prisma.company.deleteMany();

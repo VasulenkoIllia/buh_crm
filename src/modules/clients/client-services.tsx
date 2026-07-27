@@ -18,7 +18,7 @@ import { ChecklistEditor } from "@/shared/ui/checklist-editor";
 import { Input, Label, Select } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
 import { pillCls } from "@/shared/ui/pill";
-import { useAddSubscription, useSetCategories, useUpdateSubscription } from "./clients.api";
+import { useAddSubscription, useUpdateSubscription } from "./clients.api";
 
 /** Effective per-client config for a service task = template + the fields the override sets. */
 interface EffectiveTask extends RhythmValue {
@@ -216,6 +216,14 @@ export function SubscriptionList({ client }: { client: Client }) {
                 <span className="text-[12px] text-[#9aa1ab]">· {taskCount} tasks</span>
               )}
               {company && <span className="text-[12px] text-muted">({company})</span>}
+              {sub.isDefault && (
+                <span
+                  title="The client's default service — it prefills their service pickers"
+                  className="rounded-(--radius-chip) bg-primary/10 px-1.5 py-px text-[11px] font-semibold text-primary-link"
+                >
+                  ★ default
+                </span>
+              )}
               <span className="ml-auto tabular-nums">{fmtMoney(sub.amount)}</span>
               <span className="text-[12px] text-muted">
                 {service?.type === "one_time"
@@ -229,10 +237,35 @@ export function SubscriptionList({ client }: { client: Client }) {
               >
                 Edit
               </button>
+              {/* only an active service can be the default, and it has to be cleared before the
+                  service can be stopped — so the two controls sit together */}
+              {sub.active && (
+                <button
+                  type="button"
+                  className="text-[12px] font-medium text-primary-link hover:underline"
+                  disabled={update.isPending}
+                  onClick={() =>
+                    update
+                      .mutateAsync({
+                        clientId: client.id,
+                        subscriptionId: sub.id,
+                        input: { isDefault: !sub.isDefault },
+                      })
+                      .catch(() => {})
+                  }
+                >
+                  {sub.isDefault ? "Clear default" : "Make default"}
+                </button>
+              )}
               <Button
                 variant="secondary"
                 size="sm"
                 disabled={update.isPending}
+                title={
+                  sub.isDefault
+                    ? "Clear the default first — it prefills this client's service pickers"
+                    : undefined
+                }
                 onClick={() =>
                   update
                     .mutateAsync({
@@ -779,73 +812,3 @@ export function AddServiceModal({
 }
 
 /** Category chip picker — full replace of the client's chip set. */
-export function CategoriesModal({
-  client,
-  open,
-  onClose,
-}: {
-  client: Client;
-  open: boolean;
-  onClose: () => void;
-}) {
-  const { data: services } = useCatalog();
-  const setCategories = useSetCategories();
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(client.categories));
-
-  const toggle = (id: string) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-
-  const save = async () => {
-    try {
-      await setCategories.mutateAsync({ clientId: client.id, serviceIds: [...selected] });
-      onClose();
-    } catch {
-      /* surfaced via serverError below */
-    }
-  };
-
-  const serverError =
-    setCategories.error instanceof ApiError ? setCategories.error.message : null;
-
-  return (
-    <Modal
-      title="Service categories"
-      open={open}
-      onClose={onClose}
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button disabled={setCategories.isPending} onClick={() => void save()}>
-            {setCategories.isPending ? "Saving…" : "Save"}
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-1.5">
-        {(services ?? [])
-          .filter((s) => isClientFacing(s) && (s.active || selected.has(s.id)))
-          .map((s) => (
-            <label key={s.id} className="flex cursor-pointer items-center gap-2 py-0.5">
-              <input
-                type="checkbox"
-                checked={selected.has(s.id)}
-                onChange={() => toggle(s.id)}
-              />
-              <ServiceChip name={s.name} color={s.color} />
-            </label>
-          ))}
-        {(services ?? []).length === 0 && (
-          <p className="text-[13px] text-muted">The catalog is empty.</p>
-        )}
-      </div>
-      {serverError && <p className="mt-2 text-[12px] text-danger-text">{serverError}</p>}
-    </Modal>
-  );
-}

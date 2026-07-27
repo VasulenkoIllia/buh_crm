@@ -9,7 +9,6 @@ const clientInclude = {
     orderBy: { createdAt: "asc" },
     include: { service: { select: { type: true } } },
   },
-  categories: { select: { serviceId: true } },
   source: true,
 } satisfies Prisma.ClientInclude;
 
@@ -189,17 +188,6 @@ export function findClientCompany(clientId: string, companyId: string) {
   return prisma.company.findFirst({ where: { id: companyId, clientId } });
 }
 
-export function countServicesByIds(ids: string[]) {
-  return prisma.service.count({ where: { id: { in: ids } } });
-}
-
-/** Active AND client-assignable (excludes internal) — for validating new category chips. */
-export function countActiveServicesByIds(ids: string[]) {
-  return prisma.service.count({
-    where: { id: { in: ids }, active: true, type: { not: "internal" } },
-  });
-}
-
 /** How many of these ids are internal (firm-only) services — guards the People service label. */
 export function countInternalServicesByIds(ids: string[]) {
   return prisma.service.count({ where: { id: { in: ids }, type: "internal" } });
@@ -230,6 +218,26 @@ export function findDuplicateSubscription(
   });
 }
 
+export function countActiveSubscriptions(clientId: string) {
+  return prisma.subscription.count({ where: { clientId, active: true } });
+}
+
+/**
+ * Make this subscription the client's default, clearing whichever held the flag before —
+ * in one transaction, so the partial unique index never sees two.
+ */
+export function setDefaultSubscription(clientId: string, subscriptionId: string | null) {
+  return prisma.$transaction(async (tx) => {
+    await tx.subscription.updateMany({
+      where: { clientId, isDefault: true, ...(subscriptionId ? { id: { not: subscriptionId } } : {}) },
+      data: { isDefault: false },
+    });
+    if (subscriptionId) {
+      await tx.subscription.update({ where: { id: subscriptionId }, data: { isDefault: true } });
+    }
+  });
+}
+
 export function createSubscription(data: {
   clientId: string;
   serviceId: string;
@@ -252,16 +260,6 @@ export function findSubscription(clientId: string, id: string) {
 export function updateSubscription(id: string, data: Prisma.SubscriptionUncheckedUpdateInput) {
   // Unchecked: callers pass scalar FKs (companyId), not nested relation writes
   return prisma.subscription.update({ where: { id }, data });
-}
-
-/** Full replace of the client's category chip set. */
-export async function setClientCategories(clientId: string, serviceIds: string[]) {
-  await prisma.$transaction([
-    prisma.clientServiceCategory.deleteMany({ where: { clientId } }),
-    prisma.clientServiceCategory.createMany({
-      data: [...new Set(serviceIds)].map((serviceId) => ({ clientId, serviceId })),
-    }),
-  ]);
 }
 
 // ── files ────────────────────────────────────────────────────────────────────

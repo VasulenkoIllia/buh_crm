@@ -6,7 +6,6 @@ import {
   clientListQuery,
   createClientInput,
   createSubscriptionInput,
-  setClientCategoriesInput,
   updateClientInput,
   updateSubscriptionInput,
 } from "@shared/schema/client.js";
@@ -47,7 +46,7 @@ export async function registerRoutes(instance: FastifyInstance) {
     return service.archiveClient(request.params.id, request.currentUser!);
   });
 
-  // ── subscriptions & categories (S3) ───────────────────────────────────────
+  // ── subscriptions (S3) — a client's categories follow from these, nothing to set ──
 
   app.post(
     "/:id/subscriptions",
@@ -71,13 +70,6 @@ export async function registerRoutes(instance: FastifyInstance) {
     },
   );
 
-  app.put(
-    "/:id/categories",
-    { schema: { params: idParams, body: setClientCategoriesInput } },
-    async (request) => {
-      return service.setCategories(request.params.id, request.body);
-    },
-  );
 
   // ── files ─────────────────────────────────────────────────────────────────
 

@@ -93,8 +93,9 @@ export function TaskFormModal({
   const [leadFormOpen, setLeadFormOpen] = useState(false);
   const [clientFormOpen, setClientFormOpen] = useState(false);
 
-  // fetch the picked client directly (list is capped at pageSize 100) — includes subscriptions
+  // fetch the picked client directly — includes their subscriptions
   const { data: client } = useClient(target?.kind === "client" ? target.id : undefined);
+
   const subscription = client?.subscriptions.find((s) => s.id === subscriptionId);
   const subService = services?.find((s) => s.id === subscription?.serviceId);
   const isOneTimeJob = subService?.type === "one_time";
@@ -109,6 +110,16 @@ export function TaskFormModal({
     // one-time container: the per-client default job price prefills (editable per job)
     setAmount(svc?.type === "one_time" ? (sub?.amount ?? null) : null);
   };
+
+  // Open on the client's DEFAULT service — the one they're usually billed for (and with a single
+  // service there's nothing to choose anyway). A starting point only: change it and it stands.
+  useEffect(() => {
+    if (editing || subscriptionId || !client) return;
+    const active = client.subscriptions.filter((s) => s.active);
+    const preferred = active.find((s) => s.isDefault) ?? (active.length === 1 ? active[0] : undefined);
+    if (preferred) pickSubscription(preferred.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-run only when the client changes
+  }, [client?.id]);
 
   const applyPreset = (templateId: string) => {
     const tpl = subService?.taskTemplates.find((t) => t.id === templateId);

@@ -53,7 +53,6 @@ beforeAll(async () => {
   await prisma.session.deleteMany();
   await prisma.authToken.deleteMany();
   await prisma.subscription.deleteMany();
-  await prisma.clientServiceCategory.deleteMany();
   await prisma.taskTemplate.deleteMany();
   await prisma.lead.deleteMany();
   await prisma.clientPerson.deleteMany();

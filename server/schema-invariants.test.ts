@@ -30,6 +30,11 @@ const REQUIRED = [
     mustMatch: /ON public\."Service".*WHERE.*"autoAddToNewClients"/is,
   },
   {
+    name: "Subscription_one_default_per_client",
+    guarantees: "a client has at most one default service (the one that prefills their pickers)",
+    mustMatch: /ON public\."Subscription".*\("clientId"\).*WHERE.*"isDefault"/is,
+  },
+  {
     // a FUNCTIONAL index — Prisma can't express lower(name) either, so it lands here too
     name: "Company_name_key_ci",
     guarantees: "a company name identifies one company across the whole firm (case-insensitive)",

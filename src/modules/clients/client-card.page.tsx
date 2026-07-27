@@ -13,7 +13,7 @@ import { Tabs } from "@/shared/ui/tabs";
 import { ClientFormModal } from "./client-form";
 import { ClientCompaniesModal, CompaniesTab } from "./client-companies";
 import { ClientPeopleModal } from "./client-people-modal";
-import { AddServiceModal, CategoriesModal, SubscriptionList } from "./client-services";
+import { AddServiceModal, SubscriptionList } from "./client-services";
 import {
   useArchiveClient,
   useClient,
@@ -235,7 +235,6 @@ function PeopleTab({ client, onManage }: { client: Client; onManage: () => void 
 function ProfileTab({ client }: { client: Client }) {
   const { data: settings } = useSettings();
   const { data: services } = useCatalog();
-  const [categoriesOpen, setCategoriesOpen] = useState(false);
   const sourceName = settings?.sources.find((s) => s.id === client.sourceId)?.name;
   const serviceById = new Map((services ?? []).map((s) => [s.id, s]));
 
@@ -273,6 +272,7 @@ function ProfileTab({ client }: { client: Client }) {
           <div className="text-[14px]">{client.address ?? "—"}</div>
         </div>
         <div className="sm:col-span-2">
+          {/* read-only: these ARE the client's active services (see the Services tab) */}
           <FieldLabel>Service category</FieldLabel>
           <div className="flex flex-wrap items-center gap-1.5">
             {client.categories.map((id) => {
@@ -280,15 +280,8 @@ function ProfileTab({ client }: { client: Client }) {
               return svc ? <ServiceChip key={id} name={svc.name} color={svc.color} /> : null;
             })}
             {client.categories.length === 0 && (
-              <span className="text-[14px] text-muted">—</span>
+              <span className="text-[14px] text-muted">— no active services</span>
             )}
-            <button
-              type="button"
-              className="text-[12px] font-medium text-primary-link hover:underline"
-              onClick={() => setCategoriesOpen(true)}
-            >
-              Edit
-            </button>
           </div>
         </div>
         <div className="sm:col-span-2">
@@ -319,10 +312,6 @@ function ProfileTab({ client }: { client: Client }) {
         📎 Client files are in the “Files” tab (up to 25 MB per file).
       </p>
 
-      {/* "Regular" is not a setting — it follows from the services on the Services tab */}
-      {categoriesOpen && (
-        <CategoriesModal client={client} open onClose={() => setCategoriesOpen(false)} />
-      )}
     </>
   );
 }

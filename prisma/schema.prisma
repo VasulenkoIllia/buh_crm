@@ -223,7 +223,6 @@ model Service {
 
   taskTemplates    TaskTemplate[]
   subscriptions    Subscription[]
-  clientCategories ClientServiceCategory[]
   tasks            Task[]
   leads            Lead[]
   invoices         Invoice[]
@@ -276,7 +275,6 @@ model Client {
   source        SourceOption?           @relation(fields: [sourceId], references: [id])
   companies     Company[] // 1:N — the client's companies (see below)
   people        ClientPerson[] // the "People" tab
-  categories    ClientServiceCategory[]
   subscriptions Subscription[]
   tasks         Task[]
   invoices      Invoice[]
@@ -337,16 +335,6 @@ model ClientPerson {
   @@index([serviceId])
 }
 
-model ClientServiceCategory {
-  clientId  String @db.Uuid
-  serviceId String @db.Uuid
-
-  client  Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-
-  @@id([clientId, serviceId])
-}
-
 model Subscription {
   id              String        @id @default(uuid()) @db.Uuid
   clientId        String        @db.Uuid
@@ -360,6 +348,10 @@ model Subscription {
   dueDays         Int? // per-client overdue terms; null = inherit the service preset
   rhythmOverrides Json? // per-client task-template rhythm/deadline overrides
   active          Boolean       @default(true)
+  /// the client's usual service — prefills every service picker for them. At most one per client
+  /// (partial unique index `Subscription_one_default_per_client`, raw SQL); a default can't be
+  /// stopped until the flag is cleared.
+  isDefault       Boolean       @default(false)
   // billing anchor (S7): invoices are never issued for periods before this — set on create and
   // moved to "now" on reactivation, so a paused subscription is never back-billed. Null = createdAt.
   billingStartAt  DateTime?

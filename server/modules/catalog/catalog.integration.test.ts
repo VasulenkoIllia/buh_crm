@@ -29,7 +29,6 @@ beforeAll(async () => {
   await prisma.task.deleteMany(); // subscription creates trigger task generation
   await prisma.invoice.deleteMany();
   await prisma.subscription.deleteMany();
-  await prisma.clientServiceCategory.deleteMany();
   await prisma.taskTemplate.deleteMany();
   await prisma.lead.deleteMany();
   await prisma.clientPerson.deleteMany();
@@ -57,7 +56,6 @@ afterAll(async () => {
   await prisma.task.deleteMany();
   await prisma.invoice.deleteMany();
   await prisma.subscription.deleteMany();
-  await prisma.clientServiceCategory.deleteMany();
   await prisma.taskTemplate.deleteMany();
   await prisma.clientPerson.deleteMany();
   await prisma.company.deleteMany();
@@ -224,8 +222,17 @@ describe("catalog", () => {
     const catalog = await app.inject({ method: "GET", url: "/api/catalog", headers: { cookie: adminCookie } });
     expect(catalog.json()[0].clientsCount).toBe(1);
 
-    // deactivate → back to one-time, automatically (there is no flag to un-tick)
     const subId = sub.json().subscriptions[0].id;
+    // the client's only service is their default, and a default can't be stopped while it holds
+    // the flag (user, 2026-07-26) — clear it first, then deactivate
+    expect(sub.json().subscriptions[0].isDefault).toBe(true);
+    await app.inject({
+      method: "PATCH",
+      url: `/api/clients/${clientId}/subscriptions/${subId}`,
+      headers: { cookie: adminCookie },
+      payload: { isDefault: false },
+    });
+    // deactivate → back to one-time, automatically (there is no flag to un-tick)
     const off = await app.inject({
       method: "PATCH",
       url: `/api/clients/${clientId}/subscriptions/${subId}`,
@@ -385,7 +392,10 @@ describe("catalog", () => {
     expect(list.json().some((s: { name: string }) => s.name === "Throwaway")).toBe(false);
   });
 
-  it("stores category chips and rejects unknown services", async () => {
+  // Categories are DERIVED from the client's active subscriptions (user, 2026-07-26) — there is
+  // no curated list and no endpoint to set one. A service appears when it's added to the client
+  // and disappears when it's stopped.
+  it("derives category chips from the client's active subscriptions", async () => {
     const created = await app.inject({
       method: "POST",
       url: "/api/clients",
@@ -393,65 +403,34 @@ describe("catalog", () => {
       payload: { firstName: "Cat", lastName: "Chips", companies: [], people: [] },
     });
     const clientId = created.json().id;
+    expect(created.json().categories).not.toContain(serviceId);
 
-    const ok = await app.inject({
-      method: "PUT",
-      url: `/api/clients/${clientId}/categories`,
-      headers: { cookie: adminCookie },
-      payload: { serviceIds: [serviceId] },
-    });
-    expect(ok.statusCode).toBe(200);
-    expect(ok.json().categories).toEqual([serviceId]);
-
-    const bad = await app.inject({
-      method: "PUT",
-      url: `/api/clients/${clientId}/categories`,
-      headers: { cookie: adminCookie },
-      payload: { serviceIds: ["00000000-0000-4000-8000-000000000000"] },
-    });
-    expect(bad.statusCode).toBe(400);
-
-    // NEW chips must reference active services; existing chips survive deactivation
-    const tmp = await app.inject({
+    const withSub = await app.inject({
       method: "POST",
-      url: "/api/catalog",
+      url: `/api/clients/${clientId}/subscriptions`,
       headers: { cookie: adminCookie },
-      payload: { name: "Chip Retired", type: "subscription" },
+      payload: { serviceId, amount: 10_000, period: "month" },
     });
-    const retiredId = tmp.json().id;
-    await app.inject({
-      method: "PUT",
-      url: `/api/clients/${clientId}/categories`,
-      headers: { cookie: adminCookie },
-      payload: { serviceIds: [serviceId, retiredId] },
-    });
+    expect(withSub.json().categories).toContain(serviceId);
+    const subId = withSub
+      .json()
+      .subscriptions.find((s: { serviceId: string }) => s.serviceId === serviceId).id;
+
+    // it's their only service, so it's their default — clear that before stopping it
     await app.inject({
       method: "PATCH",
-      url: `/api/catalog/${retiredId}`,
+      url: `/api/clients/${clientId}/subscriptions/${subId}`,
+      headers: { cookie: adminCookie },
+      payload: { isDefault: false },
+    });
+    // stopping the service takes its chip away, with nothing to un-tick
+    const stopped = await app.inject({
+      method: "PATCH",
+      url: `/api/clients/${clientId}/subscriptions/${subId}`,
       headers: { cookie: adminCookie },
       payload: { active: false },
     });
-    const keep = await app.inject({
-      method: "PUT",
-      url: `/api/clients/${clientId}/categories`,
-      headers: { cookie: adminCookie },
-      payload: { serviceIds: [serviceId, retiredId] },
-    });
-    expect(keep.statusCode).toBe(200); // keeping the now-inactive chip is fine…
-
-    const other = await app.inject({
-      method: "POST",
-      url: "/api/clients",
-      headers: { cookie: adminCookie },
-      payload: { firstName: "Cat2", lastName: "Chips", companies: [], people: [] },
-    });
-    const inactiveAdd = await app.inject({
-      method: "PUT",
-      url: `/api/clients/${other.json().id}/categories`,
-      headers: { cookie: adminCookie },
-      payload: { serviceIds: [retiredId] },
-    });
-    expect(inactiveAdd.statusCode).toBe(400); // …adding it fresh elsewhere is not
+    expect(stopped.json().categories).not.toContain(serviceId);
   });
 
   it("merge-validates subscription billing and template rhythm on partial PATCH", async () => {
@@ -694,26 +673,28 @@ describe("catalog", () => {
     expect(drift.statusCode).toBe(400);
   });
 
-  it("convert carries the lead's service into the client's categories", async () => {
+  it("convert does not invent a subscription for the lead's service", async () => {
     const lead = await app.inject({
       method: "POST",
       url: "/api/leads",
       headers: { cookie: adminCookie },
       payload: { name: "Converted WithService", phone: "+380501110000", serviceId },
     });
-    const convert = await app.inject({
+    const res = await app.inject({
       method: "POST",
       url: `/api/leads/${lead.json().id}/convert`,
       headers: { cookie: adminCookie },
       payload: { firstName: "Converted", lastName: "WithService" },
     });
-    expect(convert.statusCode).toBe(200);
+    expect(res.statusCode).toBe(200);
     const client = await app.inject({
       method: "GET",
-      url: `/api/clients/${convert.json().clientId}`,
+      url: `/api/clients/${res.json().clientId}`,
       headers: { cookie: adminCookie },
     });
-    expect(client.json().categories).toContain(serviceId);
+    // categories follow the client's own subscriptions — the lead's service is not copied over
+    // (it stays on the won lead, which links to this client)
+    expect(client.json().categories).not.toContain(serviceId);
   });
 
   it("persists the service on leads and people", async () => {

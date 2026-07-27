@@ -349,6 +349,90 @@ describe("clients", () => {
     expect(res.statusCode).toBe(400);
   });
 
+  /**
+   * One of a client's services is "the usual one" (user, 2026-07-26). With a single service that
+   * is automatic; with several the firm picks. At most one, and it can't be stopped while it
+   * holds the flag — clear it first.
+   */
+  it("keeps exactly one default service per client, and guards it", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/clients",
+      headers: { cookie },
+      payload: { firstName: "Default", lastName: "Service" },
+    });
+    const clientId = created.json().id;
+    const [first, second] = await Promise.all([
+      prisma.service.create({ data: { name: "Default first", color: "#000", type: "subscription" } }),
+      prisma.service.create({ data: { name: "Default second", color: "#000", type: "subscription" } }),
+    ]);
+
+    // the first service is the default by itself — with one option there is nothing to choose
+    const one = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions`,
+      headers: { cookie },
+      payload: { serviceId: first.id, amount: 1000, period: "month" },
+    });
+    const subA = one.json().subscriptions.find((s: { serviceId: string }) => s.serviceId === first.id);
+    expect(subA.isDefault).toBe(true);
+
+    // a second service does NOT steal the flag
+    const two = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions`,
+      headers: { cookie },
+      payload: { serviceId: second.id, amount: 2000, period: "month" },
+    });
+    const subB = two.json().subscriptions.find((s: { serviceId: string }) => s.serviceId === second.id);
+    expect(subB.isDefault).toBe(false);
+
+    // the default can't be stopped while it holds the flag
+    const blocked = await app.inject({
+      method: "PATCH",
+      url: `/api/clients/${clientId}/subscriptions/${subA.id}`,
+      headers: { cookie },
+      payload: { active: false },
+    });
+    expect(blocked.statusCode).toBe(409);
+
+    // moving it clears the previous holder — never two at once
+    const moved = await app.inject({
+      method: "PATCH",
+      url: `/api/clients/${clientId}/subscriptions/${subB.id}`,
+      headers: { cookie },
+      payload: { isDefault: true },
+    });
+    const subs = moved.json().subscriptions;
+    expect(subs.filter((s: { isDefault: boolean }) => s.isDefault)).toHaveLength(1);
+    expect(subs.find((s: { id: string }) => s.id === subB.id).isDefault).toBe(true);
+
+    // …and now the first one is free to stop
+    const stopped = await app.inject({
+      method: "PATCH",
+      url: `/api/clients/${clientId}/subscriptions/${subA.id}`,
+      headers: { cookie },
+      payload: { active: false },
+    });
+    expect(stopped.statusCode).toBe(200);
+
+    // clearing the flag entirely is allowed — that's how you stop the last service
+    const cleared = await app.inject({
+      method: "PATCH",
+      url: `/api/clients/${clientId}/subscriptions/${subB.id}`,
+      headers: { cookie },
+      payload: { isDefault: false },
+    });
+    expect(cleared.json().subscriptions.every((s: { isDefault: boolean }) => !s.isDefault)).toBe(true);
+    const lastStop = await app.inject({
+      method: "PATCH",
+      url: `/api/clients/${clientId}/subscriptions/${subB.id}`,
+      headers: { cookie },
+      payload: { active: false },
+    });
+    expect(lastStop.statusCode).toBe(200);
+  });
+
   // the two tabs partition every client: there is no third state and no manual override
   it("the tabs split every client between them, with no overlap", async () => {
     const [regular, oneTime] = await Promise.all([

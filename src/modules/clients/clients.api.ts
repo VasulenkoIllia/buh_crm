@@ -151,14 +151,3 @@ export function useUpdateSubscription() {
   });
 }
 
-export function useSetCategories() {
-  const invalidate = useInvalidateClientsAndCatalog();
-  return useMutation({
-    mutationFn: ({ clientId, serviceIds }: { clientId: string; serviceIds: string[] }) =>
-      api<Client>(`/api/clients/${clientId}/categories`, {
-        method: "PUT",
-        body: { serviceIds },
-      }),
-    onSuccess: invalidate,
-  });
-}

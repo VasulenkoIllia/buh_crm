@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { Invoice } from "@shared/schema/payment";
 import { useAuth } from "@/app/auth";
@@ -547,6 +547,15 @@ export function NewInvoiceModal({
   const client = useClient(clientId ?? undefined);
   const serviceName = (id: string) => catalog?.find((s) => s.id === id)?.name ?? "Service";
   const subscriptions = (client.data?.subscriptions ?? []).filter((s) => s.active);
+
+  // open on the client's default service — the one they're usually billed for
+  useEffect(() => {
+    if (subscriptionId || subscriptions.length === 0) return;
+    const preferred =
+      subscriptions.find((s) => s.isDefault) ?? (subscriptions.length === 1 ? subscriptions[0] : undefined);
+    if (preferred) setSubscriptionId(preferred.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the picked client changes
+  }, [client.data?.id]);
 
   async function submit() {
     setError(null);

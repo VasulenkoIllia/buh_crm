@@ -116,13 +116,12 @@ export async function removeService(id: string) {
   const usage = await repo.countServiceUsage(id);
   if (
     usage.subscriptions > 0 ||
-    usage.categories > 0 ||
     usage.people > 0 ||
     usage.tasks > 0 ||
     usage.invoices > 0
   ) {
     throw new ConflictError(
-      "This service has history (subscriptions incl. stopped, category chips, people, generated tasks, or invoices) — deactivate it instead of deleting",
+      "This service has history (subscriptions incl. stopped, people, generated tasks, or invoices) — deactivate it instead of deleting",
     );
   }
   await repo.deleteService(id); // task templates cascade; lead references clear to null

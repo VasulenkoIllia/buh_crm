@@ -46,12 +46,10 @@ export function convertLead(
       throw new ConflictError("This lead is already converted"); // rolls back the created client
     }
     const lead = await tx.lead.findUniqueOrThrow({ where: { id: leadId } });
-    // the service the lead came for becomes the client's category chip (decision 2026-07-21)
-    if (lead.serviceId) {
-      await tx.clientServiceCategory.create({
-        data: { clientId: client.id, serviceId: lead.serviceId },
-      });
-    }
+    // The lead's service used to be copied onto the client as a category chip (2026-07-21).
+    // Categories are derived from the client's actual subscriptions now (2026-07-26), and a
+    // subscription needs an amount and a period nobody has agreed yet — so convert doesn't
+    // invent one. The service stays visible on the won lead, which links to the client.
     return { client, lead };
   });
 }
