@@ -11,6 +11,7 @@ export function Chip({
   tone,
   strong,
   size = "md",
+  title,
   className,
   children,
 }: {
@@ -18,6 +19,8 @@ export function Chip({
   strong?: boolean;
   /** `sm` = tighter padding for dense rollup rows; `md` (default) for cards & modals */
   size?: "sm" | "md";
+  /** hover explanation — a chip is terse by design, the rule behind it often isn't */
+  title?: string;
   className?: string;
   children: ReactNode;
 }) {
@@ -30,6 +33,7 @@ export function Chip({
         strong && "font-medium",
         className,
       )}
+      title={title}
       style={{ color: c.fg, backgroundColor: c.bg }}
     >
       {children}

@@ -21,6 +21,10 @@ export async function registerRoutes(instance: FastifyInstance) {
     return service.listLeads(request.query);
   });
 
+  app.get("/:id", { schema: { params: idParams } }, async (request) =>
+    service.getLead(request.params.id),
+  );
+
   app.post("/", { schema: { body: createLeadInput } }, async (request, reply) => {
     const lead = await service.createLead(request.body);
     return reply.status(201).send(lead);

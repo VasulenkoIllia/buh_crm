@@ -94,6 +94,18 @@ export async function updateService(id: string, input: UpdateServiceInput) {
   if (autoAddToNewClients === true && merged.type !== "one_time") {
     throw new ValidationError("Only a one-time service can be the default for new clients");
   }
+  // Same rules as a CLIENT's default service (2026-07-26): the flag only means something while
+  // the service is active — `findDefaultClientService` requires it, so deactivating the default
+  // silently stopped new clients getting anything while the ★ kept claiming otherwise.
+  const willBeActive = input.active !== undefined ? input.active : service.active;
+  if (autoAddToNewClients === true && !willBeActive) {
+    throw new ValidationError("Only an active service can be the default for new clients");
+  }
+  if (input.active === false && service.autoAddToNewClients) {
+    throw new ConflictError(
+      "This is the default service for new clients — clear that first (or hand it to another service), then deactivate this one",
+    );
+  }
   // internal never bills — force billing fields null + clear any default flag, regardless of what
   // was passed (mirror createService), so a flip to internal can't leave stale billing/★ behind
   if (merged.type === "internal") {

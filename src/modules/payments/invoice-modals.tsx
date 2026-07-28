@@ -6,7 +6,7 @@ import { useCatalog } from "@/modules/catalog";
 import { useClient, useClients } from "@/modules/clients";
 import { useAssignees } from "@/modules/tasks";
 import { cn } from "@/shared/lib/cn";
-import { fmtDate, todayIso } from "@/shared/lib/format";
+import { fmtBizDate, fmtDate, todayIso } from "@/shared/lib/format";
 import { fmtMoney, moneyInputValue, parseMoney } from "@/shared/lib/money";
 import { AssigneePicker } from "@/shared/ui/assignee-picker";
 import { Button } from "@/shared/ui/button";
@@ -134,10 +134,10 @@ export function InvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClos
           <div className="flex flex-wrap items-center gap-2 text-[12px] text-muted">
             <InvoiceStatusPill status={invoice.status} />
             <DeliveryControl invoice={invoice} disabled={busy} onError={setError} />
-            <span>issued {fmtDate(invoice.issuedAt)}</span>
+            <span>issued {fmtBizDate(invoice.issuedAt)}</span>
             {invoice.dueDate && (
               <span className={cn(invoice.status === "overdue" && "text-danger-text")}>
-                · due {fmtDate(invoice.dueDate)}
+                · due {fmtBizDate(invoice.dueDate)}
               </span>
             )}
             {invoice.periodKey && <span>· period {invoice.periodKey}</span>}
@@ -225,7 +225,7 @@ export function InvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClos
                   <span className="font-semibold tabular-nums text-success-text">
                     {fmtMoney(p.amount)}
                   </span>
-                  <span className="text-muted">{fmtDate(p.paidAt)}</span>
+                  <span className="text-muted">{fmtBizDate(p.paidAt)}</span>
                   {p.reference && <span className="text-faint">ref: {p.reference}</span>}
                   <span className="ml-auto text-[12px] text-faint">{p.createdByName}</span>
                   {isAdmin && (

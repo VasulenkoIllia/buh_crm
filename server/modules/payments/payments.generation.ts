@@ -112,7 +112,7 @@ function dueInvoices(sub: BillableSubscription, today: Day, issued: Set<string>,
         periodKey: period.key,
         amount: sub.amount,
         issuedAt,
-        dueDate: dueDays == null ? null : new Date(issuedAt.getTime() + dueDays * 86_400_000),
+        dueDays, // `invoiceRow` derives dueDate = issuedAt + dueDays — one rule, one place
       },
     ];
   });

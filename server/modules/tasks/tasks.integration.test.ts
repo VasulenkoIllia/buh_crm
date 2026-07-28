@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../../app.js";
 import { ensureBaseData } from "../../core/bootstrap.js";
 import { config } from "../../core/config.js";
+import { addDays } from "../../core/dates.js";
 import { prisma } from "../../core/db.js";
 import { generateInternalTasks, generateSubscriptionTasks } from "./tasks.generation.js";
 
@@ -30,6 +31,19 @@ function todayParts() {
   const [y, m, d] = s.split("-").map(Number);
   const weekday = ((new Date(Date.UTC(y, m - 1, d)).getUTCDay() || 7) as number); // Mon=1
   return { y, m, d, weekday, monthKey: `${y}-${String(m).padStart(2, "0")}` };
+}
+
+/**
+ * A calendar day `offset` days from the firm's today, as "YYYY-MM-DD" — the shape a deadline
+ * travels in. Counted in the FIRM's timezone, the same way the overdue rule counts: built from
+ * the UTC calendar instead, "due today" was a day early for the three hours after 21:00 UTC (the
+ * firm is already on the next day then) and the overdue assertions failed every night.
+ */
+function firmDay(offset: number): string {
+  const { y, m, d } = todayParts();
+  const day = addDays({ y, m, d }, offset);
+  const pad = (x: number) => String(x).padStart(2, "0");
+  return `${day.y}-${pad(day.m)}-${pad(day.d)}`;
 }
 
 async function makeClient(first: string): Promise<string> {
@@ -234,6 +248,27 @@ describe("tasks", () => {
     });
     expect(byClientEmpty.json().items).toHaveLength(0);
 
+    // the board's target picker offers that lead too — filtering work by prospect (2026-07-27)
+    const targets = await app.inject({
+      method: "GET",
+      url: "/api/tasks/targets",
+      headers: { cookie: adminCookie },
+    });
+    expect(targets.json()).toContainEqual({
+      id: lead.json().id,
+      name: "Task Lead",
+      kind: "lead",
+    });
+
+    // and the task's Lead link resolves through GET /api/leads/:id
+    const linked = await app.inject({
+      method: "GET",
+      url: `/api/leads/${lead.json().id}`,
+      headers: { cookie: adminCookie },
+    });
+    expect(linked.statusCode).toBe(200);
+    expect(linked.json().name).toBe("Task Lead");
+
     // done is an independent flag; subtasks replace as a list
     const done = await app.inject({
       method: "PATCH",
@@ -417,9 +452,9 @@ describe("tasks", () => {
   it("filters and pages on the server: overdue, assignee and client are SQL, the table pages", async () => {
     const clientId = await makeClient("Filters");
     const other = await makeClient("Unfiltered");
-    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
-    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
-    const today = new Date().toISOString().slice(0, 10);
+    const yesterday = firmDay(-1);
+    const tomorrow = firmDay(1);
+    const today = firmDay(0);
 
     const make = (title: string, extra: Record<string, unknown>) =>
       app.inject({
@@ -491,9 +526,9 @@ describe("tasks", () => {
     );
     expect(overlap).toHaveLength(0);
 
-    // the client filter's option list covers every client with work, not just a loaded page
-    const clients = await app.inject({ method: "GET", url: "/api/tasks/clients", headers: { cookie: adminCookie } });
-    const names = clients.json().map((c: { name: string }) => c.name);
+    // the target filter's option list covers every client with work, not just a loaded page
+    const targets = await app.inject({ method: "GET", url: "/api/tasks/targets", headers: { cookie: adminCookie } });
+    const names = targets.json().map((c: { name: string }) => c.name);
     expect(names).toContain("Filters Tasks");
     expect(names).not.toContain("Unfiltered Tasks"); // no tasks → not offered as a filter
     expect(other).toBeTruthy();

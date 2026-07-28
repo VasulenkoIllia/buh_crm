@@ -813,13 +813,62 @@ describe("catalog", () => {
     });
     expect(converted.json().subscriptions.some((s: { serviceId: string }) => s.serviceId === svcB)).toBe(true);
 
-    // deactivating the default → new clients get nothing
-    await app.inject({
+    // the ★ only means something while the service is active (same rule as a client's default):
+    // deactivating the holder is REFUSED — clear the flag first
+    const stopFlagged = await app.inject({
       method: "PATCH",
       url: `/api/catalog/${svcB}`,
       headers: { cookie: adminCookie },
       payload: { active: false },
     });
+    expect(stopFlagged.statusCode).toBe(409);
+    const stillDefault = await app.inject({
+      method: "GET",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+    });
+    expect(
+      stillDefault.json().find((s: { id: string }) => s.id === svcB),
+    ).toMatchObject({ active: true, autoAddToNewClients: true });
+
+    // and the flag can't be handed to an INACTIVE service
+    await app.inject({
+      method: "PATCH",
+      url: `/api/catalog/${svcA}`,
+      headers: { cookie: adminCookie },
+      payload: { active: false },
+    });
+    const flagInactive = await app.inject({
+      method: "PATCH",
+      url: `/api/catalog/${svcA}`,
+      headers: { cookie: adminCookie },
+      payload: { autoAddToNewClients: true },
+    });
+    expect(flagInactive.statusCode).toBe(400);
+    // …not even in the same PATCH that would deactivate it
+    const flagAndStop = await app.inject({
+      method: "PATCH",
+      url: `/api/catalog/${svcB}`,
+      headers: { cookie: adminCookie },
+      payload: { autoAddToNewClients: true, active: false },
+    });
+    expect(flagAndStop.statusCode).toBe(400);
+
+    // clear the flag → now it can be deactivated, and new clients get nothing
+    const clear = await app.inject({
+      method: "PATCH",
+      url: `/api/catalog/${svcB}`,
+      headers: { cookie: adminCookie },
+      payload: { autoAddToNewClients: false },
+    });
+    expect(clear.statusCode).toBe(200);
+    const stopCleared = await app.inject({
+      method: "PATCH",
+      url: `/api/catalog/${svcB}`,
+      headers: { cookie: adminCookie },
+      payload: { active: false },
+    });
+    expect(stopCleared.statusCode).toBe(200);
     const c2 = await app.inject({
       method: "POST",
       url: "/api/clients",
@@ -827,13 +876,5 @@ describe("catalog", () => {
       payload: { firstName: "No", lastName: "Default", companies: [], people: [] },
     });
     expect(c2.json().subscriptions).toHaveLength(0);
-
-    // clear the flag so it doesn't leak into other tests sharing the DB
-    await app.inject({
-      method: "PATCH",
-      url: `/api/catalog/${svcB}`,
-      headers: { cookie: adminCookie },
-      payload: { autoAddToNewClients: false },
-    });
   });
 });

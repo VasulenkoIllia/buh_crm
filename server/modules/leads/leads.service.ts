@@ -60,6 +60,15 @@ async function getActiveLead(id: string) {
   return lead;
 }
 
+/**
+ * One lead by id — what a deep link into the lead card resolves through. It answers for a WON or
+ * LOST lead too (those left the board but a task can still be filed against them), and refuses an
+ * archived one on the same terms as every other operation here.
+ */
+export async function getLead(id: string) {
+  return toLeadDto(await getActiveLead(id));
+}
+
 export async function updateLead(id: string, input: UpdateLeadInput) {
   const lead = await getActiveLead(id);
   if (lead.outcome === "won") {

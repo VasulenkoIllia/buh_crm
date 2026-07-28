@@ -12,6 +12,7 @@ import { CATEGORY_PALETTE } from "@/shared/lib/colors";
 import { cn } from "@/shared/lib/cn";
 import { AssigneePicker } from "@/shared/ui/assignee-picker";
 import { Button } from "@/shared/ui/button";
+import { Chip } from "@/shared/ui/chip";
 import { ChecklistEditor } from "@/shared/ui/checklist-editor";
 import { FormField, Input, Label, Textarea } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
@@ -68,6 +69,9 @@ export function ServicesPage() {
   >();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [tab, setTab] = useState<"external" | "internal">("external");
+
+  // row actions (default flag / deactivate) can be refused by the server — show why
+  const rowError = updateService.error instanceof ApiError ? updateService.error.message : null;
 
   const toggle = (id: string) =>
     setExpanded((prev) => {
@@ -153,12 +157,13 @@ export function ServicesPage() {
                     · {service.taskTemplates.length} tasks
                   </span>
                   {service.autoAddToNewClients && (
-                    <span
-                      title="Auto-added to every new client"
-                      className="rounded-(--radius-chip) bg-[#eef7f0] px-1.5 py-px text-[11px] font-medium text-[#1f8f3a]"
+                    <Chip
+                      tone="blue"
+                      strong
+                      title="Auto-added to every new client — clear this before deactivating the service"
                     >
                       ★ default
-                    </span>
+                    </Chip>
                   )}
                   {!service.active && (
                     <span className="text-[11px] uppercase text-faint">inactive</span>
@@ -192,9 +197,34 @@ export function ServicesPage() {
                       >
                         Edit
                       </button>
+                      {/* only an active one-time service can be the catalog default, and it has
+                          to be cleared before the service can be deactivated — same rules as a
+                          client's default service, so the two controls sit together */}
+                      {service.type === "one_time" && service.active && (
+                        <button
+                          type="button"
+                          disabled={updateService.isPending}
+                          className="text-[12px] font-medium text-primary-link hover:underline disabled:opacity-50"
+                          onClick={() =>
+                            updateService
+                              .mutateAsync({
+                                id: service.id,
+                                input: { autoAddToNewClients: !service.autoAddToNewClients },
+                              })
+                              .catch(() => {})
+                          }
+                        >
+                          {service.autoAddToNewClients ? "Clear default" : "Make default"}
+                        </button>
+                      )}
                       <button
                         type="button"
                         disabled={updateService.isPending}
+                        title={
+                          service.autoAddToNewClients
+                            ? "Clear the default first — new clients are given this service automatically"
+                            : undefined
+                        }
                         className="text-[12px] font-medium text-muted hover:text-danger hover:underline disabled:opacity-50"
                         onClick={() =>
                           updateService
@@ -244,6 +274,8 @@ export function ServicesPage() {
           ))}
         </div>
       )}
+
+      {rowError && <p className="mt-2 text-[12px] text-danger-text">{rowError}</p>}
 
       {editorOpen && (
         <ServiceEditorModal
@@ -373,7 +405,6 @@ const serviceFormSchema = z.object({
   invoiceDay: z.number().int().min(1).max(31).nullable(),
   defaultAmount: z.number().int().nonnegative().nullable(),
   dueDays: z.number().int().min(1).max(365).nullable(),
-  autoAddToNewClients: z.boolean(),
 });
 type ServiceFormValues = z.infer<typeof serviceFormSchema>;
 
@@ -424,7 +455,7 @@ function ServiceEditorModal({
     handleSubmit,
     watch,
     setValue,
-    formState: { errors, isSubmitting, dirtyFields },
+    formState: { errors, isSubmitting },
   } = useForm<ServiceFormValues>({
     resolver: zodResolver(serviceFormSchema),
     defaultValues: {
@@ -435,7 +466,6 @@ function ServiceEditorModal({
       invoiceTrigger: billing.trigger,
       invoiceDay: billing.day,
       dueDays: service?.dueDays ?? null,
-      autoAddToNewClients: service?.autoAddToNewClients ?? false,
     },
   });
 
@@ -444,7 +474,6 @@ function ServiceEditorModal({
   const day = watch("invoiceDay");
   const amount = watch("defaultAmount");
   const dueDays = watch("dueDays");
-  const autoAdd = watch("autoAddToNewClients");
 
   const onSubmit = handleSubmit(async (values) => {
     // internal services never bill — send only identity fields
@@ -459,15 +488,11 @@ function ServiceEditorModal({
       }
       return;
     }
-    // only touch the default flag when the checkbox was actually changed this session —
-    // saving unrelated fields must not re-assert (or steal) the catalog default. one-time only.
-    const { autoAddToNewClients: _flag, ...rest } = values;
-    const input = dirtyFields.autoAddToNewClients
-      ? { ...rest, autoAddToNewClients: values.type === "one_time" && values.autoAddToNewClients }
-      : rest;
+    // the catalog default is set from the row (Make/Clear default), never from this editor —
+    // one way to change it, and saving unrelated fields can never re-assert or steal it
     try {
-      if (service) await update.mutateAsync({ id: service.id, input });
-      else await create.mutateAsync(input);
+      if (service) await update.mutateAsync({ id: service.id, input: values });
+      else await create.mutateAsync(values);
       onClose();
     } catch {
       /* surfaced via serverError below */
@@ -681,26 +706,6 @@ function ServiceEditorModal({
             “+ Add task template”.
           </p>
         </div>
-        )}
-
-        {/* default-for-new-clients — one-time services only, at most one in the catalog */}
-        {type === "one_time" && (
-          <label className="flex cursor-pointer items-start gap-2 rounded-(--radius-field) border border-border bg-[#f7f8fa] px-3 py-2.5 text-[13px]">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={autoAdd}
-              onChange={(e) => setValue("autoAddToNewClients", e.target.checked, { shouldDirty: true })}
-            />
-            <span>
-              <span className="font-medium">Auto-add to every new client</span>
-              <span className="mt-0.5 block text-[12px] text-faint">
-                Every newly-created client gets this service automatically, so they always have at
-                least one paid container. Only one service can be the default — picking this unsets
-                any previous one.
-              </span>
-            </span>
-          </label>
         )}
 
         {serverError && <p className="text-[12px] text-danger-text">{serverError}</p>}

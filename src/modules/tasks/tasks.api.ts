@@ -48,7 +48,9 @@ export interface TaskQuery {
   /** Done view: how many days back to include (undefined = everything ever completed) */
   doneWithinDays?: number;
   assigneeId?: string;
+  /** the target filter — a task belongs to one or the other, so only one is ever set */
   clientId?: string;
+  leadId?: string;
   page?: number;
   pageSize?: number;
 }
@@ -64,6 +66,7 @@ export function useTasks(query: TaskQuery) {
   if (query.doneWithinDays) params.set("doneWithinDays", String(query.doneWithinDays));
   if (query.assigneeId) params.set("assigneeId", query.assigneeId);
   if (query.clientId) params.set("clientId", query.clientId);
+  if (query.leadId) params.set("leadId", query.leadId);
   if (query.view === "table") {
     params.set("page", String(query.page ?? 1));
     params.set("pageSize", String(query.pageSize ?? TABLE_PAGE_SIZE));
@@ -77,11 +80,11 @@ export function useTasks(query: TaskQuery) {
 
 export const TABLE_PAGE_SIZE = 50;
 
-/** The team directory, for the board's client filter and assignee names. */
-export function useTaskClients() {
+/** Every client and lead with live work — the option list behind the board's target filter. */
+export function useTaskTargets() {
   return useQuery({
-    queryKey: [...TASKS_KEY, "clients"],
-    queryFn: () => api<TaskTargetInfo[]>("/api/tasks/clients"),
+    queryKey: [...TASKS_KEY, "targets"],
+    queryFn: () => api<TaskTargetInfo[]>("/api/tasks/targets"),
     staleTime: 60_000,
   });
 }
@@ -89,6 +92,7 @@ export function useTaskClients() {
 export interface TaskTargetInfo {
   id: string;
   name: string;
+  kind: "client" | "lead";
 }
 
 /** A single client's or lead's tasks — the rollup lists on their cards. */

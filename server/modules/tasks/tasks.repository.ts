@@ -181,6 +181,14 @@ export function listClientsWithTasks() {
   });
 }
 
+/** Leads with live work — the other half of the board's target filter. */
+export function listLeadsWithTasks() {
+  return prisma.lead.findMany({
+    where: { archivedAt: null, tasks: { some: { archivedAt: null } } },
+    select: { id: true, name: true },
+  });
+}
+
 /** Lightweight team directory for assignee pickers + name rendering (all-auth). */
 export function listUserDirectory() {
   return prisma.user.findMany({

@@ -22,6 +22,21 @@ export function useLeads(scope: LeadListQuery["scope"] = "all") {
   });
 }
 
+/**
+ * One lead, by id — what `/leads?lead=<id>` resolves through. Not read out of the board list:
+ * the link has to open a won or lost lead too, and those aren't on the board.
+ */
+export function useLead(id: string | null) {
+  return useQuery({
+    queryKey: [...LEADS_KEY, "one", id],
+    queryFn: () => api<Lead>(`/api/leads/${id}`),
+    enabled: !!id,
+    // "this lead doesn't exist" is a final answer — retrying it only delays saying so (and the
+    // retry can sit paused indefinitely if the browser reports itself offline)
+    retry: false,
+  });
+}
+
 function useInvalidateLeads() {
   const queryClient = useQueryClient();
   return () => queryClient.invalidateQueries({ queryKey: LEADS_KEY });

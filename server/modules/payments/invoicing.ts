@@ -1,4 +1,5 @@
 import { config } from "../../core/config.js";
+import { todayInTz, toUtc } from "../../core/dates.js";
 import type { Prisma } from "../../generated/prisma/client.js";
 import * as repo from "./payments.repository.js";
 
@@ -15,10 +16,14 @@ import * as repo from "./payments.repository.js";
  * transaction is the only gap source left and it's rare.)
  */
 
-/** The firm-timezone year — numbering resets on the firm's new year, not UTC's. */
-export function firmYear(now: Date = new Date()): number {
-  const s = new Intl.DateTimeFormat("en-CA", { timeZone: config.TZ }).format(now);
-  return Number(s.slice(0, 4));
+/**
+ * The year an invoice's issue date falls in — numbering resets on the firm's new year. The issue
+ * date is always a business date (UTC midnight of the firm's calendar day, see `invoiceRow`), so
+ * its UTC year IS the firm's year; reading it back through `Intl` in the firm timezone would be
+ * the same conversion twice, and wrong by a year on 1 January for a firm west of UTC.
+ */
+export function firmYear(issuedAt: Date): number {
+  return issuedAt.getUTCFullYear();
 }
 
 export interface IssueInvoiceInput {
@@ -48,7 +53,10 @@ const isUniqueOn = (err: unknown, field: string) =>
 
 /** The row to write, with the due date resolved from either an explicit date or `dueDays`. */
 function invoiceRow(input: IssueInvoiceInput) {
-  const issuedAt = input.issuedAt ?? new Date();
+  // an issue date is a BUSINESS DATE, not the instant of the click: stamped at UTC midnight of
+  // the firm's day, exactly like the period sweep. Storing the raw instant made `issuedAt` and
+  // its derived `dueDate` land mid-day, so they read a day early west of UTC (2026-07-27).
+  const issuedAt = input.issuedAt ?? toUtc(todayInTz(config.TZ));
   const dueDate =
     input.dueDate !== undefined
       ? input.dueDate

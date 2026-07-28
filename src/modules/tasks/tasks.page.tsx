@@ -20,7 +20,8 @@ import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
 import { SearchSelect } from "@/shared/ui/search-select";
 import { FilterChips } from "@/shared/ui/tabs";
 import { Segmented } from "@/shared/ui/segmented";
-import { isOverdue, fmtDay, initials } from "./lib";
+import { fmtBizDay, initials } from "@/shared/lib/format";
+import { isOverdue, TaskKindChip } from "./lib";
 import { DoneToggle, TaskTimerButton } from "./task-controls";
 import { TaskDetailsModal, TaskFormModal } from "./task-modals";
 import {
@@ -28,7 +29,7 @@ import {
   useAddColumn,
   useAssignees,
   useDeleteColumn,
-  useTaskClients,
+  useTaskTargets,
   useTaskColumns,
   useTasks,
   useUpdateColumn,
@@ -56,11 +57,15 @@ export function TasksPage() {
   const { user } = useAuth();
   const [view, setView] = useState<ViewTab>("active");
   const [pill, setPill] = useState<FilterPill>("all");
-  const [clientFilter, setClientFilter] = useState("");
+  // one picker for both kinds of target — a task belongs to a client OR a lead, never both.
+  // Encoded "<kind>:<id>" so the value alone says which filter the server gets.
+  const [targetFilter, setTargetFilter] = useState("");
   const [assigneeFilter, setAssigneeFilter] = useState("");
   const [layout, setLayout] = useState<Layout>("board");
   const [donePeriod, setDonePeriod] = useState<DonePeriod>("7");
   const [page, setPage] = useState(1);
+
+  const [targetKind, targetId] = targetFilter ? targetFilter.split(":") : [undefined, undefined];
 
   // The state chips belong to the Active view; Done shows period chips instead. A chip left
   // selected in one view must not keep filtering invisibly in the other — "Overdue" carried
@@ -76,18 +81,19 @@ export function TasksPage() {
     overdue: !done && pill === "overdue",
     doneWithinDays: done && donePeriod !== "all" ? Number(donePeriod) : undefined,
     assigneeId: mineOnly ? user?.id : assigneeFilter || undefined,
-    clientId: clientFilter || undefined,
+    clientId: targetKind === "client" ? targetId : undefined,
+    leadId: targetKind === "lead" ? targetId : undefined,
     page,
     pageSize: TABLE_PAGE_SIZE,
   });
   const { data: columns } = useTaskColumns();
   const { data: team } = useAssignees();
-  const { data: taskClients } = useTaskClients();
+  const { data: taskTargets } = useTaskTargets();
 
   // any filter change starts the table back at page 1 — page 7 of the old result set is nonsense
   useEffect(() => {
     setPage(1);
-  }, [view, layout, pill, clientFilter, assigneeFilter, donePeriod]);
+  }, [view, layout, pill, targetFilter, assigneeFilter, donePeriod]);
   const [formOpen, setFormOpen] = useState(false);
   const [formColumnId, setFormColumnId] = useState<string | undefined>();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -117,7 +123,7 @@ export function TasksPage() {
 
   // the server already applied every filter — this is exactly the page it returned
   const tasks = data?.items ?? [];
-  const targetOptions = taskClients ?? [];
+  const targetOptions = taskTargets ?? [];
   const pageCount = Math.max(1, Math.ceil((data?.total ?? 0) / TABLE_PAGE_SIZE));
 
   const selected = selectedId ? (data?.items ?? []).find((t) => t.id === selectedId) : null;
@@ -146,15 +152,18 @@ export function TasksPage() {
             ]}
           />
         )}
-        {/* searchable: this lists every client with live work — a plain dropdown stops
-            being usable long before the firm does */}
+        {/* searchable: this lists every client AND lead with live work — a plain dropdown
+            stops being usable long before the firm does */}
         <div className="w-44">
           <SearchSelect
-            value={clientFilter}
-            onChange={setClientFilter}
-            placeholder="All clients"
-            emptyLabel="All clients"
-            options={targetOptions.map((c) => ({ value: c.id, label: c.name }))}
+            value={targetFilter}
+            onChange={setTargetFilter}
+            placeholder="All clients & leads"
+            emptyLabel="All clients & leads"
+            options={targetOptions.map((t) => ({
+              value: `${t.kind}:${t.id}`,
+              label: t.kind === "lead" ? `${t.name} · lead` : t.name,
+            }))}
           />
         </div>
         <div className={cn("w-44", mineOnly && "pointer-events-none opacity-50")}>
@@ -508,14 +517,14 @@ function BoardCard({
         </div>
         <DoneToggle task={task} compact />
       </div>
-      {(task.clientId || service) && (
+      {(task.clientId || task.leadId || service) && (
         <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] text-muted">
           <TargetName task={task} />
           {service && <ServiceChip name={service.name} color={service.color} />}
         </div>
       )}
       <div className={cn("mt-[5px] text-[12px]", overdue ? "font-semibold text-danger" : "text-muted")}>
-        {task.deadline ? `Due: ${fmtDay(task.deadline)}` : "No deadline"}
+        {task.deadline ? `Due: ${fmtBizDay(task.deadline)}` : "No deadline"}
       </div>
       <div className="mt-2 flex min-h-5 flex-wrap items-center gap-[5px]">
         {task.assignees.length === 0 ? (
@@ -550,8 +559,7 @@ function BoardCard({
             ☑ {doneSubtasks}/{task.subtasks.length}
           </Chip>
         )}
-        {task.kind === "free" && !task.clientId && <Chip tone="amber">internal</Chip>}
-        {task.kind === "free" && task.clientId && <Chip tone="teal">included</Chip>}
+        <TaskKindChip task={task} />
         {task.invoice && (
           <InvoiceStatusPill status={task.invoice.status} prefix="💰" size="sm" />
         )}
@@ -612,7 +620,7 @@ function DoneGrid({
             <span className="text-muted line-through">{t.title}</span>
           </div>
           <div className="mt-1 text-[12px] text-muted">
-            {t.deadline ? `Due was: ${fmtDay(t.deadline)}` : "No deadline"}
+            {t.deadline ? `Due was: ${fmtBizDay(t.deadline)}` : "No deadline"}
           </div>
         </button>
       ))}
@@ -717,7 +725,7 @@ function TaskTable({
                 </Chip>
               </span>
               <span className={cn("text-right tabular-nums", overdue && "font-semibold text-danger")}>
-                {t.deadline ? fmtDay(t.deadline) : "—"}
+                {t.deadline ? fmtBizDay(t.deadline) : "—"}
               </span>
               <span className="text-right tabular-nums text-muted">
                 {(t.trackedSeconds / 3600).toFixed(1)}

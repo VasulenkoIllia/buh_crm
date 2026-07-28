@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   DndContext,
   PointerSensor,
@@ -8,19 +8,20 @@ import {
   useSensors,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import type { LeadStage } from "@shared/schema/enums";
 import type { Lead } from "@shared/schema/lead";
 import { cn } from "@/shared/lib/cn";
 import { fmtDate } from "@/shared/lib/format";
 import { Button } from "@/shared/ui/button";
+import { Chip } from "@/shared/ui/chip";
 import { StatusPill } from "@/shared/ui/pill";
 import { Segmented } from "@/shared/ui/segmented";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { EntityTasks } from "@/modules/tasks";
 import { useSettings } from "@/modules/settings";
 import { ConvertLeadModal, LeadFormModal } from "./lead-modals";
-import { useLeads, useMarkLost, useReopenLead, useUpdateLead } from "./leads.api";
+import { useLead, useLeads, useMarkLost, useReopenLead, useUpdateLead } from "./leads.api";
 
 const STAGES: Array<{ key: LeadStage; label: string }> = [
   { key: "first_contact", label: "First contact" },
@@ -35,6 +36,18 @@ export function LeadsPage() {
   const update = useUpdateLead();
   const [formOpen, setFormOpen] = useState(false);
   const [selected, setSelected] = useState<Lead | null>(null);
+  // ?lead=<id> opens that lead's card — the way a task (or any other screen) links INTO a lead.
+  // Fetched by id rather than looked up in the board list, so a won or lost lead opens too.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const leadParam = searchParams.get("lead");
+  const linked = useLead(leadParam);
+  useEffect(() => {
+    if (linked.data) setSelected(linked.data);
+  }, [linked.data]);
+  const closeDetails = () => {
+    setSelected(null);
+    if (leadParam) setSearchParams({}, { replace: true });
+  };
   // won/lost leads leave the board automatically — they live in the archive view
   const [view, setView] = useState<"board" | "archive">("board");
 
@@ -99,6 +112,20 @@ export function LeadsPage() {
       )}
       {isLoading && <p className="p-6 text-[13px] text-muted">Loading…</p>}
       {error && <p className="p-6 text-[13px] text-danger-text">Failed to load leads.</p>}
+      {/* a ?lead= that resolves to nothing (deleted / archived / bad id) must say so, and it
+          belongs up here with the page's other status lines, not pinned under the board */}
+      {leadParam && linked.error && !selected && (
+        <p className="flex-none px-6 pb-2 text-[13px] text-danger-text">
+          That lead no longer exists.{" "}
+          <button
+            type="button"
+            className="underline"
+            onClick={() => setSearchParams({}, { replace: true })}
+          >
+            Back to the pipeline
+          </button>
+        </p>
+      )}
 
       {leads && view === "board" && (
         <DndContext sensors={sensors} onDragEnd={onDragEnd}>
@@ -118,7 +145,7 @@ export function LeadsPage() {
       {leads && view === "archive" && <LeadArchive leads={closed} onOpen={setSelected} />}
 
       {formOpen && <LeadFormModal open={formOpen} onClose={() => setFormOpen(false)} />}
-      {selected && <LeadDetails lead={selected} onClose={() => setSelected(null)} />}
+      {selected && <LeadDetails lead={selected} onClose={closeDetails} />}
     </div>
   );
 }
@@ -154,9 +181,9 @@ function LeadArchive({ leads, onOpen }: { leads: Lead[]; onOpen: (lead: Lead) =>
               <StatusPill status={lead.outcome} />
               {service && <ServiceChip name={service.name} color={service.color} />}
               {sourceName && (
-                <span className="rounded-(--radius-chip) bg-[#eef0f3] px-[7px] py-[2px] text-[11px] text-muted">
+                <Chip tone="gray" size="sm">
                   {sourceName}
-                </span>
+                </Chip>
               )}
               <span className="ml-auto truncate text-[12px] text-muted">{contact}</span>
               <span className="flex-none text-[12px] text-muted-400">
@@ -246,9 +273,9 @@ function LeadCard({ lead, onOpen }: { lead: Lead; onOpen: () => void }) {
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           {service && <ServiceChip name={service.name} color={service.color} />}
           {sourceName && (
-            <span className="rounded-(--radius-chip) bg-[#eef0f3] px-[7px] py-[2px] text-[11px] text-muted">
+            <Chip tone="gray" size="sm">
               {sourceName}
-            </span>
+            </Chip>
           )}
         </div>
       )}

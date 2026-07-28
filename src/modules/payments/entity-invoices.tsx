@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import type { Client } from "@shared/schema/client";
 import type { Invoice, InvoiceListQuery } from "@shared/schema/payment";
 import { cn } from "@/shared/lib/cn";
-import { fmtDate } from "@/shared/lib/format";
+import { fmtBizDate, fmtDate } from "@/shared/lib/format";
 import { fmtMoney } from "@/shared/lib/money";
 import { Button } from "@/shared/ui/button";
 import { Select } from "@/shared/ui/field";
@@ -250,7 +250,7 @@ function InvoiceRow({ invoice, onOpen }: { invoice: Invoice; onOpen: () => void 
         )}
       </div>
       <div className={cn("text-[12px]", overdue ? "text-danger-text" : "text-muted")}>
-        {invoice.dueDate ? fmtDate(invoice.dueDate) : <span className="text-faint">—</span>}
+        {invoice.dueDate ? fmtBizDate(invoice.dueDate) : <span className="text-faint">—</span>}
       </div>
       <div className="text-right font-semibold tabular-nums">{fmtMoney(invoice.amount)}</div>
       <div className="text-right tabular-nums text-muted">

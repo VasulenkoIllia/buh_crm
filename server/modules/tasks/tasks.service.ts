@@ -112,12 +112,21 @@ export function listAssignees() {
   return repo.listUserDirectory();
 }
 
-/** Clients with live work, for the board's client filter — every one of them, not a page. */
-export async function listTaskClients() {
-  const clients = await repo.listClientsWithTasks();
-  return clients
-    .map((c) => ({ id: c.id, name: clientLabel(c) }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+/**
+ * Everything work can be filed against — clients AND leads — for the board's target filter.
+ * Whole directory, not a page: a filter has to reach work this screen never loaded. Leads
+ * carry `kind` so the picker can label them and send `leadId` instead of `clientId`.
+ */
+export async function listTaskTargets() {
+  const [clients, leads] = await Promise.all([
+    repo.listClientsWithTasks(),
+    repo.listLeadsWithTasks(),
+  ]);
+  const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
+  return [
+    ...clients.map((c) => ({ id: c.id, name: clientLabel(c), kind: "client" as const })).sort(byName),
+    ...leads.map((l) => ({ id: l.id, name: l.name, kind: "lead" as const })).sort(byName),
+  ];
 }
 
 // ── columns ──────────────────────────────────────────────────────────────────

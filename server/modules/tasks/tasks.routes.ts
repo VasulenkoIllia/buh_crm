@@ -31,9 +31,9 @@ export async function registerRoutes(instance: FastifyInstance) {
   // team directory for assignee pickers (GET /api/users stays admin-only)
   app.get("/assignees", { preHandler: requireAuth }, async () => service.listAssignees());
 
-  // the board's client filter — every client with live work, so the filter isn't limited to
-  // whatever the current page loaded
-  app.get("/clients", { preHandler: requireAuth }, async () => service.listTaskClients());
+  // the board's target filter — every client AND lead with live work, so the filter isn't
+  // limited to whatever the current page loaded
+  app.get("/targets", { preHandler: requireAuth }, async () => service.listTaskTargets());
 
   app.post(
     "/columns",

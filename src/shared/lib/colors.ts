@@ -60,12 +60,13 @@ export const INVOICE_STATUS_COLORS: Record<string, ChipColors> = {
  * exact hexes the task chips have always used — deliberately distinct from the
  * service/category palette above, so extracting them changes nothing visually.
  */
-export type ChipTone = "blue" | "amber" | "teal" | "gray";
+export type ChipTone = "blue" | "amber" | "teal" | "gray" | "violet";
 export const CHIP_TONES: Record<ChipTone, ChipColors> = {
   blue: { fg: "#2f4fd6", bg: "#eef1fb" },
   amber: { fg: "#8b6a1f", bg: "#f6efdc" },
   teal: { fg: "#0e7a6b", bg: "#e2f4f0" },
   gray: { fg: "#41474f", bg: "#eef0f3" },
+  violet: { fg: "#6b3fd0", bg: "#f1ecfc" },
 };
 
 export const USER_STATUS_COLORS: Record<string, ChipColors> = {

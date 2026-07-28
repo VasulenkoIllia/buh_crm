@@ -14,6 +14,7 @@ import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
 import { fmtMoney } from "@/shared/lib/money";
 import { Button } from "@/shared/ui/button";
+import { Chip } from "@/shared/ui/chip";
 import { ChecklistEditor } from "@/shared/ui/checklist-editor";
 import { Input, Label, Select } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
@@ -217,12 +218,13 @@ export function SubscriptionList({ client }: { client: Client }) {
               )}
               {company && <span className="text-[12px] text-muted">({company})</span>}
               {sub.isDefault && (
-                <span
+                <Chip
+                  tone="blue"
+                  strong
                   title="The client's default service — it prefills their service pickers"
-                  className="rounded-(--radius-chip) bg-primary/10 px-1.5 py-px text-[11px] font-semibold text-primary-link"
                 >
                   ★ default
-                </span>
+                </Chip>
               )}
               <span className="ml-auto tabular-nums">{fmtMoney(sub.amount)}</span>
               <span className="text-[12px] text-muted">

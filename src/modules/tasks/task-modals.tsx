@@ -9,7 +9,7 @@ import { LeadFormModal, useLeads } from "@/modules/leads";
 import { useSettings } from "@/modules/settings";
 import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
-import { fmtDate, todayPlus } from "@/shared/lib/format";
+import { fmtBizDate, fmtDate, todayPlus } from "@/shared/lib/format";
 import { fmtMoney } from "@/shared/lib/money";
 import { AssigneePicker } from "@/shared/ui/assignee-picker";
 import { Button } from "@/shared/ui/button";
@@ -21,6 +21,7 @@ import { Modal } from "@/shared/ui/modal";
 import { pillCls } from "@/shared/ui/pill";
 import { SearchSelect } from "@/shared/ui/search-select";
 import { Segmented } from "@/shared/ui/segmented";
+import { TaskKindChip } from "./lib";
 import { DoneToggle, TaskTimerButton } from "./task-controls";
 import { fmtDuration } from "./timer";
 import {
@@ -713,8 +714,7 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
         {/* kind + billing + provenance chips */}
         <div className="flex flex-wrap items-center gap-2 text-[12px]">
           {task.kind === "sub" && <Chip tone="blue">📅 auto · {task.periodKey}</Chip>}
-          {task.kind === "free" && !task.clientId && <Chip tone="amber">internal</Chip>}
-          {task.kind === "free" && task.clientId && <Chip tone="teal">included in the plan</Chip>}
+          <TaskKindChip task={task} />
           {task.invoice && (
             <Chip tone="blue" strong>
               💰 {task.invoice.number}
@@ -775,10 +775,14 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
                 {task.clientName}
                 {task.companyName ? <span className="text-muted"> · {task.companyName}</span> : null}
               </Link>
+            ) : task.leadId && task.leadName ? (
+              // a lead has no page of its own — its card is a modal on the pipeline, opened
+              // by ?lead=<id>, so work filed against a prospect is one click from the task
+              <Link to={`/leads?lead=${task.leadId}`} className="text-primary-link hover:underline">
+                {task.leadName}
+              </Link>
             ) : (
-              <span className={task.leadName ? undefined : "text-muted"}>
-                {task.leadName ?? "—"}
-              </span>
+              <span className="text-muted">—</span>
             )}
           </Field>
           <Field label="Service">
@@ -911,7 +915,7 @@ function InvoiceField({ invoice }: { invoice: NonNullable<Task["invoice"]> }) {
         {invoice.balance > 0 && invoice.paid > 0 && ` · left ${fmtMoney(invoice.balance)}`}
         {invoice.dueDate && (
           <span className={cn(invoice.status === "overdue" && "text-danger-text")}>
-            {` · due ${fmtDate(invoice.dueDate)}`}
+            {` · due ${fmtBizDate(invoice.dueDate)}`}
           </span>
         )}
       </div>

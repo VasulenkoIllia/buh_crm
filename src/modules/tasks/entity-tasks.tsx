@@ -6,7 +6,8 @@ import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { Chip } from "@/shared/ui/chip";
 import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
-import { isOverdue, fmtDate } from "./lib";
+import { fmtBizDate } from "@/shared/lib/format";
+import { isOverdue, TaskKindChip } from "./lib";
 import { TaskDetailsModal, TaskFormModal, type Target } from "./task-modals";
 import { fmtDuration } from "./timer";
 import { useAssignees, useTasksFor } from "./tasks.api";
@@ -125,11 +126,7 @@ function TaskRow({
       {task.invoice && (
         <InvoiceStatusPill status={task.invoice.status} prefix="💰" size="sm" />
       )}
-      {task.kind === "free" && task.clientId && (
-        <Chip tone="teal" size="sm">
-          included
-        </Chip>
-      )}
+      <TaskKindChip task={task} size="sm" />
       <span className="ml-auto flex-none text-[12px] text-muted">
         {assigneeNames || "unassigned"}
       </span>
@@ -142,7 +139,7 @@ function TaskRow({
           overdue ? "font-semibold text-danger" : "text-muted-400",
         )}
       >
-        {task.deadline ? fmtDate(task.deadline) : "—"}
+        {task.deadline ? fmtBizDate(task.deadline) : "—"}
       </span>
     </button>
   );
