@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError } from "@/shared/lib/api";
+import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { Textarea } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
@@ -13,6 +14,47 @@ export function fmtDuration(totalSeconds: number): string {
   const mm = String(m).padStart(2, "0");
   const ss = String(s).padStart(2, "0");
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+/**
+ * Tracked time, the ONE way it is shown — board card, table, the rollup rows on a client or lead
+ * card, and the task card itself. Before this existed each surface rendered its own version: the
+ * board had a clock icon, the rollup rows didn't, and the table showed decimal hours ("1.6"), so
+ * the same number looked like three different things (user, 2026-07-28).
+ *
+ * The size is inherited on purpose — it sits in rows of different densities and has to match its
+ * neighbours; what's uniform is the icon, the format, the colour and the digit alignment.
+ */
+export function TrackedTime({
+  seconds,
+  over,
+  emptyAs = "hide",
+  className,
+}: {
+  seconds: number;
+  /** past the planned estimate — the only state that changes the colour */
+  over?: boolean;
+  /** a table column wants an em-dash to keep its grid; a card just drops the line */
+  emptyAs?: "hide" | "dash";
+  className?: string;
+}) {
+  if (seconds <= 0) {
+    return emptyAs === "dash" ? (
+      <span className={cn("tabular-nums text-muted-400", className)}>—</span>
+    ) : null;
+  }
+  return (
+    <span
+      title={over ? "Tracked time is over the planned estimate" : "Time tracked so far"}
+      className={cn(
+        "inline-flex items-center gap-1 tabular-nums",
+        over ? "font-semibold text-danger-text" : "text-muted",
+        className,
+      )}
+    >
+      ⏱ {fmtDuration(seconds)}
+    </span>
+  );
 }
 
 /** Live seconds since `startedAt` (ticks every second). */

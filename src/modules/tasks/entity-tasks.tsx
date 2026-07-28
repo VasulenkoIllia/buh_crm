@@ -9,7 +9,7 @@ import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
 import { fmtBizDate } from "@/shared/lib/format";
 import { isOverdue, TaskKindChip } from "./lib";
 import { TaskDetailsModal, TaskFormModal, type Target } from "./task-modals";
-import { fmtDuration } from "./timer";
+import { TrackedTime } from "./timer";
 import { useAssignees, useTasksFor } from "./tasks.api";
 
 /**
@@ -130,9 +130,7 @@ function TaskRow({
       <span className="ml-auto flex-none text-[12px] text-muted">
         {assigneeNames || "unassigned"}
       </span>
-      {task.trackedSeconds > 0 && (
-        <span className="flex-none text-[12px] tabular-nums text-muted">{fmtDuration(task.trackedSeconds)}</span>
-      )}
+      <TrackedTime seconds={task.trackedSeconds} className="flex-none text-[12px]" />
       <span
         className={cn(
           "flex-none text-[12px]",

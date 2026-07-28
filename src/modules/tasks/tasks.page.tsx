@@ -24,7 +24,7 @@ import { fmtBizDay } from "@/shared/lib/format";
 import { UserAvatar } from "@/shared/ui/avatar";
 import { isOverdue, TaskKindChip } from "./lib";
 import { DoneToggle, TaskTimerButton } from "./task-controls";
-import { fmtDuration } from "./timer";
+import { TrackedTime } from "./timer";
 import { TaskDetailsModal, TaskFormModal } from "./task-modals";
 import {
   TABLE_PAGE_SIZE,
@@ -574,11 +574,7 @@ function BoardCard({
       </div>
       {/* start/stop the timer straight from the board, with what's already on the clock */}
       <div className="mt-2 flex items-center justify-end gap-2">
-        {task.trackedSeconds > 0 && (
-          <span className="text-[11px] tabular-nums text-muted" title="Time tracked so far">
-            ⏱ {fmtDuration(task.trackedSeconds)}
-          </span>
-        )}
+        <TrackedTime seconds={task.trackedSeconds} className="text-[11px]" />
         <TaskTimerButton task={task} compact />
       </div>
     </div>
@@ -696,7 +692,7 @@ function TaskTable({
           <span>Priority</span>
           <span>Status</span>
           <span className="text-right">Due</span>
-          <span className="text-right">Hours</span>
+          <span className="text-right">Tracked</span>
         </div>
         {tasks.length === 0 && (
           <p className="px-4 py-6 text-[13px] text-muted">No tasks for this status.</p>
@@ -738,8 +734,8 @@ function TaskTable({
               <span className={cn("text-right tabular-nums", overdue && "font-semibold text-danger")}>
                 {t.deadline ? fmtBizDay(t.deadline) : "—"}
               </span>
-              <span className="text-right tabular-nums text-muted">
-                {(t.trackedSeconds / 3600).toFixed(1)}
+              <span className="text-right">
+                <TrackedTime seconds={t.trackedSeconds} emptyAs="dash" />
               </span>
             </button>
           );

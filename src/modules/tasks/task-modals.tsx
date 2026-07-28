@@ -23,7 +23,7 @@ import { SearchSelect } from "@/shared/ui/search-select";
 import { Segmented } from "@/shared/ui/segmented";
 import { TaskKindChip } from "./lib";
 import { DoneToggle, TaskTimerButton } from "./task-controls";
-import { fmtDuration } from "./timer";
+import { TrackedTime, fmtDuration } from "./timer";
 import {
   useAddComment,
   useAddTimeEntry,
@@ -805,15 +805,7 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
                 onSave={(v) => patch({ plannedMinutes: v })}
               />
               <span className="text-muted">min ·</span>
-              <span
-                className={cn(
-                  "tabular-nums",
-                  trackedOver ? "font-semibold text-danger-text" : "text-muted",
-                )}
-                title={trackedOver ? "Tracked time is over the planned estimate" : undefined}
-              >
-                {fmtDuration(task.trackedSeconds)}
-              </span>
+              <TrackedTime seconds={task.trackedSeconds} over={trackedOver} emptyAs="dash" />
               {trackedOver && (
                 <span className="rounded-(--radius-chip) bg-danger-soft px-1.5 py-[1px] text-[11px] font-medium text-danger-text">
                   over
@@ -1176,8 +1168,9 @@ function TimeLog({
   return (
     <div>
       <div className="mb-1 flex items-center gap-2">
-        <span className="text-[11px] font-medium uppercase tracking-[.4px] text-muted-400">
-          Time log · {fmtDuration(task.trackedSeconds)}
+        <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[.4px] text-muted-400">
+          Time log
+          <TrackedTime seconds={task.trackedSeconds} />
         </span>
         {isAdmin && (
           <button
