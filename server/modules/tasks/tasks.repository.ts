@@ -189,10 +189,14 @@ export function listLeadsWithTasks() {
   });
 }
 
-/** Lightweight team directory for assignee pickers + name rendering (all-auth). */
+/**
+ * Lightweight team directory for assignee pickers + name rendering (all-auth). Carries
+ * `avatarFileId` so task surfaces can show the person's face rather than their initials —
+ * without it the board had no way to know an avatar existed (2026-07-28).
+ */
 export function listUserDirectory() {
   return prisma.user.findMany({
-    select: { id: true, firstName: true, lastName: true, status: true },
+    select: { id: true, firstName: true, lastName: true, status: true, avatarFileId: true },
     orderBy: { firstName: "asc" },
   });
 }

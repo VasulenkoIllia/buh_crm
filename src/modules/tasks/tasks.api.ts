@@ -28,6 +28,8 @@ export interface AssigneeInfo {
   firstName: string;
   lastName: string;
   status: "invited" | "pending" | "active" | "blocked";
+  /** null = no avatar uploaded; the card falls back to initials */
+  avatarFileId: string | null;
 }
 
 export interface ActiveTimer {

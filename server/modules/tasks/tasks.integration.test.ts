@@ -248,6 +248,24 @@ describe("tasks", () => {
     });
     expect(byClientEmpty.json().items).toHaveLength(0);
 
+    // the assignee directory is what every task surface renders people from — it has to carry the
+    // avatar, or the board can only ever draw initials however many faces are uploaded (2026-07-28)
+    const assignees = await app.inject({
+      method: "GET",
+      url: "/api/tasks/assignees",
+      headers: { cookie: adminCookie },
+    });
+    expect(assignees.statusCode).toBe(200);
+    expect(assignees.json().length).toBeGreaterThan(0);
+    for (const u of assignees.json()) {
+      expect(u).toHaveProperty("avatarFileId");
+      expect(u).toMatchObject({
+        id: expect.any(String),
+        firstName: expect.any(String),
+        status: expect.any(String),
+      });
+    }
+
     // the board's target picker offers that lead too — filtering work by prospect (2026-07-27)
     const targets = await app.inject({
       method: "GET",

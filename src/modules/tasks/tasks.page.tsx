@@ -20,9 +20,11 @@ import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
 import { SearchSelect } from "@/shared/ui/search-select";
 import { FilterChips } from "@/shared/ui/tabs";
 import { Segmented } from "@/shared/ui/segmented";
-import { fmtBizDay, initials } from "@/shared/lib/format";
+import { fmtBizDay } from "@/shared/lib/format";
+import { UserAvatar } from "@/shared/ui/avatar";
 import { isOverdue, TaskKindChip } from "./lib";
 import { DoneToggle, TaskTimerButton } from "./task-controls";
+import { fmtDuration } from "./timer";
 import { TaskDetailsModal, TaskFormModal } from "./task-modals";
 import {
   TABLE_PAGE_SIZE,
@@ -535,16 +537,27 @@ function BoardCard({
           <span className="flex items-center gap-1">
             {task.assignees.slice(0, 3).map((id) => {
               const u = team.find((x) => x.id === id);
-              return (
+              // the real face when there is one, initials when there isn't — one component, so
+              // the board can never drift from the header and the Team page
+              return u ? (
                 <span
                   key={id}
-                  title={u ? `${u.firstName} ${u.lastName}${u.status === "blocked" ? " (blocked)" : ""}` : id}
-                  className={cn(
-                    "flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[#dfe4ec] text-[10px] font-semibold text-ink-700",
-                    u?.status === "blocked" && "bg-danger-soft text-danger-text",
-                  )}
+                  title={`${u.firstName} ${u.lastName}${u.status === "blocked" ? " (blocked)" : ""}`}
+                  className="flex"
                 >
-                  {initials(u)}
+                  <UserAvatar
+                    user={u}
+                    size="xs"
+                    className={cn(u.status === "blocked" && "ring-2 ring-danger")}
+                  />
+                </span>
+              ) : (
+                <span
+                  key={id}
+                  title={id}
+                  className="flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[#dfe4ec] text-[10px] font-semibold text-ink-700"
+                >
+                  ?
                 </span>
               );
             })}
@@ -566,8 +579,13 @@ function BoardCard({
         {task.kind === "once" && !task.invoice && <Chip tone="amber">⏳ unbilled</Chip>}
         {task.kind === "sub" && <Chip tone="blue">📅 auto</Chip>}
       </div>
-      {/* start/stop the timer straight from the board */}
-      <div className="mt-2 flex justify-end">
+      {/* start/stop the timer straight from the board, with what's already on the clock */}
+      <div className="mt-2 flex items-center justify-end gap-2">
+        {task.trackedSeconds > 0 && (
+          <span className="text-[11px] tabular-nums text-muted" title="Time tracked so far">
+            ⏱ {fmtDuration(task.trackedSeconds)}
+          </span>
+        )}
         <TaskTimerButton task={task} compact />
       </div>
     </div>
