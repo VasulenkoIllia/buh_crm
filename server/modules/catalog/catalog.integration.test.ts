@@ -766,7 +766,8 @@ describe("catalog", () => {
     expect(flagA.statusCode).toBe(200);
     expect(flagA.json().autoAddToNewClients).toBe(true);
 
-    // a brand-new client auto-gets svcA on the client root, stays one-time (not regular)
+    // a brand-new client auto-gets svcA on the client root, stays one-time (not regular),
+    // and it IS their default service — it is the only one they have (2026-07-28)
     const c1 = await app.inject({
       method: "POST",
       url: "/api/clients",
@@ -776,8 +777,27 @@ describe("catalog", () => {
     expect(c1.statusCode).toBe(201);
     const subs1 = c1.json().subscriptions;
     expect(subs1).toHaveLength(1);
-    expect(subs1[0]).toMatchObject({ serviceId: svcA, companyId: null, amount: 5000 });
+    expect(subs1[0]).toMatchObject({
+      serviceId: svcA,
+      companyId: null,
+      amount: 5000,
+      isDefault: true,
+    });
     expect(c1.json().isRegular).toBe(false);
+
+    // …and because it claimed the default, the NEXT service they get doesn't steal it — the bug
+    // was that the auto-added one claimed nothing, so no later service was "the first" either
+    const svcC = await mkOneTime("Default C");
+    const second = await app.inject({
+      method: "POST",
+      url: `/api/clients/${c1.json().id}/subscriptions`,
+      headers: { cookie: adminCookie },
+      payload: { serviceId: svcC, amount: 1000 },
+    });
+    expect(second.statusCode).toBe(201);
+    const defaults = second.json().subscriptions.filter((s: { isDefault: boolean }) => s.isDefault);
+    expect(defaults).toHaveLength(1);
+    expect(defaults[0].serviceId).toBe(svcA);
 
     // flagging B unsets A (≤1 default — partial unique index + unset-others tx)
     const flagB = await app.inject({

@@ -235,7 +235,7 @@ export async function createClient(input: CreateClientInput) {
 export async function applyDefaultClientService(clientId: string) {
   const svc = await repo.findDefaultClientService();
   if (!svc) return;
-  await repo.createSubscription({
+  const created = await repo.createSubscription({
     clientId,
     serviceId: svc.id,
     companyId: null,
@@ -245,6 +245,23 @@ export async function applyDefaultClientService(clientId: string) {
     invoiceDay: null,
     dueDays: null,
   });
+  await claimDefaultIfFirst(clientId, created.id);
+}
+
+/**
+ * The first service a client gets is unambiguously their default — with one option there is
+ * nothing to choose. Later ones leave the existing default alone.
+ *
+ * Both paths that can hand a client their first service go through here (2026-07-28). The
+ * auto-added catalog default used to write the subscription straight to the repository and skip
+ * this, so a client created while a catalog default was set ended up with a service but NO
+ * default — and since their NEXT service was then no longer the first, they never got one at all.
+ * Their task and invoice pickers silently stopped prefilling.
+ */
+async function claimDefaultIfFirst(clientId: string, subscriptionId: string) {
+  if ((await repo.countActiveSubscriptions(clientId)) === 1) {
+    await repo.setDefaultSubscription(clientId, subscriptionId);
+  }
 }
 
 export async function updateClient(id: string, input: UpdateClientInput) {
@@ -300,11 +317,7 @@ export async function addSubscription(clientId: string, input: CreateSubscriptio
     invoiceDay: input.invoiceDay ?? null,
     dueDays: input.dueDays ?? null,
   });
-  // the first service a client gets is unambiguously their default — with one option there is
-  // nothing to choose. Later ones leave the existing default alone.
-  if ((await repo.countActiveSubscriptions(clientId)) === 1) {
-    await repo.setDefaultSubscription(clientId, created.id);
-  }
+  await claimDefaultIfFirst(clientId, created.id);
   // instant feedback: today's-due tasks and this period's invoice appear right away
   // (both idempotent; no-op for one-time). Best-effort — a generation hiccup must NOT fail the
   // (already-committed) subscription; the daily scheduler sweeps + startup catch-up fill any gap.
