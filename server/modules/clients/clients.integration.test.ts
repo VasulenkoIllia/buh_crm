@@ -227,7 +227,38 @@ describe("clients", () => {
     expect(renamed.statusCode).toBe(200);
     expect(renamed.json().companies[0].id).toBe(company.id);
     expect(renamed.json().companies[0].name).toBe("Detailed Group");
-    expect(renamed.json().companies[0].phone).toBeNull(); // omitted = cleared, it's a full replace
+    expect(renamed.json().companies[0].email).toBe("ap@detailed.co");
+    // an OMITTED field is left alone (2026-07-28). It used to be cleared, which meant saving the
+    // client's profile form — whose tag input carries names and nothing else — wiped every
+    // company's phone, email and description, the invoice address among them.
+    expect(renamed.json().companies[0].phone).toBe("+380671234567");
+    expect(renamed.json().companies[0].description).toBe("invoices go to accounting");
+
+    // …and that is exactly the shape the profile form sends: bare names, no details
+    const profileSave = await app.inject({
+      method: "PATCH",
+      url: `/api/clients/${created.json().id}`,
+      headers: { cookie },
+      payload: { phone: "+380991110000", companies: [{ name: "Detailed Group" }] },
+    });
+    expect(profileSave.statusCode).toBe(200);
+    expect(profileSave.json().companies[0]).toMatchObject({
+      id: company.id,
+      phone: "+380671234567",
+      email: "ap@detailed.co",
+      description: "invoices go to accounting",
+    });
+
+    // an EXPLICIT null still clears — that's how the Companies tab empties a field
+    const cleared = await app.inject({
+      method: "PATCH",
+      url: `/api/clients/${created.json().id}`,
+      headers: { cookie },
+      payload: { companies: [{ id: company.id, name: "Detailed Group", phone: null }] },
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json().companies[0].phone).toBeNull();
+    expect(cleared.json().companies[0].email).toBe("ap@detailed.co"); // untouched
   });
 
   it("searches by company name", async () => {

@@ -11,7 +11,7 @@ import { fmtDate } from "@/shared/lib/format";
 import { Button } from "@/shared/ui/button";
 import { Tabs } from "@/shared/ui/tabs";
 import { ClientFormModal } from "./client-form";
-import { ClientCompaniesModal, CompaniesTab } from "./client-companies";
+import { CompaniesTab } from "./client-companies";
 import { ClientPeopleModal } from "./client-people-modal";
 import { AddServiceModal, SubscriptionList } from "./client-services";
 import {
@@ -45,7 +45,6 @@ export function ClientCardPage() {
   const archive = useArchiveClient();
   const [editOpen, setEditOpen] = useState(false);
   const [peopleOpen, setPeopleOpen] = useState(false);
-  const [companiesOpen, setCompaniesOpen] = useState(false);
   const [tab, setTab] = useState<TabKey>("profile");
 
   if (isLoading) return <p className="text-[13px] text-muted">Loading…</p>;
@@ -121,7 +120,7 @@ export function ClientCardPage() {
       {/* company view (multi-company clients) */}
       {tab === "profile" && <ProfileTab client={client} />}
       {tab === "companies" && (
-        <CompaniesTab client={client} onManage={() => setCompaniesOpen(true)} />
+        <CompaniesTab client={client} />
       )}
       {tab === "people" && <PeopleTab client={client} onManage={() => setPeopleOpen(true)} />}
       {tab === "tasks" && (
@@ -141,13 +140,6 @@ export function ClientCardPage() {
       )}
       {peopleOpen && (
         <ClientPeopleModal open={peopleOpen} onClose={() => setPeopleOpen(false)} client={client} />
-      )}
-      {companiesOpen && (
-        <ClientCompaniesModal
-          open={companiesOpen}
-          onClose={() => setCompaniesOpen(false)}
-          client={client}
-        />
       )}
     </div>
   );

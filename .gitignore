@@ -32,6 +32,8 @@ pnpm-debug.log*
 /design/
 /.claude/
 AGENTS.md
+CLAUDE.md
+/graphify-out/
 
 # generated prisma client
 /server/generated/

@@ -71,6 +71,11 @@ export interface CompanyRecordInput {
  * are matched by **id** when the editor sends one (which is what makes renaming safe) and by name
  * otherwise, updated in place, and the ones that would be dropped are reported so the caller can
  * refuse while something still points at them.
+ *
+ * An OMITTED optional field means "leave it alone"; only an explicit `null` clears it (2026-07-28).
+ * It used to write `?? null` for every field, so the client's profile form — whose tag input
+ * carries names and nothing else — wiped every company's phone, email and description each time
+ * it was saved, including the address their invoices are meant to go to.
  */
 export async function reconcileClientCompanies(clientId: string, input: CompanyRecordInput[]) {
   // case-insensitive dedup within the payload itself, first occurrence wins — duplicates would
@@ -95,18 +100,26 @@ export async function reconcileClientCompanies(clientId: string, input: CompanyR
 
   unique.forEach((c, order) => {
     const match = (c.id && byId.get(c.id)) || byName.get(c.name.toLowerCase());
-    const fields = {
-      name: c.name,
-      phone: c.phone ?? null,
-      email: c.email ?? null,
-      description: c.description ?? null,
-      order,
+    // absent = keep what's stored · explicit null = clear it
+    const given = {
+      ...(c.phone !== undefined ? { phone: c.phone } : {}),
+      ...(c.email !== undefined ? { email: c.email } : {}),
+      ...(c.description !== undefined ? { description: c.description } : {}),
     };
     if (match) {
       keptIds.add(match.id);
-      update.push({ id: match.id, data: fields });
+      update.push({ id: match.id, data: { name: c.name, order, ...given } });
     } else {
-      create.push({ clientId, ...fields });
+      // a brand-new row has nothing to keep — whatever wasn't given starts empty
+      create.push({
+        clientId,
+        name: c.name,
+        order,
+        phone: null,
+        email: null,
+        description: null,
+        ...given,
+      });
     }
   });
   const removed = existing.filter((c) => !keptIds.has(c.id));
