@@ -537,27 +537,20 @@ function BoardCard({
           <span className="flex items-center gap-1">
             {task.assignees.slice(0, 3).map((id) => {
               const u = team.find((x) => x.id === id);
-              // the real face when there is one, initials when there isn't — one component, so
-              // the board can never drift from the header and the Team page
-              return u ? (
+              // one component for every case — the real face, initials, or "?" for an id the
+              // directory doesn't know — so the row can't hold two different-looking chips and
+              // the board can't drift from the header and the Team page
+              return (
                 <span
                   key={id}
-                  title={`${u.firstName} ${u.lastName}${u.status === "blocked" ? " (blocked)" : ""}`}
+                  title={u ? `${u.firstName} ${u.lastName}${u.status === "blocked" ? " (blocked)" : ""}` : id}
                   className="flex"
                 >
                   <UserAvatar
-                    user={u}
+                    user={u ?? { id, firstName: "", lastName: "", avatarFileId: null }}
                     size="xs"
-                    className={cn(u.status === "blocked" && "ring-2 ring-danger")}
+                    className={cn(u?.status === "blocked" && "ring-2 ring-danger")}
                   />
-                </span>
-              ) : (
-                <span
-                  key={id}
-                  title={id}
-                  className="flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[#dfe4ec] text-[10px] font-semibold text-ink-700"
-                >
-                  ?
                 </span>
               );
             })}
