@@ -32,6 +32,7 @@ import {
   useAssignees,
   useDeleteColumn,
   useTaskTargets,
+  useTask,
   useTaskColumns,
   useTasks,
   useUpdateColumn,
@@ -105,18 +106,25 @@ export function TasksPage() {
   useEffect(() => {
     if (taskParam) setSelectedId(taskParam);
   }, [taskParam]);
-  // a ?task= that matches no loaded task (deleted/archived/bad id) can never be
-  // closed via the modal (it never opens) — drop the dead param once data is in
-  useEffect(() => {
-    if (taskParam && data && !data.items.some((t) => t.id === taskParam)) {
-      setSearchParams({}, { replace: true });
-      setSelectedId((cur) => (cur === taskParam ? null : cur));
-    }
-  }, [taskParam, data, setSearchParams]);
   const closeDetails = () => {
     setSelectedId(null);
     if (taskParam) setSearchParams({}, { replace: true });
   };
+
+  // The loaded page answers for anything on screen; only a link to work this view doesn't hold —
+  // a COMPLETED task while the Active board is up — reaches for the server. The header timer bar
+  // can point at one: marking a task done doesn't stop a timer already running on it.
+  const fromList = selectedId ? (data?.items ?? []).find((t) => t.id === selectedId) : undefined;
+  const linked = useTask(selectedId && !fromList ? selectedId : null);
+  const selected = fromList ?? linked.data ?? null;
+
+  // …and a link that resolves to nothing (deleted, archived, bad id) gets cleared, so the page is
+  // never stuck on a dead parameter it can't open
+  useEffect(() => {
+    if (!linked.error) return;
+    setSelectedId(null);
+    if (taskParam) setSearchParams({}, { replace: true });
+  }, [linked.error, taskParam, setSearchParams]);
 
   const openNewTask = (columnId?: string) => {
     setFormColumnId(columnId);
@@ -128,7 +136,6 @@ export function TasksPage() {
   const targetOptions = taskTargets ?? [];
   const pageCount = Math.max(1, Math.ceil((data?.total ?? 0) / TABLE_PAGE_SIZE));
 
-  const selected = selectedId ? (data?.items ?? []).find((t) => t.id === selectedId) : null;
 
 
   return (

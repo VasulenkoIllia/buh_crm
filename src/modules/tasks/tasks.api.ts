@@ -82,6 +82,21 @@ export function useTasks(query: TaskQuery) {
 
 export const TABLE_PAGE_SIZE = 50;
 
+/**
+ * One task by id — what a `?task=<id>` link falls back to when the loaded view can't answer.
+ * The Active board holds only open work, so a link to a COMPLETED task (the header timer bar can
+ * be left pointing at one: marking a task done doesn't stop a timer already running on it) found
+ * nothing and silently dropped. A missing task is a final answer, so this doesn't retry.
+ */
+export function useTask(id: string | null) {
+  return useQuery({
+    queryKey: [...TASKS_KEY, "one", id],
+    queryFn: () => api<Task>(`/api/tasks/${id}`),
+    enabled: !!id,
+    retry: false,
+  });
+}
+
 /** Every client and lead with live work — the option list behind the board's target filter. */
 export function useTaskTargets() {
   return useQuery({

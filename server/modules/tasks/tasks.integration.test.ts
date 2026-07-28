@@ -572,6 +572,17 @@ describe("tasks", () => {
     });
     expect(done.json().completedAt).not.toBeNull();
 
+    // a COMPLETED task still answers by id — that is what a `?task=<id>` link falls back to when
+    // the Active board (open work only) can't hold it, e.g. the header timer bar left pointing at
+    // a task somebody finished while the timer was running (2026-07-28)
+    const byId = await app.inject({
+      method: "GET",
+      url: `/api/tasks/${taskId}`,
+      headers: { cookie: adminCookie },
+    });
+    expect(byId.statusCode).toBe(200);
+    expect(byId.json()).toMatchObject({ id: taskId, done: true });
+
     const inWindow = await app.inject({
       method: "GET",
       url: "/api/tasks?view=board&status=done&doneWithinDays=7",
