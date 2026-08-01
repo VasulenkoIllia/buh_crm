@@ -1,7 +1,8 @@
 import { useState } from "react";
+import { Pencil, Trash2 } from "lucide-react";
 import type { Client, Company, CompanyInput } from "@shared/schema/client";
 import { ApiError } from "@/shared/lib/api";
-import { Button } from "@/shared/ui/button";
+import { Button, IconButton } from "@/shared/ui/button";
 import { FormField, Input, Textarea } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
 import { useUpdateClient } from "./clients.api";
@@ -111,22 +112,18 @@ export function CompaniesTab({ client }: { client: Client }) {
                     </p>
                   )}
                 </div>
-                <div className="flex flex-none items-center gap-2.5">
-                  <button
-                    type="button"
-                    className="text-[12px] font-medium text-primary-link hover:underline"
-                    onClick={() => openForm(c)}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
+                <div className="flex flex-none items-center gap-1">
+                  <IconButton label="Edit company" onClick={() => openForm(c)}>
+                    <Pencil size={15} />
+                  </IconButton>
+                  <IconButton
+                    label="Delete company"
                     disabled={update.isPending}
-                    className="text-[12px] font-medium text-muted hover:text-danger hover:underline disabled:opacity-50"
+                    className="hover:text-danger"
                     onClick={() => remove(c)}
                   >
-                    Delete
-                  </button>
+                    <Trash2 size={15} />
+                  </IconButton>
                 </div>
               </li>
             ))}

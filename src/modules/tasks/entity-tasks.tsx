@@ -3,6 +3,7 @@ import type { Task } from "@shared/schema/task";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { useSettings } from "@/modules/settings";
 import { cn } from "@/shared/lib/cn";
+import { userLabel } from "@/shared/ui/avatar";
 import { Button } from "@/shared/ui/button";
 import { Chip } from "@/shared/ui/chip";
 import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
@@ -25,10 +26,23 @@ export function EntityTasks({ target }: { target: Target }) {
   const [formOpen, setFormOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  // The rollup asks for this client's WHOLE history (no status filter), so cancelled work comes
+  // back with the rest — and must not sit in the open list looking live (2026-08-01 audit).
   const tasks = data?.items ?? [];
-  const open = tasks.filter((t) => !t.done);
-  const done = tasks.filter((t) => t.done);
+  const open = tasks.filter((t) => !t.done && !t.cancelledAt);
+  const done = tasks.filter((t) => t.done && !t.cancelledAt);
+  const cancelled = tasks.filter((t) => t.cancelledAt);
   const selected = selectedId ? tasks.find((t) => t.id === selectedId) : null;
+
+  // ONE way to name a task's people, for both the open and the done rows. The done rows used to
+  // pass a hardcoded "" here, so every finished task on a client's card read "unassigned" — which
+  // is what "the assignee disappears when I close a task" was (user report, 2026-08-01).
+  const namesOf = (t: Task) =>
+    t.assignees
+      .map((id) => team?.find((u) => u.id === id))
+      .map((u) => (u ? userLabel(u) : null))
+      .filter(Boolean)
+      .join(", ");
 
   return (
     <div className="rounded-(--radius-panel) border border-border bg-surface p-5">
@@ -55,11 +69,7 @@ export function EntityTasks({ target }: { target: Target }) {
           task={t}
           serviceName={services?.find((s) => s.id === t.serviceId)}
           priorityColor={settings?.priorities.find((p) => p.id === t.priorityId)?.color}
-          assigneeNames={t.assignees
-            .map((id) => team?.find((u) => u.id === id))
-            .map((u) => (u ? `${u.firstName} ${u.lastName}` : null))
-            .filter(Boolean)
-            .join(", ")}
+          assigneeNames={namesOf(t)}
           onOpen={() => setSelectedId(t.id)}
         />
       ))}
@@ -75,7 +85,25 @@ export function EntityTasks({ target }: { target: Target }) {
               task={t}
               serviceName={services?.find((s) => s.id === t.serviceId)}
               priorityColor={settings?.priorities.find((p) => p.id === t.priorityId)?.color}
-              assigneeNames=""
+              assigneeNames={namesOf(t)}
+              onOpen={() => setSelectedId(t.id)}
+            />
+          ))}
+        </>
+      )}
+
+      {cancelled.length > 0 && (
+        <>
+          <div className="mb-1 mt-3 text-[11px] font-medium uppercase tracking-[.4px] text-muted-400">
+            Cancelled ({cancelled.length})
+          </div>
+          {cancelled.map((t) => (
+            <TaskRow
+              key={t.id}
+              task={t}
+              serviceName={services?.find((s) => s.id === t.serviceId)}
+              priorityColor={settings?.priorities.find((p) => p.id === t.priorityId)?.color}
+              assigneeNames={namesOf(t)}
               onOpen={() => setSelectedId(t.id)}
             />
           ))}
@@ -110,11 +138,20 @@ function TaskRow({
       className={cn(
         "mb-1.5 flex w-full items-center gap-2 rounded-[8px] border border-border bg-surface px-3 py-2 text-left text-[13px] hover:bg-divider/30",
         overdue && "border-2 border-danger",
-        task.done && "opacity-70",
+        (task.done || task.cancelledAt) && "opacity-70",
       )}
     >
-      {task.done && <span className="text-success">✓</span>}
-      <span className={cn("min-w-0 truncate font-medium", task.done && "text-muted line-through")}>
+      {task.cancelledAt ? (
+        <span className="text-[#b5651d]">⊘</span>
+      ) : (
+        task.done && <span className="text-success">✓</span>
+      )}
+      <span
+        className={cn(
+          "min-w-0 truncate font-medium",
+          (task.done || task.cancelledAt) && "text-muted line-through",
+        )}
+      >
         {task.title}
       </span>
       {serviceName && <ServiceChip name={serviceName.name} color={serviceName.color} />}

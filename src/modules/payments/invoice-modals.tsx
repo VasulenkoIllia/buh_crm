@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ChevronDown, History as HistoryIcon, Pencil, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { Invoice } from "@shared/schema/payment";
 import { useAuth } from "@/app/auth";
@@ -9,7 +10,7 @@ import { cn } from "@/shared/lib/cn";
 import { fmtBizDate, fmtDate, todayIso } from "@/shared/lib/format";
 import { fmtMoney, moneyInputValue, parseMoney } from "@/shared/lib/money";
 import { AssigneePicker } from "@/shared/ui/assignee-picker";
-import { Button } from "@/shared/ui/button";
+import { Button, IconButton } from "@/shared/ui/button";
 import { Chip } from "@/shared/ui/chip";
 import { FormField, Input, Textarea } from "@/shared/ui/field";
 import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
@@ -55,6 +56,16 @@ export function InvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClos
   const busy =
     addPayment.isPending || deletePayment.isPending || cancelInvoice.isPending || archive.isPending;
 
+  // the amount actually being recorded — the single number the button acts on and reports
+  const typed = parseMoney(amount);
+
+  // Open on the remaining balance: settling in full is what happens most of the time, and a
+  // prefilled field is what let the second "pay in full" button go away.
+  const balance = invoice?.balance;
+  useEffect(() => {
+    if (balance != null && balance > 0) setAmount(moneyInputValue(balance));
+  }, [balance]);
+
   async function record(minor: number) {
     setError(null);
     if (minor <= 0) return setError("Enter an amount");
@@ -84,7 +95,7 @@ export function InvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClos
       title={invoice ? `${invoice.number} · ${invoice.clientName}` : "Invoice"}
       open
       onClose={onClose}
-      size="md"
+      size="lg"
       footer={
         <>
           {invoice && (invoice.balance === 0 || invoice.cancelledAt) && (
@@ -156,31 +167,54 @@ export function InvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClos
             </p>
           )}
 
+          {/* Two columns so the card fits without scrolling: WHAT is owed and what the invoice is
+             on the left, the MOVEMENT of money — history, the payment form, the journal — on the
+             right (user, 2026-08-01). One column on a narrow window. */}
+          <div className="grid items-start gap-x-5 gap-y-4 md:grid-cols-2">
+          <div className="space-y-4">
           {editing ? (
             <EditInvoiceForm invoice={invoice} onDone={() => setEditing(false)} onError={setError} />
           ) : (
-          <div className="grid grid-cols-3 gap-3 rounded-(--radius-panel) border border-border p-3">
-            {[
-              { label: "Amount", value: fmtMoney(invoice.amount), tone: "" },
-              { label: "Paid", value: fmtMoney(invoice.paid), tone: "text-success-text" },
-              { label: "Remaining", value: fmtMoney(invoice.balance), tone: "" },
-            ].map((cell) => (
-              <div key={cell.label}>
-                <div className="text-[11px] uppercase tracking-wide text-faint">{cell.label}</div>
-                <div className={cn("text-[17px] font-bold tabular-nums", cell.tone)}>
-                  {cell.value}
+          /* What's still OWED is the number this screen exists to answer, so it leads; the
+             billed total and what's come in are the context behind it. */
+          <div className="rounded-(--radius-panel) border border-border p-3">
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-faint">
+                  {invoice.balance === 0 ? "Settled" : "Remaining"}
+                  {/* acts on THIS invoice → an icon, the same control the catalog rows use */}
+                  {isAdmin && !invoice.cancelledAt && (
+                    <IconButton
+                      label="Edit amount, description or due date"
+                      className="h-6 w-6"
+                      onClick={() => setEditing(true)}
+                    >
+                      <Pencil size={13} />
+                    </IconButton>
+                  )}
+                </div>
+                <div
+                  className={cn(
+                    "text-[26px] font-bold leading-tight tabular-nums",
+                    invoice.balance === 0 && "text-success-text",
+                    invoice.status === "overdue" && "text-danger-text",
+                  )}
+                >
+                  {fmtMoney(invoice.balance)}
                 </div>
               </div>
-            ))}
-            {isAdmin && !invoice.cancelledAt && (
-              <button
-                type="button"
-                className="col-span-3 -mb-1 text-left text-[12px] text-primary-link hover:underline"
-                onClick={() => setEditing(true)}
-              >
-                Edit amount / description / due date
-              </button>
-            )}
+              <div className="text-right text-[12px] text-muted">
+                <div>
+                  Billed <span className="font-semibold tabular-nums text-ink-700">{fmtMoney(invoice.amount)}</span>
+                </div>
+                <div>
+                  Paid{" "}
+                  <span className="font-semibold tabular-nums text-success-text">
+                    {fmtMoney(invoice.paid)}
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
           )}
 
@@ -208,6 +242,42 @@ export function InvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClos
             </div>
           </div>
 
+          {/* DISCLOSURE, not a row action — so it keeps its word ("History") and wears an icon
+              beside it. An icon alone here would be a riddle: nothing else on the card is hidden. */}
+          {isAdmin && (
+            <div>
+              <button
+                type="button"
+                className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-faint hover:text-ink"
+                onClick={() => setShowAudit((v) => !v)}
+              >
+                <HistoryIcon size={13} />
+                History
+                <ChevronDown
+                  size={13}
+                  className={cn("transition-transform", showAudit && "rotate-180")}
+                />
+              </button>
+              {/* the log grows without bound, so IT scrolls — the card itself must not */}
+              {showAudit && (
+                <div className="mt-1.5 max-h-32 space-y-1 overflow-y-auto pr-1 text-[12px] text-muted">
+                  {audit.data?.length === 0 && <p>No changes recorded.</p>}
+                  {audit.data?.map((entry) => (
+                    <div key={entry.id}>
+                      <span className="capitalize text-ink-700">{entry.action}</span>{" "}
+                      {entry.action === "updated" && entry.before && entry.after
+                        ? `${fmtMoney(entry.before.amount)} → ${fmtMoney(entry.after.amount)}`
+                        : fmtMoney((entry.after ?? entry.before)?.amount ?? 0)}{" "}
+                      · {entry.byUserName} · {fmtDate(entry.createdAt)}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          </div>
+
+          <div className="space-y-4">
           {/* payment history */}
           <div>
             <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-faint">
@@ -229,18 +299,17 @@ export function InvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClos
                   {p.reference && <span className="text-faint">ref: {p.reference}</span>}
                   <span className="ml-auto text-[12px] text-faint">{p.createdByName}</span>
                   {isAdmin && (
-                    <button
-                      type="button"
+                    <IconButton
+                      label="Delete payment"
                       disabled={busy}
-                      className="text-[13px] text-danger-text hover:underline disabled:opacity-50"
+                      className="-mr-1 hover:text-danger"
                       onClick={() => {
                         if (window.confirm("Delete this payment?"))
                           void run(() => deletePayment.mutateAsync(p.id));
                       }}
-                      aria-label="Delete payment"
                     >
-                      ×
-                    </button>
+                      <Trash2 size={14} />
+                    </IconButton>
                   )}
                 </div>
               ))}
@@ -257,7 +326,26 @@ export function InvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClos
               ✓ Invoice fully paid
             </p>
           ) : (
-            <div className="space-y-2 rounded-(--radius-panel) border border-border p-3">
+            /* ONE action, and it always records exactly what the field says. There used to be a
+               second button, "Pay remaining", which silently ignored a typed amount — two
+               same-sized buttons that did different things with the same form (user, 2026-08-01).
+               Paying in full is the common case, so the field simply OPENS on the remaining
+               balance; "Full amount" puts it back if you edited it. */
+            <div className="space-y-2.5 rounded-(--radius-panel) border border-border p-3">
+              <div className="flex items-center justify-between">
+                <div className="text-[11px] font-medium uppercase tracking-wide text-faint">
+                  Record a payment
+                </div>
+                {typed !== invoice.balance && (
+                  <button
+                    type="button"
+                    className="text-[12px] font-medium text-primary-link hover:underline"
+                    onClick={() => setAmount(moneyInputValue(invoice.balance))}
+                  >
+                    Full amount ({fmtMoney(invoice.balance)})
+                  </button>
+                )}
+              </div>
               <div className="flex gap-2">
                 <div className="flex-1">
                   <Input
@@ -275,57 +363,36 @@ export function InvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClos
                 />
               </div>
               <Input
-                placeholder="Reconcile — external system number (optional)"
+                // short enough to READ in the column — the long form was clipped mid-word
+                placeholder="Bank / external ref (optional)"
+                title="For reconciling against the bank or another system"
                 value={reference}
                 onChange={(e) => setReference(e.target.value)}
               />
-              <div className="flex gap-2">
-                <Button
-                  className="flex-1"
-                  disabled={busy}
-                  onClick={() => void record(parseMoney(amount))}
-                >
-                  Record payment
-                </Button>
-                <Button
-                  variant="positive"
-                  className="flex-1"
-                  disabled={busy}
-                  onClick={() => void record(invoice.balance)}
-                >
-                  Pay remaining ({fmtMoney(invoice.balance)})
-                </Button>
-              </div>
+              <Button
+                variant="positive"
+                className="w-full"
+                disabled={busy || typed <= 0 || typed > invoice.balance}
+                onClick={() => void record(typed)}
+              >
+                {typed > invoice.balance
+                  ? `More than the ${fmtMoney(invoice.balance)} left`
+                  : typed > 0
+                    ? `Record payment · ${fmtMoney(typed)}`
+                    : "Record payment"}
+              </Button>
+              {typed > 0 && typed < invoice.balance && (
+                <p className="text-[12px] text-muted">
+                  Part payment — {fmtMoney(invoice.balance - typed)} would still be owed.
+                </p>
+              )}
             </div>
           )}
 
           {error && <p className="text-[12px] text-danger-text">{error}</p>}
 
-          {isAdmin && (
-            <div>
-              <button
-                type="button"
-                className="text-[12px] text-primary-link hover:underline"
-                onClick={() => setShowAudit((v) => !v)}
-              >
-                {showAudit ? "Hide" : "Show"} change journal
-              </button>
-              {showAudit && (
-                <div className="mt-2 space-y-1 text-[12px] text-muted">
-                  {audit.data?.length === 0 && <p>No changes recorded.</p>}
-                  {audit.data?.map((entry) => (
-                    <div key={entry.id}>
-                      <span className="capitalize text-ink-700">{entry.action}</span>{" "}
-                      {entry.action === "updated" && entry.before && entry.after
-                        ? `${fmtMoney(entry.before.amount)} → ${fmtMoney(entry.after.amount)}`
-                        : fmtMoney((entry.after ?? entry.before)?.amount ?? 0)}{" "}
-                      · {entry.byUserName} · {fmtDate(entry.createdAt)}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          </div>
+          </div>
         </div>
       )}
     </Modal>

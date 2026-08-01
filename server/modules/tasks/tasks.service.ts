@@ -104,6 +104,10 @@ export function toTaskDto(
     createdAt: task.createdAt.toISOString(),
     completedAt: task.completedAt?.toISOString() ?? null,
     archivedAt: task.archivedAt?.toISOString() ?? null,
+    cancelledAt: task.cancelledAt?.toISOString() ?? null,
+    cancelledByName: task.cancelledBy
+      ? `${task.cancelledBy.firstName} ${task.cancelledBy.lastName}`.trim()
+      : null,
   };
 }
 
@@ -178,10 +182,12 @@ export async function listTasks(query: TaskListQuery) {
   // overwrite each other and answer a question nobody asked.
   const and: Prisma.TaskWhereInput[] = [];
 
-  // status applies to both views: the board asks for open work, its Done view asks for done
-  if (query.status === "open") and.push({ done: false });
+  // status applies to every view: the board asks for open work, Done for finished, Cancelled for
+  // work that was called off. A cancelled task is NOT open — it left the board on purpose.
+  if (query.status === "open") and.push({ done: false, cancelledAt: null });
+  if (query.status === "cancelled") and.push({ cancelledAt: { not: null } });
   if (query.status === "done") {
-    and.push({ done: true });
+    and.push({ done: true, cancelledAt: null }); // called-off work is its own answer, not "done"
     // Completed work only piles up, so the Done view shows a WINDOW of it (default: the last
     // week) instead of everything the firm has ever finished. Counted in whole business days
     // from the firm's today, so "7 days" means the last seven calendar days, not 168 hours.
@@ -201,7 +207,7 @@ export async function listTasks(query: TaskListQuery) {
   // filter would only ever search the rows the board happened to load. Same business-date rule
   // as `isTaskOverdue`: the whole deadline day must have passed. Overdue is open work by
   // definition, so asking for it alongside status=done correctly yields nothing.
-  if (query.overdue) and.push({ done: false, deadline: { lt: new Date(today) } });
+  if (query.overdue) and.push({ done: false, cancelledAt: null, deadline: { lt: new Date(today) } });
   // an archived client's work leaves everyone's board — the data stays untouched, so restoring
   // the client (S11) brings the tasks back; their invoices deliberately stay in Billing
   and.push({ OR: [{ clientId: null }, { client: { archivedAt: null } }] });
@@ -283,7 +289,20 @@ export async function createTask(input: CreateTaskInput, actor: User) {
   let billNow = false;
   let dueDays: number | null = null;
 
-  if (input.leadId) {
+  if (input.internal) {
+    // Firm-side work. A client or lead may be named for ATTRIBUTION — organising their paperwork
+    // is time spent on them and belongs on their card — but it goes through no service, so there
+    // is no company, no price and nothing to invoice (user, 2026-08-01).
+    if (input.leadId) {
+      const lead = await repo.findLead(input.leadId);
+      if (!lead) throw new ValidationError("Unknown or archived lead");
+      leadId = lead.id;
+    } else if (input.clientId) {
+      const client = await repo.findActiveClient(input.clientId);
+      if (!client) throw new ValidationError("Unknown or archived client");
+      clientId = client.id;
+    }
+  } else if (input.leadId) {
     const lead = await repo.findLead(input.leadId);
     if (!lead) throw new ValidationError("Unknown or archived lead");
     leadId = lead.id; // lead task stays free/internal
@@ -294,7 +313,9 @@ export async function createTask(input: CreateTaskInput, actor: User) {
       throw new ValidationError("A client task goes through one of the client's services");
     }
     const sub = await repo.findClientSubscription(input.clientId, input.subscriptionId);
-    if (!sub || !sub.active) throw new ValidationError("Pick one of the client's active services");
+    // paused services are excluded by the query itself — ad-hoc work goes on the client's
+    // one-time container, which is open-ended (decision 2026-07-29)
+    if (!sub) throw new ValidationError("Pick one of the client's active services");
     clientId = client.id;
     subscriptionId = sub.id;
     serviceId = sub.serviceId; // belonging
@@ -348,7 +369,7 @@ export async function createTask(input: CreateTaskInput, actor: User) {
   return getTask(task.id);
 }
 
-export async function updateTask(id: string, input: UpdateTaskInput) {
+export async function updateTask(id: string, input: UpdateTaskInput, actor: User) {
   const task = await repo.findTask(id);
   if (!task || task.archivedAt) throw new NotFoundError("Task not found");
 
@@ -371,6 +392,25 @@ export async function updateTask(id: string, input: UpdateTaskInput) {
     await assertAssignable(input.assignees, new Set(task.assignees.map((a) => a.userId)));
   }
 
+  /*
+   * Cancelling = the work was raised by mistake or called off. It leaves the board like a
+   * completed task but is never deleted: for a GENERATED task the row is exactly what stops the
+   * nightly sweep posting it again (the sweep dedups on the (subscription, template, period) key),
+   * and the history is what the Archive shows (user, 2026-08-01).
+   *
+   * It is refused once an invoice exists. Cancelling the work while the client stays billed is
+   * the one outcome nobody wants silently — void the invoice first, then call the task off. The
+   * same direction as Payments: an invoice with payments on it can't be cancelled either.
+   */
+  if (input.done === true && task.cancelledAt && input.cancelled !== false) {
+    throw new ConflictError("This task was cancelled — restore it before marking it done");
+  }
+  if (input.cancelled === true && !task.cancelledAt && task.invoiceId) {
+    throw new ConflictError(
+      "This job is already invoiced — cancel the invoice first, then call the task off",
+    );
+  }
+
   await repo.updateTask(id, {
     ...(input.title !== undefined ? { title: input.title } : {}),
     ...(input.priorityId !== undefined ? { priorityId: input.priorityId } : {}),
@@ -379,6 +419,13 @@ export async function updateTask(id: string, input: UpdateTaskInput) {
     // so it always describes the current completion rather than an old one
     ...(input.done !== undefined
       ? { done: input.done, completedAt: input.done ? new Date() : null }
+      : {}),
+    // stamps WHO called it off as well as when — a cancelled task is a decision, and the log of
+    // it is most of why the row is kept. Taking it back clears both.
+    ...(input.cancelled !== undefined
+      ? input.cancelled
+        ? { cancelledAt: new Date(), cancelledById: actor.id }
+        : { cancelledAt: null, cancelledById: null }
       : {}),
     ...(input.deadline !== undefined
       ? { deadline: input.deadline ? dateToUtc(input.deadline) : null }
@@ -442,9 +489,20 @@ export async function deleteComment(commentId: string, actor: User) {
   return getTask(comment.taskId);
 }
 
+/**
+ * Archiving is tidying finished work out of the working lists — never a way to make open work
+ * disappear. Only a DONE task can be archived (user, 2026-08-01), the same rule invoices follow:
+ * otherwise something still owed to a client could leave the board with no trace of why.
+ */
 export async function archiveTask(id: string, actor: User) {
   const task = await repo.findTask(id);
   if (!task || task.archivedAt) throw new NotFoundError("Task not found");
+  // finished business either way: done, or called off. Open work must not be able to vanish.
+  if (!task.done && !task.cancelledAt) {
+    throw new ConflictError(
+      "Finish or cancel the task first — only closed work can be archived",
+    );
+  }
   await repo.updateTask(id, { archivedAt: new Date(), archivedById: actor.id });
   return { ok: true as const };
 }
@@ -478,6 +536,7 @@ export async function startTimer(actor: User, input: StartTimerInput) {
   if (!task || task.archivedAt) throw new NotFoundError("Task not found");
   // a completed task is a snapshot — no tracking new time on finished work (reopen first)
   if (task.done) throw new ValidationError("Task is completed — reopen it to track time");
+  if (task.cancelledAt) throw new ValidationError("Task is cancelled — restore it to track time");
 
   const running = await repo.findRunningEntry(actor.id);
   if (running && running.taskId === input.taskId) {

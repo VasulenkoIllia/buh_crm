@@ -1,13 +1,15 @@
 import { config } from "../../core/config.js";
 import {
   type Day,
+  addDays,
   calendarDay,
   cmp,
   daysInMonth,
-  fromDate,
   todayInTz,
   toUtc,
 } from "../../core/dates.js";
+import { coverage, firstDayInForce } from "../../core/coverage.js";
+import { raiseSystemTask } from "../../core/system-tasks.js";
 import { issueInvoice } from "./invoicing.js";
 import * as repo from "./payments.repository.js";
 import type { BillableSubscription } from "./payments.repository.js";
@@ -20,10 +22,11 @@ import type { BillableSubscription } from "./payments.repository.js";
  * periodKey) — the DB unique constraint, so downtime heals itself and a restart
  * never double-bills.
  *
- * BILLING ANCHOR (user decision 2026-07-25): a subscription is never back-billed.
- * The first invoice is the one for the period the subscription STARTED in;
- * `Subscription.billingStartAt` moves to "now" on reactivation, so a long-paused
- * subscription doesn't replay a year of invoices when it's switched back on.
+ * SERVED PERIODS (user decision 2026-07-29): the window starts at the first day the subscription
+ * was ever in force, and a period is billed only when it was served CONTINUOUSLY from its first
+ * day through its trigger day. A period served only in part raises a reminder for a person to
+ * invoice by hand instead — the amount for half a period is an agreement, not arithmetic. Nothing
+ * is ever back-billed for a pause, and the 45-day horizon bounds what a mistyped start date can do.
  *
  * A CANCELLED period invoice is not re-issued — the (subscription, period) row still
  * exists, which is what "void, don't delete" means. Re-issue it manually if needed.
@@ -87,32 +90,76 @@ export function issueDayFor(period: Period, trigger: string, invoiceDay: number 
   return invoiceDay == null ? period.start : calendarDay(period.start.y, period.start.m, invoiceDay);
 }
 
-/** Periods of one subscription that are due today and not invoiced yet. */
-function dueInvoices(sub: BillableSubscription, today: Day, issued: Set<string>, tz: string) {
+/**
+ * How far back the sweep will still issue automatically. Beyond it a period is only ever
+ * REPORTED (a reminder task), never billed on its own.
+ *
+ * The window now starts at the subscription's earliest served day, so one mistyped backdated
+ * start would otherwise have the sweep quietly issue a year of invoices. This bounds the blast
+ * radius of any date entry while leaving catch-up after downtime working.
+ */
+const AUTO_ISSUE_HORIZON_DAYS = 45;
+
+interface DuePeriod {
+  key: string;
+  /** billed automatically, or only reported for a human to invoice by hand */
+  outcome: "invoice" | "remind";
+  row?: {
+    clientId: string;
+    companyId: string | null;
+    serviceId: string;
+    subscriptionId: string;
+    periodKey: string;
+    amount: number;
+    issuedAt: Date;
+    dueDays: number | null;
+  };
+}
+
+/**
+ * What this subscription owes for, period by period.
+ *
+ * ONE rule for prepay and postpay: a period is invoiced automatically only if the subscription was
+ * in force **continuously from the period's first day through its trigger day**. For
+ * `on_period_start` on the 1st that is "in force on the 1st"; for a custom day 15, "in force
+ * 1–15"; for `on_period_end`, "in force all period". A period served only in PART is never
+ * invoiced automatically — the amount for half a month is a negotiation, not arithmetic — it is
+ * reported instead so a person issues it by hand (decision 2026-07-29).
+ */
+function dueInvoices(sub: BillableSubscription, today: Day, issued: Set<string>): DuePeriod[] {
   // per-client billing timing wins over the service preset (S3 decision)
   const trigger = sub.invoiceTrigger ?? sub.service.invoiceTrigger;
   const invoiceDay = sub.invoiceDay ?? sub.service.invoiceDay;
   const dueDays = sub.dueDays ?? sub.service.dueDays;
-  const anchor = fromDate(sub.billingStartAt ?? sub.createdAt, tz);
+  const from = firstDayInForce(sub.periods);
+  if (!from) return [];
+  const horizon = addDays(today, -AUTO_ISSUE_HORIZON_DAYS);
 
-  return periodsInWindow(sub.period, anchor, today).flatMap((period) => {
+  return periodsInWindow(sub.period, from, today).flatMap((period): DuePeriod[] => {
     if (issued.has(`${sub.id}|${period.key}`)) return [];
     const issueDay = issueDayFor(period, trigger, invoiceDay);
     if (cmp(issueDay, today) > 0) return []; // this period's invoice isn't due yet
-    // never date an invoice before the subscription started billing: for the anchor period
-    // (a subscription added mid-period) it's issued on the start day, not backdated to the 1st —
-    // otherwise its overdue terms would already have elapsed the moment it was created
-    const issuedAt = toUtc(cmp(issueDay, anchor) < 0 ? anchor : issueDay);
+
+    const served = coverage(sub.periods, period.start, issueDay);
+    if (served === "none") return []; // the period never belonged to this subscription
+    // partially served, or older than the horizon → a person decides the amount / the date
+    if (served === "partial" || cmp(issueDay, horizon) < 0) {
+      return [{ key: period.key, outcome: "remind" }];
+    }
     return [
       {
-        clientId: sub.clientId,
-        companyId: sub.companyId,
-        serviceId: sub.serviceId,
-        subscriptionId: sub.id,
-        periodKey: period.key,
-        amount: sub.amount,
-        issuedAt,
-        dueDays, // `invoiceRow` derives dueDate = issuedAt + dueDays — one rule, one place
+        key: period.key,
+        outcome: "invoice",
+        row: {
+          clientId: sub.clientId,
+          companyId: sub.companyId,
+          serviceId: sub.serviceId,
+          subscriptionId: sub.id,
+          periodKey: period.key,
+          amount: sub.amount,
+          issuedAt: toUtc(issueDay),
+          dueDays, // `invoiceRow` derives dueDate = issuedAt + dueDays — one rule, one place
+        },
       },
     ];
   });
@@ -130,13 +177,31 @@ async function issueDue(subs: BillableSubscription[]) {
   const issued = new Set(existing.map((i) => `${i.subscriptionId}|${i.periodKey}`));
 
   let created = 0;
+  let reminded = 0;
   let failed = 0;
   for (const sub of subs) {
     try {
-      for (const invoice of dueInvoices(sub, today, issued, config.TZ)) {
+      for (const due of dueInvoices(sub, today, issued)) {
         try {
-          await issueInvoice(invoice);
-          created++;
+          if (due.outcome === "invoice") {
+            await issueInvoice(due.row!);
+            created++;
+          } else {
+            // partially served, or older than the auto-issue horizon: the system will not guess
+            // the amount, so it asks a person to. One task per (subscription, period).
+            const raised = await raiseSystemTask(
+              "partial_period_invoice",
+              {
+                clientId: sub.clientId,
+                companyId: sub.companyId,
+                serviceId: sub.serviceId,
+                subscriptionId: sub.id,
+              },
+              due.key,
+              { titleSuffix: due.key },
+            );
+            if (raised) reminded++;
+          }
         } catch (err) {
           // a concurrent sweep issued the same (subscription, period) first → skip
           if ((err as { code?: string }).code !== "P2002") throw err;
@@ -146,7 +211,7 @@ async function issueDue(subs: BillableSubscription[]) {
       failed++;
     }
   }
-  return { created, failed };
+  return { created, reminded, failed };
 }
 
 /** Full sweep — the daily run AND the startup catch-up. */

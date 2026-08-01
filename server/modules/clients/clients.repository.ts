@@ -1,4 +1,5 @@
 import type { Prisma } from "../../generated/prisma/client.js";
+import { notEndedWhere } from "../../core/coverage.js";
 import { prisma } from "../../core/db.js";
 
 const clientInclude = {
@@ -7,7 +8,11 @@ const clientInclude = {
   // service.type rides along: only type=subscription services make a client regular
   subscriptions: {
     orderBy: { createdAt: "asc" },
-    include: { service: { select: { type: true } } },
+    include: {
+      service: { select: { type: true } },
+      // served periods: `active`, the in-force window and the row's state all derive from these
+      periods: { orderBy: { startsOn: "asc" } },
+    },
   },
   source: true,
 } satisfies Prisma.ClientInclude;
@@ -231,8 +236,13 @@ export function findDuplicateSubscription(
   });
 }
 
-export function countActiveSubscriptions(clientId: string) {
-  return prisma.subscription.count({ where: { clientId, active: true } });
+/**
+ * The client's LIVE services — running today or agreed for a future date. Counting only what is
+ * in force today meant a client whose first service was scheduled ahead never claimed a default,
+ * and nothing re-ran once it started, so their pickers silently never prefilled (2026-08-01 audit).
+ */
+export function countLiveSubscriptions(clientId: string, tz: string) {
+  return prisma.subscription.count({ where: { clientId, ...notEndedWhere(tz) } });
 }
 
 /**
@@ -251,19 +261,84 @@ export function setDefaultSubscription(clientId: string, subscriptionId: string 
   });
 }
 
-export function createSubscription(data: {
-  clientId: string;
-  serviceId: string;
-  companyId: string | null;
-  amount: number;
-  period: "month" | "quarter" | "year";
-  invoiceTrigger: "on_period_start" | "on_period_end" | null;
-  invoiceDay: number | null;
-  dueDays: number | null;
+export function createSubscription(
+  data: {
+    clientId: string;
+    serviceId: string;
+    companyId: string | null;
+    amount: number;
+    period: "month" | "quarter" | "year";
+    invoiceTrigger: "on_period_start" | "on_period_end" | null;
+    invoiceDay: number | null;
+    dueDays: number | null;
+  },
+  startsOn: Date,
+  createdById?: string | null,
+) {
+  // a subscription IS its served periods — it starts with one open-ended period, so nothing but a
+  // person pausing it can ever end it (decision 2026-07-29)
+  return prisma.subscription.create({
+    data: { ...data, periods: { create: { startsOn, createdById: createdById ?? null } } },
+  });
+}
+
+/** The open period, if the subscription has one (it has at most one — partial unique index). */
+export function findOpenPeriod(subscriptionId: string) {
+  return prisma.subscriptionPeriod.findFirst({ where: { subscriptionId, endsBefore: null } });
+}
+
+/**
+ * The period that covers `day` — open-ended OR already carrying a future end date.
+ *
+ * "Is it running" and "does it have an end date" are different questions: a subscription paused as
+ * of 1 October is still being served today. Pausing has to act on THIS period, not only on an open
+ * one, or a scheduled pause can't be moved or called off (found in the 2026-07-30 audit).
+ */
+export function findPeriodCovering(subscriptionId: string, day: Date) {
+  return prisma.subscriptionPeriod.findFirst({
+    where: {
+      subscriptionId,
+      startsOn: { lte: day },
+      OR: [{ endsBefore: null }, { endsBefore: { gt: day } }],
+    },
+  });
+}
+
+/** Drop a scheduled end date — the service goes back to open-ended, which is the normal state. */
+export function reopenPeriod(id: string) {
+  return prisma.subscriptionPeriod.update({
+    where: { id },
+    data: { endsBefore: null, endNote: null, endedById: null },
+  });
+}
+
+export function listPeriods(subscriptionId: string) {
+  return prisma.subscriptionPeriod.findMany({
+    where: { subscriptionId },
+    orderBy: { startsOn: "asc" },
+  });
+}
+
+export function closePeriod(
+  id: string,
+  endsBefore: Date,
+  by: { endNote: string | null; endedById: string | null },
+) {
+  return prisma.subscriptionPeriod.update({ where: { id }, data: { endsBefore, ...by } });
+}
+
+export function openPeriod(args: {
+  subscriptionId: string;
+  startsOn: Date;
+  startNote: string | null;
+  createdById: string | null;
 }) {
-  // billingStartAt = the billing anchor (S7): invoicing starts with the CURRENT period,
-  // never before it — see payments.generation.ts
-  return prisma.subscription.create({ data: { ...data, billingStartAt: new Date() } });
+  return prisma.subscriptionPeriod.create({ data: args });
+}
+
+/** Cancelling a subscription that never started removes its period — no zero-length junk. */
+export function deletePeriod(id: string) {
+  return prisma.subscriptionPeriod.delete({ where: { id } });
 }
 
 export function findSubscription(clientId: string, id: string) {

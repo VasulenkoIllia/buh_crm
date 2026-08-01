@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Building2, Users } from "lucide-react";
+import { Building2, Pencil, Power, Star, Trash2, Users } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -11,7 +11,7 @@ import { ApiError } from "@/shared/lib/api";
 import { CATEGORY_PALETTE } from "@/shared/lib/colors";
 import { cn } from "@/shared/lib/cn";
 import { AssigneePicker } from "@/shared/ui/assignee-picker";
-import { Button } from "@/shared/ui/button";
+import { Button, IconButton } from "@/shared/ui/button";
 import { Chip } from "@/shared/ui/chip";
 import { ChecklistEditor } from "@/shared/ui/checklist-editor";
 import { FormField, Input, Label, Textarea } from "@/shared/ui/field";
@@ -182,29 +182,37 @@ export function ServicesPage() {
                   {service.type === "internal" ? "—" : service.clientsCount}
                 </div>
                 <div
-                  className="flex items-center justify-end gap-2.5 text-right"
+                  className="flex items-center justify-end gap-1 text-right"
                   onClick={(e) => e.stopPropagation()}
                 >
+                  {/* quiet icon strip: text links here wrapped to two lines and drowned the row.
+                      Every icon carries its meaning in the tooltip / aria-label */}
                   {isAdmin && (
                     <>
-                      <button
-                        type="button"
-                        className="text-[12px] font-medium text-primary-link hover:underline"
+                      <IconButton
+                        label="Edit service"
                         onClick={() => {
                           setEditing(service);
                           setEditorOpen(true);
                         }}
                       >
-                        Edit
-                      </button>
+                        <Pencil size={15} />
+                      </IconButton>
                       {/* only an active one-time service can be the catalog default, and it has
                           to be cleared before the service can be deactivated — same rules as a
                           client's default service, so the two controls sit together */}
                       {service.type === "one_time" && service.active && (
-                        <button
-                          type="button"
+                        <IconButton
+                          label={
+                            service.autoAddToNewClients
+                              ? "Default for new clients — click to clear"
+                              : "Make default for new clients"
+                          }
                           disabled={updateService.isPending}
-                          className="text-[12px] font-medium text-primary-link hover:underline disabled:opacity-50"
+                          className={cn(
+                            service.autoAddToNewClients &&
+                              "text-[#2f4fd6] hover:text-[#2f4fd6]", // matches the ★ default chip
+                          )}
                           onClick={() =>
                             updateService
                               .mutateAsync({
@@ -214,18 +222,21 @@ export function ServicesPage() {
                               .catch(() => {})
                           }
                         >
-                          {service.autoAddToNewClients ? "Clear default" : "Make default"}
-                        </button>
+                          <Star
+                            size={15}
+                            fill={service.autoAddToNewClients ? "currentColor" : "none"}
+                          />
+                        </IconButton>
                       )}
-                      <button
-                        type="button"
-                        disabled={updateService.isPending}
+                      <IconButton
+                        label={service.active ? "Deactivate service" : "Activate service"}
                         title={
                           service.autoAddToNewClients
                             ? "Clear the default first — new clients are given this service automatically"
                             : undefined
                         }
-                        className="text-[12px] font-medium text-muted hover:text-danger hover:underline disabled:opacity-50"
+                        disabled={updateService.isPending || service.autoAddToNewClients}
+                        className="hover:text-danger"
                         onClick={() =>
                           updateService
                             .mutateAsync({
@@ -235,12 +246,12 @@ export function ServicesPage() {
                             .catch(() => {})
                         }
                       >
-                        {service.active ? "Deactivate" : "Activate"}
-                      </button>
-                      <button
-                        type="button"
+                        <Power size={15} />
+                      </IconButton>
+                      <IconButton
+                        label="Delete service"
                         disabled={deleteService.isPending}
-                        className="text-[12px] font-medium text-muted hover:text-danger hover:underline disabled:opacity-50"
+                        className="hover:text-danger"
                         onClick={() => {
                           if (
                             !window.confirm(
@@ -255,8 +266,8 @@ export function ServicesPage() {
                             );
                         }}
                       >
-                        Delete
-                      </button>
+                        <Trash2 size={15} />
+                      </IconButton>
                     </>
                   )}
                 </div>
@@ -374,21 +385,13 @@ function TemplateRow({
       <span className="min-w-0 truncate">{template.name}</span>
       <span className="ml-auto text-[12px] text-[#6b7280]">{rhythm}</span>
       {isAdmin && (
-        <span className="inline-flex items-center gap-2.5">
-          <button
-            type="button"
-            className="text-[12px] font-medium text-primary-link hover:underline"
-            onClick={onEdit}
-          >
-            Edit
-          </button>
-          <button
-            type="button"
-            className="text-[12px] font-medium text-muted hover:text-danger hover:underline"
-            onClick={onDelete}
-          >
-            Delete
-          </button>
+        <span className="inline-flex items-center gap-1">
+          <IconButton label="Edit task" onClick={onEdit}>
+            <Pencil size={14} />
+          </IconButton>
+          <IconButton label="Delete task" className="hover:text-danger" onClick={onDelete}>
+            <Trash2 size={14} />
+          </IconButton>
         </span>
       )}
     </div>

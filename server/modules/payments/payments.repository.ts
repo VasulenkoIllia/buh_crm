@@ -1,4 +1,6 @@
 import type { Prisma } from "../../generated/prisma/client.js";
+import { config } from "../../core/config.js";
+import { inForceTodayWhere } from "../../core/coverage.js";
 import { prisma } from "../../core/db.js";
 
 const invoiceInclude = {
@@ -123,9 +125,13 @@ export function listPeriodKeys(subscriptionIds: string[]) {
  * What the sweep bills: ACTIVE subscriptions of subscription-type services belonging to a live
  * client, with the fields the billing rule needs (per-client override + the service preset).
  */
-const billableSubscription = {
+// A FUNCTION, not a const: `inForceTodayWhere` resolves "today", and a module-level object would
+// freeze it at import time — i.e. at server boot. The daily sweeps would then ask about the day the
+// container started, forever (found in the 2026-07-29 audit).
+const billableSubscription = () =>
+  ({
   where: {
-    active: true,
+    ...inForceTodayWhere(config.TZ),
     service: { type: "subscription" as const },
     client: { archivedAt: null },
   },
@@ -139,23 +145,27 @@ const billableSubscription = {
     invoiceTrigger: true,
     invoiceDay: true,
     dueDays: true,
-    billingStartAt: true,
     createdAt: true,
+    // the served periods ARE the billing window now — a period is invoiced only when the
+    // subscription was in force continuously from its first day through the trigger day
+    periods: { select: { startsOn: true, endsBefore: true }, orderBy: { startsOn: "asc" } },
     service: { select: { invoiceTrigger: true, invoiceDay: true, dueDays: true } },
   },
-} satisfies Prisma.SubscriptionFindManyArgs;
+  }) satisfies Prisma.SubscriptionFindManyArgs;
 
-export type BillableSubscription = Prisma.SubscriptionGetPayload<typeof billableSubscription>;
+export type BillableSubscription = Prisma.SubscriptionGetPayload<
+  ReturnType<typeof billableSubscription>
+>;
 
 export function listBillableSubscriptions(): Promise<BillableSubscription[]> {
-  return prisma.subscription.findMany(billableSubscription);
+  return prisma.subscription.findMany(billableSubscription());
 }
 
 /** The same row for one subscription — instant feedback when it's added or reactivated. */
 export function findBillableSubscription(id: string): Promise<BillableSubscription | null> {
   return prisma.subscription.findFirst({
-    ...billableSubscription,
-    where: { ...billableSubscription.where, id },
+    ...billableSubscription(),
+    where: { ...billableSubscription().where, id },
   });
 }
 
@@ -327,7 +337,6 @@ export function findSubscription(id: string) {
       clientId: true,
       companyId: true,
       serviceId: true,
-      active: true,
       dueDays: true,
       service: { select: { name: true, dueDays: true, type: true } },
     },

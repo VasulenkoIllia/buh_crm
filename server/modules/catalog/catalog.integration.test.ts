@@ -1,7 +1,35 @@
 import argon2 from "argon2";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../../app.js";
+import { config } from "../../core/config.js";
 import { prisma } from "../../core/db.js";
+
+/**
+ * Days ago as "YYYY-MM-DD". Subscriptions in these tests start in the PAST so they can be paused
+ * with effect right now: "last day served = today" deliberately still serves today, and a last
+ * served day before the service even started is refused.
+ */
+function daysAgoIso(n: number): string {
+  // anchored to the FIRM timezone, which is what the server calls "today" — a local-clock anchor
+  // disagrees with it for a few hours around midnight and flipped these fixtures by a day
+  const s = new Intl.DateTimeFormat("en-CA", { timeZone: config.TZ }).format(new Date());
+  const [y, m, d] = s.split("-").map(Number);
+  const at = new Date(Date.UTC(y, m - 1, d - n));
+  return at.toISOString().slice(0, 10);
+}
+const yesterdayIso = () => daysAgoIso(1);
+/**
+ * A subscription can no longer be CREATED in the past (user, 2026-08-01: a service is never agreed
+ * backwards). Tests that need an already-running service therefore create it normally and backdate
+ * its period directly — the state is legitimate, only the door into it is closed.
+ */
+const startedEarlier = () => ({});
+async function backdateStart(subscriptionId: string, days = 20) {
+  await prisma.subscriptionPeriod.updateMany({
+    where: { subscriptionId },
+    data: { startsOn: new Date(`${daysAgoIso(days)}T00:00:00.000Z`) },
+  });
+}
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 let adminCookie: string;
@@ -213,7 +241,7 @@ describe("catalog", () => {
       method: "POST",
       url: `/api/clients/${clientId}/subscriptions`,
       headers: { cookie: adminCookie },
-      payload: { serviceId, amount: 25000, period: "month" },
+      payload: { serviceId, amount: 25000, period: "month", ...startedEarlier() },
     });
     expect(sub.statusCode).toBe(201);
     expect(sub.json().isRegular).toBe(true);
@@ -232,12 +260,13 @@ describe("catalog", () => {
       headers: { cookie: adminCookie },
       payload: { isDefault: false },
     });
+    await backdateStart(subId); // only a service that HAS been running can be stopped as of yesterday
     // deactivate → back to one-time, automatically (there is no flag to un-tick)
     const off = await app.inject({
-      method: "PATCH",
-      url: `/api/clients/${clientId}/subscriptions/${subId}`,
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions/${subId}/pause`,
       headers: { cookie: adminCookie },
-      payload: { active: false },
+      payload: { lastDay: yesterdayIso() },
     });
     expect(off.json().isRegular).toBe(false);
   });
@@ -264,7 +293,7 @@ describe("catalog", () => {
       method: "POST",
       url: `/api/clients/${clientId}/subscriptions`,
       headers: { cookie: adminCookie },
-      payload: { serviceId: oneTimeId, amount: 5000 },
+      payload: { serviceId: oneTimeId, amount: 5000, ...startedEarlier() },
     });
     expect(sub.statusCode).toBe(201);
     expect(sub.json().isRegular).toBe(false);
@@ -282,7 +311,7 @@ describe("catalog", () => {
       method: "POST",
       url: `/api/clients/${clientId}/subscriptions`,
       headers: { cookie: adminCookie },
-      payload: { serviceId, amount: 10000 },
+      payload: { serviceId, amount: 10000, ...startedEarlier() },
     });
     expect(regular.json().isRegular).toBe(true);
   });
@@ -300,7 +329,7 @@ describe("catalog", () => {
       method: "POST",
       url: `/api/clients/${clientId}/subscriptions`,
       headers: { cookie: adminCookie },
-      payload: { serviceId, amount: 10000, period: "quarter", invoiceTrigger: "on_period_end" },
+      payload: { serviceId, amount: 10000, period: "quarter", invoiceTrigger: "on_period_end", ...startedEarlier() },
     });
     expect(sub.statusCode).toBe(201);
     const row = sub.json().subscriptions[0];
@@ -362,7 +391,7 @@ describe("catalog", () => {
       method: "POST",
       url: `/api/clients/${clientId}/subscriptions`,
       headers: { cookie: adminCookie },
-      payload: { serviceId: dueServiceId, amount: 5000, dueDays: 30 },
+      payload: { serviceId: dueServiceId, amount: 5000, dueDays: 30, ...startedEarlier() },
     });
     expect(sub.statusCode).toBe(201);
     expect(sub.json().subscriptions[0].dueDays).toBe(30);
@@ -409,7 +438,7 @@ describe("catalog", () => {
       method: "POST",
       url: `/api/clients/${clientId}/subscriptions`,
       headers: { cookie: adminCookie },
-      payload: { serviceId, amount: 10_000, period: "month" },
+      payload: { serviceId, amount: 10_000, period: "month", ...startedEarlier() },
     });
     expect(withSub.json().categories).toContain(serviceId);
     const subId = withSub
@@ -423,12 +452,13 @@ describe("catalog", () => {
       headers: { cookie: adminCookie },
       payload: { isDefault: false },
     });
+    await backdateStart(subId);
     // stopping the service takes its chip away, with nothing to un-tick
     const stopped = await app.inject({
-      method: "PATCH",
-      url: `/api/clients/${clientId}/subscriptions/${subId}`,
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions/${subId}/pause`,
       headers: { cookie: adminCookie },
-      payload: { active: false },
+      payload: { lastDay: yesterdayIso() },
     });
     expect(stopped.json().categories).not.toContain(serviceId);
   });
@@ -445,7 +475,7 @@ describe("catalog", () => {
       method: "POST",
       url: `/api/clients/${clientId}/subscriptions`,
       headers: { cookie: adminCookie },
-      payload: { serviceId, amount: 1000, invoiceTrigger: "on_period_start", invoiceDay: 5 },
+      payload: { serviceId, amount: 1000, invoiceTrigger: "on_period_start", invoiceDay: 5, ...startedEarlier() },
     });
     const subId = sub.json().subscriptions[0].id;
 
@@ -496,7 +526,7 @@ describe("catalog", () => {
       method: "POST",
       url: `/api/clients/${client.id}/subscriptions`,
       headers: { cookie: adminCookie },
-      payload: { serviceId, amount: 1000 },
+      payload: { serviceId, amount: 1000, ...startedEarlier() },
     });
     expect(first.statusCode).toBe(201);
 
@@ -504,7 +534,7 @@ describe("catalog", () => {
       method: "POST",
       url: `/api/clients/${client.id}/subscriptions`,
       headers: { cookie: adminCookie },
-      payload: { serviceId, amount: 2000 },
+      payload: { serviceId, amount: 2000, ...startedEarlier() },
     });
     expect(dup.statusCode).toBe(400); // same target (client root)
 
@@ -512,7 +542,7 @@ describe("catalog", () => {
       method: "POST",
       url: `/api/clients/${client.id}/subscriptions`,
       headers: { cookie: adminCookie },
-      payload: { serviceId, amount: 2000, companyId },
+      payload: { serviceId, amount: 2000, companyId, ...startedEarlier() },
     });
     expect(otherCompany.statusCode).toBe(201); // different company — allowed
   });
@@ -545,7 +575,7 @@ describe("catalog", () => {
       method: "POST",
       url: `/api/clients/${clientId}/subscriptions`,
       headers: { cookie: adminCookie },
-      payload: { serviceId: ovServiceId, amount: 1000 },
+      payload: { serviceId: ovServiceId, amount: 1000, ...startedEarlier() },
     });
     const subId = sub.json().subscriptions[0].id;
 
@@ -792,7 +822,7 @@ describe("catalog", () => {
       method: "POST",
       url: `/api/clients/${c1.json().id}/subscriptions`,
       headers: { cookie: adminCookie },
-      payload: { serviceId: svcC, amount: 1000 },
+      payload: { serviceId: svcC, amount: 1000, ...startedEarlier() },
     });
     expect(second.statusCode).toBe(201);
     const defaults = second.json().subscriptions.filter((s: { isDefault: boolean }) => s.isDefault);

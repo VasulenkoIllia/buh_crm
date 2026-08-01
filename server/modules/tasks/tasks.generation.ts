@@ -1,4 +1,6 @@
 import { rhythmOverridesSchema } from "@shared/schema/catalog.js";
+import { firstDayInForce, inForceOn } from "../../core/coverage.js";
+import { raiseSystemTask } from "../../core/system-tasks.js";
 import { config } from "../../core/config.js";
 import {
   type Day,
@@ -121,7 +123,12 @@ function rowsForSubscription(
   tz: string,
 ) {
   const overrides = rhythmOverridesSchema.catch({}).parse(sub.rhythmOverrides ?? {});
-  const subStart = fromDate(sub.createdAt, tz);
+  // the window opens on the first day ever served, and every occurrence inside it is then checked
+  // against the served periods — a date that fell during a pause is skipped, for good. It used to
+  // run from `createdAt`, which is why resuming after a pause dumped the whole missed tail onto
+  // the board with deadlines in the past (decision 2026-07-29).
+  const subStart = firstDayInForce(sub.periods);
+  if (!subStart) return [];
 
   return sub.service.taskTemplates.flatMap((tpl) => {
     const ov = overrides[tpl.id];
@@ -144,7 +151,9 @@ function rowsForSubscription(
     const tplStart = fromDate(tpl.createdAt, tz);
     const from = cmp(tplStart, subStart) > 0 ? tplStart : subStart;
 
-    return occurrencesInWindow(eff, from, today).map((occ) => ({
+    return occurrencesInWindow(eff, from, today)
+      .filter((occ) => inForceOn(sub.periods, occ.date))
+      .map((occ) => ({
       title: generatedTitle(sub, tpl.name, occ.date),
       clientId: sub.clientId,
       companyId: sub.companyId,
@@ -220,14 +229,56 @@ async function insertGeneratedTasks(rows: GeneratedRow[]): Promise<number> {
   return created;
 }
 
+/** How far ahead a subscription's end date is announced. */
+const ENDING_NOTICE_DAYS = 7;
+
+/**
+ * Announce subscriptions whose END DATE is a week out.
+ *
+ * Nothing renews a subscription — open-ended has no end to renew — so an end date is always
+ * something a person set on purpose. This keeps that deliberate ending from arriving as a
+ * surprise weeks later (decision 2026-07-29).
+ */
+async function remindEndingSubscriptions() {
+  const today = todayInTz(config.TZ);
+  // strictly AFTER today: `endsBefore == today` means the last served day was yesterday, i.e. it
+  // has already ended, and announcing that as "ends soon" would be a day late (2026-07-29 audit)
+  const from = toUtc(addDays(today, 1));
+  const until = toUtc(addDays(today, ENDING_NOTICE_DAYS));
+  let reminded = 0;
+  for (const sub of await repo.listEndingSubscriptions(from, until)) {
+    const endsBefore = sub.periods
+      .map((p) => p.endsBefore)
+      .filter((d): d is Date => !!d && d >= from && d <= until)
+      .sort((a, b) => a.getTime() - b.getTime())[0];
+    if (!endsBefore) continue;
+    // `endsBefore` is exclusive — the last day actually served is the one before it
+    const lastDay = new Date(endsBefore.getTime() - 86_400_000);
+    const raised = await raiseSystemTask(
+      "subscription_ending",
+      {
+        clientId: sub.clientId,
+        companyId: sub.companyId,
+        serviceId: sub.serviceId,
+        subscriptionId: sub.id,
+      },
+      `end-${lastDay.toISOString().slice(0, 10)}`,
+      { titleSuffix: lastDay.toISOString().slice(0, 10), deadline: lastDay },
+    );
+    if (raised) reminded++;
+  }
+  return reminded;
+}
+
 /** Full sweep — the daily run AND the startup catch-up (same idempotent scan). */
 export async function generateSubscriptionTasks() {
   const deps = await repo.findGenerationDefaults();
-  if (!deps) return { created: 0 }; // bootstrap hasn't run — nothing to do
+  if (!deps) return { created: 0, reminded: 0 }; // bootstrap hasn't run — nothing to do
   const today = todayInTz(config.TZ);
   const subs = await repo.listGeneratingSubscriptions();
   const rows = subs.flatMap((sub) => rowsForSubscription(sub, deps, today, config.TZ));
-  return { created: await insertGeneratedTasks(rows) };
+  const created = await insertGeneratedTasks(rows);
+  return { created, reminded: await remindEndingSubscriptions() };
 }
 
 /** Instant feedback after a subscription is added/tuned on the client card. */
@@ -248,6 +299,7 @@ function internalRows(svc: InternalService, deps: GenerationDeps, today: Day, tz
     // an internal template generates from its own creation day (no subscription start)
     const from = fromDate(tpl.createdAt, tz);
     const eff = { periodicity: tpl.periodicity, dayOfPeriod: tpl.dayOfPeriod, monthOfPeriod: tpl.monthOfPeriod };
+    // internal firm work belongs to no client, so there is nothing to be "in force" for
     return occurrencesInWindow(eff, from, today).map((occ) => ({
       title: `${svc.name} · ${tpl.name} · ${dayLabel(occ.date)}`,
       serviceId: svc.id, // belonging (grouping/reports) — but no client/company/subscription

@@ -125,6 +125,7 @@ model User {
   sessions            Session[]
   taskAssignments     TaskAssignee[]
   tasksCreated        Task[]               @relation("TaskCreatedBy")
+  tasksCancelled      Task[]               @relation("TaskCancelledBy")
   taskComments        TaskComment[]        @relation("TaskCommentAuthor")
   timeEntries         TimeEntry[]
   timeEntriesCreated  TimeEntry[]          @relation("TimeEntryCreatedBy")
@@ -137,6 +138,8 @@ model User {
   invoicesCancelled   Invoice[]            @relation("InvoiceCancelledBy")
   invoicesArchived    Invoice[]            @relation("InvoiceArchivedBy")
   uploadedFiles       File[]               @relation("FileUploadedBy")
+  subscriptionPeriods SubscriptionPeriod[] @relation("SubscriptionPeriodCreatedBy")
+  subscriptionPeriodsEnded SubscriptionPeriod[] @relation("SubscriptionPeriodEndedBy")
 }
 
 model AuthToken {
@@ -347,26 +350,57 @@ model Subscription {
   invoiceDay      Int?
   dueDays         Int? // per-client overdue terms; null = inherit the service preset
   rhythmOverrides Json? // per-client task-template rhythm/deadline overrides
-  active          Boolean       @default(true)
   /// the client's usual service — prefills every service picker for them. At most one per client
   /// (partial unique index `Subscription_one_default_per_client`, raw SQL); a default can't be
   /// stopped until the flag is cleared.
   isDefault       Boolean       @default(false)
-  // billing anchor (S7): invoices are never issued for periods before this — set on create and
-  // moved to "now" on reactivation, so a paused subscription is never back-billed. Null = createdAt.
-  billingStartAt  DateTime?
-  startedAt       DateTime      @default(now())
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  client         Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  company        Company?  @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  service        Service   @relation(fields: [serviceId], references: [id])
+  client         Client               @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  company        Company?             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  service        Service              @relation(fields: [serviceId], references: [id])
   generatedTasks Task[]
   invoices       Invoice[]
+  periods        SubscriptionPeriod[]
 
   @@index([clientId])
-  @@index([active])
+}
+
+/// When a subscription was actually IN FORCE — the answer to "was this client being served on
+/// day X", which both the task sweep and the billing sweep ask (decision 2026-07-29).
+///
+/// A pause closes the open period; a resume opens a new one. Stored as a LIST, not a mutable
+/// from/to pair: the next pause would overwrite the pair and the past would be gone, and then
+/// "was August fully served" becomes unanswerable — which is exactly the bug this replaces.
+///
+/// HALF-OPEN on purpose: `startsOn` is the first day in force, `endsBefore` the first day NOT in
+/// force. Pausing "on 20 Aug" stores 21 Aug (the UI says "до 20.08 включно"), so pause-and-resume
+/// on the same day leaves NO gap and the month stays fully covered. `endsBefore = null` means
+/// open-ended, which is the normal state — nothing in the system can expire a subscription.
+///
+/// `@db.Date` deliberately: a period is a calendar day and a time-of-day slipping in would break
+/// every coverage comparison. The column makes that structurally impossible.
+model SubscriptionPeriod {
+  id             String    @id @default(uuid()) @db.Uuid
+  subscriptionId String    @db.Uuid
+  startsOn       DateTime  @db.Date
+  endsBefore     DateTime? @db.Date
+  /// a period has two stories — why it started and why it ended. One shared column meant pausing
+  /// overwrote what the resume had recorded, so each gets its own.
+  startNote      String?
+  endNote        String?
+  createdById    String?   @db.Uuid // who opened it (null = migrated or automatic)
+  endedById      String?   @db.Uuid // who closed it
+  createdAt      DateTime  @default(now())
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  createdBy    User?        @relation("SubscriptionPeriodCreatedBy", fields: [createdById], references: [id])
+  endedBy      User?        @relation("SubscriptionPeriodEndedBy", fields: [endedById], references: [id])
+
+  @@index([subscriptionId, startsOn])
+  // partial unique index `Subscription_one_open_period` (raw SQL — Prisma can't express a WHERE
+  // on an index) keeps at most ONE open period per subscription. Asserted in schema-invariants.
 }
 
 // ── Leads ────────────────────────────────────────────────────────────────────
@@ -440,8 +474,13 @@ model Task {
   updatedAt      DateTime  @updatedAt
   archivedAt     DateTime?
   archivedById   String?   @db.Uuid
+  /// raised by mistake, or called off. A cancelled task leaves the board but is never deleted:
+  /// the row is what keeps the nightly sweep from re-creating a generated one (2026-08-01).
+  cancelledAt    DateTime?
+  cancelledById  String?   @db.Uuid
 
   createdBy    User?         @relation("TaskCreatedBy", fields: [createdById], references: [id])
+  cancelledBy  User?         @relation("TaskCancelledBy", fields: [cancelledById], references: [id])
   client       Client?       @relation(fields: [clientId], references: [id])
   // Restrict: a task's company/service is its provenance — deleting either must be refused,
   // not silently blanked (the catalog + company guards say so in the app; this is the backstop)
@@ -458,6 +497,12 @@ model Task {
   subtasks     Subtask[]
   comments     TaskComment[]
 
+  /// set when the SYSTEM raised this task by itself (see shared/system-tasks.ts); null for the
+  /// ordinary ones people and templates create. Behind it sits the partial unique index
+  /// `Task_system_period` on (subscriptionId, periodKey) — the sweeps run daily and would
+  /// otherwise post the same reminder every morning.
+  systemKind     String?
+
   @@unique([subscriptionId, taskTemplateId, periodKey])
   // partial unique index `Task_internal_template_period` (raw SQL, not expressible here) — dedups
   // internal generated tasks by (taskTemplateId, periodKey) when subscriptionId IS NULL
@@ -467,6 +512,7 @@ model Task {
   @@index([completedAt])
   @@index([deadline])
   @@index([archivedAt])
+  @@index([cancelledAt])
 }
 
 model TaskAssignee {

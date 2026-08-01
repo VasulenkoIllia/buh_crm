@@ -1,7 +1,36 @@
 import argon2 from "argon2";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../../app.js";
+import { config } from "../../core/config.js";
 import { prisma } from "../../core/db.js";
+
+/**
+ * Days ago as "YYYY-MM-DD". Subscriptions in these tests start in the PAST so they can be paused
+ * with effect right now: "last day served = today" deliberately still serves today, and a last
+ * served day before the service even started is refused.
+ */
+function daysAgoIso(n: number): string {
+  // anchored to the FIRM timezone, which is what the server calls "today" — a local-clock anchor
+  // disagrees with it for a few hours around midnight and flipped these fixtures by a day
+  const s = new Intl.DateTimeFormat("en-CA", { timeZone: config.TZ }).format(new Date());
+  const [y, m, d] = s.split("-").map(Number);
+  const at = new Date(Date.UTC(y, m - 1, d - n));
+  return at.toISOString().slice(0, 10);
+}
+const yesterdayIso = () => daysAgoIso(1);
+/**
+ * A subscription can no longer be CREATED in the past (user, 2026-08-01: a service is never agreed
+ * backwards). Tests that need an already-running service therefore create it normally and backdate
+ * its period directly — the state is legitimate, only the door into it is closed.
+ */
+const startedEarlier = () => ({});
+async function backdateStart(subscriptionId: string, days = 20) {
+  await prisma.subscriptionPeriod.updateMany({
+    where: { subscriptionId },
+    data: { startsOn: new Date(`${daysAgoIso(days)}T00:00:00.000Z`) },
+  });
+}
+const inDaysIso = (n: number) => daysAgoIso(-n);
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 let cookie: string;
@@ -319,7 +348,7 @@ describe("clients", () => {
       method: "POST",
       url: `/api/clients/${clientId}/subscriptions`,
       headers: { cookie },
-      payload: { serviceId: oneTime.id, amount: 5000 },
+      payload: { serviceId: oneTime.id, amount: 5000, ...startedEarlier() },
     });
     expect(withOneTime.json().isRegular).toBe(false);
 
@@ -327,19 +356,20 @@ describe("clients", () => {
       method: "POST",
       url: `/api/clients/${clientId}/subscriptions`,
       headers: { cookie },
-      payload: { serviceId: monthly.id, amount: 10_000, period: "month" },
+      payload: { serviceId: monthly.id, amount: 10_000, period: "month", ...startedEarlier() },
     });
     expect(withSub.json().isRegular).toBe(true);
     const subId = withSub
       .json()
       .subscriptions.find((s: { serviceId: string }) => s.serviceId === monthly.id).id;
+    await backdateStart(subId); // it has to have been running to be stopped as of yesterday
 
     // …and stopping it hands them straight back to One-time, with nothing to un-tick
     const stopped = await app.inject({
-      method: "PATCH",
-      url: `/api/clients/${clientId}/subscriptions/${subId}`,
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions/${subId}/pause`,
       headers: { cookie },
-      payload: { active: false },
+      payload: { lastDay: yesterdayIso() },
     });
     expect(stopped.json().isRegular).toBe(false);
 
@@ -351,18 +381,202 @@ describe("clients", () => {
     });
     expect(oneTimeTab.json().items.map((c: { id: string }) => c.id)).toContain(clientId);
 
-    await app.inject({
-      method: "PATCH",
-      url: `/api/clients/${clientId}/subscriptions/${subId}`,
+    // …and resuming brings them back, from the day service starts again
+    const resumed = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions/${subId}/resume`,
       headers: { cookie },
-      payload: { active: true },
+      payload: {},
     });
+    expect(resumed.statusCode).toBe(200);
+    expect(resumed.json().isRegular).toBe(true);
     const regularTab = await app.inject({
       method: "GET",
       url: "/api/clients?tab=regular&search=Derived",
       headers: { cookie },
     });
     expect(regularTab.json().items.map((c: { id: string }) => c.id)).toContain(clientId);
+  });
+
+  // A service is never agreed BACKWARDS (user, 2026-08-01). This is the guard that stops one
+  // mistyped year from having the nightly sweep raise a manual-invoice reminder for every month
+  // since — work already done is billed with a one-off invoice instead.
+  it("refuses a backdated start, on both the first period and a resume", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/clients",
+      headers: { cookie },
+      payload: { firstName: "Backdate", lastName: "Guard" },
+    });
+    const clientId = created.json().id;
+    const svc = await prisma.service.create({
+      data: { name: "Backdate svc", color: "#000", type: "subscription" },
+    });
+
+    const past = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions`,
+      headers: { cookie },
+      payload: { serviceId: svc.id, amount: 1000, period: "month", startsOn: yesterdayIso() },
+    });
+    expect(past.statusCode).toBe(400);
+    expect(past.json().error.message).toMatch(/can't start in the past/i);
+
+    // today is fine, and so is a date agreed ahead
+    const todayOk = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions`,
+      headers: { cookie },
+      payload: { serviceId: svc.id, amount: 1000, period: "month", startsOn: daysAgoIso(0) },
+    });
+    expect(todayOk.statusCode).toBe(201);
+    const subId = todayOk.json().subscriptions[0].id;
+
+    // …and a resume can't reach backwards either, or the same hole reopens
+    await backdateStart(subId, 30);
+    await app.inject({ // it is this client's first service, so it holds the default flag
+      method: "PATCH",
+      url: `/api/clients/${clientId}/subscriptions/${subId}`,
+      headers: { cookie },
+      payload: { isDefault: false },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions/${subId}/pause`,
+      headers: { cookie },
+      payload: { lastDay: daysAgoIso(10) },
+    });
+    const backResume = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions/${subId}/resume`,
+      headers: { cookie },
+      payload: { startsOn: daysAgoIso(5) },
+    });
+    expect(backResume.statusCode).toBe(400);
+    expect(backResume.json().error.message).toMatch(/can't resume in the past/i);
+
+    const forward = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions/${subId}/resume`,
+      headers: { cookie },
+      payload: { startsOn: inDaysIso(3) },
+    });
+    expect(forward.statusCode).toBe(200);
+  });
+
+  // The "first service claims the default" rule counted services in force TODAY, so once start
+  // dates could be in the FUTURE a client whose first service was scheduled claimed nothing — and
+  // nothing re-ran when it started, leaving their pickers permanently un-prefilled (2026-08-01).
+  it("a client whose first service is scheduled still ends up with a default", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/clients",
+      headers: { cookie },
+      payload: { firstName: "Scheduled", lastName: "Default" },
+    });
+    const clientId = created.json().id;
+    const svc = await prisma.service.create({
+      data: { name: "Scheduled svc", color: "#000", type: "subscription" },
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions`,
+      headers: { cookie },
+      payload: { serviceId: svc.id, amount: 1000, period: "month", startsOn: inDaysIso(14) },
+    });
+    expect(res.statusCode).toBe(201);
+    const sub = res.json().subscriptions[0];
+    expect(sub.state).toBe("scheduled");
+    expect(sub.isDefault).toBe(true); // their only service — there is nothing else to choose
+  });
+
+  it("a planned pause can be moved and called off, and a mistyped date can't erase service", async () => {
+    const service = await prisma.service.create({
+      data: { name: "Planned pause svc", color: "#2f4fd6", type: "subscription", defaultAmount: 9_000 },
+    });
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/clients",
+      headers: { cookie },
+      payload: { firstName: "Planned", lastName: "Pause", companies: [], people: [] },
+    });
+    const clientId = created.json().id;
+    const sub = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions`,
+      headers: { cookie },
+      payload: { serviceId: service.id, amount: 9_000, period: "month", ...startedEarlier() },
+    });
+    const subId = sub
+      .json()
+      .subscriptions.find((x: { serviceId: string }) => x.serviceId === service.id).id;
+    await app.inject({
+      method: "PATCH",
+      url: `/api/clients/${clientId}/subscriptions/${subId}`,
+      headers: { cookie },
+      payload: { isDefault: false },
+    });
+    const pauseUrl = `/api/clients/${clientId}/subscriptions/${subId}/pause`;
+    const sixtyDays = new Date(Date.now() + 60 * 86_400_000).toISOString().slice(0, 10);
+    const ninetyDays = new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10);
+    const readSub = (res: { json: () => { subscriptions: Record<string, unknown>[] } }) =>
+      res.json().subscriptions.find((x) => x.id === subId)!;
+
+    // agreed in advance: it stops in 60 days but is STILL SERVED until then
+    const planned = await app.inject({
+      method: "POST",
+      url: pauseUrl,
+      headers: { cookie },
+      payload: { lastDay: sixtyDays, note: "client asked in advance" },
+    });
+    expect(planned.statusCode).toBe(200);
+    expect(readSub(planned)).toMatchObject({ state: "in_force", inForceUntil: sixtyDays });
+
+    // the date can be MOVED — pausing again adjusts it instead of answering "already paused"
+    const moved = await app.inject({
+      method: "POST",
+      url: pauseUrl,
+      headers: { cookie },
+      payload: { lastDay: ninetyDays },
+    });
+    expect(moved.statusCode).toBe(200);
+    expect(readSub(moved)).toMatchObject({ state: "in_force", inForceUntil: ninetyDays });
+
+    // …and CALLED OFF entirely: explicit null puts the service back to open-ended
+    const calledOff = await app.inject({
+      method: "POST",
+      url: pauseUrl,
+      headers: { cookie },
+      payload: { lastDay: null },
+    });
+    expect(calledOff.statusCode).toBe(200);
+    expect(readSub(calledOff)).toMatchObject({ state: "in_force", inForceUntil: null });
+
+    // removing an end date that isn't there is a clear refusal, not a silent no-op
+    const nothingToRemove = await app.inject({
+      method: "POST",
+      url: pauseUrl,
+      headers: { cookie },
+      payload: { lastDay: null },
+    });
+    expect(nothingToRemove.statusCode).toBe(409);
+
+    // a last-served day BEFORE the service started must not wipe the period (it used to, with 200)
+    const tooEarly = await app.inject({
+      method: "POST",
+      url: pauseUrl,
+      headers: { cookie },
+      payload: { lastDay: daysAgoIso(90) },
+    });
+    expect(tooEarly.statusCode).toBe(400);
+    const stillThere = await app.inject({
+      method: "GET",
+      url: `/api/clients/${clientId}`,
+      headers: { cookie },
+    });
+    expect(
+      stillThere.json().subscriptions.find((x: { id: string }) => x.id === subId).state,
+    ).toBe("in_force");
   });
 
   it("rejects a whitespace-only person name", async () => {
@@ -403,29 +617,75 @@ describe("clients", () => {
       method: "POST",
       url: `/api/clients/${clientId}/subscriptions`,
       headers: { cookie },
-      payload: { serviceId: first.id, amount: 1000, period: "month" },
+      payload: { serviceId: first.id, amount: 1000, period: "month", ...startedEarlier() },
     });
     const subA = one.json().subscriptions.find((s: { serviceId: string }) => s.serviceId === first.id);
     expect(subA.isDefault).toBe(true);
+    await backdateStart(subA.id);
 
     // a second service does NOT steal the flag
     const two = await app.inject({
       method: "POST",
       url: `/api/clients/${clientId}/subscriptions`,
       headers: { cookie },
-      payload: { serviceId: second.id, amount: 2000, period: "month" },
+      payload: { serviceId: second.id, amount: 2000, period: "month", ...startedEarlier() },
     });
     const subB = two.json().subscriptions.find((s: { serviceId: string }) => s.serviceId === second.id);
     expect(subB.isDefault).toBe(false);
+    await backdateStart(subB.id);
 
     // the default can't be stopped while it holds the flag
     const blocked = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions/${subA.id}/pause`,
+      headers: { cookie },
+      payload: { lastDay: yesterdayIso() },
+    });
+    expect(blocked.statusCode).toBe(409);
+
+    // …but an end date ALREADY on the default service can still be removed: that makes it more in
+    // force, not less, so the guard must not block it (2026-07-30 audit). Schedule the end while
+    // subB is ordinary, then hand it the flag.
+    const planned = inDaysIso(30);
+    await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions/${subB.id}/pause`,
+      headers: { cookie },
+      payload: { lastDay: planned },
+    });
+    await app.inject({
+      method: "PATCH",
+      url: `/api/clients/${clientId}/subscriptions/${subB.id}`,
+      headers: { cookie },
+      payload: { isDefault: true },
+    });
+    const removed = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions/${subB.id}/pause`,
+      headers: { cookie },
+      payload: { lastDay: null },
+    });
+    expect(removed.statusCode).toBe(200);
+    const reopened = removed
+      .json()
+      .subscriptions.find((s: { id: string }) => s.id === subB.id);
+    expect(reopened.inForceUntil).toBeNull();
+    expect(reopened.isDefault).toBe(true);
+    // setting one on the default is still refused, though
+    const stillBlocked = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions/${subB.id}/pause`,
+      headers: { cookie },
+      payload: { lastDay: planned },
+    });
+    expect(stillBlocked.statusCode).toBe(409);
+    // hand the flag back so the next step is a real move again
+    await app.inject({
       method: "PATCH",
       url: `/api/clients/${clientId}/subscriptions/${subA.id}`,
       headers: { cookie },
-      payload: { active: false },
+      payload: { isDefault: true },
     });
-    expect(blocked.statusCode).toBe(409);
 
     // moving it clears the previous holder — never two at once
     const moved = await app.inject({
@@ -440,10 +700,10 @@ describe("clients", () => {
 
     // …and now the first one is free to stop
     const stopped = await app.inject({
-      method: "PATCH",
-      url: `/api/clients/${clientId}/subscriptions/${subA.id}`,
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions/${subA.id}/pause`,
       headers: { cookie },
-      payload: { active: false },
+      payload: { lastDay: yesterdayIso() },
     });
     expect(stopped.statusCode).toBe(200);
 
@@ -456,10 +716,10 @@ describe("clients", () => {
     });
     expect(cleared.json().subscriptions.every((s: { isDefault: boolean }) => !s.isDefault)).toBe(true);
     const lastStop = await app.inject({
-      method: "PATCH",
-      url: `/api/clients/${clientId}/subscriptions/${subB.id}`,
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions/${subB.id}/pause`,
       headers: { cookie },
-      payload: { active: false },
+      payload: { lastDay: yesterdayIso() },
     });
     expect(lastStop.statusCode).toBe(200);
   });
@@ -567,7 +827,15 @@ describe("clients", () => {
       method: "POST",
       url: `/api/clients/${client.id}/subscriptions`,
       headers: { cookie },
-      payload: { serviceId: service.id, amount: 5_000, period: "month", companyId: alpha.id },
+      payload: {
+        serviceId: service.id,
+        amount: 5_000,
+        period: "month",
+        companyId: alpha.id,
+        // from the period's first day, so the period is whole and its invoice is issued —
+        // this test is about the company surviving on an ISSUED invoice
+        startsOn: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-01`,
+      },
     });
 
     // an ordinary edit that re-sends the same company list
@@ -625,7 +893,7 @@ describe("clients", () => {
       method: "POST",
       url: `/api/clients/${client.id}/subscriptions`,
       headers: { cookie },
-      payload: { serviceId: service.id, amount: 1_000, period: "month" },
+      payload: { serviceId: service.id, amount: 1_000, period: "month", ...startedEarlier() },
     });
     await app.inject({
       method: "POST",

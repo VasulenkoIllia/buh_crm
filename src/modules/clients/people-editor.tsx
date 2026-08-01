@@ -2,7 +2,7 @@ import { X } from "lucide-react";
 import { isClientFacing } from "@shared/schema/catalog";
 import type { Client, ClientPersonInput } from "@shared/schema/client";
 import { useCatalog } from "@/modules/catalog";
-import { Button } from "@/shared/ui/button";
+import { Button, IconButton } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/field";
 import { SearchSelect } from "@/shared/ui/search-select";
 
@@ -81,14 +81,13 @@ export function PeopleEditor({
                   }))}
               />
             </div>
-            <button
-              type="button"
-              aria-label="Remove person"
-              className="px-1 text-muted hover:text-danger"
+            <IconButton
+              label="Remove person"
+              className="hover:text-danger"
               onClick={() => onChange(value.filter((_, idx) => idx !== i))}
             >
               <X size={16} />
-            </button>
+            </IconButton>
           </div>
           <div className="mt-2 flex gap-2">
             <Input

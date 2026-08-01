@@ -1,9 +1,12 @@
 import type { Prisma } from "../../generated/prisma/client.js";
+import { config } from "../../core/config.js";
+import { inForceTodayWhere } from "../../core/coverage.js";
 import { prisma } from "../../core/db.js";
 
 const taskInclude = {
   // target labels ride along so no screen has to resolve ids against a (capped) client list
   client: { select: { firstName: true, lastName: true } },
+  cancelledBy: { select: { firstName: true, lastName: true } },
   company: { select: { name: true } },
   lead: { select: { name: true } },
   assignees: { select: { userId: true } },
@@ -154,9 +157,10 @@ export function findActiveService(id: string) {
   return prisma.service.findFirst({ where: { id, active: true } });
 }
 
+/** One of the client's subscriptions that is IN FORCE today — work can only go on a live one. */
 export function findClientSubscription(clientId: string, subscriptionId: string) {
   return prisma.subscription.findFirst({
-    where: { id: subscriptionId, clientId },
+    where: { id: subscriptionId, clientId, ...inForceTodayWhere(config.TZ) },
     include: { service: { select: { id: true, type: true, invoiceTrigger: true, dueDays: true } } },
   });
 }
@@ -186,6 +190,26 @@ export function listLeadsWithTasks() {
   return prisma.lead.findMany({
     where: { archivedAt: null, tasks: { some: { archivedAt: null } } },
     select: { id: true, name: true },
+  });
+}
+
+/**
+ * Subscriptions with an end date coming up inside the notice window, so it can be announced.
+ * Open-ended ones — the normal state — are simply never here: there is nothing to warn about.
+ */
+export function listEndingSubscriptions(from: Date, until: Date) {
+  return prisma.subscription.findMany({
+    where: {
+      client: { archivedAt: null },
+      periods: { some: { endsBefore: { gte: from, lte: until } } },
+    },
+    select: {
+      id: true,
+      clientId: true,
+      companyId: true,
+      serviceId: true,
+      periods: { select: { endsBefore: true }, orderBy: { startsOn: "asc" } },
+    },
   });
 }
 
@@ -282,15 +306,20 @@ export async function findGenerationDefaults() {
  * Subscriptions that generate tasks: ACTIVE, on a subscription-type service, for a live client —
  * with the client/company/service labels the composed title needs and the templates to expand.
  */
-const generatingSubscription = {
+// A FUNCTION, not a const — see the note in payments.repository: a module-level object would
+// freeze "today" at server boot and every later sweep would ask about the wrong day.
+const generatingSubscription = () =>
+  ({
   where: {
-    active: true,
+    ...inForceTodayWhere(config.TZ),
     service: { type: "subscription" as const },
     client: { archivedAt: null },
   },
   include: {
     client: { select: { firstName: true, lastName: true } },
     company: { select: { name: true } },
+    // an occurrence is generated only if the subscription was in force ON ITS DATE
+    periods: { select: { startsOn: true, endsBefore: true }, orderBy: { startsOn: "asc" } },
     service: {
       select: {
         name: true,
@@ -310,18 +339,20 @@ const generatingSubscription = {
       },
     },
   },
-} satisfies Prisma.SubscriptionFindManyArgs;
+  }) satisfies Prisma.SubscriptionFindManyArgs;
 
-export type GeneratingSubscription = Prisma.SubscriptionGetPayload<typeof generatingSubscription>;
+export type GeneratingSubscription = Prisma.SubscriptionGetPayload<
+  ReturnType<typeof generatingSubscription>
+>;
 
 export function listGeneratingSubscriptions(): Promise<GeneratingSubscription[]> {
-  return prisma.subscription.findMany(generatingSubscription);
+  return prisma.subscription.findMany(generatingSubscription());
 }
 
 export function findGeneratingSubscription(id: string): Promise<GeneratingSubscription | null> {
   return prisma.subscription.findFirst({
-    ...generatingSubscription,
-    where: { ...generatingSubscription.where, id },
+    ...generatingSubscription(),
+    where: { ...generatingSubscription().where, id },
   });
 }
 

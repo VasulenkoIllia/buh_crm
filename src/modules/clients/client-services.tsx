@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Pencil, RotateCcw, Star } from "lucide-react";
 import type { Client, Subscription } from "@shared/schema/client";
 import { isClientFacing } from "@shared/schema/catalog";
 import type { Service, TaskOverride, TaskTemplate } from "@shared/schema/catalog";
@@ -12,14 +13,20 @@ import {
 } from "@/modules/catalog";
 import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
+import { fmtBizDate, todayIso } from "@/shared/lib/format";
 import { fmtMoney } from "@/shared/lib/money";
-import { Button } from "@/shared/ui/button";
+import { Button, IconButton } from "@/shared/ui/button";
 import { Chip } from "@/shared/ui/chip";
 import { ChecklistEditor } from "@/shared/ui/checklist-editor";
-import { Input, Label, Select } from "@/shared/ui/field";
+import { FormField, Input, Label, Select } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
 import { pillCls } from "@/shared/ui/pill";
-import { useAddSubscription, useUpdateSubscription } from "./clients.api";
+import {
+  useAddSubscription,
+  usePauseSubscription,
+  useResumeSubscription,
+  useUpdateSubscription,
+} from "./clients.api";
 
 /** Effective per-client config for a service task = template + the fields the override sets. */
 interface EffectiveTask extends RhythmValue {
@@ -161,6 +168,7 @@ export function SubscriptionList({ client }: { client: Client }) {
   const { data: services } = useCatalog();
   const update = useUpdateSubscription();
   const [editing, setEditing] = useState<Subscription | undefined>();
+  const [serving, setServing] = useState<Subscription | undefined>();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const byId = new Map((services ?? []).map((s) => [s.id, s]));
 
@@ -190,8 +198,11 @@ export function SubscriptionList({ client }: { client: Client }) {
           ? client.companies.find((c) => c.id === sub.companyId)?.name
           : null;
         const taskCount = service?.taskTemplates.length ?? 0;
+        // mirrors the server guard: the default service may not be STOPPED, but it may be resumed,
+        // and an end date already on it may be moved or called off
+        const cannotPause = sub.isDefault && sub.state === "in_force" && !sub.inForceUntil;
         return (
-          <div key={sub.id} className={cn(!sub.active && "opacity-50")}>
+          <div key={sub.id} className={cn(sub.state !== "in_force" && "opacity-50")}>
             <div className="flex items-center gap-3 border-b border-divider py-2 text-[13px]">
               {taskCount > 0 ? (
                 <button
@@ -217,6 +228,23 @@ export function SubscriptionList({ client }: { client: Client }) {
                 <span className="text-[12px] text-[#9aa1ab]">· {taskCount} tasks</span>
               )}
               {company && <span className="text-[12px] text-muted">({company})</span>}
+              {/* three states, not two: a subscription can also be agreed for a FUTURE date, and
+                  an in-force one can carry an end date that was set in advance */}
+              {sub.state === "scheduled" && (
+                <Chip tone="amber" title="Agreed in advance — service has not started yet">
+                  from {fmtBizDate(sub.inForceFrom)}
+                </Chip>
+              )}
+              {sub.state === "paused" && (
+                <Chip tone="gray" title="Not being served">
+                  paused{sub.inForceUntil ? ` since ${fmtBizDate(sub.inForceUntil)}` : ""}
+                </Chip>
+              )}
+              {sub.state === "in_force" && sub.inForceUntil && (
+                <Chip tone="amber" title="An end date was set — it stops being served after this">
+                  until {fmtBizDate(sub.inForceUntil)}
+                </Chip>
+              )}
               {sub.isDefault && (
                 <Chip
                   tone="blue"
@@ -232,20 +260,22 @@ export function SubscriptionList({ client }: { client: Client }) {
                   ? "per job" // container for manual jobs — period/billing don't apply
                   : `${PERIOD_LABEL[sub.period]} · ${timingLabel(effectiveTiming(sub, service))}`}
               </span>
-              <button
-                type="button"
-                className="text-[12px] font-medium text-primary-link hover:underline"
-                onClick={() => setEditing(sub)}
-              >
-                Edit
-              </button>
-              {/* only an active service can be the default, and it has to be cleared before the
-                  service can be stopped — so the two controls sit together */}
-              {sub.active && (
-                <button
-                  type="button"
-                  className="text-[12px] font-medium text-primary-link hover:underline"
+              {/* same quiet icon strip as the Service catalog rows — one look for row actions */}
+              <IconButton label="Edit service" onClick={() => setEditing(sub)}>
+                <Pencil size={15} />
+              </IconButton>
+              {/* mirrors the server: a service that hasn't STOPPED may be the default — including
+                  one agreed for a future date, which is still the client's service. It has to be
+                  cleared before the service can be paused, so the two controls sit together. */}
+              {sub.state !== "paused" && (
+                <IconButton
+                  label={
+                    sub.isDefault
+                      ? "The client's default service — click to clear"
+                      : "Make this the client's default service"
+                  }
                   disabled={update.isPending}
+                  className={cn(sub.isDefault && "text-[#2f4fd6] hover:text-[#2f4fd6]")}
                   onClick={() =>
                     update
                       .mutateAsync({
@@ -256,29 +286,31 @@ export function SubscriptionList({ client }: { client: Client }) {
                       .catch(() => {})
                   }
                 >
-                  {sub.isDefault ? "Clear default" : "Make default"}
-                </button>
+                  <Star size={15} fill={sub.isDefault ? "currentColor" : "none"} />
+                </IconButton>
               )}
+              {/* pausing and resuming ask for a DATE — that date is what the whole billing and
+                  generation model reads later, so it can't be a bare toggle.
+                  The default service can't be stopped, and the tooltip said so while the button
+                  still opened a dialog that could only 409 — so it is DISABLED instead. Resuming,
+                  and calling off an end date that is already scheduled, stay open: neither takes
+                  the service away from the pickers (2026-07-30 audit). */}
               <Button
                 variant="secondary"
                 size="sm"
-                disabled={update.isPending}
+                disabled={cannotPause}
                 title={
-                  sub.isDefault
+                  cannotPause
                     ? "Clear the default first — it prefills this client's service pickers"
                     : undefined
                 }
-                onClick={() =>
-                  update
-                    .mutateAsync({
-                      clientId: client.id,
-                      subscriptionId: sub.id,
-                      input: { active: !sub.active },
-                    })
-                    .catch(() => {})
-                }
+                onClick={() => setServing(sub)}
               >
-                {sub.active ? "Stop" : "Resume"}
+                {sub.state === "paused"
+                  ? "Resume"
+                  : sub.inForceUntil
+                    ? "End date" // already scheduled to stop: move it, or call it off
+                    : "Pause"}
               </Button>
             </div>
             {expanded.has(sub.id) && service && (
@@ -297,7 +329,130 @@ export function SubscriptionList({ client }: { client: Client }) {
           onClose={() => setEditing(undefined)}
         />
       )}
+      {serving && (
+        <ServingModal client={client} sub={serving} onClose={() => setServing(undefined)} />
+      )}
     </div>
+  );
+}
+
+/**
+ * Pause or resume a service, with the date that decides everything downstream.
+ *
+ * Pausing "on the 20th" means the 20th is still served — the app stores the exclusive day behind
+ * the scenes and never shows it. The dialog also says what pausing does NOT do: an invoice that
+ * has already gone out stays out, and tasks already on the board stay there.
+ */
+function ServingModal({
+  client,
+  sub,
+  onClose,
+}: {
+  client: Client;
+  sub: Subscription;
+  onClose: () => void;
+}) {
+  const pause = usePauseSubscription();
+  const resume = useResumeSubscription();
+  const resuming = sub.state === "paused";
+  // already stopping on a known day: this dialog moves that day or removes it altogether
+  const scheduled = !resuming && !!sub.inForceUntil;
+  const [date, setDate] = useState(scheduled ? sub.inForceUntil! : todayIso());
+  const [note, setNote] = useState("");
+  const mutation = resuming ? resume : pause;
+  const serverError = mutation.error instanceof ApiError ? mutation.error.message : null;
+
+  const save = async () => {
+    const payload = { clientId: client.id, subscriptionId: sub.id };
+    try {
+      if (resuming) {
+        await resume.mutateAsync({
+          ...payload,
+          // same reason as the start date above: an untouched "today" is the server's to resolve
+          input: { startsOn: date === todayIso() ? undefined : date, note: note.trim() || undefined },
+        });
+      } else {
+        await pause.mutateAsync({ ...payload, input: { lastDay: date, note: note.trim() || undefined } });
+      }
+      onClose();
+    } catch {
+      /* surfaced via serverError below */
+    }
+  };
+
+  /** Call off a planned stop: `lastDay: null` puts the service back to open-ended. */
+  const removeEndDate = async () => {
+    try {
+      await pause.mutateAsync({ ...payload(), input: { lastDay: null } });
+      onClose();
+    } catch {
+      /* surfaced via serverError below */
+    }
+  };
+  function payload() {
+    return { clientId: client.id, subscriptionId: sub.id };
+  }
+
+  return (
+    <Modal
+      title={resuming ? "Resume service" : scheduled ? "Change the end date" : "Pause service"}
+      open
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          {scheduled && (
+            <Button
+              variant="secondary"
+              disabled={mutation.isPending}
+              onClick={() => void removeEndDate()}
+            >
+              Remove end date
+            </Button>
+          )}
+          <Button onClick={() => void save()} disabled={!date || mutation.isPending}>
+            {mutation.isPending ? "Saving…" : resuming ? "Resume" : scheduled ? "Save" : "Pause"}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <FormField
+          label={resuming ? "Served again from" : "Last day served (inclusive)"}
+          htmlFor="serving-date"
+        >
+          <Input
+            id="serving-date"
+            type="date"
+            autoFocus
+            // resuming can't reach backwards (same rule as a new service); PAUSING still can —
+            // recording that service stopped earlier only ever REMOVES coverage, never invents it
+            min={resuming ? todayIso() : undefined}
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+          />
+        </FormField>
+        <FormField label="Note (optional)" htmlFor="serving-note">
+          <Input
+            id="serving-note"
+            placeholder={resuming ? "e.g. back after the summer" : "e.g. paused at the client's request"}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+        </FormField>
+        <p className="text-[12px] text-muted">
+          {resuming
+            ? "A period covered only in part is never invoiced automatically — you'll get a reminder task to issue that one by hand."
+            : "Work already on the board and invoices already issued are not touched. A period served only in part raises a reminder to invoice it by hand."}
+        </p>
+        <p className="text-[12px] text-muted">
+          A date in the future is fine — the change simply takes effect then.
+        </p>
+        {serverError && <p className="text-[12px] text-danger-text">{serverError}</p>}
+      </div>
+    </Modal>
   );
 }
 
@@ -361,22 +516,17 @@ function SubscriptionTasks({
             {rhythmEdited(ov) && (
               <span className="text-[11px] font-medium text-[#b5651d]">edited</span>
             )}
-            <button
-              type="button"
-              className="text-[12px] font-medium text-primary-link hover:underline"
-              onClick={() => setEditing(t)}
-            >
-              Edit
-            </button>
+            <IconButton label="Edit this client's rhythm" onClick={() => setEditing(t)}>
+              <Pencil size={14} />
+            </IconButton>
             {ov && (
-              <button
-                type="button"
-                className="text-[12px] font-medium text-muted hover:text-danger hover:underline disabled:opacity-50"
+              <IconButton
+                label="Reset to the service default"
                 disabled={update.isPending}
                 onClick={() => setOverride(t.id, null)}
               >
-                Reset
-              </button>
+                <RotateCcw size={14} />
+              </IconButton>
             )}
           </div>
         );
@@ -668,6 +818,7 @@ export function AddServiceModal({
   const [amount, setAmount] = useState<number | null>(null);
   const [period, setPeriod] = useState<BillingPeriod>("month");
   const [timing, setTiming] = useState<BillingTiming>({ trigger: "on_period_start", day: null });
+  const [startsOn, setStartsOn] = useState(todayIso());
   const [dueDays, setDueDays] = useState<number | null>(null);
   const [companyId, setCompanyId] = useState("");
 
@@ -697,6 +848,10 @@ export function AddServiceModal({
           invoiceTrigger: isOneTime ? null : timing.trigger,
           invoiceDay: isOneTime ? null : timing.day,
           dueDays,
+          // untouched default → let the SERVER decide "today". It owns the firm timezone; the
+          // viewer's calendar day can sit one behind it in the evening, and the no-backdating
+          // guard would then refuse a perfectly ordinary "starts today" (2026-08-01)
+          startsOn: startsOn === todayIso() ? undefined : startsOn,
         },
       });
       onClose();
@@ -724,6 +879,24 @@ export function AddServiceModal({
       }
     >
       <div className="space-y-3">
+        <FormField label="Service starts on" htmlFor="sub-starts">
+          {/* today or later — the server refuses a backdated start, so the picker shouldn't
+              offer one either (user, 2026-08-01) */}
+          <Input
+            id="sub-starts"
+            type="date"
+            className="w-44"
+            min={todayIso()}
+            value={startsOn}
+            onChange={(e) => setStartsOn(e.target.value)}
+          />
+        </FormField>
+        <p className="text-[12px] text-muted">
+          Today or a future date — a service is never agreed backwards. Work already done is billed
+          with a one-off invoice. No end date either: it runs until someone pauses it. A period
+          served only in part (a start mid-period) isn&apos;t invoiced automatically — you&apos;ll
+          get a reminder task to issue that one by hand.
+        </p>
         <div className="max-h-56 overflow-y-auto rounded-(--radius-field) border border-border">
           {active.length === 0 && (
             <p className="px-3 py-4 text-[13px] text-muted">

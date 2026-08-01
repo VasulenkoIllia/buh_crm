@@ -1,4 +1,5 @@
 import { cn } from "@/shared/lib/cn";
+import { userLabel } from "@/shared/ui/avatar";
 import { pillCls } from "@/shared/ui/pill";
 
 export interface AssigneeUser {
@@ -36,7 +37,7 @@ export function AssigneePicker({
             className={cn(pillCls(selected(u.id)), "disabled:opacity-60")}
             onClick={() => onToggle(u.id)}
           >
-            {u.firstName} {u.lastName}
+            {userLabel(u)}
             {u.status === "blocked" && " ⛔"}
           </button>
         ))}

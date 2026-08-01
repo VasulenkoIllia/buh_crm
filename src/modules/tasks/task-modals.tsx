@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check } from "lucide-react";
+import { Check, Pencil, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { Task, TimeEntry, UpdateTaskInput } from "@shared/schema/task";
 import { useAuth } from "@/app/auth";
@@ -9,10 +9,11 @@ import { LeadFormModal, useLeads } from "@/modules/leads";
 import { useSettings } from "@/modules/settings";
 import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
-import { fmtBizDate, fmtDate, todayPlus } from "@/shared/lib/format";
+import { fmtBizDate, fmtDate, todayIso, todayPlus } from "@/shared/lib/format";
 import { fmtMoney } from "@/shared/lib/money";
 import { AssigneePicker } from "@/shared/ui/assignee-picker";
-import { Button } from "@/shared/ui/button";
+import { userLabel } from "@/shared/ui/avatar";
+import { Button, IconButton } from "@/shared/ui/button";
 import { ChecklistEditor } from "@/shared/ui/checklist-editor";
 import { Chip } from "@/shared/ui/chip";
 import { Input, Label, Select, Textarea } from "@/shared/ui/field";
@@ -82,7 +83,11 @@ export function TaskFormModal({
   const [title, setTitle] = useState(task?.title ?? "");
   const [priorityId, setPriorityId] = useState(task?.priorityId ?? "");
   const [statusColumnId, setStatusColumnId] = useState(task?.statusColumnId ?? presetColumnId ?? "");
-  const [deadline, setDeadline] = useState(task?.deadline ? task.deadline.slice(0, 10) : "");
+  // a new task is due TODAY unless someone says otherwise (user, 2026-08-01) — most work is
+  // same-day, and an empty deadline made every task invisible to the Overdue filter by default
+  const [deadline, setDeadline] = useState(
+    task ? (task.deadline ? task.deadline.slice(0, 10) : "") : todayIso(),
+  );
   const [plannedMinutes, setPlannedMinutes] = useState<number | null>(task?.plannedMinutes ?? null);
   const [amount, setAmount] = useState<number | null>(task?.amount ?? null);
   const [description, setDescription] = useState(task?.description ?? "");
@@ -94,10 +99,17 @@ export function TaskFormModal({
   const [leadFormOpen, setLeadFormOpen] = useState(false);
   const [clientFormOpen, setClientFormOpen] = useState(false);
 
+  // "+ New task" on a client's or lead's own card pins the target: that's who the work is for
+  const targetLocked = !!preset && !editing;
+
   // fetch the picked client directly — includes their subscriptions
   const { data: client } = useClient(target?.kind === "client" ? target.id : undefined);
 
-  const subscription = client?.subscriptions.find((s) => s.id === subscriptionId);
+  // Internal work never goes through a service, so it can't be a billable job even when a client
+  // is named on it — without this the auto-picked default subscription would show a price field
+  // and send an amount for a task that bills nothing.
+  const subscription =
+    type === "client" ? client?.subscriptions.find((s) => s.id === subscriptionId) : undefined;
   const subService = services?.find((s) => s.id === subscription?.serviceId);
   const isOneTimeJob = subService?.type === "one_time";
   const companyName = subscription?.companyId
@@ -174,8 +186,11 @@ export function TaskFormModal({
         const steps = subtasks.map((s) => s.trim()).filter(Boolean);
         await create.mutateAsync({
           ...workflow,
-          clientId: type === "client" && target?.kind === "client" ? target.id : null,
-          leadId: type === "client" && target?.kind === "lead" ? target.id : null,
+          // internal work may still NAME a client/lead — that's attribution for reporting, and it
+          // deliberately carries no subscription, so the server bills nothing for it
+          internal: type === "internal" ? true : undefined,
+          clientId: target?.kind === "client" ? target.id : null,
+          leadId: target?.kind === "lead" ? target.id : null,
           subscriptionId:
             type === "client" && target?.kind === "client" ? subscriptionId || null : null,
           amount: isOneTimeJob ? amount : null,
@@ -259,7 +274,9 @@ export function TaskFormModal({
                 value={type}
                 onChange={(v) => {
                   setType(v as "client" | "internal");
-                  setTarget(null);
+                  // a locked target survives the switch — it's who the task is FOR either way;
+                  // only the service and its price are specific to billable client work
+                  if (!targetLocked) setTarget(null);
                   setSubscriptionId("");
                   setAmount(null);
                 }}
@@ -282,27 +299,45 @@ export function TaskFormModal({
             />
           </div>
 
+          {/* The target picker is shown for BOTH types. For internal work it is optional and
+              purely for reporting: "we also spend time on this client's admin". Opened from a
+              client's or lead's own card, the target is fixed — you came here to add work for
+              THEM, and silently re-targeting would file it against the wrong record. */}
+          {!editing && (
+            <div>
+              <Label>
+                {type === "internal" ? "Client or lead (optional — for reporting)" : "Client or lead"}
+              </Label>
+              {targetLocked ? (
+                <div className="flex items-center gap-2 rounded-(--radius-field) border border-border bg-[#f7f8fa] px-3 py-2 text-[13px]">
+                  <span className="font-medium">{target!.label}</span>
+                  <span className="text-[11px] text-muted">{target!.kind}</span>
+                  <span className="ml-auto text-[11px] text-muted-400">
+                    opened from their card
+                  </span>
+                </div>
+              ) : (
+                <ClientLeadSearch
+                  value={target}
+                  onPick={(t) => {
+                    setTarget(t);
+                    setSubscriptionId("");
+                    setAmount(null);
+                  }}
+                  onClear={() => {
+                    setTarget(null);
+                    setSubscriptionId("");
+                    setAmount(null);
+                  }}
+                  onNewClient={() => setClientFormOpen(true)}
+                  onNewLead={() => setLeadFormOpen(true)}
+                />
+              )}
+            </div>
+          )}
+
           {!editing && type === "client" && (
             <>
-            <div>
-              <Label>Client or lead</Label>
-              <ClientLeadSearch
-                value={target}
-                onPick={(t) => {
-                  setTarget(t);
-                  setSubscriptionId("");
-                  setAmount(null);
-                }}
-                onClear={() => {
-                  setTarget(null);
-                  setSubscriptionId("");
-                  setAmount(null);
-                }}
-                onNewClient={() => setClientFormOpen(true)}
-                onNewLead={() => setLeadFormOpen(true)}
-              />
-            </div>
-
             {target?.kind === "client" &&
               (client ? (
                 client.subscriptions.filter((s) => s.active).length > 0 ? (
@@ -427,6 +462,15 @@ export function TaskFormModal({
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
+            {/* "Today" is the default a new task opens on, so it needs a pill of its own —
+                otherwise the preset row shows nothing selected while a date IS set */}
+            <button
+              type="button"
+              className={pillCls(deadline === todayPlus(0))}
+              onClick={() => setDeadline(todayPlus(0))}
+            >
+              today
+            </button>
             {[1, 2, 5].map((d) => (
               <button
                 key={d}
@@ -624,7 +668,7 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
   const service = services?.find((s) => s.id === task.serviceId);
   const userName = (id: string | null) => {
     const u = team?.find((x) => x.id === id);
-    return u ? `${u.firstName} ${u.lastName}` : "—";
+    return u ? userLabel(u) : "—";
   };
   // every field edits inline → one small PATCH per change (each sends only its own field)
   const patch = (input: UpdateTaskInput) => update.mutate({ id: task.id, input });
@@ -633,7 +677,7 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
   const editableAmount = task.kind === "once" && !task.invoice;
   // a completed task is a locked snapshot — everything read-only until Reopen.
   // (Admin can still correct the time log below — that's a deliberate exception.)
-  const locked = task.done;
+  const locked = task.done || !!task.cancelledAt;
   const currentPriority = settings?.priorities.find((p) => p.id === task.priorityId);
   // tracked has run past the planned estimate → flag it in the card
   const trackedOver =
@@ -658,19 +702,39 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
       onClose={onClose}
       footer={
         <>
-          <Button
-            variant="secondary"
-            onClick={() => {
-              if (window.confirm("Archive this task?")) {
-                archive
-                  .mutateAsync(task.id)
-                  .then(onClose)
-                  .catch(() => {});
-              }
-            }}
-          >
-            Archive
-          </Button>
+          {/* Archiving is TIDYING UP, not a way to make work go away: it is offered only once the
+              task is done, the same rule invoices follow (user, 2026-08-01). Archiving open work
+              would hide something still owed to a client with no trace on the board. */}
+          {/* Called off, not deleted: the row is what keeps a generated task from coming back on the
+              next sweep, and it stays visible under Cancelled and in the Archive. */}
+          {!task.cancelledAt && (
+            <Button
+              variant="text"
+              className="mr-auto text-danger-text hover:text-danger-text"
+              disabled={update.isPending}
+              onClick={() => {
+                if (window.confirm("Cancel this task? It leaves the board but is kept in history."))
+                  patch({ cancelled: true });
+              }}
+            >
+              Cancel task
+            </Button>
+          )}
+          {(task.done || task.cancelledAt) && (
+            <Button
+              variant="secondary"
+              onClick={() => {
+                if (window.confirm("Archive this task? It leaves the board but stays in Archive.")) {
+                  archive
+                    .mutateAsync(task.id)
+                    .then(onClose)
+                    .catch(() => {});
+                }
+              }}
+            >
+              📦 Archive
+            </Button>
+          )}
           <Button variant="secondary" onClick={onClose}>
             Close
           </Button>
@@ -681,7 +745,24 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
         {/* title (inline) + done / completed control */}
         <div className="flex items-start gap-3">
           <InlineTitle value={task.title} disabled={locked} onSave={(title) => patch({ title })} />
-          {locked ? (
+          {/* Closed either way — but WHICH way matters: "completed" and "called off" are different
+              answers about the same work, so they never share a badge (2026-08-01). */}
+          {task.cancelledAt ? (
+            <div className="flex flex-none items-center gap-2">
+              <span className="flex items-center gap-1 rounded-full bg-[#f7ede2] px-3 py-1.5 text-[13px] font-semibold text-[#b5651d]">
+                ⊘ Cancelled
+              </span>
+              <button
+                type="button"
+                onClick={() => patch({ cancelled: false })}
+                disabled={update.isPending}
+                title="Restore — puts it back on the board, editable again"
+                className="flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-[13px] font-medium text-ink-700 hover:bg-divider disabled:opacity-60"
+              >
+                ↩ Restore
+              </button>
+            </div>
+          ) : locked ? (
             // completed = a clear status badge + an explicit Reopen (un-locks for editing)
             <div className="flex flex-none items-center gap-2">
               <span className="flex items-center gap-1 rounded-full bg-[#e6f4ea] px-3 py-1.5 text-[13px] font-semibold text-[#1f8f3a]">
@@ -711,15 +792,20 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
           </p>
         )}
 
-        {/* kind + billing + provenance chips */}
+        {task.cancelledAt && (
+          <p className="rounded-(--radius-field) bg-[#f7ede2] px-3 py-2 text-[13px] text-[#b5651d]">
+            ⊘ Cancelled {fmtDate(task.cancelledAt)}
+            {task.cancelledByName ? ` by ${task.cancelledByName}` : ""} — kept in history; restore
+            it to work on it again.
+          </p>
+        )}
+
+        {/* kind + provenance chips. The invoice is deliberately NOT here: `InvoiceField` below
+            says the number AND the status, amount, what's paid and when it's due, and links
+            through to it. A chip repeating just the number was the same fact told twice. */}
         <div className="flex flex-wrap items-center gap-2 text-[12px]">
           {task.kind === "sub" && <Chip tone="blue">📅 auto · {task.periodKey}</Chip>}
           <TaskKindChip task={task} />
-          {task.invoice && (
-            <Chip tone="blue" strong>
-              💰 {task.invoice.number}
-            </Chip>
-          )}
           <span className="text-muted-400">
             Created by <span className="text-ink-700">{createdBy}</span> ·{" "}
             {fmtDate(task.createdAt)}
@@ -855,7 +941,10 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
           <div className="space-y-5 md:border-l md:border-divider md:pl-6">
             {locked ? (
               <p className="rounded-(--radius-field) bg-[#f7f8fa] px-3 py-2.5 text-[13px] text-muted">
-                ✓ Completed — reopen to track time or edit.
+                {/* both states lock the task, but they are not the same fact — say which one */}
+                {task.cancelledAt
+                  ? "⊘ Cancelled — restore it to track time or edit."
+                  : "✓ Completed — reopen to track time or edit."}
               </p>
             ) : (
               <TaskTimerButton task={task} />
@@ -1200,23 +1289,19 @@ function TimeLog({
             {e.comment ?? ""}
           </span>
           {isAdmin && (
-            <span className="flex gap-2">
+            <span className="flex flex-none gap-1">
               {e.stoppedAt !== null && (
-                <button
-                  type="button"
-                  className="text-[12px] font-medium text-primary-link hover:underline"
-                  onClick={() => setEditEntry(e)}
-                >
-                  Edit
-                </button>
+                <IconButton label="Edit this time entry" onClick={() => setEditEntry(e)}>
+                  <Pencil size={14} />
+                </IconButton>
               )}
-              <button
-                type="button"
-                className="text-[12px] font-medium text-muted hover:text-danger hover:underline"
+              <IconButton
+                label="Delete this time entry"
+                className="hover:text-danger"
                 onClick={() => removeEntry.mutate(e.id)}
               >
-                Delete
-              </button>
+                <Trash2 size={14} />
+              </IconButton>
             </span>
           )}
         </div>
@@ -1328,7 +1413,7 @@ function AddTimeModal({ taskId, onClose }: { taskId: string; onClose: () => void
             <option value="">— pick —</option>
             {(team ?? []).map((u) => (
               <option key={u.id} value={u.id}>
-                {u.firstName} {u.lastName}
+                {userLabel(u)}
               </option>
             ))}
           </Select>

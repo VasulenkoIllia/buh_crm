@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { CircleDollarSign } from "lucide-react";
 import type { Invoice, InvoiceListQuery } from "@shared/schema/payment";
 import { useClient } from "@/modules/clients";
 import { cn } from "@/shared/lib/cn";
@@ -533,7 +534,8 @@ function SkeletonList() {
 function EmptyState({ onCreate, hasFilters }: { onCreate: () => void; hasFilters: boolean }) {
   return (
     <div className="rounded-(--radius-panel) border border-dashed border-[#cfd4db] bg-surface p-12 text-center">
-      <div className="mb-2 text-[30px] text-[#c7ccd3]">▢</div>
+      {/* same pictogram as the sidebar's Billing entry, so the empty state names the page */}
+      <CircleDollarSign size={30} strokeWidth={1.5} className="mx-auto mb-2 text-[#c7ccd3]" />
       <div className="text-[15px] font-semibold">
         {hasFilters ? "Nothing matches this filter" : "No invoices yet"}
       </div>

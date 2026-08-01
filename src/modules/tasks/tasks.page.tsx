@@ -20,8 +20,8 @@ import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
 import { SearchSelect } from "@/shared/ui/search-select";
 import { FilterChips } from "@/shared/ui/tabs";
 import { Segmented } from "@/shared/ui/segmented";
-import { fmtBizDay } from "@/shared/lib/format";
-import { UserAvatar } from "@/shared/ui/avatar";
+import { fmtBizDay, fmtDate } from "@/shared/lib/format";
+import { AssigneeAvatars, userLabel } from "@/shared/ui/avatar";
 import { isOverdue, TaskKindChip } from "./lib";
 import { DoneToggle, TaskTimerButton } from "./task-controls";
 import { TrackedTime } from "./timer";
@@ -42,7 +42,7 @@ import {
 
 type FilterPill = "all" | "mine" | "overdue";
 type Layout = "board" | "table";
-type ViewTab = "active" | "done";
+type ViewTab = "active" | "done" | "cancelled";
 
 /**
  * Completed work only accumulates, so the Done view shows a window of it and says which.
@@ -74,14 +74,17 @@ export function TasksPage() {
   // selected in one view must not keep filtering invisibly in the other — "Overdue" carried
   // into Done would ask for work that is both open and finished.
   const done = view === "done";
-  const mineOnly = !done && pill === "mine";
+  const cancelled = view === "cancelled";
+  // both closed views are read-only lists, not a working board
+  const closed = done || cancelled;
+  const mineOnly = !closed && pill === "mine";
 
   // Every filter is a SERVER filter: a chip has to search all the work, not just the rows this
   // page loaded. "Mine" is just an assignee filter with the signed-in user in it.
   const { data, isLoading, error, refetch } = useTasks({
-    status: done ? "done" : "open",
+    status: cancelled ? "cancelled" : done ? "done" : "open",
     view: layout,
-    overdue: !done && pill === "overdue",
+    overdue: !closed && pill === "overdue",
     doneWithinDays: done && donePeriod !== "all" ? Number(donePeriod) : undefined,
     assigneeId: mineOnly ? user?.id : assigneeFilter || undefined,
     clientId: targetKind === "client" ? targetId : undefined,
@@ -111,11 +114,13 @@ export function TasksPage() {
     if (taskParam) setSearchParams({}, { replace: true });
   };
 
-  // The loaded page answers for anything on screen; only a link to work this view doesn't hold —
-  // a COMPLETED task while the Active board is up — reaches for the server. The header timer bar
-  // can point at one: marking a task done doesn't stop a timer already running on it.
+  // The loaded page answers for anything on screen; the open task is ALSO fetched by id so the
+  // modal owns a copy of it. Without that, marking a task done from inside the modal made it
+  // vanish mid-action: it leaves the Active list on the refetch, and with nothing to fall back on
+  // `selected` went null and unmounted the dialog before the user saw the result (2026-08-01).
+  // The header timer bar can point at a completed task too — marking done doesn't stop its timer.
   const fromList = selectedId ? (data?.items ?? []).find((t) => t.id === selectedId) : undefined;
-  const linked = useTask(selectedId && !fromList ? selectedId : null);
+  const linked = useTask(selectedId);
   const selected = fromList ?? linked.data ?? null;
 
   // …and a link that resolves to nothing (deleted, archived, bad id) gets cleared, so the page is
@@ -140,17 +145,25 @@ export function TasksPage() {
 
   return (
     <div className="-m-6 flex h-[calc(100vh-3.5rem)] flex-col">
-      {/* header bar */}
-      <div className="flex flex-none flex-wrap items-center gap-3 border-b border-border bg-surface px-6 pb-3 pt-4">
+      {/*
+        Header bar. The view switch and "+ New task" live in their OWN non-shrinking group, and the
+        filters wrap INSIDE the left group rather than pushing that group onto a second line — the
+        Done view's period chips are much wider than the Active view's state chips, so with one flat
+        wrap the whole right-hand side dropped a row and the board jumped down with it every time
+        you switched view (user, 2026-08-01).
+      */}
+      <div className="flex flex-none items-start justify-between gap-3 border-b border-border bg-surface px-6 pb-3 pt-4">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
         <h1 className="text-[18px] font-semibold">Tasks</h1>
-        {/* the Done view is a period, not a state — the same chips, a different question */}
+        {/* Done is a PERIOD, not a state. Cancelled is neither: "mine"/"overdue" don't apply to
+            work that was called off, and showing chips that do nothing is worse than showing none. */}
         {done ? (
           <FilterChips
             value={donePeriod}
             onChange={setDonePeriod}
             options={DONE_PERIODS.map((p) => ({ value: p.value, label: p.label }))}
           />
-        ) : (
+        ) : cancelled ? null : (
           <FilterChips
             value={pill}
             onChange={setPill}
@@ -184,11 +197,12 @@ export function TasksPage() {
             emptyLabel="All assignees"
             options={(team ?? []).map((u) => ({
               value: u.id,
-              label: `${u.firstName} ${u.lastName}`,
+              label: userLabel(u),
             }))}
           />
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        </div>
+        <div className="flex flex-none items-center gap-2">
           <Segmented
             value={layout}
             onChange={setLayout}
@@ -203,6 +217,8 @@ export function TasksPage() {
             options={[
               { value: "active", label: "Active" },
               { value: "done", label: "Done" },
+              // work that was called off — its own answer, never mixed in with "finished"
+              { value: "cancelled", label: "Cancelled" },
             ]}
           />
           <Button onClick={() => openNewTask()}>+ New task</Button>
@@ -232,7 +248,7 @@ export function TasksPage() {
         </div>
       )}
 
-      {data && columns && layout === "board" && !done && (
+      {data && columns && layout === "board" && !closed && (
         <Board
           columns={columns}
           tasks={tasks}
@@ -241,10 +257,14 @@ export function TasksPage() {
           onAddInColumn={openNewTask}
         />
       )}
-      {data && layout === "board" && done && (
+      {data && layout === "board" && closed && (
         <DoneGrid
           tasks={tasks}
-          period={donePeriod}
+          team={team ?? []}
+          // Cancelled isn't windowed by date: there is far less of it, and hunting for the one
+          // you called off by mistake shouldn't depend on remembering when
+          period={cancelled ? "all" : donePeriod}
+          cancelled={cancelled}
           onWiden={() => setDonePeriod("all")}
           onOpen={(t) => setSelectedId(t.id)}
         />
@@ -536,36 +556,15 @@ function BoardCard({
         {task.deadline ? `Due: ${fmtBizDay(task.deadline)}` : "No deadline"}
       </div>
       <div className="mt-2 flex min-h-5 flex-wrap items-center gap-[5px]">
-        {task.assignees.length === 0 ? (
-          <Chip tone="amber" strong>
-            Unassigned
-          </Chip>
-        ) : (
-          <span className="flex items-center gap-1">
-            {task.assignees.slice(0, 3).map((id) => {
-              const u = team.find((x) => x.id === id);
-              // one component for every case — the real face, initials, or "?" for an id the
-              // directory doesn't know — so the row can't hold two different-looking chips and
-              // the board can't drift from the header and the Team page
-              return (
-                <span
-                  key={id}
-                  title={u ? `${u.firstName} ${u.lastName}${u.status === "blocked" ? " (blocked)" : ""}` : id}
-                  className="flex"
-                >
-                  <UserAvatar
-                    user={u ?? { id, firstName: "", lastName: "", avatarFileId: null }}
-                    size="xs"
-                    className={cn(u?.status === "blocked" && "ring-2 ring-danger")}
-                  />
-                </span>
-              );
-            })}
-            {task.assignees.length > 3 && (
-              <span className="text-[11px] text-muted">+{task.assignees.length - 3}</span>
-            )}
-          </span>
-        )}
+        <AssigneeAvatars
+          ids={task.assignees}
+          team={team}
+          empty={
+            <Chip tone="amber" strong>
+              Unassigned
+            </Chip>
+          }
+        />
         {priority && !priority.isDefault && <PriorityTag priority={priority} />}
         {task.subtasks.length > 0 && (
           <Chip tone="gray">
@@ -598,15 +597,23 @@ function TargetName({ task }: { task: Task }) {
 
 function DoneGrid({
   tasks,
+  team,
   period,
+  cancelled = false,
   onWiden,
   onOpen,
 }: {
   tasks: Task[];
+  team: { id: string; firstName: string; lastName: string; avatarFileId: string | null }[];
   period: DonePeriod;
+  /** rendering the called-off list rather than the finished one */
+  cancelled?: boolean;
   onWiden: () => void;
   onOpen: (t: Task) => void;
 }) {
+  if (tasks.length === 0 && cancelled) {
+    return <p className="p-6 text-[13px] text-muted">Nothing has been cancelled.</p>;
+  }
   if (tasks.length === 0) {
     // don't claim "nothing was ever finished" when a window is on and older work may exist
     return period === "all" ? (
@@ -621,7 +628,9 @@ function DoneGrid({
     );
   }
   return (
-    <div className="grid flex-1 auto-rows-min grid-cols-4 gap-2.5 overflow-auto p-3.5">
+    // four across on a wide screen, fewer as it narrows — at a fixed 4 the cards got so tight
+    // that the client's name truncated to a single letter
+    <div className="grid flex-1 auto-rows-min grid-cols-1 gap-2.5 overflow-auto p-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {tasks.map((t) => (
         <button
           key={t.id}
@@ -630,11 +639,33 @@ function DoneGrid({
           className="rounded-[9px] border border-border bg-surface px-3 py-[11px] text-left opacity-85 shadow-[0_1px_2px_rgba(0,0,0,.04)] hover:opacity-100"
         >
           <div className="text-[13px] font-semibold">
-            <span className="mr-1 text-success">✓</span>
+            <span className={cn("mr-1", cancelled ? "text-[#b5651d]" : "text-success")}>
+              {cancelled ? "⊘" : "✓"}
+            </span>
             <span className="text-muted line-through">{t.title}</span>
           </div>
-          <div className="mt-1 text-[12px] text-muted">
-            {t.deadline ? `Due was: ${fmtBizDay(t.deadline)}` : "No deadline"}
+          {/* WHO did it and for WHOM — a finished task is a record of work done, and this card
+              used to show neither, which read as "the assignee disappeared when I closed it"
+              (user report, 2026-08-01). The data was always there; the card just dropped it. */}
+          <div className="mt-1 flex items-center gap-1.5 text-[12px] text-muted">
+            <AssigneeAvatars
+              ids={t.assignees}
+              team={team}
+              empty={<span className="text-faint">Unassigned</span>}
+            />
+            <span className="min-w-0 truncate">
+              <TargetName task={t} />
+            </span>
+          </div>
+          <div className="mt-1 flex items-center gap-2 text-[12px] text-muted">
+            <span>
+              {cancelled
+                ? `Cancelled${t.cancelledAt ? ` ${fmtDate(t.cancelledAt)}` : ""}`
+                : t.completedAt
+                  ? `Done ${fmtDate(t.completedAt)}`
+                  : "Done"}
+            </span>
+            {t.trackedSeconds > 0 && <TrackedTime seconds={t.trackedSeconds} />}
           </div>
         </button>
       ))}
@@ -729,7 +760,7 @@ function TaskTable({
                 <TargetName task={t} />
               </span>
               <span className="min-w-0 truncate text-muted">
-                {assignee ? `${assignee.firstName} ${assignee.lastName}` : "—"}
+                {assignee ? userLabel(assignee) : "—"}
                 {t.assignees.length > 1 && ` +${t.assignees.length - 1}`}
               </span>
               <span>{priority && <PriorityTag priority={priority} />}</span>

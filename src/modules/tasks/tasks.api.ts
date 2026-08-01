@@ -42,7 +42,7 @@ export interface ActiveTimer {
 /** What the Tasks screen is asking for. Every one of these is answered by SQL. */
 export interface TaskQuery {
   /** open work (the board) or completed work (the Done view) */
-  status: "open" | "done";
+  status: "open" | "done" | "cancelled";
   /** board = grouped into columns, capped; table = a real page of results */
   view: "board" | "table";
   /** only work whose deadline day has passed */

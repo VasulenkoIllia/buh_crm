@@ -106,7 +106,7 @@ export async function registerRoutes(instance: FastifyInstance) {
   app.patch(
     "/:id",
     { preHandler: requireAuth, schema: { params: idParams, body: updateTaskInput } },
-    async (request) => service.updateTask(request.params.id, request.body),
+    async (request) => service.updateTask(request.params.id, request.body, request.currentUser!),
   );
 
   app.put(

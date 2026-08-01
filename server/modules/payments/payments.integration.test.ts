@@ -23,7 +23,16 @@ async function login(email: string, password: string) {
   return cookieOf(res);
 }
 
-/** Today in the firm timezone — the sweep's notion of "now". */
+/**
+ * First day of the current month, "YYYY-MM-DD". A subscription that starts here covers the period
+ * from its first day, which is what makes the period billable automatically — one starting
+ * mid-month is only PARTLY served and is deliberately left to a human (decision 2026-07-29).
+ */
+function periodStartIso(): string {
+  const { y, m } = today();
+  return `${y}-${String(m).padStart(2, "0")}-01`;
+}
+
 function today() {
   const s = new Intl.DateTimeFormat("en-CA", { timeZone: config.TZ }).format(new Date());
   const [y, m, d] = s.split("-").map(Number);
@@ -99,7 +108,7 @@ describe("payments", () => {
     const clientId = await makeClient("Ihor");
     const invoice = await makeInvoice(clientId, 50_000);
 
-    const year = new Date().getFullYear();
+    const year = today().y;
     expect(invoice.number).toMatch(new RegExp(`^[A-Z]+-${year}-\\d{3,6}$`));
     expect(invoice.status).toBe("unpaid");
     expect(invoice.balance).toBe(50_000);
@@ -353,11 +362,16 @@ describe("payments", () => {
       method: "POST",
       url: `/api/clients/${clientId}/subscriptions`,
       headers: { cookie: adminCookie },
-      payload: { serviceId: service.json().id, amount: 100_000, period: "month" },
+      payload: {
+        serviceId: service.json().id,
+        amount: 100_000,
+        period: "month",
+        startsOn: periodStartIso(),
+      },
     });
     expect(sub.statusCode).toBe(201);
 
-    // adding the subscription billed the CURRENT period immediately
+    // served from the period's first day → the period is whole, so it bills automatically
     const list = await app.inject({ method: "GET", url: `/api/invoices?clientId=${clientId}`, headers: { cookie: userCookie } });
     expect(list.json().items).toHaveLength(1);
     const invoice = list.json().items[0];
@@ -367,7 +381,8 @@ describe("payments", () => {
       5 * 86_400_000,
     );
 
-    // an old subscription is NOT back-billed — the anchor stays at the current period
+    // an old subscription is NOT back-billed: the window starts at the first day actually SERVED,
+    // not at the row's creation date, so ageing the row changes nothing
     await prisma.subscription.updateMany({
       where: { clientId },
       data: { createdAt: new Date(Date.now() - 200 * 86_400_000) },
@@ -415,7 +430,15 @@ describe("payments", () => {
       method: "POST",
       url: `/api/clients/${clientId}/subscriptions`,
       headers: { cookie: adminCookie },
-      payload: { serviceId: service.json().id, amount: 50_000, period: "month" },
+      // from the period's FIRST day: this test is about the trigger day, not about coverage, and a
+      // subscription starting today would be part-served and never auto-bill at all. Without this
+      // the test only failed on the last day of a month — the one day its `expected` was 1.
+      payload: {
+        serviceId: service.json().id,
+        amount: 50_000,
+        period: "month",
+        startsOn: periodStartIso(),
+      },
     });
 
     // an end-of-period invoice only exists once the month is actually over
@@ -431,6 +454,74 @@ describe("payments", () => {
     expect((await generatePeriodInvoices()).created).toBe(0); // still nothing new to bill
   });
 
+  it("a partly served period is reminded about, never invoiced automatically", async () => {
+    // LAST month, so its trigger day (the period's end, for postpay) has certainly passed —
+    // whatever day of the month this suite happens to run on
+    const { y, m } = today();
+    const prev = m === 1 ? { y: y - 1, m: 12 } : { y, m: m - 1 };
+    const ym = `${prev.y}-${String(prev.m).padStart(2, "0")}`;
+
+    const clientId = await makeClient("Partial");
+    const service = await app.inject({
+      method: "POST",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+      payload: {
+        name: "Partial S8",
+        type: "subscription",
+        invoiceTrigger: "on_period_end", // decided at the period's END, so a mid-month pause shows
+        defaultAmount: 40_000,
+      },
+    });
+    const sub = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions`,
+      headers: { cookie: adminCookie },
+      payload: { serviceId: service.json().id, amount: 40_000, period: "month" },
+    });
+    const subId = sub.json().subscriptions[0].id;
+    // The client joined MID-period, so that month is served only in part. A backdated start can no
+    // longer be ENTERED (user, 2026-08-01), but the state is still reachable — a service running
+    // since the 10th simply becomes history once the month turns — so the period is set directly.
+    await prisma.subscriptionPeriod.updateMany({
+      where: { subscriptionId: subId },
+      data: { startsOn: new Date(`${ym}-10T00:00:00.000Z`) },
+    });
+
+    await generatePeriodInvoices();
+
+    // No invoice for THAT period — half a month's amount is an agreement, not arithmetic. Scoped to
+    // the period on purpose: this month is served in full from day one, so on the last day of a
+    // month it legitimately bills, and asserting "no invoices at all" failed exactly then.
+    const invoices = await app.inject({
+      method: "GET",
+      url: `/api/invoices?clientId=${clientId}`,
+      headers: { cookie: userCookie },
+    });
+    expect(
+      invoices.json().items.filter((i: { periodKey: string | null }) => i.periodKey === ym),
+    ).toHaveLength(0);
+
+    // …but it IS reported: one reminder task, and re-running the sweep never posts a second
+    const reminders = await prisma.task.findMany({
+      where: { subscriptionId: subId, systemKind: "partial_period_invoice" },
+    });
+    expect(reminders).toHaveLength(1);
+    expect(reminders[0].clientId).toBe(clientId);
+    expect(reminders[0].periodKey).toBe(ym);
+    await generatePeriodInvoices();
+    expect(
+      await prisma.task.count({ where: { subscriptionId: subId, systemKind: { not: null } } }),
+    ).toBe(1);
+
+    // the CURRENT month is served in full so far, but its trigger day (the period's end) hasn't
+    // arrived — so nothing at all has happened for it yet, neither invoice nor reminder
+    const thisMonth = today().monthKey;
+    expect(
+      await prisma.task.count({ where: { subscriptionId: subId, periodKey: thisMonth } }),
+    ).toBe(0);
+  });
+
   it("a cancelled period invoice is never re-issued by the sweep", async () => {
     const clientId = await makeClient("Yulia");
     const service = await app.inject({
@@ -443,7 +534,12 @@ describe("payments", () => {
       method: "POST",
       url: `/api/clients/${clientId}/subscriptions`,
       headers: { cookie: adminCookie },
-      payload: { serviceId: service.json().id, amount: 30_000, period: "month" },
+      payload: {
+        serviceId: service.json().id,
+        amount: 30_000,
+        period: "month",
+        startsOn: periodStartIso(),
+      },
     });
     const list = await app.inject({
       method: "GET",

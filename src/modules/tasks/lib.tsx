@@ -14,6 +14,11 @@ export const isOverdue = (t: Task) => isTaskOverdue(t);
  * What the task is FILED AGAINST, as one chip: internal firm work, a lead, or client work
  * that's included in their plan. A lead task used to render as "internal" — it isn't, it just
  * has no client — so the board couldn't tell firm admin apart from work on a prospect.
+ *
+ * The SUBSCRIPTION is what separates the last two: free work that goes through one of the
+ * client's services is "included in their plan"; free work with no service is the firm's own
+ * time merely ATTRIBUTED to them (organising their paperwork), so it reads "internal" and names
+ * the client beside it (2026-08-01).
  */
 export function TaskKindChip({ task, size }: { task: Task; size?: "sm" | "md" }) {
   if (task.leadId) {
@@ -24,7 +29,7 @@ export function TaskKindChip({ task, size }: { task: Task; size?: "sm" | "md" })
     );
   }
   if (task.kind !== "free") return null;
-  return task.clientId ? (
+  return task.clientId && task.subscriptionId ? (
     <Chip tone="teal" size={size}>
       included
     </Chip>

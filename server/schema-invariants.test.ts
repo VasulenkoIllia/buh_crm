@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { prisma } from "./core/db.js";
 
 /**
- * Three guarantees this app relies on are PARTIAL unique indexes, which Prisma's schema language
- * can't express — they're hand-written SQL in migrations. `prisma migrate diff` doesn't see them
- * either, so a schema-drift check comes back clean whether they're there or not. This test is the
- * check: if a migration ever drops one, the failure is here and not in production.
+ * Several guarantees this app relies on are PARTIAL or FUNCTIONAL indexes, which Prisma's schema
+ * language can't express — they're hand-written SQL in migrations. `prisma migrate diff` doesn't
+ * see them either, so a schema-drift check comes back clean whether they're there or not. This
+ * test is the check: if a migration ever drops one, the failure is here and not in production.
  */
 
 interface IndexRow {
@@ -39,6 +39,20 @@ const REQUIRED = [
     name: "Company_name_key_ci",
     guarantees: "a company name identifies one company across the whole firm (case-insensitive)",
     mustMatch: /ON public\."Company".*lower\(name\)/is,
+  },
+  {
+    name: "Subscription_one_open_period",
+    guarantees:
+      "a subscription is in force in at most one open-ended period — two would make 'was it " +
+      "served on day X' ambiguous, and coverage is what decides both billing and task generation",
+    mustMatch: /ON public\."SubscriptionPeriod".*\("subscriptionId"\).*WHERE.*"endsBefore" IS NULL/is,
+  },
+  {
+    name: "Task_system_period",
+    guarantees:
+      "a system-raised task exists once per (subscription, period) — the sweeps run daily and on " +
+      "every boot, so without it the same reminder would be posted every morning",
+    mustMatch: /ON public\."Task".*"subscriptionId".*"periodKey".*WHERE.*"systemKind" IS NOT NULL/is,
   },
 ];
 

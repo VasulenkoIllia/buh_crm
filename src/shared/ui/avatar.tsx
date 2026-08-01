@@ -48,3 +48,52 @@ export function UserAvatar({
     </span>
   );
 }
+
+/** A user's display name — one rule, so no surface renders it a different way. */
+export const userLabel = (u: { firstName: string; lastName: string }) =>
+  `${u.firstName} ${u.lastName}`.trim();
+
+interface StackUser {
+  id: string;
+  firstName: string;
+  lastName: string;
+  avatarFileId: string | null;
+  status?: string;
+}
+
+/**
+ * THE assignee row: up to three faces then "+N", every id resolved through the same directory,
+ * an unknown one still drawn (initials/"?") rather than dropped. The board card and the Done
+ * card had two near-identical copies of this and drifted — the Done one silently rendered no
+ * one at all (2026-08-01). One component, so they cannot disagree again.
+ */
+export function AssigneeAvatars({
+  ids,
+  team,
+  empty = null,
+}: {
+  ids: string[];
+  team: StackUser[];
+  /** what to show when nobody is assigned; omit to render nothing */
+  empty?: React.ReactNode;
+}) {
+  if (ids.length === 0) return <>{empty}</>;
+  return (
+    <span className="flex items-center gap-1">
+      {ids.slice(0, 3).map((id) => {
+        const u = team.find((x) => x.id === id);
+        const blocked = u?.status === "blocked";
+        return (
+          <span key={id} title={u ? `${userLabel(u)}${blocked ? " (blocked)" : ""}` : id} className="flex">
+            <UserAvatar
+              user={u ?? { id, firstName: "", lastName: "", avatarFileId: null }}
+              size="xs"
+              className={cn(blocked && "ring-2 ring-danger")}
+            />
+          </span>
+        );
+      })}
+      {ids.length > 3 && <span className="text-[11px] text-muted">+{ids.length - 3}</span>}
+    </span>
+  );
+}

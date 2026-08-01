@@ -1,19 +1,28 @@
 import type { Prisma } from "../../generated/prisma/client.js";
+import { config } from "../../core/config.js";
+import { inForceTodayWhere } from "../../core/coverage.js";
 import { prisma } from "../../core/db.js";
 
-const serviceInclude = {
-  taskTemplates: { orderBy: { createdAt: "asc" } },
-  subscriptions: { where: { active: true }, select: { clientId: true } },
-} satisfies Prisma.ServiceInclude;
+// "clients on this service" counts the ones being served TODAY — same question the rest of the
+// app asks, so a paused client drops out of the count exactly when they drop off the board
+// A FUNCTION, not a const: `inForceTodayWhere` resolves "today", and a module-level object would
+// freeze it at import time — the count would then describe the day the server booted.
+const serviceInclude = () =>
+  ({
+    taskTemplates: { orderBy: { createdAt: "asc" } },
+    subscriptions: { where: inForceTodayWhere(config.TZ), select: { clientId: true } },
+  }) satisfies Prisma.ServiceInclude;
 
-export type ServiceRecord = Prisma.ServiceGetPayload<{ include: typeof serviceInclude }>;
+export type ServiceRecord = Prisma.ServiceGetPayload<{
+  include: ReturnType<typeof serviceInclude>;
+}>;
 
 export function listServices() {
-  return prisma.service.findMany({ include: serviceInclude, orderBy: { createdAt: "asc" } });
+  return prisma.service.findMany({ include: serviceInclude(), orderBy: { createdAt: "asc" } });
 }
 
 export function findService(id: string) {
-  return prisma.service.findUnique({ where: { id }, include: serviceInclude });
+  return prisma.service.findUnique({ where: { id }, include: serviceInclude() });
 }
 
 /** Case-insensitive — "Payroll" and "payroll" are the same service. */
@@ -28,11 +37,11 @@ export function countServices() {
 }
 
 export function createService(data: Prisma.ServiceCreateInput) {
-  return prisma.service.create({ data, include: serviceInclude });
+  return prisma.service.create({ data, include: serviceInclude() });
 }
 
 export function updateService(id: string, data: Prisma.ServiceUpdateInput) {
-  return prisma.service.update({ where: { id }, data, include: serviceInclude });
+  return prisma.service.update({ where: { id }, data, include: serviceInclude() });
 }
 
 /**
@@ -64,7 +73,7 @@ export function createServiceWithDefault(
   return prisma.$transaction(async (tx) => {
     const service = await tx.service.create({ data });
     await applyDefaultFlag(tx, service.id, flag);
-    return tx.service.findUnique({ where: { id: service.id }, include: serviceInclude });
+    return tx.service.findUnique({ where: { id: service.id }, include: serviceInclude() });
   });
 }
 
@@ -77,7 +86,7 @@ export function updateServiceWithDefault(
   return prisma.$transaction(async (tx) => {
     await tx.service.update({ where: { id }, data });
     await applyDefaultFlag(tx, id, flag);
-    return tx.service.findUnique({ where: { id }, include: serviceInclude });
+    return tx.service.findUnique({ where: { id }, include: serviceInclude() });
   });
 }
 

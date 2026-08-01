@@ -45,7 +45,17 @@ export const subscriptionSchema = z.object({
   dueDays: z.number().int().nullable(),
   /** per-client task-template overrides keyed by templateId ({} = all inherit) */
   rhythmOverrides: rhythmOverridesSchema,
+  /**
+   * DERIVED from the served periods ("some period covers today") — never stored. Kept in the DTO
+   * because every service picker filters on it; the periods themselves stay server-side.
+   */
   active: z.boolean(),
+  /** start of the current (or next, or last) served period */
+  inForceFrom: z.iso.date(),
+  /** last served day, INCLUSIVE — null while the subscription is open-ended, the normal state */
+  inForceUntil: z.iso.date().nullable(),
+  /** what the row says: serving now · starts on a future date · paused since a past one */
+  state: z.enum(["in_force", "scheduled", "paused"]),
   /** the client's usual service — prefills their service pickers. At most one per client. */
   isDefault: z.boolean(),
 });
@@ -170,17 +180,41 @@ export const createSubscriptionInput = z
     companyId: uuid.nullable().optional(),
     amount: money,
     period: billingPeriod.default("month"),
+    /** first day of service; defaults to today. There is no end — see pause/resume below. */
+    startsOn: z.iso.date().optional(),
     ...subscriptionBilling,
   })
   .refine(subscriptionBillingValid, subscriptionBillingMsg);
 export type CreateSubscriptionInput = z.infer<typeof createSubscriptionInput>;
+
+/**
+ * Pause and resume are their own actions, not an `active` flag, because each carries a DATE — and
+ * that date is the whole point: it is what lets the system answer "was this client being served on
+ * the 1st" months later (decision 2026-07-29).
+ */
+export const pauseSubscriptionInput = z.object({
+  /**
+   * Last day still served, INCLUSIVE; omitted = today. May be in the future to plan ahead, and may
+   * be changed later by pausing again. Explicit `null` REMOVES a scheduled end — the service goes
+   * back to open-ended, which is how a planned pause is called off.
+   */
+  lastDay: z.iso.date().nullable().optional(),
+  note: z.string().trim().max(200).optional(),
+});
+export type PauseSubscriptionInput = z.infer<typeof pauseSubscriptionInput>;
+
+export const resumeSubscriptionInput = z.object({
+  /** first day served again; defaults to today. May be in the future to plan ahead. */
+  startsOn: z.iso.date().optional(),
+  note: z.string().trim().max(200).optional(),
+});
+export type ResumeSubscriptionInput = z.infer<typeof resumeSubscriptionInput>;
 
 export const updateSubscriptionInput = z
   .object({
     amount: money.optional(),
     period: billingPeriod.optional(),
     companyId: uuid.nullable().optional(),
-    active: z.boolean().optional(),
     /** make this the client's default service (clears the previous one) or drop the flag */
     isDefault: z.boolean().optional(),
     /** full replace of the per-client task overrides map */

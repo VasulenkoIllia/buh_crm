@@ -215,6 +215,47 @@ describe("tasks", () => {
     const fixedCol = await prisma.taskColumn.findFirstOrThrow({ where: { isFixed: true } });
     expect(task.statusColumnId).toBe(fixedCol.id);
 
+    // INTERNAL work may still name a client — attribution for reporting, not belonging. It goes
+    // through no service, so it bills nothing and never counts as "included in their plan"
+    // (user, 2026-08-01). The same payload without `internal` is the 400 asserted above.
+    const attributed = await app.inject({
+      method: "POST",
+      url: "/api/tasks",
+      headers: { cookie: adminCookie },
+      payload: { title: "Sort out their paperwork", clientId, internal: true, assignees: [adminId] },
+    });
+    expect(attributed.statusCode).toBe(201);
+    expect(attributed.json().clientId).toBe(clientId);
+    expect(attributed.json().kind).toBe("free");
+    expect(attributed.json().subscriptionId).toBeNull(); // no service → nothing to bill
+    expect(attributed.json().serviceId).toBeNull();
+    expect(attributed.json().companyId).toBeNull();
+
+    // it shows up on that client's rollup — the whole point of allowing the attribution
+    const clientRollup = await app.inject({
+      method: "GET",
+      url: `/api/tasks?view=board&clientId=${clientId}`,
+      headers: { cookie: adminCookie },
+    });
+    expect(clientRollup.json().items.map((t: { id: string }) => t.id)).toContain(
+      attributed.json().id,
+    );
+
+    // …but internal work must not be smuggled through a service
+    const contradiction = await app.inject({
+      method: "POST",
+      url: "/api/tasks",
+      headers: { cookie: adminCookie },
+      payload: {
+        title: "Internal but billed?",
+        clientId,
+        internal: true,
+        subscriptionId: "00000000-0000-0000-0000-000000000000",
+        assignees: [adminId],
+      },
+    });
+    expect(contradiction.statusCode).toBe(400);
+
     // lead task → free internal work (no service on leads)
     const lead = await app.inject({
       method: "POST",
@@ -559,7 +600,13 @@ describe("tasks", () => {
       method: "POST",
       url: "/api/tasks",
       headers: { cookie: adminCookie },
-      payload: { title: "Finished today", clientId: null, leadId: null, subscriptionId: null },
+      payload: {
+        title: "Finished today",
+        clientId: null,
+        leadId: null,
+        subscriptionId: null,
+        assignees: [adminId],
+      },
     });
     const taskId = created.json().id;
     expect(created.json().completedAt).toBeNull(); // open work carries no stamp
@@ -571,6 +618,9 @@ describe("tasks", () => {
       payload: { done: true },
     });
     expect(done.json().completedAt).not.toBeNull();
+    // closing a task must not touch WHO did it — the record of who is answerable for the work
+    // is most of what makes a finished task worth keeping (user report, 2026-08-01)
+    expect(done.json().assignees).toEqual([adminId]);
 
     // a COMPLETED task still answers by id — that is what a `?task=<id>` link falls back to when
     // the Active board (open work only) can't hold it, e.g. the header timer bar left pointing at
@@ -583,12 +633,18 @@ describe("tasks", () => {
     expect(byId.statusCode).toBe(200);
     expect(byId.json()).toMatchObject({ id: taskId, done: true });
 
+    expect(byId.json().assignees).toEqual([adminId]); // …and by id, which is what a ?task= link reads
+
     const inWindow = await app.inject({
       method: "GET",
       url: "/api/tasks?view=board&status=done&doneWithinDays=7",
       headers: { cookie: adminCookie },
     });
     expect(inWindow.json().items.map((t: { id: string }) => t.id)).toContain(taskId);
+    // the Done board is the surface where a lost assignee would show as "Unassigned"
+    expect(
+      inWindow.json().items.find((t: { id: string }) => t.id === taskId).assignees,
+    ).toEqual([adminId]);
 
     // backdate it beyond the window — same task, now out of view
     await prisma.task.update({
@@ -616,6 +672,152 @@ describe("tasks", () => {
       payload: { done: false },
     });
     expect(reopened.json().completedAt).toBeNull();
+
+    // Archiving is tidying FINISHED work away, never a way to make open work disappear
+    // (user, 2026-08-01) — the task was just reopened, so it is refused now.
+    const tooEarly = await app.inject({
+      method: "POST",
+      url: `/api/tasks/${taskId}/archive`,
+      headers: { cookie: adminCookie },
+    });
+    expect(tooEarly.statusCode).toBe(409);
+
+    await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/${taskId}`,
+      headers: { cookie: adminCookie },
+      payload: { done: true },
+    });
+    const archived = await app.inject({
+      method: "POST",
+      url: `/api/tasks/${taskId}/archive`,
+      headers: { cookie: adminCookie },
+    });
+    expect(archived.statusCode).toBe(200);
+  });
+
+  // Cancelling = raised by mistake, or called off. It leaves the board like a completed task but
+  // is never deleted (user, 2026-08-01).
+  it("cancels a task: off the board, its own list, restorable, archivable, never re-generated", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/tasks",
+      headers: { cookie: adminCookie },
+      payload: { title: "Raised by mistake", assignees: [adminId] },
+    });
+    const taskId = created.json().id;
+    expect(created.json().cancelledAt).toBeNull();
+
+    const cancelled = await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/${taskId}`,
+      headers: { cookie: adminCookie },
+      payload: { cancelled: true },
+    });
+    expect(cancelled.statusCode).toBe(200);
+    expect(cancelled.json().cancelledAt).not.toBeNull();
+    expect(cancelled.json().cancelledByName).toBe("Task Admin"); // WHO called it off is the point
+    expect(cancelled.json().assignees).toEqual([adminId]); // and it keeps its people
+
+    // gone from the open board…
+    const open = await app.inject({
+      method: "GET",
+      url: "/api/tasks?view=board&status=open",
+      headers: { cookie: adminCookie },
+    });
+    expect(open.json().items.map((t: { id: string }) => t.id)).not.toContain(taskId);
+    // …and it is NOT "done" either — different answers about the same work
+    const doneList = await app.inject({
+      method: "GET",
+      url: "/api/tasks?view=board&status=done",
+      headers: { cookie: adminCookie },
+    });
+    expect(doneList.json().items.map((t: { id: string }) => t.id)).not.toContain(taskId);
+    // it has its own list
+    const cancelledList = await app.inject({
+      method: "GET",
+      url: "/api/tasks?view=board&status=cancelled",
+      headers: { cookie: adminCookie },
+    });
+    expect(cancelledList.json().items.map((t: { id: string }) => t.id)).toContain(taskId);
+
+    // The client/lead ROLLUP asks without a status (it wants their whole history), so a cancelled
+    // task rides along in that response — the card must be able to tell it apart, or called-off
+    // work reads as live work on the client's page (2026-08-01 audit).
+    const rollup = await app.inject({
+      method: "GET",
+      url: "/api/tasks?view=board",
+      headers: { cookie: adminCookie },
+    });
+    const inRollup = rollup
+      .json()
+      .items.find((t: { id: string }) => t.id === taskId);
+    expect(inRollup).toBeDefined();
+    expect(inRollup.cancelledAt).not.toBeNull(); // …which is only possible because the DTO says so
+
+    // a cancelled task is closed work, so it may be archived
+    const archived = await app.inject({
+      method: "POST",
+      url: `/api/tasks/${taskId}/archive`,
+      headers: { cookie: adminCookie },
+    });
+    expect(archived.statusCode).toBe(200);
+
+    // an INVOICED job can't be called off while the client stays billed — void the invoice first
+    const billed = await app.inject({
+      method: "GET",
+      url: "/api/tasks?view=board&status=open&pageSize=100",
+      headers: { cookie: adminCookie },
+    });
+    const withInvoice = billed.json().items.find((t: { invoice: unknown }) => t.invoice);
+    if (withInvoice) {
+      const refused = await app.inject({
+        method: "PATCH",
+        url: `/api/tasks/${withInvoice.id}`,
+        headers: { cookie: adminCookie },
+        payload: { cancelled: true },
+      });
+      expect(refused.statusCode).toBe(409);
+      expect(refused.json().error.message).toMatch(/already invoiced/i);
+    }
+
+    // …and one raised by mistake can be taken back
+    const other = await app.inject({
+      method: "POST",
+      url: "/api/tasks",
+      headers: { cookie: adminCookie },
+      payload: { title: "Called off then restored", assignees: [adminId] },
+    });
+    const otherId = other.json().id;
+    await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/${otherId}`,
+      headers: { cookie: adminCookie },
+      payload: { cancelled: true },
+    });
+    // marking a cancelled task done is refused — restore it first, so no invoice can fire from it
+    const doneWhileCancelled = await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/${otherId}`,
+      headers: { cookie: adminCookie },
+      payload: { done: true },
+    });
+    expect(doneWhileCancelled.statusCode).toBe(409);
+
+    const restored = await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/${otherId}`,
+      headers: { cookie: adminCookie },
+      payload: { cancelled: false },
+    });
+    expect(restored.json().cancelledAt).toBeNull();
+    expect(restored.json().cancelledByName).toBeNull();
+    const backOnBoard = await app.inject({
+      method: "GET",
+      url: "/api/tasks?view=board&status=open",
+      headers: { cookie: adminCookie },
+    });
+    expect(backOnBoard.json().items.map((t: { id: string }) => t.id)).toContain(otherId);
   });
 
   it("generates tasks on the rhythm day, idempotently, honoring per-client overrides", async () => {
@@ -736,6 +938,43 @@ describe("tasks", () => {
     expect(
       await prisma.task.count({ where: { subscriptionId: otSub.json().subscriptions.at(-1).id } }),
     ).toBe(0);
+  });
+
+  // The reason a cancelled task is kept rather than deleted: the sweep dedups on the stored
+  // (subscription, template, period) key, so the row is what stops it coming back tomorrow.
+  it("a cancelled generated task is not re-created by the next sweep", async () => {
+    const generated = await prisma.task.findFirst({
+      where: { kind: "sub", taskTemplateId: { not: null }, archivedAt: null },
+    });
+    if (!generated) return; // nothing generated in this suite's data — nothing to assert
+    await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/${generated.id}`,
+      headers: { cookie: adminCookie },
+      payload: { cancelled: true },
+    });
+    const before = await prisma.task.count({
+      where: {
+        subscriptionId: generated.subscriptionId,
+        taskTemplateId: generated.taskTemplateId,
+        periodKey: generated.periodKey,
+      },
+    });
+    await generateSubscriptionTasks();
+    const after = await prisma.task.count({
+      where: {
+        subscriptionId: generated.subscriptionId,
+        taskTemplateId: generated.taskTemplateId,
+        periodKey: generated.periodKey,
+      },
+    });
+    expect(after).toBe(before); // the cancelled row still holds the key
+    await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/${generated.id}`,
+      headers: { cookie: adminCookie },
+      payload: { cancelled: false },
+    });
   });
 
   it("template default checklist seeds generated tasks; per-client override replaces/removes it; manual create seeds too", async () => {

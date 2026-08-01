@@ -6,6 +6,8 @@ import {
   clientListQuery,
   createClientInput,
   createSubscriptionInput,
+  pauseSubscriptionInput,
+  resumeSubscriptionInput,
   updateClientInput,
   updateSubscriptionInput,
 } from "@shared/schema/client.js";
@@ -55,6 +57,36 @@ export async function registerRoutes(instance: FastifyInstance) {
       const client = await service.addSubscription(request.params.id, request.body);
       return reply.status(201).send(client);
     },
+  );
+
+  // pause / resume carry a DATE, so they are their own actions rather than an `active` flag —
+  // that date is what lets the app still answer "was this client served on the 1st" later
+  app.post(
+    "/:id/subscriptions/:subId/pause",
+    {
+      schema: { params: z.object({ id: uuid, subId: uuid }), body: pauseSubscriptionInput },
+    },
+    async (request) =>
+      service.pauseSubscription(
+        request.params.id,
+        request.params.subId,
+        request.body,
+        request.currentUser!,
+      ),
+  );
+
+  app.post(
+    "/:id/subscriptions/:subId/resume",
+    {
+      schema: { params: z.object({ id: uuid, subId: uuid }), body: resumeSubscriptionInput },
+    },
+    async (request) =>
+      service.resumeSubscription(
+        request.params.id,
+        request.params.subId,
+        request.body,
+        request.currentUser!,
+      ),
   );
 
   app.patch(

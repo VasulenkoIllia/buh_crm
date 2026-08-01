@@ -5,6 +5,8 @@ import type {
   CreateClientInput,
   CreateSubscriptionInput,
   UpdateClientInput,
+  PauseSubscriptionInput,
+  ResumeSubscriptionInput,
   UpdateSubscriptionInput,
 } from "@shared/schema/client";
 import { api } from "@/shared/lib/api";
@@ -145,6 +147,51 @@ export function useUpdateSubscription() {
     }) =>
       api<Client>(`/api/clients/${clientId}/subscriptions/${subscriptionId}`, {
         method: "PATCH",
+        body: input,
+      }),
+    onSuccess: invalidate,
+  });
+}
+
+/**
+ * Pausing and resuming carry a DATE, so they are their own calls rather than an `active` flag —
+ * that date is what lets the app answer "was this client served on the 1st" months later, which
+ * is what decides both billing and task generation.
+ */
+export function usePauseSubscription() {
+  const invalidate = useInvalidateClientsAndCatalog();
+  return useMutation({
+    mutationFn: ({
+      clientId,
+      subscriptionId,
+      input,
+    }: {
+      clientId: string;
+      subscriptionId: string;
+      input: PauseSubscriptionInput;
+    }) =>
+      api<Client>(`/api/clients/${clientId}/subscriptions/${subscriptionId}/pause`, {
+        method: "POST",
+        body: input,
+      }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useResumeSubscription() {
+  const invalidate = useInvalidateClientsAndCatalog();
+  return useMutation({
+    mutationFn: ({
+      clientId,
+      subscriptionId,
+      input,
+    }: {
+      clientId: string;
+      subscriptionId: string;
+      input: ResumeSubscriptionInput;
+    }) =>
+      api<Client>(`/api/clients/${clientId}/subscriptions/${subscriptionId}/resume`, {
+        method: "POST",
         body: input,
       }),
     onSuccess: invalidate,

@@ -8,7 +8,7 @@ import { EntityTasks } from "@/modules/tasks";
 import { useSettings } from "@/modules/settings";
 import { ApiError } from "@/shared/lib/api";
 import { fmtDate } from "@/shared/lib/format";
-import { Button } from "@/shared/ui/button";
+import { Button, IconButton } from "@/shared/ui/button";
 import { Tabs } from "@/shared/ui/tabs";
 import { ClientFormModal } from "./client-form";
 import { CompaniesTab } from "./client-companies";
@@ -364,10 +364,9 @@ function FilesTab({ clientId }: { clientId: string }) {
               >
                 <Download size={14} />
               </a>
-              <button
-                type="button"
+              <IconButton
+                label={`Delete ${file.name}`}
                 className="hover:text-danger"
-                aria-label={`Delete ${file.name}`}
                 onClick={() => {
                   remove.mutateAsync(file.id).catch(() => {
                     /* surfaced via serverError below */
@@ -375,7 +374,7 @@ function FilesTab({ clientId }: { clientId: string }) {
                 }}
               >
                 <Trash2 size={14} />
-              </button>
+              </IconButton>
             </span>
           </li>
         ))}

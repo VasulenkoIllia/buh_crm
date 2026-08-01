@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Users } from "lucide-react";
 import type { Client } from "@shared/schema/client";
 import type { Service } from "@shared/schema/catalog";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
@@ -274,7 +275,8 @@ function SkeletonList() {
 function EmptyState({ onCreate }: { onCreate: () => void }) {
   return (
     <div className="rounded-(--radius-panel) border border-dashed border-[#cfd4db] bg-surface p-12 text-center">
-      <div className="mb-2 text-[30px] text-[#c7ccd3]">▢</div>
+      {/* same pictogram as the sidebar's Clients entry, so the empty state names the page */}
+      <Users size={30} strokeWidth={1.5} className="mx-auto mb-2 text-[#c7ccd3]" />
       <div className="text-[15px] font-semibold">No clients yet</div>
       <p className="mt-1 text-[13px] text-muted">
         Create the first client to start tracking work and billing.

@@ -4,9 +4,14 @@ import type {
   CreateSubscriptionInput,
   UpdateClientInput,
   UpdateSubscriptionInput,
+  PauseSubscriptionInput,
+  ResumeSubscriptionInput,
 } from "@shared/schema/client.js";
 import { rhythmOverridesSchema } from "@shared/schema/catalog.js";
 import type { Prisma, User } from "../../generated/prisma/client.js";
+import { config } from "../../core/config.js";
+import { inForceOn, inForceTodayWhere, notEnded, type InForcePeriod } from "../../core/coverage.js";
+import { type Day, dateToUtc, todayInTz, toUtc } from "../../core/dates.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
 import { debtByClient, generateForSubscriptionInvoices } from "../payments/index.js";
 import { generateForSubscription } from "../tasks/index.js";
@@ -20,13 +25,60 @@ import * as repo from "./clients.repository.js";
  * one-time again, with no stored flag that could drift from the services they actually have.
  * One-time subs are just containers ad-hoc jobs flow through — they never count.
  */
+/** "YYYY-MM-DD" of a stored DATE column — read off the UTC clock, like every business date. */
+const isoDay = (d: Date): string => d.toISOString().slice(0, 10);
+const dayBefore = (d: Date): Date => new Date(d.getTime() - 86_400_000);
+
+/**
+ * What the row says about being served, all of it derived from the periods:
+ *
+ * - **in_force** — a period covers today;
+ * - **scheduled** — none does, but one starts later (a pause or a start agreed in advance);
+ * - **paused** — the last period is closed and nothing is planned.
+ *
+ * `inForceUntil` is the LAST SERVED DAY (inclusive) even though the column is exclusive — the
+ * stored 21 Aug is shown as "до 20.08", which is what a person means by "paused on the 20th".
+ */
+function servedWindow(periods: InForcePeriod[], today: Day) {
+  const todayUtc = toUtc(today);
+  const sorted = [...periods].sort((a, b) => a.startsOn.getTime() - b.startsOn.getTime());
+  const current = sorted.find((p) => inForceOn([p], today));
+  if (current) {
+    return {
+      active: true,
+      inForceFrom: isoDay(current.startsOn),
+      inForceUntil: current.endsBefore ? isoDay(dayBefore(current.endsBefore)) : null,
+      state: "in_force" as const,
+    };
+  }
+  const upcoming = sorted.find((p) => p.startsOn > todayUtc);
+  if (upcoming) {
+    return {
+      active: false,
+      inForceFrom: isoDay(upcoming.startsOn),
+      inForceUntil: upcoming.endsBefore ? isoDay(dayBefore(upcoming.endsBefore)) : null,
+      state: "scheduled" as const,
+    };
+  }
+  const last = sorted[sorted.length - 1];
+  return {
+    active: false,
+    inForceFrom: isoDay(last?.startsOn ?? todayUtc),
+    inForceUntil: last?.endsBefore ? isoDay(dayBefore(last.endsBefore)) : null,
+    state: "paused" as const,
+  };
+}
+
 export function toClientDto(client: repo.ClientRecord, debt = 0) {
+  const today = todayInTz(config.TZ);
   return {
     id: client.id,
     // the services this client actually holds — a chip appears when a service is added and
     // disappears when it's stopped. Nothing curated, nothing to keep in step by hand.
     categories: [
-      ...new Set(client.subscriptions.filter((s) => s.active).map((s) => s.serviceId)),
+      ...new Set(
+        client.subscriptions.filter((s) => inForceOn(s.periods, today)).map((s) => s.serviceId),
+      ),
     ],
     subscriptions: client.subscriptions.map((s) => ({
       id: s.id,
@@ -40,7 +92,7 @@ export function toClientDto(client: repo.ClientRecord, debt = 0) {
       dueDays: s.dueDays,
       // validated on write; the parse also shields the API from malformed legacy blobs
       rhythmOverrides: rhythmOverridesSchema.catch({}).parse(s.rhythmOverrides ?? {}),
-      active: s.active,
+      ...servedWindow(s.periods, today),
       isDefault: s.isDefault,
     })),
     firstName: client.firstName,
@@ -51,7 +103,9 @@ export function toClientDto(client: repo.ClientRecord, debt = 0) {
     email: client.email,
     address: client.address,
     sourceId: client.sourceId,
-    isRegular: client.subscriptions.some((s) => s.active && s.service.type === "subscription"),
+    isRegular: client.subscriptions.some(
+      (s) => inForceOn(s.periods, today) && s.service.type === "subscription",
+    ),
     description: client.description,
     companies: client.companies.map((c) => ({
       id: c.id,
@@ -76,19 +130,28 @@ export function toClientDto(client: repo.ClientRecord, debt = 0) {
 }
 
 /** Only subscription-type services count toward "regular" — one-time subs are job containers. */
-const ACTIVE_REGULAR_SUB: Prisma.SubscriptionWhereInput = {
-  active: true,
+const ACTIVE_REGULAR_SUB = (): Prisma.SubscriptionWhereInput => ({
+  ...inForceTodayWhere(config.TZ),
   service: { type: "subscription" },
-};
+});
 
-// the tab filters ARE the rule, expressed in SQL — nothing else decides who is regular
-const REGULAR_FILTER: Prisma.ClientWhereInput = { subscriptions: { some: ACTIVE_REGULAR_SUB } };
-const ONE_TIME_FILTER: Prisma.ClientWhereInput = { subscriptions: { none: ACTIVE_REGULAR_SUB } };
+// the tab filters ARE the rule, expressed in SQL — nothing else decides who is regular.
+// Built per call because "in force" is relative to today, which a module-level const would freeze.
+const REGULAR_FILTER = (): Prisma.ClientWhereInput => ({
+  subscriptions: { some: ACTIVE_REGULAR_SUB() },
+});
+const ONE_TIME_FILTER = (): Prisma.ClientWhereInput => ({
+  subscriptions: { none: ACTIVE_REGULAR_SUB() },
+});
 
 export async function listClients(query: ClientListQuery) {
   const where: Prisma.ClientWhereInput = {
     archivedAt: null,
-    ...(query.tab === "regular" ? REGULAR_FILTER : query.tab === "one_time" ? ONE_TIME_FILTER : {}),
+    ...(query.tab === "regular"
+      ? REGULAR_FILTER()
+      : query.tab === "one_time"
+        ? ONE_TIME_FILTER()
+        : {}),
   };
 
   if (query.search) {
@@ -112,7 +175,7 @@ export async function listClients(query: ClientListQuery) {
       skip: (query.page - 1) * query.pageSize,
       take: query.pageSize,
     }),
-    repo.countClientsByTab(REGULAR_FILTER),
+    repo.countClientsByTab(REGULAR_FILTER()),
   ]);
   const debts = await debtByClient(items.map((c) => c.id));
   return {
@@ -235,17 +298,40 @@ export async function createClient(input: CreateClientInput) {
 export async function applyDefaultClientService(clientId: string) {
   const svc = await repo.findDefaultClientService();
   if (!svc) return;
-  const created = await repo.createSubscription({
-    clientId,
-    serviceId: svc.id,
-    companyId: null,
-    amount: svc.defaultAmount ?? 0,
-    period: "month", // stored but unused for one-time
-    invoiceTrigger: null,
-    invoiceDay: null,
-    dueDays: null,
-  });
+  const created = await repo.createSubscription(
+    {
+      clientId,
+      serviceId: svc.id,
+      companyId: null,
+      amount: svc.defaultAmount ?? 0,
+      period: "month", // stored but unused for one-time
+      invoiceTrigger: null,
+      invoiceDay: null,
+      dueDays: null,
+    },
+    toUtc(todayInTz(config.TZ)), // open-ended from today — nothing can expire it
+  );
   await claimDefaultIfFirst(clientId, created.id);
+}
+
+/**
+ * A service is never agreed BACKWARDS (user, 2026-08-01). Today or a future date only — for both
+ * the first period and every resume.
+ *
+ * Why the rule sits at the door rather than being cleaned up downstream: the start date is what
+ * decides which periods get billed and which rhythm days generate tasks, so one mistyped year
+ * would have the nightly sweep raise a manual-invoice reminder for every month since — dozens of
+ * tasks, deduped but all to be cleared by hand. Work that really was done before today is billed
+ * with a manual invoice, which is the one place a person states the amount on purpose.
+ */
+function assertNotBackdated(day: Date, field: "start" | "resume"): void {
+  const today = toUtc(todayInTz(config.TZ));
+  if (day >= today) return;
+  throw new ValidationError(
+    field === "start"
+      ? `A service can't start in the past — today (${isoDay(today)}) or later. Bill work already done with a one-off invoice.`
+      : `A service can't resume in the past — today (${isoDay(today)}) or later.`,
+  );
 }
 
 /**
@@ -259,7 +345,7 @@ export async function applyDefaultClientService(clientId: string) {
  * Their task and invoice pickers silently stopped prefilling.
  */
 async function claimDefaultIfFirst(clientId: string, subscriptionId: string) {
-  if ((await repo.countActiveSubscriptions(clientId)) === 1) {
+  if ((await repo.countLiveSubscriptions(clientId, config.TZ)) === 1) {
     await repo.setDefaultSubscription(clientId, subscriptionId);
   }
 }
@@ -307,16 +393,22 @@ export async function addSubscription(clientId: string, input: CreateSubscriptio
       "This service is already assigned to the same target — edit the existing subscription or pick another company",
     );
   }
-  const created = await repo.createSubscription({
-    clientId,
-    serviceId: input.serviceId,
-    companyId: input.companyId ?? null,
-    amount: input.amount,
-    period: input.period,
-    invoiceTrigger: input.invoiceTrigger ?? null,
-    invoiceDay: input.invoiceDay ?? null,
-    dueDays: input.dueDays ?? null,
-  });
+  const startsOn = input.startsOn ? dateToUtc(input.startsOn) : toUtc(todayInTz(config.TZ));
+  assertNotBackdated(startsOn, "start");
+  const created = await repo.createSubscription(
+    {
+      clientId,
+      serviceId: input.serviceId,
+      companyId: input.companyId ?? null,
+      amount: input.amount,
+      period: input.period,
+      invoiceTrigger: input.invoiceTrigger ?? null,
+      invoiceDay: input.invoiceDay ?? null,
+      dueDays: input.dueDays ?? null,
+    },
+    // service starts today unless a FUTURE date was agreed; no end date — open-ended is normal
+    startsOn,
+  );
   await claimDefaultIfFirst(clientId, created.id);
   // instant feedback: today's-due tasks and this period's invoice appear right away
   // (both idempotent; no-op for one-time). Best-effort — a generation hiccup must NOT fail the
@@ -368,27 +460,14 @@ export async function updateSubscription(
       }
     }
   }
-  // The default service can't just be switched off — it is what prefills every service picker
-  // for this client, so losing it silently would be a surprise. Clear the flag first (moving it
-  // to another service, or dropping it), then stop the service.
-  if (input.active === false && sub.isDefault) {
-    throw new ConflictError(
-      "This is the client's default service — make another one the default (or clear it) before stopping this one",
-    );
-  }
   // the default is what gets picked automatically, so it has to be a service they actually use
-  const willBeActive = input.active !== undefined ? input.active : sub.active;
-  if (input.isDefault === true && !willBeActive) {
-    throw new ValidationError("Only an active service can be the client's default");
+  // must AGREE with the automatic claim above: a service agreed for a future date is still the
+  // client's service, and forbidding it by hand while the system assigns it would contradict itself
+  if (input.isDefault === true && !notEnded(await repo.listPeriods(subscriptionId), todayInTz(config.TZ))) {
+    throw new ValidationError("A stopped service can't be the client's default");
   }
-  // reactivation moves the billing anchor to today — a paused subscription is never
-  // back-billed for the periods it slept through (user decision 2026-07-25)
-  const reactivated = input.active === true && !sub.active;
   const { isDefault, ...fields } = input;
-  await repo.updateSubscription(subscriptionId, {
-    ...fields,
-    ...(reactivated ? { billingStartAt: new Date() } : {}),
-  });
+  await repo.updateSubscription(subscriptionId, fields);
   // moving the flag clears the previous holder in the same transaction (one default per client)
   if (isDefault === true) {
     await repo.setDefaultSubscription(clientId, subscriptionId);
@@ -396,12 +475,121 @@ export async function updateSubscription(
     // clearing only ever drops THIS one's flag — never another service's
     await repo.setDefaultSubscription(clientId, null);
   }
-  // rhythm overrides / reactivation may make today's tasks due — sweep this sub now
-  // (best-effort; the scheduler self-heals so a hiccup never fails the saved edit)
-  if (input.rhythmOverrides !== undefined || input.active === true) {
+  // rhythm overrides may make today's tasks due — sweep this sub now (best-effort; the scheduler
+  // self-heals so a hiccup never fails the saved edit)
+  if (input.rhythmOverrides !== undefined) {
     await generateForSubscription(subscriptionId).catch(() => {});
   }
-  if (reactivated) await generateForSubscriptionInvoices(subscriptionId).catch(() => {});
+  return getClient(clientId);
+}
+
+/**
+ * Stop serving this subscription. Closes its open period at `lastDay` (inclusive), which may be in
+ * the future to plan a pause agreed in advance.
+ *
+ * Pausing is NOT a flag: the date is the point of it — it is what lets the system still answer
+ * "was this client served on the 1st" months later, which is what decides billing and generation.
+ * Nothing already issued or already generated is touched: an invoice that went out stays out (the
+ * caller is warned in the UI) and tasks record work that was planned while the service was on.
+ */
+export async function pauseSubscription(
+  clientId: string,
+  subscriptionId: string,
+  input: PauseSubscriptionInput,
+  actor: User,
+) {
+  await getClient(clientId);
+  const sub = await repo.findSubscription(clientId, subscriptionId);
+  if (!sub) throw new NotFoundError("Subscription not found");
+
+  const today = toUtc(todayInTz(config.TZ));
+  // the period that COVERS today, which may already carry a future end date — "is it running" and
+  // "does it have an end date" are different questions, and pausing owns the second one
+  const open = await repo.findPeriodCovering(subscriptionId, today);
+  if (!open) throw new ConflictError("This service is already paused");
+
+  // explicit null = call off a scheduled pause; the service goes back to open-ended. Deliberately
+  // ABOVE the default-service guard: removing an end date is the opposite of switching the service
+  // off, so there is nothing to protect the pickers from (found in the 2026-07-30 audit).
+  if (input.lastDay === null) {
+    if (!open.endsBefore) throw new ConflictError("This service has no end date to remove");
+    await repo.reopenPeriod(open.id);
+    return getClient(clientId);
+  }
+
+  // The default service can't just be switched off — it is what prefills every service picker for
+  // this client, so losing it silently would be a surprise. Clear the flag first (move it to
+  // another service, or drop it), then pause.
+  if (sub.isDefault) {
+    throw new ConflictError(
+      "This is the client's default service — make another one the default (or clear it) before pausing this one",
+    );
+  }
+  const lastDay = input.lastDay ? dateToUtc(input.lastDay) : today;
+
+  if (open.startsOn > lastDay) {
+    // A period that HASN'T STARTED yet isn't being paused, it's being cancelled — drop it rather
+    // than leave a zero-length stub that would confuse the history and the coverage maths.
+    if (open.startsOn > today) {
+      await repo.deletePeriod(open.id);
+      return getClient(clientId);
+    }
+    // …but service that is already running must not be erased by a mistyped date. This used to
+    // delete the whole open period and answer 200 (found in the 2026-07-29 audit).
+    throw new ValidationError(
+      `Service has been running since ${isoDay(open.startsOn)} — the last served day can't be before that`,
+    );
+  }
+  // `endsBefore` is exclusive: pausing "on the 20th" still serves the 20th
+  await repo.closePeriod(open.id, new Date(lastDay.getTime() + 86_400_000), {
+    endNote: input.note ?? null,
+    endedById: actor.id,
+  });
+  return getClient(clientId);
+}
+
+/**
+ * Serve it again from `startsOn` (default today; may be in the future). Opens a NEW period rather
+ * than reopening the old one — the gap between them is exactly what makes a period "partial", and
+ * partial periods are the ones a person invoices by hand.
+ */
+export async function resumeSubscription(
+  clientId: string,
+  subscriptionId: string,
+  input: ResumeSubscriptionInput,
+  actor: User,
+) {
+  await getClient(clientId);
+  const sub = await repo.findSubscription(clientId, subscriptionId);
+  if (!sub) throw new NotFoundError("Subscription not found");
+  const service = await repo.findServiceById(sub.serviceId);
+  if (!service || !service.active) {
+    throw new ValidationError("This service is no longer offered — pick another one");
+  }
+  if (await repo.findOpenPeriod(subscriptionId)) {
+    throw new ConflictError("This service is already running");
+  }
+  const startsOn = input.startsOn ? dateToUtc(input.startsOn) : toUtc(todayInTz(config.TZ));
+  assertNotBackdated(startsOn, "resume");
+  const periods = await repo.listPeriods(subscriptionId);
+  const lastEnd = periods.reduce<Date | null>(
+    (a, p) => (p.endsBefore && (!a || p.endsBefore > a) ? p.endsBefore : a),
+    null,
+  );
+  if (lastEnd && startsOn < lastEnd) {
+    throw new ValidationError(
+      `Service was already running up to ${isoDay(new Date(lastEnd.getTime() - 86_400_000))} — start the new period after that`,
+    );
+  }
+  await repo.openPeriod({
+    subscriptionId,
+    startsOn,
+    startNote: input.note ?? null,
+    createdById: actor.id,
+  });
+  // today's work may already be due — sweep this one now; the scheduler self-heals either way
+  await generateForSubscription(subscriptionId).catch(() => {});
+  await generateForSubscriptionInvoices(subscriptionId).catch(() => {});
   return getClient(clientId);
 }
 

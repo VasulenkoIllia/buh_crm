@@ -104,6 +104,9 @@ export const taskSchema = z.object({
   createdAt: z.iso.datetime(),
   /** when it was marked done (null while open) — what the Done view's date window filters on */
   completedAt: z.iso.datetime().nullable(),
+  /** raised by mistake or called off — the task leaves the board but is kept (2026-08-01) */
+  cancelledAt: z.iso.datetime().nullable(),
+  cancelledByName: z.string().nullable(),
   archivedAt: z.iso.datetime().nullable(),
 });
 export type Task = z.infer<typeof taskSchema>;
@@ -144,6 +147,13 @@ export const createTaskInput = workflowFields
     /** required with clientId — the client's subscription the work goes through */
     subscriptionId: uuid.nullable().optional(),
     leadId: uuid.nullable().optional(),
+    /**
+     * Firm-side work, not work sold to anyone. A client or lead may still be named — that is
+     * ATTRIBUTION, not belonging: organising a client's paperwork is time spent on them and should
+     * show up on their card, but it goes through no service, bills nothing and is never "included
+     * in their plan" (user, 2026-08-01).
+     */
+    internal: z.boolean().optional(),
     /** one-time jobs only; omitted → the subscription's default job price */
     amount: money.nullable().optional(),
     /** initial checklist steps (e.g. prefilled from the picked template's default) */
@@ -153,9 +163,13 @@ export const createTaskInput = workflowFields
     path: ["leadId"],
     message: "Pick a client or a lead, not both",
   })
-  .refine((v) => !v.clientId || !!v.subscriptionId, {
+  .refine((v) => v.internal || !v.clientId || !!v.subscriptionId, {
     path: ["subscriptionId"],
     message: "A client task goes through one of the client's services",
+  })
+  .refine((v) => !(v.internal && v.subscriptionId), {
+    path: ["subscriptionId"],
+    message: "Internal work goes through no service — it is the firm's own time",
   });
 // assignees are optional (default = the creator in the UI; may be left empty)
 export type CreateTaskInput = z.infer<typeof createTaskInput>;
@@ -163,6 +177,8 @@ export type CreateTaskInput = z.infer<typeof createTaskInput>;
 /** Re-targeting isn't supported — create a new task instead (workflow fields only). */
 export const updateTaskInput = workflowFields.partial().extend({
   done: z.boolean().optional(),
+  /** call the task off (or take it back) — stamps who and when, exactly like `done` */
+  cancelled: z.boolean().optional(),
   /** one-time jobs only, until invoiced */
   amount: money.nullable().optional(),
   // optional on PATCH — omitting keeps current assignees; [] clears them
@@ -186,7 +202,7 @@ export type CreateTaskCommentInput = z.infer<typeof createTaskCommentInput>;
 export const taskListQuery = z.object({
   view: z.enum(["board", "table"]).default("board"),
   /** board + table: the board defaults to open work, "done" is its own view */
-  status: z.enum(["all", "open", "done"]).default("all"),
+  status: z.enum(["all", "open", "done", "cancelled"]).default("all"),
   search: z.string().trim().optional(),
   assigneeId: uuid.optional(),
   clientId: uuid.optional(),
