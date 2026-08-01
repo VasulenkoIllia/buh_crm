@@ -52,8 +52,21 @@ if $RESET; then
     [ "$answer" = "$PG_DB" ] || { echo "   not confirmed — nothing was changed"; exit 1; }
   fi
   docker compose exec -T db psql -v ON_ERROR_STOP=1 -q -U "$PG_USER" -d "$PG_DB" < scripts/reset-data.sql
-  rm -rf ./data/uploads/*   # the rows are gone; drop the files they pointed at
-  echo "   done"
+  echo "   database cleared"
+
+  # The rows are gone; drop the files they pointed at. The APP wrote those files, so they belong to
+  # the container's user and a host-side `rm` gets Permission denied — let the container delete its
+  # own. Never fatal: by this point the database is already empty, and aborting here would leave the
+  # server wiped but NOT deployed, which is the worst of both (hit on the live server, 2026-08-01).
+  if docker compose ps --services --filter status=running 2>/dev/null | grep -qx app; then
+    docker compose exec -T app sh -c 'rm -rf /app/uploads/* /app/uploads/.[!.]* 2>/dev/null || true'
+    echo "   uploads cleared"
+  elif rm -rf ./data/uploads/* 2>/dev/null; then
+    echo "   uploads cleared (from the host)"
+  else
+    echo "   ⚠ could not clear data/uploads — files are owned by the container user."
+    echo "     Run after the deploy:  docker compose exec -T app sh -c 'rm -rf /app/uploads/*'"
+  fi
 fi
 
 # ── 3. deploy ────────────────────────────────────────────────────────────────
