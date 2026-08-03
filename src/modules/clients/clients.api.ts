@@ -2,11 +2,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   Client,
   ClientListQuery,
+  ClientSecret,
+  ClientSecretInput,
   CreateClientInput,
   CreateSubscriptionInput,
   UpdateClientInput,
   PauseSubscriptionInput,
   ResumeSubscriptionInput,
+  UnlockSecretsInput,
   UpdateSubscriptionInput,
 } from "@shared/schema/client";
 import { api } from "@/shared/lib/api";
@@ -198,3 +201,82 @@ export function useResumeSubscription() {
   });
 }
 
+
+// ── secrets (S7.5) ───────────────────────────────────────────────────────────
+
+const SECRETS_KEY = (clientId: string) => [...CLIENTS_KEY, clientId, "secrets"] as const;
+
+/** Labels + descriptions only — the value never enters this cache, or any cache. */
+export function useClientSecrets(clientId: string) {
+  return useQuery({
+    queryKey: SECRETS_KEY(clientId),
+    queryFn: () => api<ClientSecret[]>(`/api/clients/${clientId}/secrets`),
+  });
+}
+
+/** How long this user's window on this client has left; null = locked. */
+export function useSecretGrant(clientId: string) {
+  return useQuery({
+    queryKey: [...SECRETS_KEY(clientId), "grant"],
+    queryFn: () => api<{ expiresAt: string | null }>(`/api/clients/${clientId}/secrets/grant`),
+  });
+}
+
+function useInvalidateSecrets(clientId: string) {
+  const queryClient = useQueryClient();
+  return () => void queryClient.invalidateQueries({ queryKey: SECRETS_KEY(clientId) });
+}
+
+export function useUnlockSecrets(clientId: string) {
+  const invalidate = useInvalidateSecrets(clientId);
+  return useMutation({
+    mutationFn: (input: UnlockSecretsInput) =>
+      api<{ expiresAt: string }>(`/api/clients/${clientId}/secrets/unlock`, {
+        method: "POST",
+        body: input,
+      }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useSaveSecret(clientId: string) {
+  const invalidate = useInvalidateSecrets(clientId);
+  return useMutation({
+    mutationFn: ({ id, input }: { id?: string; input: ClientSecretInput }) =>
+      api<ClientSecret[]>(
+        id ? `/api/clients/${clientId}/secrets/${id}` : `/api/clients/${clientId}/secrets`,
+        { method: id ? "PATCH" : "POST", body: input },
+      ),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteSecret(clientId: string) {
+  const invalidate = useInvalidateSecrets(clientId);
+  return useMutation({
+    mutationFn: (id: string) =>
+      api<ClientSecret[]>(`/api/clients/${clientId}/secrets/${id}`, { method: "DELETE" }),
+    onSuccess: invalidate,
+  });
+}
+
+/**
+ * Fetch a plaintext value. Deliberately NOT a react-query hook: the value must never land in the
+ * query cache, where it would sit in memory, survive navigation and show up in devtools. The
+ * caller holds it in component state and clears it on a timer.
+ */
+export const revealSecret = (clientId: string, secretId: string) =>
+  api<{ value: string; expiresAt: string }>(
+    `/api/clients/${clientId}/secrets/${secretId}/reveal`,
+    { method: "POST" },
+  );
+
+export interface SecretAuditPage {
+  items: { id: string; action: string; label: string | null; byName: string; createdAt: string }[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export const fetchSecretAudit = (clientId: string, page = 1) =>
+  api<SecretAuditPage>(`/api/clients/${clientId}/secrets/audit?page=${page}`);

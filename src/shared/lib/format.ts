@@ -17,6 +17,19 @@
 /** dd/mm/yyyy in the VIEWER's timezone — for timestamps (createdAt, sentAt, cancelledAt). */
 export const fmtDate = (iso: string | Date) => new Date(iso).toLocaleDateString("en-GB");
 
+/**
+ * dd/mm/yyyy HH:MM of an INSTANT. For logs, where several entries land on one day and the date
+ * alone reads as if they all happened at once.
+ */
+export const fmtDateTime = (iso: string | Date) =>
+  new Date(iso).toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
 /** dd/mm/yyyy of a BUSINESS DATE (deadline, due date, payment date) — same day in every timezone. */
 export const fmtBizDate = (iso: string | Date) =>
   new Date(iso).toLocaleDateString("en-GB", { timeZone: "UTC" });

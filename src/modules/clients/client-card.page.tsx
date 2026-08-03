@@ -13,6 +13,7 @@ import { Tabs } from "@/shared/ui/tabs";
 import { ClientFormModal } from "./client-form";
 import { CompaniesTab } from "./client-companies";
 import { ClientPeopleModal } from "./client-people-modal";
+import { SecretsTab } from "./client-secrets";
 import { AddServiceModal, SubscriptionList } from "./client-services";
 import {
   useArchiveClient,
@@ -26,6 +27,7 @@ const TABS = [
   { key: "profile", label: "Profile" },
   { key: "companies", label: "Companies" },
   { key: "people", label: "People" },
+  { key: "secrets", label: "Secrets" },
   { key: "tasks", label: "Tasks" },
   { key: "invoices", label: "Invoices" },
   { key: "meetings", label: "Meetings" },
@@ -123,6 +125,7 @@ export function ClientCardPage() {
         <CompaniesTab client={client} />
       )}
       {tab === "people" && <PeopleTab client={client} onManage={() => setPeopleOpen(true)} />}
+      {tab === "secrets" && <SecretsTab clientId={client.id} />}
       {tab === "tasks" && (
         <EntityTasks target={{ kind: "client", id: client.id, label: client.displayName }} />
       )}

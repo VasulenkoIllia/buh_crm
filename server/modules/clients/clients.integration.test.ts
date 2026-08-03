@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../../app.js";
 import { config } from "../../core/config.js";
 import { prisma } from "../../core/db.js";
+import { generatePeriodInvoices } from "../payments/index.js";
 
 /**
  * Days ago as "YYYY-MM-DD". Subscriptions in these tests start in the PAST so they can be paused
@@ -823,20 +824,22 @@ describe("clients", () => {
     const client = created.json();
     const alpha = client.companies.find((c: { name: string }) => c.name === "Alpha Ltd");
 
-    await app.inject({
+    const sub = await app.inject({
       method: "POST",
       url: `/api/clients/${client.id}/subscriptions`,
       headers: { cookie },
-      payload: {
-        serviceId: service.id,
-        amount: 5_000,
-        period: "month",
-        companyId: alpha.id,
-        // from the period's first day, so the period is whole and its invoice is issued —
-        // this test is about the company surviving on an ISSUED invoice
-        startsOn: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-01`,
-      },
+      payload: { serviceId: service.id, amount: 5_000, period: "month", companyId: alpha.id },
     });
+    expect(sub.statusCode).toBe(201);
+    // From the period's first day, so the period is whole and its invoice is issued — this test is
+    // about the company surviving on an ISSUED invoice. Written to the row because a service can no
+    // longer be CREATED with a past start (2026-08-01), and from the 2nd onwards that day is past.
+    const { y, m } = { y: new Date().getUTCFullYear(), m: new Date().getUTCMonth() + 1 };
+    await prisma.subscriptionPeriod.updateMany({
+      where: { subscriptionId: sub.json().subscriptions[0].id },
+      data: { startsOn: new Date(Date.UTC(y, m - 1, 1)) },
+    });
+    await generatePeriodInvoices(); // the period is whole now, so the sweep issues its invoice
 
     // an ordinary edit that re-sends the same company list
     const resaved = await app.inject({

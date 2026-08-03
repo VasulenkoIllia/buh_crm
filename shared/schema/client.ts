@@ -239,3 +239,40 @@ export const clientListQuery = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
 });
 export type ClientListQuery = z.infer<typeof clientListQuery>;
+// ── client secrets (S7.5) ────────────────────────────────────────────────────
+
+/**
+ * A credential the firm holds for a client. The VALUE never appears here — the list endpoint
+ * returns label + description only, and revealing goes through its own audited endpoint.
+ */
+export const clientSecretSchema = z.object({
+  id: uuid,
+  label: z.string().min(1),
+  description: z.string().nullable(),
+  /** false = a pointer-only entry: nothing is stored, the description says where it lives */
+  hasValue: z.boolean(),
+  createdByName: z.string().nullable(),
+  updatedAt: z.iso.datetime(),
+});
+export type ClientSecret = z.infer<typeof clientSecretSchema>;
+
+export const clientSecretInput = z.object({
+  label: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(2000).nullable().optional(),
+  /**
+   * The secret itself. Omitted on edit = leave the stored value alone; explicit `null` = drop it
+   * and keep the entry as a pointer. Capped because this is a credential, not a document.
+   */
+  value: z.string().max(10_000).nullable().optional(),
+});
+export type ClientSecretInput = z.infer<typeof clientSecretInput>;
+
+/** Re-authentication: the admin's OWN login password, for a five-minute grant on ONE client. */
+export const unlockSecretsInput = z.object({ password: z.string().min(1).max(200) });
+export type UnlockSecretsInput = z.infer<typeof unlockSecretsInput>;
+
+export const secretGrantSchema = z.object({ expiresAt: z.iso.datetime() });
+export const revealedSecretSchema = z.object({
+  value: z.string(),
+  expiresAt: z.iso.datetime(),
+});

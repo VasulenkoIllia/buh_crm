@@ -33,6 +33,22 @@ function periodStartIso(): string {
   return `${y}-${String(m).padStart(2, "0")}-01`;
 }
 
+/**
+ * Start a subscription's period on the period's FIRST DAY — which is what makes the period whole
+ * and therefore automatically billable.
+ *
+ * It is written straight to the row because a service can no longer be CREATED with a past start
+ * (user, 2026-08-01: never agreed backwards), and from the 2nd of the month onwards that first day
+ * is the past. The state is perfectly ordinary — a subscription that began on the 1st simply is
+ * this, a day later — only the door into it is closed.
+ */
+async function startAtPeriodStart(subscriptionId: string) {
+  await prisma.subscriptionPeriod.updateMany({
+    where: { subscriptionId },
+    data: { startsOn: new Date(`${periodStartIso()}T00:00:00.000Z`) },
+  });
+}
+
 function today() {
   const s = new Intl.DateTimeFormat("en-CA", { timeZone: config.TZ }).format(new Date());
   const [y, m, d] = s.split("-").map(Number);
@@ -366,10 +382,11 @@ describe("payments", () => {
         serviceId: service.json().id,
         amount: 100_000,
         period: "month",
-        startsOn: periodStartIso(),
       },
     });
     expect(sub.statusCode).toBe(201);
+    await startAtPeriodStart(sub.json().subscriptions[0].id);
+    await generatePeriodInvoices();
 
     // served from the period's first day → the period is whole, so it bills automatically
     const list = await app.inject({ method: "GET", url: `/api/invoices?clientId=${clientId}`, headers: { cookie: userCookie } });
@@ -426,20 +443,21 @@ describe("payments", () => {
         defaultAmount: 50_000,
       },
     });
-    await app.inject({
+    const endSub = await app.inject({
       method: "POST",
       url: `/api/clients/${clientId}/subscriptions`,
       headers: { cookie: adminCookie },
-      // from the period's FIRST day: this test is about the trigger day, not about coverage, and a
-      // subscription starting today would be part-served and never auto-bill at all. Without this
-      // the test only failed on the last day of a month — the one day its `expected` was 1.
       payload: {
         serviceId: service.json().id,
         amount: 50_000,
         period: "month",
-        startsOn: periodStartIso(),
       },
     });
+    // from the period's FIRST day: this test is about the trigger day, not about coverage, and a
+    // subscription starting today would be part-served and never auto-bill at all. Without it the
+    // test only failed on the last day of a month — the one day its `expected` was 1.
+    await startAtPeriodStart(endSub.json().subscriptions[0].id);
+    await generatePeriodInvoices();
 
     // an end-of-period invoice only exists once the month is actually over
     const { y, m, d } = today();
@@ -530,7 +548,7 @@ describe("payments", () => {
       headers: { cookie: adminCookie },
       payload: { name: "Reporting S7", type: "subscription", defaultAmount: 30_000 },
     });
-    await app.inject({
+    const sub = await app.inject({
       method: "POST",
       url: `/api/clients/${clientId}/subscriptions`,
       headers: { cookie: adminCookie },
@@ -538,9 +556,11 @@ describe("payments", () => {
         serviceId: service.json().id,
         amount: 30_000,
         period: "month",
-        startsOn: periodStartIso(),
       },
     });
+    // whole period → it bills automatically, which is what there has to be to cancel
+    await startAtPeriodStart(sub.json().subscriptions[0].id);
+    await generatePeriodInvoices();
     const list = await app.inject({
       method: "GET",
       url: `/api/invoices?clientId=${clientId}`,

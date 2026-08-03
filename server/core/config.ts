@@ -25,6 +25,15 @@ const envSchema = z.object({
 
   UPLOADS_DIR: z.string().default("uploads"),
 
+  /**
+   * AES-256-GCM key for client secrets, base64, 32 bytes. DELIBERATELY OPTIONAL: making it
+   * required would stop an already-running server from booting the moment this code ships, before
+   * anyone had a chance to add the key. Without it the Secrets tab says so and refuses to store
+   * anything — a clear "not configured" beats a container that won't start.
+   *   openssl rand -base64 32
+   */
+  SECRETS_KEY: z.string().optional(),
+
   // First-admin bootstrap (used on a fresh server when no users exist yet).
   BOOTSTRAP_ADMIN_EMAIL: z.string().optional(),
   BOOTSTRAP_ADMIN_PASSWORD: z.string().optional(),

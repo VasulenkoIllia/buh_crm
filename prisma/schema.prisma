@@ -85,6 +85,16 @@ enum PaymentAuditAction {
   deleted
 }
 
+/// What happened to a client secret. `unlock_failed` is journalled too: a run of them is the only
+/// signal that somebody is guessing a password.
+enum SecretAuditAction {
+  created
+  updated
+  deleted
+  revealed
+  unlock_failed
+}
+
 enum NotificationKind {
   task
   meeting
@@ -126,6 +136,8 @@ model User {
   taskAssignments     TaskAssignee[]
   tasksCreated        Task[]               @relation("TaskCreatedBy")
   tasksCancelled      Task[]               @relation("TaskCancelledBy")
+  secretsCreated      ClientSecret[]       @relation("SecretCreatedBy")
+  secretAudit         SecretAuditLog[]     @relation("SecretAuditBy")
   taskComments        TaskComment[]        @relation("TaskCommentAuthor")
   timeEntries         TimeEntry[]
   timeEntriesCreated  TimeEntry[]          @relation("TimeEntryCreatedBy")
@@ -278,6 +290,8 @@ model Client {
   source        SourceOption?           @relation(fields: [sourceId], references: [id])
   companies     Company[] // 1:N — the client's companies (see below)
   people        ClientPerson[] // the "People" tab
+  secrets       ClientSecret[] // the "Secrets" tab — encrypted, admin-only reveal
+  secretAudit   SecretAuditLog[]
   subscriptions Subscription[]
   tasks         Task[]
   invoices      Invoice[]
@@ -318,6 +332,59 @@ model Company {
 }
 
 // The "People" tab — people involved with a client + the service they handle.
+/// A credential the firm holds for a client — tax portal, client-bank, КЕП.
+///
+/// `label` and `description` are readable by anyone who can open the client; the VALUE is
+/// encrypted at rest (AES-256-GCM, key from `SECRETS_KEY`) and only an admin can reveal it, with
+/// their own password, for five minutes (decision 2026-08-01). The list endpoint never returns
+/// the ciphertext, let alone the plaintext.
+///
+/// All three crypto columns are NULL for a **pointer-only** entry: something too sensitive to hold
+/// at all, recorded as "it lives in the firm's password manager, item X" and nothing more.
+model ClientSecret {
+  id          String   @id @default(uuid()) @db.Uuid
+  clientId    String   @db.Uuid
+  label       String
+  description String?
+  ciphertext  Bytes? // null = pointer-only entry, nothing stored
+  iv          Bytes?
+  authTag     Bytes?
+  /// which SECRETS_KEY encrypted this, so the key can be rotated later without guessing
+  keyVersion  Int      @default(1)
+  order       Int      @default(0)
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  client    Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  createdBy User?             @relation("SecretCreatedBy", fields: [createdById], references: [id])
+  auditLog  SecretAuditLog[]
+
+  @@index([clientId])
+}
+
+/// Who touched a secret, and when. Modelled on `PaymentAuditLog`; a reveal is an event worth
+/// keeping even though nothing changed.
+model SecretAuditLog {
+  id        String            @id @default(uuid()) @db.Uuid
+  secretId  String?           @db.Uuid // null for an unlock attempt, which targets a client
+  clientId  String            @db.Uuid
+  byUserId  String            @db.Uuid
+  action    SecretAuditAction
+  /// the secret's name AS IT WAS — the FK goes null when the secret is deleted, and a log that
+  /// cannot say what it was about is not worth keeping
+  label     String?
+  ip        String?
+  createdAt DateTime          @default(now())
+
+  secret ClientSecret? @relation(fields: [secretId], references: [id], onDelete: SetNull)
+  client Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  byUser User          @relation("SecretAuditBy", fields: [byUserId], references: [id])
+
+  @@index([clientId, createdAt])
+  @@index([byUserId])
+}
+
 model ClientPerson {
   id           String   @id @default(uuid()) @db.Uuid
   clientId     String   @db.Uuid

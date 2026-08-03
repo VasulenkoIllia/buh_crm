@@ -4,20 +4,24 @@ import { z } from "zod";
 import { uuid } from "@shared/schema/common.js";
 import {
   clientListQuery,
+  clientSecretInput,
   createClientInput,
   createSubscriptionInput,
   pauseSubscriptionInput,
   resumeSubscriptionInput,
+  unlockSecretsInput,
   updateClientInput,
   updateSubscriptionInput,
 } from "@shared/schema/client.js";
 import { requireAuth } from "../../core/auth.js";
 import { ValidationError } from "../../core/errors.js";
 import { readFileStream } from "../../core/files.js";
+import * as secrets from "./secrets.service.js";
 import * as service from "./clients.service.js";
 
 const idParams = z.object({ id: uuid });
 const fileParams = z.object({ id: uuid, fileId: uuid });
+const secretParams = z.object({ id: uuid, secretId: uuid });
 
 export async function registerRoutes(instance: FastifyInstance) {
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -141,5 +145,75 @@ export async function registerRoutes(instance: FastifyInstance) {
     async (request) => {
       return service.removeFile(request.params.id, request.params.fileId);
     },
+  );
+
+  // ── secrets (S7.5) ─────────────────────────────────────────────────────────
+  // Labels and descriptions are ordinary client data; the VALUE needs an admin, their own
+  // password and a five-minute window. Every reveal — and every failed unlock — is journalled.
+
+  app.get("/:id/secrets", { schema: { params: idParams } }, async (request) =>
+    secrets.listSecrets(request.params.id),
+  );
+
+  app.get("/:id/secrets/grant", { schema: { params: idParams } }, async (request) =>
+    secrets.grantStatus(request.params.id, request.currentUser!),
+  );
+
+  app.post(
+    "/:id/secrets",
+    { schema: { params: idParams, body: clientSecretInput } },
+    async (request, reply) =>
+      reply
+        .status(201)
+        .send(
+          await secrets.createSecret(request.params.id, request.body, request.currentUser!, request.ip),
+        ),
+  );
+
+  app.patch(
+    "/:id/secrets/:secretId",
+    { schema: { params: secretParams, body: clientSecretInput } },
+    async (request) =>
+      secrets.updateSecret(
+        request.params.id,
+        request.params.secretId,
+        request.body,
+        request.currentUser!,
+        request.ip,
+      ),
+  );
+
+  app.delete("/:id/secrets/:secretId", { schema: { params: secretParams } }, async (request) =>
+    secrets.deleteSecret(request.params.id, request.params.secretId, request.currentUser!, request.ip),
+  );
+
+  // Its OWN rate limit: this route checks a password, and the app-wide 300/min is far too generous
+  // for that. Ten tries a minute is plenty for a typo and useless for guessing.
+  app.post(
+    "/:id/secrets/unlock",
+    {
+      schema: { params: idParams, body: unlockSecretsInput },
+      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+    },
+    async (request) =>
+      secrets.unlock(request.params.id, request.body, request.currentUser!, request.ip),
+  );
+
+  app.post(
+    "/:id/secrets/:secretId/reveal",
+    { schema: { params: secretParams }, config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
+    async (request) =>
+      secrets.revealSecret(
+        request.params.id,
+        request.params.secretId,
+        request.currentUser!,
+        request.ip,
+      ),
+  );
+
+  app.get(
+    "/:id/secrets/audit",
+    { schema: { params: idParams, querystring: z.object({ page: z.coerce.number().int().min(1).default(1) }) } },
+    async (request) => secrets.listAudit(request.params.id, request.currentUser!, request.query.page),
   );
 }
