@@ -42,7 +42,11 @@ export interface ActiveTimer {
 /** What the Tasks screen is asking for. Every one of these is answered by SQL. */
 export interface TaskQuery {
   /** open work (the board) or completed work (the Done view) */
-  status: "open" | "done" | "cancelled";
+  /**
+   * "all" is the Archive screen's read. The board never asks for it — archived work is done or
+   * cancelled by definition, so filtering it by "open" would return an empty screen.
+   */
+  status: "all" | "open" | "done" | "cancelled";
   /** board = grouped into columns, capped; table = a real page of results */
   view: "board" | "table";
   /** only work whose deadline day has passed */
@@ -53,6 +57,8 @@ export interface TaskQuery {
   /** the target filter — a task belongs to one or the other, so only one is ever set */
   clientId?: string;
   leadId?: string;
+  /** Archive screen only: archived tasks instead of live ones */
+  archived?: boolean;
   page?: number;
   pageSize?: number;
 }
@@ -65,6 +71,7 @@ export interface TaskQuery {
 export function useTasks(query: TaskQuery) {
   const params = new URLSearchParams({ view: query.view, status: query.status });
   if (query.overdue) params.set("overdue", "true");
+  if (query.archived) params.set("archived", "true");
   if (query.doneWithinDays) params.set("doneWithinDays", String(query.doneWithinDays));
   if (query.assigneeId) params.set("assigneeId", query.assigneeId);
   if (query.clientId) params.set("clientId", query.clientId);
@@ -188,6 +195,15 @@ export function useArchiveTask() {
   const invalidate = useInvalidateTasks();
   return useMutation({
     mutationFn: (id: string) => api<{ ok: true }>(`/api/tasks/${id}/archive`, { method: "POST" }),
+    onSuccess: invalidate,
+  });
+}
+
+/** Put an archived task back on the board — refused while its client is archived. */
+export function useRestoreTask() {
+  const invalidate = useInvalidateTasks();
+  return useMutation({
+    mutationFn: (id: string) => api<Task>(`/api/tasks/${id}/restore`, { method: "POST" }),
     onSuccess: invalidate,
   });
 }

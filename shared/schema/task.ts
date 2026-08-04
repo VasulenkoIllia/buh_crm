@@ -203,6 +203,14 @@ export const taskListQuery = z.object({
   view: z.enum(["board", "table"]).default("board"),
   /** board + table: the board defaults to open work, "done" is its own view */
   status: z.enum(["all", "open", "done", "cancelled"]).default("all"),
+  /**
+   * Archive screen only: return ONLY archived tasks, including those of archived clients (which
+   * every other view hides). Off, the lists behave exactly as before.
+   */
+  archived: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v === "true"),
   search: z.string().trim().optional(),
   assigneeId: uuid.optional(),
   clientId: uuid.optional(),

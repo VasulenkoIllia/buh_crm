@@ -85,6 +85,15 @@ export function useArchiveClient() {
   });
 }
 
+/** Bring an archived client back. Their services stay paused — resuming one is its own decision. */
+export function useRestoreClient() {
+  const invalidate = useInvalidateClients();
+  return useMutation({
+    mutationFn: (id: string) => api<Client>(`/api/clients/${id}/restore`, { method: "POST" }),
+    onSuccess: invalidate,
+  });
+}
+
 export function useClientFiles(clientId: string | undefined) {
   return useQuery({
     queryKey: [...CLIENTS_KEY, "files", clientId],

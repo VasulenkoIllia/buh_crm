@@ -11,7 +11,7 @@ import { rhythmOverridesSchema } from "@shared/schema/catalog.js";
 import type { Prisma, User } from "../../generated/prisma/client.js";
 import { config } from "../../core/config.js";
 import { inForceOn, inForceTodayWhere, notEnded, type InForcePeriod } from "../../core/coverage.js";
-import { type Day, dateToUtc, todayInTz, toUtc } from "../../core/dates.js";
+import { type Day, addDays, dateToUtc, todayInTz, toUtc } from "../../core/dates.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
 import { debtByClient, generateForSubscriptionInvoices } from "../payments/index.js";
 import { generateForSubscription } from "../tasks/index.js";
@@ -145,14 +145,19 @@ const ONE_TIME_FILTER = (): Prisma.ClientWhereInput => ({
 });
 
 export async function listClients(query: ClientListQuery) {
-  const where: Prisma.ClientWhereInput = {
-    archivedAt: null,
-    ...(query.tab === "regular"
-      ? REGULAR_FILTER()
-      : query.tab === "one_time"
-        ? ONE_TIME_FILTER()
-        : {}),
-  };
+  // "archived" is the Archive screen's read and the only tab that shows archived clients;
+  // every other tab is live-only, which is what makes archiving mean "gone from the working views"
+  const where: Prisma.ClientWhereInput =
+    query.tab === "archived"
+      ? { archivedAt: { not: null } }
+      : {
+          archivedAt: null,
+          ...(query.tab === "regular"
+            ? REGULAR_FILTER()
+            : query.tab === "one_time"
+              ? ONE_TIME_FILTER()
+              : {}),
+        };
 
   if (query.search) {
     where.AND = [
@@ -593,11 +598,46 @@ export async function resumeSubscription(
   return getClient(clientId);
 }
 
+/**
+ * Archive = we stopped serving this client. Everything of theirs disappears from the working
+ * views, and **their services stop** as of today — the last day served is the day they were
+ * archived.
+ *
+ * Stopping the services is the whole point. Left running, the periods keep reading "in force" for
+ * however long the client sits in the archive, and both nightly sweeps back-fill the lot the
+ * moment they come back: a client archived six months regained 6 tasks (every one already
+ * overdue), 2 auto-issued invoices and 5 reminders, for work nobody did (probe, 2026-08-03).
+ *
+ * What is deliberately NOT touched: invoices. Debt survives archiving — an unpaid invoice stays
+ * unpaid and stays visible in Billing, flagged `clientArchived`. Hiding money owed would be the
+ * one genuinely dangerous thing archiving could do.
+ */
 export async function archiveClient(id: string, actor: User) {
   const existing = await repo.findClient(id);
   if (!existing || existing.archivedAt) throw new NotFoundError("Client not found");
+  // exclusive end: the last day served is today, so the period ends before tomorrow
+  const endsBefore = toUtc(addDays(todayInTz(config.TZ), 1));
+  await repo.closeLivePeriodsForClient(id, endsBefore, actor.id);
   await repo.updateClient(id, { archivedAt: new Date(), archivedById: actor.id });
   return { ok: true as const };
+}
+
+/**
+ * Bring a client back. Their history returns exactly as it was — the same tasks, the same
+ * invoices, the same debt — but **the services stay paused**.
+ *
+ * That is the deliberate half. Resuming automatically would have to pick a date, and every choice
+ * is wrong: "from the archive date" back-fills months of work nobody did, "from today" silently
+ * loses whatever the firm agreed. Resuming a service is a decision with a date on it, so it stays
+ * a decision — the client card asks for it, one service at a time, and the sweep then generates
+ * from that date forward.
+ */
+export async function restoreClient(id: string) {
+  const existing = await repo.findClient(id);
+  if (!existing) throw new NotFoundError("Client not found");
+  if (!existing.archivedAt) throw new ConflictError("This client is not archived");
+  await repo.updateClient(id, { archivedAt: null, archivedById: null });
+  return getClient(id);
 }
 
 // ── files (≤ 25 MB, uploads volume, API-served) ──────────────────────────────

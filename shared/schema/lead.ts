@@ -16,6 +16,8 @@ export const leadSchema = z.object({
   outcome: leadOutcome,
   convertedClientId: uuid.nullable(),
   createdAt: z.iso.datetime(),
+  /** soft delete — set means the lead only appears in Archive */
+  archivedAt: z.iso.datetime().nullable(),
 });
 export type Lead = z.infer<typeof leadSchema>;
 
@@ -25,8 +27,14 @@ export type Lead = z.infer<typeof leadSchema>;
  * table and filtering it in the browser. Both are capped — see `LEAD_LIST_LIMIT`.
  */
 export const leadListQuery = z.object({
-  /** `in_process` = the pipeline board · `closed` = won + lost (the archive view) */
-  scope: z.enum(["in_process", "closed", "all"]).default("all"),
+  /**
+   * `in_process` = the pipeline board · `closed` = won + lost (the screen's "Closed" tab).
+   *
+   * `archived` is a different axis entirely: closed is an OUTCOME, archived is a soft delete.
+   * A lead can be closed-won and still live on the screen; an archived one is gone from every
+   * view but the Archive. Every other scope excludes archived leads.
+   */
+  scope: z.enum(["in_process", "closed", "all", "archived"]).default("all"),
 });
 export type LeadListQuery = z.infer<typeof leadListQuery>;
 

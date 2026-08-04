@@ -646,7 +646,7 @@ describe("payments", () => {
     expect(edit.after.amount).toBe(45_000);
   });
 
-  it("archive: only settled invoices, hidden from the working list, reversible", async () => {
+  it("tidy away: only settled invoices, hidden from the working list, reversible", async () => {
     const clientId = await makeClient("Yaroslav");
     const open = await makeInvoice(clientId, 20_000);
     const settled = await makeInvoice(clientId, 10_000);
@@ -660,9 +660,9 @@ describe("payments", () => {
     // an unpaid invoice can never be archived — that would hide debt
     const bulk = await app.inject({
       method: "POST",
-      url: "/api/invoices/bulk-archive",
+      url: "/api/invoices/bulk-tidy",
       headers: { cookie: userCookie },
-      payload: { invoiceIds: [open.id, settled.id], archived: true },
+      payload: { invoiceIds: [open.id, settled.id], tidied: true },
     });
     expect(bulk.json()).toEqual({ changed: 1, skipped: 1 });
 
@@ -675,18 +675,18 @@ describe("payments", () => {
 
     const archived = await app.inject({
       method: "GET",
-      url: `/api/invoices?filter=archived&clientId=${clientId}`,
+      url: `/api/invoices?filter=settled&clientId=${clientId}`,
       headers: { cookie: userCookie },
     });
     expect(archived.json().items).toHaveLength(1);
-    expect(archived.json().items[0].archivedByName).toBe("Pay User");
+    expect(archived.json().items[0].tidiedByName).toBe("Pay User");
 
     // restore
     const back = await app.inject({
       method: "POST",
-      url: "/api/invoices/bulk-archive",
+      url: "/api/invoices/bulk-tidy",
       headers: { cookie: userCookie },
-      payload: { invoiceIds: [settled.id], archived: false },
+      payload: { invoiceIds: [settled.id], tidied: false },
     });
     expect(back.json()).toEqual({ changed: 1, skipped: 0 });
   });
@@ -703,9 +703,9 @@ describe("payments", () => {
     const paymentId = paid.json().payments[0].id;
     await app.inject({
       method: "POST",
-      url: "/api/invoices/bulk-archive",
+      url: "/api/invoices/bulk-tidy",
       headers: { cookie: userCookie },
-      payload: { invoiceIds: [invoice.id], archived: true },
+      payload: { invoiceIds: [invoice.id], tidied: true },
     });
 
     // an admin deletes the payment → money is owed again → it must not stay hidden
@@ -714,7 +714,7 @@ describe("payments", () => {
       url: `/api/invoices/payments/${paymentId}`,
       headers: { cookie: adminCookie },
     });
-    expect(afterDelete.json()).toMatchObject({ archivedAt: null, balance: 12_000 });
+    expect(afterDelete.json()).toMatchObject({ tidiedAt: null, balance: 12_000 });
 
     const working = await app.inject({
       method: "GET",

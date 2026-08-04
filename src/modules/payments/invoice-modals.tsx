@@ -22,7 +22,7 @@ import {
   useCancelInvoice,
   useCreateInvoice,
   useDeletePayment,
-  useBulkArchive,
+  useBulkTidy,
   useInvoice,
   useInvoiceAudit,
   useSetDelivery,
@@ -45,7 +45,7 @@ export function InvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClos
   const addPayment = useAddPayment();
   const deletePayment = useDeletePayment();
   const cancelInvoice = useCancelInvoice();
-  const archive = useBulkArchive();
+  const archive = useBulkTidy();
   const [editing, setEditing] = useState(false);
 
   const [amount, setAmount] = useState("");
@@ -107,13 +107,13 @@ export function InvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClos
                 void run(() =>
                   archive.mutateAsync({
                     invoiceIds: [invoice.id],
-                    archived: !invoice.archivedAt,
+                    tidied: !invoice.tidiedAt,
                   }),
                 )
               }
               title="Settled invoices can be tidied out of the working lists (reversible)"
             >
-              {invoice.archivedAt ? "↩ Restore from archive" : "📦 Archive"}
+              {invoice.tidiedAt ? "↩ Back to the working list" : "📦 Tidy away"}
             </Button>
           )}
           {isAdmin && invoice && !invoice.cancelledAt && invoice.paid === 0 && (
@@ -154,10 +154,10 @@ export function InvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClos
             {invoice.periodKey && <span>· period {invoice.periodKey}</span>}
           </div>
 
-          {invoice.archivedAt && (
+          {invoice.tidiedAt && (
             <p className="rounded-(--radius-field) bg-[#f1f3f6] px-3 py-2 text-[12px] text-muted">
-              📦 Archived {fmtDate(invoice.archivedAt)}
-              {invoice.archivedByName ? ` by ${invoice.archivedByName}` : ""} — it stays searchable,
+              📦 Tidied away {fmtDate(invoice.tidiedAt)}
+              {invoice.tidiedByName ? ` by ${invoice.tidiedByName}` : ""} — it stays searchable,
               just out of the working lists.
             </p>
           )}

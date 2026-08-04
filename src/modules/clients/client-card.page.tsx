@@ -57,9 +57,21 @@ export function ClientCardPage() {
   const companiesLabel = client.companies.map((c) => c.name).join(", ") || "no companies";
 
   const onArchive = async () => {
-    if (!window.confirm("Archive this client? They disappear from lists (restorable from Archive).")) {
-      return;
-    }
+    // the dialog must say what actually happens — the services stopping is the part a person
+    // would not guess, and it is the part that decides what comes back on restore
+    const live = client.subscriptions.filter((s) => s.active || s.state === "scheduled").length;
+    const message = [
+      `Archive ${client.displayName}?`,
+      "",
+      "They leave every list, and their tasks leave the board.",
+      live > 0
+        ? `Their ${live} running ${live === 1 ? "service stops" : "services stop"} today — today is the last day served.`
+        : "They have no running services.",
+      "Unpaid invoices stay in Billing: archiving never hides a debt.",
+      "",
+      "Restorable from Archive. Services do not restart on their own.",
+    ].join("\n");
+    if (!window.confirm(message)) return;
     try {
       await archive.mutateAsync(client.id);
       navigate("/clients");

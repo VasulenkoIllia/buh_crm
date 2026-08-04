@@ -336,6 +336,40 @@ export function openPeriod(args: {
   return prisma.subscriptionPeriod.create({ data: args });
 }
 
+/**
+ * Stop the subscription clock for a whole client, as of `endsBefore` (exclusive).
+ *
+ * Archiving used to leave the periods alone, so they still read "in force" for the entire archived
+ * stretch — and the two nightly sweeps back-filled every occurrence the moment the client came
+ * back. Measured on a client archived six months: 6 tasks, all already overdue, 2 invoices issued
+ * and 5 reminders raised, for work nobody did (probe, 2026-08-03). Closing the periods is what
+ * makes the archive mean "we stopped serving them", which is what archiving a client means.
+ *
+ * Touches open periods AND ones ending later, so a pause already scheduled for next month doesn't
+ * keep the clock running past the archive date.
+ */
+export function closeLivePeriodsForClient(
+  clientId: string,
+  endsBefore: Date,
+  endedById: string | null,
+) {
+  return prisma.$transaction([
+    // a start agreed for later never served anything — drop it rather than leave a period that
+    // ends before it begins
+    prisma.subscriptionPeriod.deleteMany({
+      where: { subscription: { clientId }, startsOn: { gte: endsBefore } },
+    }),
+    prisma.subscriptionPeriod.updateMany({
+      where: {
+        subscription: { clientId },
+        startsOn: { lt: endsBefore },
+        OR: [{ endsBefore: null }, { endsBefore: { gt: endsBefore } }],
+      },
+      data: { endsBefore, endNote: "Client archived", endedById },
+    }),
+  ]);
+}
+
 /** Cancelling a subscription that never started removes its period — no zero-length junk. */
 export function deletePeriod(id: string) {
   return prisma.subscriptionPeriod.delete({ where: { id } });

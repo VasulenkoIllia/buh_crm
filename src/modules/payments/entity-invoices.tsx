@@ -17,7 +17,7 @@ const PAGE_SIZE = 25;
 const VIEWS: { key: InvoiceListQuery["filter"]; label: string }[] = [
   { key: "all", label: "All" },
   { key: "paid", label: "Paid" },
-  { key: "archived", label: "Archived" },
+  { key: "settled", label: "Settled" },
   { key: "cancelled", label: "Cancelled" },
 ];
 
@@ -212,7 +212,7 @@ function InvoiceRow({ invoice, onOpen }: { invoice: Invoice; onOpen: () => void 
         "grid min-w-[720px] cursor-pointer items-center gap-x-3 border-b border-divider px-4 py-2.5 text-[13px] last:border-0 hover:bg-divider/40",
         GRID,
         overdue && "bg-[#fef6f6]",
-        (invoice.cancelledAt || invoice.archivedAt) && "opacity-60",
+        (invoice.cancelledAt || invoice.tidiedAt) && "opacity-60",
       )}
     >
       <div className="tabular-nums text-ink-700">
@@ -223,7 +223,7 @@ function InvoiceRow({ invoice, onOpen }: { invoice: Invoice; onOpen: () => void 
         {invoice.serviceName ?? invoice.description ?? "—"}
         {invoice.periodKey && <span className="text-faint"> · {invoice.periodKey}</span>}
         {invoice.companyName && <span className="text-faint"> · {invoice.companyName}</span>}
-        {invoice.archivedAt && <span className="ml-1.5 text-faint">📦</span>}
+        {invoice.tidiedAt && <span className="ml-1.5 text-faint">📦</span>}
       </div>
       <div>
         <InvoiceStatusPill status={invoice.status} size="sm" />

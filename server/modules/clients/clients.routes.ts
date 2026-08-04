@@ -52,6 +52,10 @@ export async function registerRoutes(instance: FastifyInstance) {
     return service.archiveClient(request.params.id, request.currentUser!);
   });
 
+  app.post("/:id/restore", { schema: { params: idParams } }, async (request) => {
+    return service.restoreClient(request.params.id);
+  });
+
   // ── subscriptions (S3) — a client's categories follow from these, nothing to set ──
 
   app.post(

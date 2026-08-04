@@ -11,7 +11,7 @@ import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
 import { FilterChips } from "@/shared/ui/tabs";
 import { InvoiceModal, NewInvoiceModal } from "./invoice-modals";
 import {
-  useBulkArchive,
+  useBulkTidy,
   useBulkDelivery,
   useInvoices,
   useMarkPaid,
@@ -27,7 +27,7 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: "paid", label: "Paid" },
   { key: "unsent", label: "Not sent ✉" },
   { key: "cancelled", label: "Cancelled" },
-  { key: "archived", label: "Archived" },
+  { key: "settled", label: "Settled" },
 ];
 
 const GRID = "grid-cols-[34px_116px_1fr_150px_84px_92px_92px_86px_112px]";
@@ -61,7 +61,7 @@ export function BillingPage() {
   const client = useClient(clientParam ?? undefined);
   const markPaid = useMarkPaid();
   const bulkDelivery = useBulkDelivery();
-  const bulkArchive = useBulkArchive();
+  const bulkTidy = useBulkTidy();
 
   const items = data?.items ?? [];
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
@@ -71,9 +71,9 @@ export function BillingPage() {
   const eligible = {
     toSend: chosenRows.filter((i) => !i.cancelledAt && i.delivery === "created").length,
     toPay: chosenRows.filter((i) => !i.cancelledAt && i.balance > 0).length,
-    toArchive: chosenRows.filter((i) => !i.archivedAt && (i.cancelledAt || i.balance === 0)).length,
+    toTidy: chosenRows.filter((i) => !i.tidiedAt && (i.cancelledAt || i.balance === 0)).length,
   };
-  const busy = markPaid.isPending || bulkDelivery.isPending || bulkArchive.isPending;
+  const busy = markPaid.isPending || bulkDelivery.isPending || bulkTidy.isPending;
 
   const toggle = (id: string) =>
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -263,7 +263,7 @@ export function BillingPage() {
                     )
                   }
                 />
-                {filter === "archived" ? (
+                {filter === "settled" ? (
                   <BulkAction
                     label="↩ Restore"
                     eligible={chosen.length}
@@ -273,23 +273,23 @@ export function BillingPage() {
                     onRun={() =>
                       void runBulk(
                         "Restored",
-                        () => bulkArchive.mutateAsync({ invoiceIds: chosen, archived: false }),
-                        "they are not archived",
+                        () => bulkTidy.mutateAsync({ invoiceIds: chosen, tidied: false }),
+                        "they are not tidied away",
                       )
                     }
                   />
                 ) : (
                   <BulkAction
-                    label="📦 Archive"
-                    eligible={eligible.toArchive}
+                    label="📦 Tidy away"
+                    eligible={eligible.toTidy}
                     total={chosen.length}
                     disabled={busy}
-                    reason="only settled invoices (paid or cancelled) can be archived"
+                    reason="only settled invoices (paid or cancelled) can be tidied away"
                     onRun={() =>
                       void runBulk(
-                        "Archived",
-                        () => bulkArchive.mutateAsync({ invoiceIds: chosen, archived: true }),
-                        "they still have a balance (only settled invoices can be archived)",
+                        "Tidied away",
+                        () => bulkTidy.mutateAsync({ invoiceIds: chosen, tidied: true }),
+                        "they still have a balance (only settled invoices can be tidied away)",
                       )
                     }
                   />
@@ -302,10 +302,10 @@ export function BillingPage() {
                   clear selection
                 </button>
               </div>
-              {eligible.toArchive < chosen.length && filter !== "archived" && (
+              {eligible.toTidy < chosen.length && filter !== "settled" && (
                 <p className="mt-1.5 text-[12px] text-muted">
-                  {chosen.length - eligible.toArchive} of the selected still have a balance — an
-                  invoice that is still owed can't be archived, so it never hides from Billing.
+                  {chosen.length - eligible.toTidy} of the selected still have a balance — an
+                  invoice that is still owed can't be tidied away, so it never hides from Billing.
                 </p>
               )}
             </div>
@@ -405,7 +405,7 @@ function InvoiceRow({
         "grid min-w-[900px] cursor-pointer items-center gap-x-3 border-b border-divider px-4 py-2.5 text-[13px] last:border-0 hover:bg-divider/40",
         GRID,
         overdue && "bg-[#fef6f6]",
-        (invoice.cancelledAt || invoice.archivedAt) && "opacity-60",
+        (invoice.cancelledAt || invoice.tidiedAt) && "opacity-60",
       )}
     >
       <div onClick={(e) => e.stopPropagation()}>

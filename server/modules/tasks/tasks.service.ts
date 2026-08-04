@@ -209,10 +209,16 @@ export async function listTasks(query: TaskListQuery) {
   // definition, so asking for it alongside status=done correctly yields nothing.
   if (query.overdue) and.push({ done: false, cancelledAt: null, deadline: { lt: new Date(today) } });
   // an archived client's work leaves everyone's board — the data stays untouched, so restoring
-  // the client (S11) brings the tasks back; their invoices deliberately stay in Billing
-  and.push({ OR: [{ clientId: null }, { client: { archivedAt: null } }] });
+  // the client brings the tasks back; their invoices deliberately stay in Billing.
+  // The Archive screen is the one view that looks the other way.
+  if (!query.archived) {
+    and.push({ OR: [{ clientId: null }, { client: { archivedAt: null } }] });
+  }
 
-  const where: Prisma.TaskWhereInput = { archivedAt: null, AND: and };
+  const where: Prisma.TaskWhereInput = {
+    archivedAt: query.archived ? { not: null } : null,
+    AND: and,
+  };
 
   const paged = query.view === "table";
   const take = paged ? query.pageSize : BOARD_LIMIT;
@@ -237,10 +243,21 @@ export async function listTasks(query: TaskListQuery) {
   };
 }
 
+/**
+ * A task is as gone as whoever it is FOR. Archiving a client takes their work off every board, but
+ * each of these entry points only ever checked the task's own `archivedAt` — so an invoice's
+ * "Job: …" link reopened the task by id and a timer could still run on work that was supposed to
+ * have stopped (user, 2026-08-03). One helper, so a new entry point cannot forget.
+ */
+function liveTaskOr404(task: repo.TaskRecord | null): repo.TaskRecord {
+  if (!task || task.archivedAt || task.client?.archivedAt || task.lead?.archivedAt) {
+    throw new NotFoundError("Task not found");
+  }
+  return task;
+}
+
 export async function getTask(id: string) {
-  const task = await repo.findTask(id);
-  if (!task || task.archivedAt) throw new NotFoundError("Task not found");
-  return toTaskDto(task);
+  return toTaskDto(liveTaskOr404(await repo.findTask(id)));
 }
 
 /** New assignees must be active; already-assigned users may stay (blocked badge in UI). */
@@ -370,8 +387,7 @@ export async function createTask(input: CreateTaskInput, actor: User) {
 }
 
 export async function updateTask(id: string, input: UpdateTaskInput, actor: User) {
-  const task = await repo.findTask(id);
-  if (!task || task.archivedAt) throw new NotFoundError("Task not found");
+  const task = liveTaskOr404(await repo.findTask(id));
 
   // a job's price is editable only until an invoice is issued
   if (input.amount !== undefined) {
@@ -460,8 +476,7 @@ export async function updateTask(id: string, input: UpdateTaskInput, actor: User
 }
 
 export async function setSubtasks(id: string, input: SetSubtasksInput) {
-  const task = await repo.findTask(id);
-  if (!task || task.archivedAt) throw new NotFoundError("Task not found");
+  liveTaskOr404(await repo.findTask(id));
   await repo.setSubtasks(id, input.subtasks);
   return getTask(id);
 }
@@ -469,8 +484,7 @@ export async function setSubtasks(id: string, input: SetSubtasksInput) {
 // ── comments (any authenticated user; delete = own comment or admin) ───────────
 
 export async function addComment(taskId: string, input: CreateTaskCommentInput, actor: User) {
-  const task = await repo.findTask(taskId);
-  if (!task || task.archivedAt) throw new NotFoundError("Task not found");
+  liveTaskOr404(await repo.findTask(taskId));
   await repo.addComment(taskId, actor.id, input.body);
   return getTask(taskId);
 }
@@ -495,8 +509,7 @@ export async function deleteComment(commentId: string, actor: User) {
  * otherwise something still owed to a client could leave the board with no trace of why.
  */
 export async function archiveTask(id: string, actor: User) {
-  const task = await repo.findTask(id);
-  if (!task || task.archivedAt) throw new NotFoundError("Task not found");
+  const task = liveTaskOr404(await repo.findTask(id));
   // finished business either way: done, or called off. Open work must not be able to vanish.
   if (!task.done && !task.cancelledAt) {
     throw new ConflictError(
@@ -505,6 +518,26 @@ export async function archiveTask(id: string, actor: User) {
   }
   await repo.updateTask(id, { archivedAt: new Date(), archivedById: actor.id });
   return { ok: true as const };
+}
+
+/**
+ * Put an archived task back on the board — but only if there is a board for it to go back to.
+ *
+ * A task belonging to an archived client cannot be restored on its own: it would land in a state
+ * the app has no view for (a live task hanging off a client nobody can open), and it is the same
+ * hole that let an invoice's "Job:" link reopen an archived client's task and run a timer on it.
+ * Restore the client first, and every one of their tasks comes back with them.
+ */
+export async function restoreTask(id: string) {
+  const task = await repo.findTask(id);
+  if (!task || !task.archivedAt) throw new NotFoundError("Task not found");
+  if (task.client?.archivedAt || task.lead?.archivedAt) {
+    throw new ConflictError(
+      "This task belongs to an archived client — restore the client and its tasks come back too",
+    );
+  }
+  await repo.updateTask(id, { archivedAt: null, archivedById: null });
+  return getTask(id);
 }
 
 // ── timer ────────────────────────────────────────────────────────────────────
@@ -532,8 +565,7 @@ export async function getActiveTimer(actor: User) {
  * happens and the old timer keeps running.
  */
 export async function startTimer(actor: User, input: StartTimerInput) {
-  const task = await repo.findTask(input.taskId);
-  if (!task || task.archivedAt) throw new NotFoundError("Task not found");
+  const task = liveTaskOr404(await repo.findTask(input.taskId));
   // a completed task is a snapshot — no tracking new time on finished work (reopen first)
   if (task.done) throw new ValidationError("Task is completed — reopen it to track time");
   if (task.cancelledAt) throw new ValidationError("Task is cancelled — restore it to track time");
@@ -578,8 +610,7 @@ export async function stopTimer(actor: User, input: StopTimerInput) {
 // ── admin time management ────────────────────────────────────────────────────
 
 export async function addTimeEntry(admin: User, taskId: string, input: AddTimeEntryInput) {
-  const task = await repo.findTask(taskId);
-  if (!task || task.archivedAt) throw new NotFoundError("Task not found");
+  liveTaskOr404(await repo.findTask(taskId));
   if (!(await repo.findUser(input.userId))) throw new ValidationError("Unknown user");
 
   const startedAt = input.date ? dateToUtc(input.date) : new Date();

@@ -5,8 +5,8 @@ import type {
   UpdateLeadInput,
 } from "@shared/schema/lead.js";
 import { LEAD_LIST_LIMIT } from "@shared/schema/lead.js";
-import type { Lead, Prisma } from "../../generated/prisma/client.js";
-import { NotFoundError, ValidationError } from "../../core/errors.js";
+import type { Lead, Prisma, User } from "../../generated/prisma/client.js";
+import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
 import { applyDefaultClientService } from "../clients/index.js";
 import * as repo from "./leads.repository.js";
 
@@ -33,15 +33,22 @@ function toLeadDto(lead: Lead) {
     outcome: lead.outcome,
     convertedClientId: lead.convertedClientId,
     createdAt: lead.createdAt.toISOString(),
+    archivedAt: lead.archivedAt?.toISOString() ?? null,
   };
 }
 
 /**
- * The board asks for live leads, the archive for closed ones — each side is a database query,
- * not a filter over every lead the firm ever had.
+ * The board asks for live leads, "Closed" for won + lost, Archive for the archived — each side is
+ * a database query, not a filter over every lead the firm ever had.
+ *
+ * Closed and archived are different axes and always were: `outcome` says how the conversation
+ * ended, `archivedAt` says the row is gone from the working views. The screen's tab used to be
+ * called "Archive" while meaning the first of those, which is exactly the confusion this round
+ * set out to remove.
  */
 export async function listLeads(query: LeadListQuery) {
-  const where: Prisma.LeadWhereInput = { archivedAt: null };
+  const where: Prisma.LeadWhereInput =
+    query.scope === "archived" ? { archivedAt: { not: null } } : { archivedAt: null };
   if (query.scope === "in_process") where.outcome = "in_process";
   if (query.scope === "closed") where.outcome = { not: "in_process" };
 
@@ -123,4 +130,30 @@ export async function convert(id: string, input: ConvertLeadInput) {
   // a converted lead becomes a new client → give it the default service too (no-op if none)
   await applyDefaultClientService(client.id);
   return { clientId: client.id, lead: toLeadDto(updated) };
+}
+
+/**
+ * Archive a lead — a soft delete, not an outcome. Losing a lead is `mark-lost`, which keeps it on
+ * the Closed tab where the firm can still see who was talked to and reopen the conversation.
+ * Archiving is for rows that should stop appearing at all: duplicates, tests, mistakes.
+ *
+ * A converted lead can't be archived: it is the paper trail of where a real client came from, and
+ * the client card links back to it.
+ */
+export async function archiveLead(id: string, actor: User) {
+  const lead = await getActiveLead(id);
+  if (lead.outcome === "won") {
+    throw new ConflictError("A converted lead is the record of where a client came from");
+  }
+  await repo.updateLead(id, { archivedAt: new Date(), archivedById: actor.id });
+  return { ok: true as const };
+}
+
+/** Put an archived lead back — it returns to whichever tab its outcome puts it on. */
+export async function restoreLead(id: string) {
+  const lead = await repo.findLead(id);
+  if (!lead) throw new NotFoundError("Lead not found");
+  if (!lead.archivedAt) throw new ConflictError("This lead is not archived");
+  await repo.updateLead(id, { archivedAt: null, archivedById: null });
+  return toLeadDto(await getActiveLead(id));
 }

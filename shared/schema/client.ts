@@ -232,8 +232,12 @@ export type UpdateSubscriptionInput = z.infer<typeof updateSubscriptionInput>;
 /** Full replace of the client's category chip set. */
 
 export const clientListQuery = z.object({
-  /** "all" = no regularity filter (pickers); the clients screen uses the 2 tabs */
-  tab: z.enum(["one_time", "regular", "all"]).default("one_time"),
+  /**
+   * "all" = no regularity filter (pickers); the clients screen uses the 2 tabs.
+   * "archived" is the odd one out — it ignores regularity and returns ONLY archived clients,
+   * which is what the Archive screen reads. Every other tab excludes them.
+   */
+  tab: z.enum(["one_time", "regular", "all", "archived"]).default("one_time"),
   search: z.string().trim().optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),

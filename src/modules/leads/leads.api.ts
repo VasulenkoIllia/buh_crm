@@ -93,6 +93,23 @@ export function useReopenLead() {
   });
 }
 
+/** Archive a lead — a soft delete, not an outcome. `mark-lost` is how a lead is closed. */
+export function useArchiveLead() {
+  const invalidate = useInvalidateLeads();
+  return useMutation({
+    mutationFn: (id: string) => api<{ ok: true }>(`/api/leads/${id}/archive`, { method: "POST" }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRestoreLead() {
+  const invalidate = useInvalidateLeads();
+  return useMutation({
+    mutationFn: (id: string) => api<Lead>(`/api/leads/${id}/restore`, { method: "POST" }),
+    onSuccess: invalidate,
+  });
+}
+
 export function useConvertLead() {
   const queryClient = useQueryClient();
   return useMutation({

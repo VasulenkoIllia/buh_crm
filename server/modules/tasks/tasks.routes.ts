@@ -122,6 +122,12 @@ export async function registerRoutes(instance: FastifyInstance) {
   );
 
   app.post(
+    "/:id/restore",
+    { preHandler: requireAuth, schema: { params: idParams } },
+    async (request) => service.restoreTask(request.params.id),
+  );
+
+  app.post(
     "/:id/time",
     { preHandler: requireAdmin, schema: { params: idParams, body: addTimeEntryInput } },
     async (request, reply) =>

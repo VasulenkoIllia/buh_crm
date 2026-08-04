@@ -1,6 +1,6 @@
 import type {
   AddPaymentInput,
-  BulkArchiveInput,
+  BulkTidyInput,
   BulkDeliveryInput,
   CreateInvoiceInput,
   InvoiceListQuery,
@@ -55,8 +55,8 @@ export function toInvoiceDto(
     issuedAt: inv.issuedAt.toISOString(),
     cancelledAt: inv.cancelledAt?.toISOString() ?? null,
     cancelledByName: inv.cancelledBy ? personName(inv.cancelledBy) : null,
-    archivedAt: inv.archivedAt?.toISOString() ?? null,
-    archivedByName: inv.archivedBy ? personName(inv.archivedBy) : null,
+    tidiedAt: inv.tidiedAt?.toISOString() ?? null,
+    tidiedByName: inv.tidiedBy ? personName(inv.tidiedBy) : null,
     clientArchived: inv.client.archivedAt != null,
     delivery: inv.sentAt ? ("sent" as const) : ("created" as const),
     sentAt: inv.sentAt?.toISOString() ?? null,
@@ -111,15 +111,15 @@ export async function listInvoices(query: InvoiceListQuery) {
   // boundary `deriveStatus` uses, so the chip count and the row's own pill always agree
   const pastDue: Prisma.InvoiceWhereInput = { dueDate: { lt: new Date(todayMs) } };
 
-  const live = { ...base, cancelledAt: null, archivedAt: null };
+  const live = { ...base, cancelledAt: null, tidiedAt: null };
   const scopes: Record<InvoiceListQuery["filter"], Prisma.InvoiceWhereInput> = {
     all: live,
     unpaid: { ...live, ...owed },
     overdue: { ...live, ...owed, ...pastDue },
     paid: { ...live, ...settled },
     unsent: { ...live, sentAt: null },
-    cancelled: { ...base, cancelledAt: { not: null }, archivedAt: null },
-    archived: { ...base, archivedAt: { not: null } },
+    cancelled: { ...base, cancelledAt: { not: null }, tidiedAt: null },
+    settled: { ...base, tidiedAt: { not: null } },
   };
   const where = scopes[query.filter];
 
@@ -260,15 +260,15 @@ export async function updateInvoice(id: string, input: UpdateInvoiceInput, user:
  * invoice — fully paid or cancelled — can be archived, so archiving can never hide debt.
  * Reversible, so it's not admin-gated.
  */
-export async function setArchived(input: BulkArchiveInput, user: User) {
+export async function setTidied(input: BulkTidyInput, user: User) {
   const invoices = await repo.findInvoices(input.invoiceIds);
   const eligible = invoices.filter((inv) => {
-    if (!input.archived) return inv.archivedAt != null;
-    if (inv.archivedAt) return false;
+    if (!input.tidied) return inv.tidiedAt != null;
+    if (inv.tidiedAt) return false;
     return balanceOf(inv) === 0; // nothing owed (settled or voided)
   });
   if (eligible.length > 0) {
-    await repo.setArchived(eligible.map((inv) => inv.id), input.archived, user.id);
+    await repo.setTidied(eligible.map((inv) => inv.id), input.tidied, user.id);
   }
   return { changed: eligible.length, skipped: input.invoiceIds.length - eligible.length };
 }
@@ -280,7 +280,7 @@ export async function setArchived(input: BulkArchiveInput, user: User) {
  */
 async function unarchiveIfOwed(invoiceId: string) {
   const invoice = await repo.findInvoice(invoiceId);
-  if (!invoice?.archivedAt || invoice.cancelledAt) return;
+  if (!invoice?.tidiedAt || invoice.cancelledAt) return;
   if (balanceOf(invoice) > 0) await repo.clearArchived([invoiceId]);
 }
 

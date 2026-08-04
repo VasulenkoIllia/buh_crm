@@ -820,6 +820,79 @@ describe("tasks", () => {
     expect(backOnBoard.json().items.map((t: { id: string }) => t.id)).toContain(otherId);
   });
 
+  // Archiving a client takes their work off every board — but a task was still fully reachable BY
+  // ID, and an invoice links straight to one ("Job: …"). So the work vanished from the board while
+  // a timer could still be started on it (user, 2026-08-03). A task is as gone as its client.
+  it("a task of an archived client is unreachable by id, not just hidden from lists", async () => {
+    const clientId = await makeClient("ToArchive");
+    const svc = await prisma.service.create({
+      data: { name: "Archive probe", color: "#000", type: "one_time", defaultAmount: 1000 },
+    });
+    const sub = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions`,
+      headers: { cookie: adminCookie },
+      payload: { serviceId: svc.id, amount: 1000, period: "month" },
+    });
+    const subscriptionId = sub.json().subscriptions.find(
+      (x: { serviceId: string }) => x.serviceId === svc.id,
+    ).id;
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/tasks",
+      headers: { cookie: adminCookie },
+      payload: { title: "Work for a client we dropped", clientId, subscriptionId, assignees: [adminId] },
+    });
+    expect(created.statusCode).toBe(201);
+    const taskId = created.json().id;
+
+    await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/archive`,
+      headers: { cookie: adminCookie },
+    });
+
+    // gone from the board — this already worked
+    const board = await app.inject({
+      method: "GET",
+      url: "/api/tasks?view=board&status=open&pageSize=100",
+      headers: { cookie: adminCookie },
+    });
+    expect(board.json().items.map((t: { id: string }) => t.id)).not.toContain(taskId);
+
+    // …and gone by id too, on every door into it
+    const byId = await app.inject({
+      method: "GET",
+      url: `/api/tasks/${taskId}`,
+      headers: { cookie: adminCookie },
+    });
+    expect(byId.statusCode).toBe(404);
+
+    const timer = await app.inject({
+      method: "POST",
+      url: "/api/tasks/timer/start",
+      headers: { cookie: adminCookie },
+      payload: { taskId },
+    });
+    expect(timer.statusCode).toBe(404);
+
+    const patch = await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/${taskId}`,
+      headers: { cookie: adminCookie },
+      payload: { done: true },
+    });
+    expect(patch.statusCode).toBe(404);
+
+    const comment = await app.inject({
+      method: "POST",
+      url: `/api/tasks/${taskId}/comments`,
+      headers: { cookie: adminCookie },
+      payload: { body: "still here?" },
+    });
+    expect(comment.statusCode).toBe(404);
+  });
+
   it("generates tasks on the rhythm day, idempotently, honoring per-client overrides", async () => {
     const { d, weekday, monthKey } = todayParts();
 

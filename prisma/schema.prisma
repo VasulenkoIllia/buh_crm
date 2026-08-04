@@ -148,7 +148,7 @@ model User {
   invoicesCreated     Invoice[]            @relation("InvoiceCreatedBy")
   invoicesSent        Invoice[]            @relation("InvoiceSentBy")
   invoicesCancelled   Invoice[]            @relation("InvoiceCancelledBy")
-  invoicesArchived    Invoice[]            @relation("InvoiceArchivedBy")
+  invoicesArchived    Invoice[]            @relation("InvoiceTidiedBy")
   uploadedFiles       File[]               @relation("FileUploadedBy")
   subscriptionPeriods SubscriptionPeriod[] @relation("SubscriptionPeriodCreatedBy")
   subscriptionPeriodsEnded SubscriptionPeriod[] @relation("SubscriptionPeriodEndedBy")
@@ -673,10 +673,12 @@ model Invoice {
   // cancelled = voided (never deleted): keeps history, drops out of debt and the unpaid list
   cancelledAt    DateTime?
   cancelledById  String?   @db.Uuid
-  // archived = settled business tidied away: hidden from the working lists, still queryable.
-  // Only a zero-balance invoice (paid or cancelled) can be archived, so debt is never hidden.
-  archivedAt     DateTime?
-  archivedById   String?   @db.Uuid
+  /// TIDIED, not archived: settled business moved out of the working list. Never a deletion, and
+  /// only a zero-balance invoice (paid or cancelled) can be tidied, so debt is never hidden. The
+  /// name is deliberate — `archivedAt` elsewhere means SOFT-DELETED, and one word for two ideas is
+  /// what made a single Archive screen impossible (2026-08-03).
+  tidiedAt       DateTime?
+  tidiedById     String?   @db.Uuid
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -689,7 +691,7 @@ model Invoice {
   createdBy    User?             @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
   sentBy       User?             @relation("InvoiceSentBy", fields: [sentById], references: [id])
   cancelledBy  User?             @relation("InvoiceCancelledBy", fields: [cancelledById], references: [id])
-  archivedBy   User?             @relation("InvoiceArchivedBy", fields: [archivedById], references: [id])
+  tidiedBy     User?             @relation("InvoiceTidiedBy", fields: [tidiedById], references: [id])
   tasks        Task[]
   payments     Payment[]
   auditLogs    PaymentAuditLog[]
@@ -698,9 +700,9 @@ model Invoice {
   @@index([clientId])
   @@index([dueDate])
   @@index([sentAt])
-  @@index([archivedAt])
+  @@index([tidiedAt])
   // the working list is "this firm's live invoices, newest first" — one index answers it
-  @@index([cancelledAt, archivedAt, issuedAt])
+  @@index([cancelledAt, tidiedAt, issuedAt])
 }
 
 model Payment {

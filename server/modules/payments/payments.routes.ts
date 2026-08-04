@@ -6,7 +6,7 @@ import {
   addPaymentInput,
   createInvoiceInput,
   invoiceListQuery,
-  bulkArchiveInput,
+  bulkTidyInput,
   bulkDeliveryInput,
   markPaidInput,
   setDeliveryInput,
@@ -52,9 +52,9 @@ export async function registerRoutes(instance: FastifyInstance) {
   );
 
   app.post(
-    "/bulk-archive",
-    { preHandler: requireAuth, schema: { body: bulkArchiveInput } },
-    async (request) => service.setArchived(request.body, request.currentUser!),
+    "/bulk-tidy",
+    { preHandler: requireAuth, schema: { body: bulkTidyInput } },
+    async (request) => service.setTidied(request.body, request.currentUser!),
   );
 
   app.patch(

@@ -11,7 +11,7 @@ const invoiceInclude = {
   service: { select: { name: true } },
   sentBy: { select: { firstName: true, lastName: true } },
   cancelledBy: { select: { firstName: true, lastName: true } },
-  archivedBy: { select: { firstName: true, lastName: true } },
+  tidiedBy: { select: { firstName: true, lastName: true } },
   payments: {
     orderBy: { paidAt: "asc" },
     include: { createdBy: { select: { firstName: true, lastName: true } } },
@@ -79,12 +79,12 @@ export function syncTaskAmounts(invoiceId: string, amount: number) {
 }
 
 /** Archive / restore a set of invoices in one statement (callers pre-check the rules). */
-export function setArchived(ids: string[], archived: boolean, userId: string) {
+export function setTidied(ids: string[], archived: boolean, userId: string) {
   return prisma.invoice.updateMany({
     where: { id: { in: ids } },
     data: archived
-      ? { archivedAt: new Date(), archivedById: userId }
-      : { archivedAt: null, archivedById: null },
+      ? { tidiedAt: new Date(), tidiedById: userId }
+      : { tidiedAt: null, tidiedById: null },
   });
 }
 
@@ -92,7 +92,7 @@ export function setArchived(ids: string[], archived: boolean, userId: string) {
 export function clearArchived(ids: string[]) {
   return prisma.invoice.updateMany({
     where: { id: { in: ids } },
-    data: { archivedAt: null, archivedById: null },
+    data: { tidiedAt: null, tidiedById: null },
   });
 }
 

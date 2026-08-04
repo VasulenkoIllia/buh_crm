@@ -52,8 +52,8 @@ export const invoiceSchema = z.object({
   sentAt: z.iso.datetime().nullable(),
   sentByName: z.string().nullable(),
   /** settled business tidied out of the working lists (never deleted) */
-  archivedAt: z.iso.datetime().nullable(),
-  archivedByName: z.string().nullable(),
+  tidiedAt: z.iso.datetime().nullable(),
+  tidiedByName: z.string().nullable(),
   /** the owner client is archived — the money is still owed, so the row stays visible + flagged */
   clientArchived: z.boolean(),
   /** the job this invoice was issued for (one-time task), if any */
@@ -74,7 +74,7 @@ export const invoiceListSchema = paginated(invoiceSchema).extend({
     paid: z.number().int(),
     unsent: z.number().int(),
     cancelled: z.number().int(),
-    archived: z.number().int(),
+    settled: z.number().int(),
   }),
 });
 export type InvoiceList = z.infer<typeof invoiceListSchema>;
@@ -108,7 +108,7 @@ export function deriveStatus(
 export const invoiceListQuery = z.object({
   /** the Billing screen's filter chips; "all" hides nothing but cancelled invoices */
   filter: z
-    .enum(["all", "unpaid", "overdue", "paid", "unsent", "cancelled", "archived"])
+    .enum(["all", "unpaid", "overdue", "paid", "unsent", "cancelled", "settled"])
     .default("all"),
   clientId: uuid.optional(),
   /** which of the client's companies the invoice concerns; "root" = the client itself */
@@ -189,11 +189,11 @@ export const bulkDeliveryInput = z.object({
 });
 export type BulkDeliveryInput = z.infer<typeof bulkDeliveryInput>;
 
-export const bulkArchiveInput = z.object({
+export const bulkTidyInput = z.object({
   invoiceIds: z.array(uuid).min(1).max(100),
-  archived: z.boolean(),
+  tidied: z.boolean(),
 });
-export type BulkArchiveInput = z.infer<typeof bulkArchiveInput>;
+export type BulkTidyInput = z.infer<typeof bulkTidyInput>;
 
 /** What a bulk mark actually did — the UI reports skips instead of silently doing less. */
 export const bulkResultSchema = z.object({

@@ -21,7 +21,14 @@ import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { EntityTasks } from "@/modules/tasks";
 import { useSettings } from "@/modules/settings";
 import { ConvertLeadModal, LeadFormModal } from "./lead-modals";
-import { useLead, useLeads, useMarkLost, useReopenLead, useUpdateLead } from "./leads.api";
+import {
+  useArchiveLead,
+  useLead,
+  useLeads,
+  useMarkLost,
+  useReopenLead,
+  useUpdateLead,
+} from "./leads.api";
 
 const STAGES: Array<{ key: LeadStage; label: string }> = [
   { key: "first_contact", label: "First contact" },
@@ -48,20 +55,23 @@ export function LeadsPage() {
     setSelected(null);
     if (leadParam) setSearchParams({}, { replace: true });
   };
-  // won/lost leads leave the board automatically — they live in the archive view
-  const [view, setView] = useState<"board" | "archive">("board");
+  // won/lost leads leave the board automatically — they live in the Closed view.
+  // "Closed", not "Archive": this tab was never `archivedAt`, it is an OUTCOME, and calling it
+  // Archive was what made the real Archive screen impossible to reason about (2026-08-03).
+  // Archiving a lead is a soft delete and sends it to /archive instead.
+  const [view, setView] = useState<"board" | "closed">("board");
 
-  // two queries, two sides of the pipeline: the board never loads the archive and vice versa.
-  // Both stay mounted so the "Archive (N)" count is live without re-fetching on every switch.
+  // two queries, two sides of the pipeline: the board never loads the closed list and vice versa.
+  // Both stay mounted so the "Closed (N)" count is live without re-fetching on every switch.
   const board = useLeads("in_process");
-  const archive = useLeads("closed");
-  const { isLoading, error } = view === "board" ? board : archive;
+  const closedList = useLeads("closed");
+  const { isLoading, error } = view === "board" ? board : closedList;
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   const active = useMemo(() => board.data?.items ?? [], [board.data]);
-  const closed = archive.data?.items ?? [];
-  const leads = view === "board" ? board.data : archive.data;
+  const closed = closedList.data?.items ?? [];
+  const leads = view === "board" ? board.data : closedList.data;
 
   const byStage = useMemo(() => {
     const map = new Map<LeadStage, Lead[]>(STAGES.map((s) => [s.key, []]));
@@ -88,7 +98,7 @@ export function LeadsPage() {
           {leads
             ? view === "board"
               ? `${board.data?.total ?? 0} ${board.data?.total === 1 ? "lead" : "leads"} · sales pipeline`
-              : `${archive.data?.total ?? 0} won or lost`
+              : `${closedList.data?.total ?? 0} won or lost`
             : "sales pipeline"}
         </span>
         <div className="ml-auto flex items-center gap-3">
@@ -97,7 +107,7 @@ export function LeadsPage() {
             onChange={setView}
             options={[
               { value: "board", label: "Board" },
-              { value: "archive", label: `Archive (${archive.data?.total ?? 0})` },
+              { value: "closed", label: `Closed (${closedList.data?.total ?? 0})` },
             ]}
           />
           <Button onClick={() => setFormOpen(true)}>+ New lead</Button>
@@ -142,7 +152,7 @@ export function LeadsPage() {
         </DndContext>
       )}
 
-      {leads && view === "archive" && <LeadArchive leads={closed} onOpen={setSelected} />}
+      {leads && view === "closed" && <ClosedLeads leads={closed} onOpen={setSelected} />}
 
       {formOpen && <LeadFormModal open={formOpen} onClose={() => setFormOpen(false)} />}
       {selected && <LeadDetails lead={selected} onClose={closeDetails} />}
@@ -151,7 +161,7 @@ export function LeadsPage() {
 }
 
 /** Won & lost leads — off the board, still reachable from it (reopen / open the client). */
-function LeadArchive({ leads, onOpen }: { leads: Lead[]; onOpen: (lead: Lead) => void }) {
+function ClosedLeads({ leads, onOpen }: { leads: Lead[]; onOpen: (lead: Lead) => void }) {
   const { data: settings } = useSettings();
   const { data: services } = useCatalog();
 
@@ -287,16 +297,17 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
   // both lists are already in cache (the page keeps them mounted) — read the lead from whichever
   // holds it now, so Mark lost / Reopen, which move it between them, update the open card
   const { data: board } = useLeads("in_process");
-  const { data: archive } = useLeads("closed");
+  const { data: closedList } = useLeads("closed");
   const { data: settings } = useSettings();
   const { data: services } = useCatalog();
   const markLost = useMarkLost();
   const reopen = useReopenLead();
+  const archiveLead = useArchiveLead();
   const [editOpen, setEditOpen] = useState(false);
   const [convertOpen, setConvertOpen] = useState(false);
 
   const lead =
-    [...(board?.items ?? []), ...(archive?.items ?? [])].find((l) => l.id === initial.id) ??
+    [...(board?.items ?? []), ...(closedList?.items ?? [])].find((l) => l.id === initial.id) ??
     initial;
   const locked = lead.outcome === "won";
 
@@ -380,6 +391,19 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
           >
             📅 Schedule meeting
           </button>
+          {!locked && (
+            <button
+              type="button"
+              disabled={archiveLead.isPending}
+              onClick={() => {
+                if (!window.confirm("Archive this lead? It leaves the pipeline — restorable from Archive.")) return;
+                archiveLead.mutate(lead.id, { onSuccess: onClose });
+              }}
+              className="mr-auto ml-2 text-[13px] font-medium text-muted hover:text-ink-700 hover:underline"
+            >
+              Archive
+            </button>
+          )}
           {locked ? (
             <span className="text-[13px] font-semibold text-success">✓ Already a client</span>
           ) : lead.outcome === "lost" ? (

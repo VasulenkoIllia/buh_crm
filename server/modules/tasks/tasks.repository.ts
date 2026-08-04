@@ -5,10 +5,12 @@ import { prisma } from "../../core/db.js";
 
 const taskInclude = {
   // target labels ride along so no screen has to resolve ids against a (capped) client list
-  client: { select: { firstName: true, lastName: true } },
+  // `archivedAt` rides along so every entry point can ask whether the CLIENT is gone —
+  // a task outlives its client only in the database, never in the app (2026-08-03)
+  client: { select: { firstName: true, lastName: true, archivedAt: true } },
   cancelledBy: { select: { firstName: true, lastName: true } },
   company: { select: { name: true } },
-  lead: { select: { name: true } },
+  lead: { select: { name: true, archivedAt: true } },
   assignees: { select: { userId: true } },
   subtasks: { orderBy: { order: "asc" } },
   timeEntries: { orderBy: { startedAt: "asc" } },

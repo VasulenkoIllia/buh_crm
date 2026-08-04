@@ -4,7 +4,7 @@ import type {
   CreateInvoiceInput,
   Invoice,
   InvoiceListQuery,
-  BulkArchiveInput,
+  BulkTidyInput,
   BulkDeliveryInput,
   BulkResult,
   MarkPaidInput,
@@ -21,7 +21,7 @@ export interface InvoiceListResponse {
   page: number;
   pageSize: number;
   totals: { receivable: number; overdue: number };
-  counts: Record<"all" | "unpaid" | "overdue" | "paid" | "unsent" | "cancelled" | "archived", number>;
+  counts: Record<"all" | "unpaid" | "overdue" | "paid" | "unsent" | "cancelled" | "settled", number>;
 }
 
 export interface AuditEntry {
@@ -131,11 +131,11 @@ export function useBulkDelivery() {
   });
 }
 
-export function useBulkArchive() {
+export function useBulkTidy() {
   const invalidate = useInvalidateBilling();
   return useMutation({
-    mutationFn: (input: BulkArchiveInput) =>
-      api<BulkResult>("/api/invoices/bulk-archive", { method: "POST", body: input }),
+    mutationFn: (input: BulkTidyInput) =>
+      api<BulkResult>("/api/invoices/bulk-tidy", { method: "POST", body: input }),
     onSuccess: invalidate,
   });
 }

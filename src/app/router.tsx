@@ -16,6 +16,7 @@ import { LeadsPage } from "@/modules/leads";
 import { ServicesPage } from "@/modules/catalog";
 import { BillingPage } from "@/modules/payments";
 import { TasksPage } from "@/modules/tasks";
+import { ArchivePage } from "@/modules/archive";
 
 /** Old /unpaid path → /billing, preserving ?invoice= / ?client= deep links. */
 function RedirectToBilling() {
@@ -69,7 +70,7 @@ export const router = createBrowserRouter([
               { path: "services", element: <ServicesPage /> },
               { path: "mailouts", element: <ComingSoon module="Mailouts" stage="S10" /> },
               { path: "reports", element: <ComingSoon module="Reports" stage="S12" /> },
-              { path: "archive", element: <ComingSoon module="Archive" stage="S11" /> },
+              { path: "archive", element: <ArchivePage /> },
               { path: "profile", element: <ProfilePage /> },
               // admin-only (backend enforces too — this stops the page from even mounting)
               {

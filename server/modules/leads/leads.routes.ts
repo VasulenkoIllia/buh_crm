@@ -38,6 +38,14 @@ export async function registerRoutes(instance: FastifyInstance) {
     },
   );
 
+  app.post("/:id/archive", { schema: { params: idParams } }, async (request) => {
+    return service.archiveLead(request.params.id, request.currentUser!);
+  });
+
+  app.post("/:id/restore", { schema: { params: idParams } }, async (request) => {
+    return service.restoreLead(request.params.id);
+  });
+
   app.post("/:id/mark-lost", { schema: { params: idParams } }, async (request) => {
     return service.markLost(request.params.id);
   });
