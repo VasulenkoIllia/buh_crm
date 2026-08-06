@@ -28,12 +28,25 @@ import { fmtRange } from "./grid";
  */
 
 /**
- * `datetime-local` carries a wall clock with no zone attached, and `new Date(...)` would read it in
- * the BROWSER's zone. Typing 09:00 has to mean 09:00 in the office, whoever is typing and wherever
- * their laptop thinks it is — so both directions go through the firm's clock.
+ * Date and time are two separate inputs rather than one `datetime-local`.
+ *
+ * `datetime-local` is barely editable in Safari — there is no picker and the segments fight you,
+ * which is why the time could not be changed at all (user, 2026-08-06). Two plain native controls
+ * are obvious, keyboard-friendly and identical everywhere.
+ *
+ * Both carry a wall clock with no zone attached, and `new Date(...)` would read it in the BROWSER's
+ * zone. Typing 09:00 has to mean 09:00 in the office whoever is typing, so both directions go
+ * through the firm's clock.
  */
-const toLocalInput = (iso: string): string => instantToFirmWallClock(iso);
-const fromLocalInput = (local: string): string => firmWallClockToInstant(local).toISOString();
+const splitInstant = (iso: string): { date: string; time: string } => {
+  const [date, time] = instantToFirmWallClock(iso).split("T");
+  return { date, time };
+};
+const joinToInstant = (date: string, time: string): string =>
+  firmWallClockToInstant(`${date}T${time}`).toISOString();
+
+/** Half-hour steps, so the common case is two clicks and the odd one is still typable. */
+const TIME_STEP_SECONDS = 1800;
 
 /** Only asked when the meeting has a client — a lead holds no services to route through. */
 type TaskMode = "internal" | "service";
@@ -61,8 +74,8 @@ export function MeetingModal({
 
   const [title, setTitle] = useState("");
   const [target, setTarget] = useState("");
-  const [startLocal, setStartLocal] = useState(() =>
-    toLocalInput(defaultStartAt ?? new Date().toISOString()),
+  const [start, setStart] = useState(() =>
+    splitInstant(defaultStartAt ?? new Date().toISOString()),
   );
   const [duration, setDuration] = useState(60);
   const [link, setLink] = useState("");
@@ -93,7 +106,7 @@ export function MeetingModal({
             ? `lead:${existing.leadId}`
             : "",
       );
-      setStartLocal(toLocalInput(existing.startAt));
+      setStart(splitInstant(existing.startAt));
       setDuration(existing.durationMinutes);
       setLink(existing.link ?? "");
       setDescription(existing.description ?? "");
@@ -109,7 +122,7 @@ export function MeetingModal({
   const clientId = kind === "client" ? targetId! : undefined;
   const { data: client } = useClient(withTask && taskMode === "service" ? clientId : undefined);
 
-  const startAt = startLocal ? fromLocalInput(startLocal) : null;
+  const startAt = start.date && start.time ? joinToInstant(start.date, start.time) : null;
   // the slot settles before anyone is asked about it — see `useDebounced`
   const slot = useDebounced({ startAt, duration, participants });
   const { data: conflicts } = useConflicts({
@@ -141,7 +154,7 @@ export function MeetingModal({
     setError(null);
     setTitleError(null);
     if (!title.trim()) return setTitleError("Give the meeting a title");
-    if (!startAt) return setError("Pick a date and time");
+    if (!startAt) return setError("Pick a date and a start time");
     try {
       if (editing) {
         await update.mutateAsync({
@@ -275,13 +288,24 @@ export function MeetingModal({
               }}
             />
           </FormField>
-          <FormField label={`Starts (${firmZoneAbbr()})`} htmlFor="m-start">
-            <Input
-              id="m-start"
-              type="datetime-local"
-              value={startLocal}
-              onChange={(e) => setStartLocal(e.target.value)}
-            />
+          <FormField label={`Starts (${firmZoneAbbr()})`} htmlFor="m-date">
+            <div className="flex gap-2">
+              <Input
+                id="m-date"
+                type="date"
+                className="flex-1"
+                value={start.date}
+                onChange={(e) => setStart((p) => ({ ...p, date: e.target.value }))}
+              />
+              <Input
+                type="time"
+                aria-label={`Start time (${firmZoneAbbr()})`}
+                className="w-[110px]"
+                step={TIME_STEP_SECONDS}
+                value={start.time}
+                onChange={(e) => setStart((p) => ({ ...p, time: e.target.value }))}
+              />
+            </div>
           </FormField>
         </div>
 

@@ -11,8 +11,6 @@ import { FilterChips } from "@/shared/ui/tabs";
 import { useCalendar } from "./calendar.api";
 import { MeetingModal } from "./meeting-modal";
 import {
-  GRID_END_HOUR,
-  GRID_START_HOUR,
   addDays,
   columnsFor,
   dayOfMeeting,
@@ -21,8 +19,11 @@ import {
   fmtTime,
   isoDay,
   placeInGrid,
+  rangeFor,
+  slotInstant,
   startOfMonth,
   windowFor,
+  type GridRange,
   type ViewMode,
 } from "./grid";
 
@@ -45,7 +46,6 @@ const VIEWS: { value: ViewMode; label: string }[] = [
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MONTH_CELL_ROWS = 4;
-const HOURS = Array.from({ length: GRID_END_HOUR - GRID_START_HOUR }, (_, i) => GRID_START_HOUR + i);
 
 export function CalendarPage() {
   const [mode, setMode] = useState<ViewMode>("week");
@@ -151,6 +151,7 @@ export function CalendarPage() {
       {data && mode !== "month" && (
         <TimeGrid
           days={days}
+          range={rangeFor(data.meetings)}
           meetingsByDay={meetingsByDay}
           deadlinesByDay={deadlinesByDay}
           onOpenMeeting={(id) => setFormOpen({ id })}
@@ -351,6 +352,7 @@ function MonthGrid({
 
 function TimeGrid({
   days,
+  range,
   meetingsByDay,
   deadlinesByDay,
   onOpenMeeting,
@@ -359,6 +361,8 @@ function TimeGrid({
   onOpenDay,
 }: {
   days: Date[];
+  /** the hours actually drawn — widened past the working day when something falls outside it */
+  range: GridRange;
   meetingsByDay: Record<string, Meeting[]>;
   deadlinesByDay: Record<string, DeadlineItem[]>;
   onOpenMeeting: (id: string) => void;
@@ -368,6 +372,7 @@ function TimeGrid({
   onOpenDay?: (day: Date) => void;
 }) {
   const todayIso = firmToday();
+  const hours = Array.from({ length: range.endHour - range.startHour }, (_, i) => range.startHour + i);
   const anyDeadlines = days.some((d) => (deadlinesByDay[isoDay(d)] ?? []).length > 0);
 
   return (
@@ -442,7 +447,7 @@ function TimeGrid({
         style={{ gridTemplateColumns: `56px repeat(${days.length}, minmax(0,1fr))` }}
       >
         <div>
-          {HOURS.map((h) => (
+          {hours.map((h) => (
             <div
               key={h}
               className="h-[52px] border-b border-[#f4f6f8] pr-2 pt-1 text-right text-[11px] text-faint"
@@ -456,21 +461,17 @@ function TimeGrid({
           const laid = columnsFor(meetingsByDay[key] ?? []);
           return (
             <div key={key} className="relative border-l border-[#f2f4f7]">
-              {HOURS.map((h) => (
+              {hours.map((h) => (
                 <button
                   key={h}
                   type="button"
                   aria-label={`New meeting at ${String(h).padStart(2, "0")}:00`}
-                  onClick={() => {
-                    const slot = new Date(d);
-                    slot.setHours(h, 0, 0, 0);
-                    onPickSlot(slot.toISOString());
-                  }}
+                  onClick={() => onPickSlot(slotInstant(key, h))}
                   className="block h-[52px] w-full border-b border-[#f4f6f8] hover:bg-[#f7f9fc]"
                 />
               ))}
               {laid.map(({ item, column, columns }) => {
-                const pos = placeInGrid(item.startAt, item.durationMinutes);
+                const pos = placeInGrid(item.startAt, item.durationMinutes, range);
                 return (
                   <button
                     key={item.id}

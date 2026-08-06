@@ -8,7 +8,12 @@
  */
 
 import { fmtTime, isoDay } from "@/shared/lib/format";
-import { firmIsoDay, firmMinutesOfDay, firmToday } from "@/shared/lib/tz";
+import {
+  firmIsoDay,
+  firmMinutesOfDay,
+  firmToday,
+  firmWallClockToInstant,
+} from "@/shared/lib/tz";
 
 export type ViewMode = "day" | "week" | "month";
 
@@ -16,20 +21,56 @@ export type ViewMode = "day" | "week" | "month";
 // implementation stays in shared/lib/format.ts, which had it first.
 export { isoDay };
 
+/**
+ * The instant a clicked empty slot stands for: that day column, that hour row, ON THE FIRM'S CLOCK.
+ *
+ * It is a named function rather than three lines inside the button's `onClick` precisely because
+ * those three lines were wrong and nothing could see it — `setHours` sets the hour in the viewer's
+ * zone, so clicking 10:00 from Kyiv opened the form at 03:00 in the office (user, 2026-08-06).
+ * Out here it is testable.
+ */
+export function slotInstant(dayIso: string, hour: number): string {
+  return firmWallClockToInstant(`${dayIso}T${String(hour).padStart(2, "0")}:00`).toISOString();
+}
+
 /** Which day column a meeting belongs to — the firm's day, matching the server's own slicing. */
 export const dayOfMeeting = (startAt: string): string => firmIsoDay(new Date(startAt));
 
 /** Today, as the firm reckons it — what the grid highlights and what "Today" jumps to. */
 export { firmToday };
 
-/** The hours the grid draws. Anything outside still appears, clamped to the edge. */
-export const GRID_START_HOUR = 8;
-export const GRID_END_HOUR = 20;
-const GRID_MINUTES = (GRID_END_HOUR - GRID_START_HOUR) * 60;
+/** The working day the grid shows when nothing falls outside it. */
+export const DEFAULT_START_HOUR = 8;
+export const DEFAULT_END_HOUR = 20;
 /** the smallest box that fits one readable line, expressed in grid minutes */
 const MIN_BOX_MINUTES = 34;
 /** below this, the card shows one line instead of three */
 const COMPACT_UNDER_MINUTES = 45;
+
+export interface GridRange {
+  startHour: number;
+  endHour: number;
+}
+
+/**
+ * The hours to draw for a given set of meetings.
+ *
+ * A fixed 08:00–20:00 meant anything outside it was pinned to the edge with an arrow: the label
+ * read "03:00" while the box sat against the 08:00 line, so the position contradicted the text.
+ * The range stretches instead — the ordinary day still looks like an ordinary day, and an early
+ * call or a late one simply widens the grid rather than lying about where it is (user, 2026-08-06).
+ */
+export function rangeFor(meetings: { startAt: string; durationMinutes: number }[]): GridRange {
+  let startHour = DEFAULT_START_HOUR;
+  let endHour = DEFAULT_END_HOUR;
+  for (const m of meetings) {
+    const from = firmMinutesOfDay(new Date(m.startAt));
+    startHour = Math.min(startHour, Math.floor(from / 60));
+    // an event running past midnight is clamped to the end of its own day, not spilled into the next
+    endHour = Math.max(endHour, Math.min(24, Math.ceil((from + m.durationMinutes) / 60)));
+  }
+  return { startHour, endHour };
+}
 
 export const addDays = (d: Date, n: number): Date => {
   const out = new Date(d);
@@ -83,9 +124,10 @@ export function windowFor(mode: ViewMode, anchor: Date): { from: string; to: str
  * next day's column, or off the panel entirely. They are pinned to the edge and flagged, so the
  * card can say "starts earlier" rather than lie about the time.
  */
-export function placeInGrid(startAt: string, durationMinutes: number) {
+export function placeInGrid(startAt: string, durationMinutes: number, range: GridRange) {
+  const GRID_MINUTES = (range.endHour - range.startHour) * 60;
   // the firm's wall clock — `getHours()` would answer in whatever zone the viewer's machine is on
-  const offsetMin = firmMinutesOfDay(new Date(startAt)) - GRID_START_HOUR * 60;
+  const offsetMin = firmMinutesOfDay(new Date(startAt)) - range.startHour * 60;
   const top = Math.min(Math.max(offsetMin, 0), GRID_MINUTES);
   const rawEnd = offsetMin + durationMinutes;
   const end = Math.min(Math.max(rawEnd, top), GRID_MINUTES);
