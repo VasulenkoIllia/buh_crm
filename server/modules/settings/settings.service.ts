@@ -9,6 +9,7 @@ import { ConflictError, NotFoundError } from "../../core/errors.js";
 import { deleteFileBytes, saveFileBytes } from "../../core/files.js";
 import { ValidationError } from "../../core/errors.js";
 import * as repo from "./settings.repository.js";
+import { config } from "../../core/config.js";
 
 const MAX_LOGO_SIZE = 5 * 1024 * 1024; // 5 MB
 // raster only — no SVG (can carry inline scripts → stored XSS; same rule as avatars)
@@ -30,6 +31,8 @@ export function toFirmDto(firm: FirmProfile) {
     invoicePrefix: firm.invoicePrefix,
     invoiceCounterDigits: firm.invoiceCounterDigits,
     currency: firm.currency as "USD",
+    // from the environment, not the row: one source of truth, the same one the sweeps use
+    timezone: config.TZ,
   };
 }
 

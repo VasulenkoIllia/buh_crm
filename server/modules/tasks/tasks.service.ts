@@ -208,12 +208,16 @@ export async function listTasks(query: TaskListQuery) {
   // as `isTaskOverdue`: the whole deadline day must have passed. Overdue is open work by
   // definition, so asking for it alongside status=done correctly yields nothing.
   if (query.overdue) and.push({ done: false, cancelledAt: null, deadline: { lt: new Date(today) } });
-  // an archived client's work leaves everyone's board — the data stays untouched, so restoring
-  // the client brings the tasks back; their invoices deliberately stay in Billing.
-  // The Archive screen is the one view that looks the other way.
-  if (!query.archived) {
-    and.push({ OR: [{ clientId: null }, { client: { archivedAt: null } }] });
-  }
+  // An archived client's — or lead's — work leaves everyone's board. The data stays untouched, so
+  // restoring them brings the tasks back; their invoices deliberately stay in Billing.
+  //
+  // Both halves are load-bearing. Leads only became archivable in S11; before that the lead half
+  // was dead code, and adding archiving without it left tasks on the board that answer 404 when
+  // opened, because `liveTaskOr404` has always refused both. A visible card that cannot be opened
+  // is the one outcome worse than either behaviour on its own.
+  //
+  // The Archive screen is the single view that looks the other way.
+  if (!query.archived) and.push(repo.liveTargetWhere());
 
   const where: Prisma.TaskWhereInput = {
     archivedAt: query.archived ? { not: null } : null,

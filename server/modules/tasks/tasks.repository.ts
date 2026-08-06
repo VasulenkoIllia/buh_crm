@@ -68,6 +68,60 @@ export function countTasksInColumn(columnId: string) {
 
 // ── tasks ────────────────────────────────────────────────────────────────────
 
+/**
+ * "Its client and its lead are both still live" — the single rule that decides whether a task is
+ * visible anywhere.
+ *
+ * It is a function, not two lines copied into each query, because it already drifted once: the
+ * board excluded an archived CLIENT's tasks while `liveTaskOr404` refused an archived LEAD's too,
+ * and the moment leads became archivable (S11) that gap became a card you could see but not open.
+ * One definition, used by every list.
+ */
+export function liveTargetWhere(): Prisma.TaskWhereInput {
+  return {
+    AND: [
+      { OR: [{ clientId: null }, { client: { archivedAt: null } }] },
+      { OR: [{ leadId: null }, { lead: { archivedAt: null } }] },
+    ],
+  };
+}
+
+/**
+ * Open work whose deadline day falls inside `[from, to)` — what the Calendar projects.
+ *
+ * It lives here rather than in the calendar module because "which tasks are visible" is a rule
+ * this module already owns, and two copies of it would drift the moment one view changed. Same
+ * exclusions as the board: archived tasks, cancelled ones, and anything belonging to an archived
+ * client are all gone. Done work is excluded too — a met deadline is not an appointment.
+ */
+export function listDeadlinesInRange(args: {
+  from: Date;
+  to: Date;
+  userId?: string;
+  clientId?: string;
+}) {
+  return prisma.task.findMany({
+    where: {
+      archivedAt: null,
+      cancelledAt: null,
+      done: false,
+      deadline: { gte: args.from, lt: args.to },
+      ...(args.userId ? { assignees: { some: { userId: args.userId } } } : {}),
+      ...(args.clientId ? { clientId: args.clientId } : {}),
+      ...liveTargetWhere(),
+    },
+    orderBy: [{ deadline: "asc" }, { createdAt: "asc" }],
+    select: {
+      id: true,
+      title: true,
+      deadline: true,
+      client: { select: { firstName: true, lastName: true } },
+      lead: { select: { name: true } },
+      assignees: { select: { userId: true } },
+    },
+  });
+}
+
 export async function listTasks(args: {
   where: Prisma.TaskWhereInput;
   skip: number;

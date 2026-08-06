@@ -4,6 +4,7 @@ import type { Priority, SourceOption } from "@shared/schema/settings";
 import { useAuth } from "@/app/auth";
 import { ApiError } from "@/shared/lib/api";
 import { Button } from "@/shared/ui/button";
+import { firmZoneAbbr } from "@/shared/lib/tz";
 import { FormField, Input, Select } from "@/shared/ui/field";
 import {
   useCreateSource,
@@ -36,6 +37,7 @@ export function SettingsPage() {
         digits={data.firm.invoiceCounterDigits}
       />
       <FirmSection name={data.firm.name} hasLogo={!!data.firm.logoFileId} />
+      <TimezoneSection timezone={data.firm.timezone} />
     </div>
   );
 }
@@ -261,6 +263,46 @@ function NumberingSection({ prefix, digits }: { prefix: string; digits: number }
         Preview: <span className="font-medium text-ink">{preview}</span> — the counter resets
         every year.
       </p>
+    </Section>
+  );
+}
+
+// ── Timezone: shown, not edited ──────────────────────────────────────────────
+
+/**
+ * The firm's clock, displayed rather than editable.
+ *
+ * It comes from `TZ` in the environment because the SCHEDULER reads the same value when it boots —
+ * the nightly sweeps decide what "today" means before any request arrives, so a value stored in
+ * the database would have to be fetched by every one of the twelve places that ask, including
+ * background jobs. One source, set at deploy, is both simpler and impossible to get out of step.
+ *
+ * The panel states the fact and nothing else; the reasoning belongs in docs/modules/settings.md
+ * rather than on a screen someone opens to check a value (user, 2026-08-06).
+ */
+function TimezoneSection({ timezone }: { timezone: string }) {
+  const now = new Date();
+  return (
+    <Section title="Timezone">
+      <div className="text-[13px]">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <span className="font-medium text-ink-700">{timezone}</span>
+          <span className="text-muted">
+            {now.toLocaleString("en-GB", {
+              timeZone: timezone,
+              weekday: "long",
+              day: "2-digit",
+              month: "long",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </span>
+          <span className="rounded-(--radius-chip) bg-divider px-2 py-0.5 text-[11px] text-muted">
+            {firmZoneAbbr(now)}
+          </span>
+        </div>
+      </div>
     </Section>
   );
 }

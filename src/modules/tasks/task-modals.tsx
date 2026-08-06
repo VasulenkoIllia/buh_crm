@@ -9,7 +9,7 @@ import { LeadFormModal, useLeads } from "@/modules/leads";
 import { useSettings } from "@/modules/settings";
 import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
-import { fmtBizDate, fmtDate, todayIso, todayPlus } from "@/shared/lib/format";
+import { fmtBizDate, fmtDate, fmtDateTime, todayIso, todayPlus } from "@/shared/lib/format";
 import { fmtMoney } from "@/shared/lib/money";
 import { AssigneePicker } from "@/shared/ui/assignee-picker";
 import { userLabel } from "@/shared/ui/avatar";
@@ -1201,12 +1201,7 @@ function CommentsSection({
             <div className="mb-0.5 flex items-center gap-2 text-[11px] text-muted">
               <span className="font-medium text-ink-700">{userName(c.authorId)}</span>
               <span>
-                {new Date(c.createdAt).toLocaleString("en-GB", {
-                  day: "2-digit",
-                  month: "2-digit",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
+                {fmtDateTime(c.createdAt)}
               </span>
               {!disabled && (isAdmin || c.authorId === currentUserId) && (
                 <button

@@ -18,6 +18,7 @@ import { Chip } from "@/shared/ui/chip";
 import { StatusPill } from "@/shared/ui/pill";
 import { Segmented } from "@/shared/ui/segmented";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
+import { MeetingModal } from "@/modules/calendar";
 import { EntityTasks } from "@/modules/tasks";
 import { useSettings } from "@/modules/settings";
 import { ConvertLeadModal, LeadFormModal } from "./lead-modals";
@@ -303,6 +304,7 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
   const markLost = useMarkLost();
   const reopen = useReopenLead();
   const archiveLead = useArchiveLead();
+  const [meetingOpen, setMeetingOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [convertOpen, setConvertOpen] = useState(false);
 
@@ -313,6 +315,9 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
 
   if (editOpen) {
     return <LeadFormModal open onClose={() => setEditOpen(false)} lead={lead} />;
+  }
+  if (meetingOpen) {
+    return <MeetingModal defaultLeadId={lead.id} onClose={() => setMeetingOpen(false)} />;
   }
   if (convertOpen) {
     return <ConvertLeadModal open lead={lead} onClose={() => setConvertOpen(false)} />;
@@ -385,9 +390,8 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
         <div className="flex items-center justify-between gap-2 bg-[#fafbfc] px-5 py-3.5">
           <button
             type="button"
-            disabled
-            title="Available with the Calendar stage (S8)"
-            className="rounded-[8px] border border-[#d9dde3] px-4 py-2.5 text-[13px] font-medium text-muted-400"
+            onClick={() => setMeetingOpen(true)}
+            className="rounded-[8px] border border-[#d9dde3] px-4 py-2.5 text-[13px] font-medium text-ink-700 hover:bg-divider"
           >
             📅 Schedule meeting
           </button>

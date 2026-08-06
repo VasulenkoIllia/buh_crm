@@ -142,6 +142,7 @@ model User {
   timeEntries         TimeEntry[]
   timeEntriesCreated  TimeEntry[]          @relation("TimeEntryCreatedBy")
   meetingParticipants MeetingParticipant[]
+  meetingsOrganised   Meeting[]            @relation("MeetingCreatedBy")
   notifications       Notification[]
   paymentsCreated     Payment[]            @relation("PaymentCreatedBy")
   paymentAuditLogs    PaymentAuditLog[]
@@ -557,6 +558,8 @@ model Task {
   priority     Priority      @relation(fields: [priorityId], references: [id])
   statusColumn TaskColumn    @relation(fields: [statusColumnId], references: [id])
   invoice      Invoice?      @relation(fields: [invoiceId], references: [id])
+  /// the meeting this task was opened from, if any (S8)
+  meeting      Meeting?
   subscription Subscription? @relation(fields: [subscriptionId], references: [id])
   taskTemplate TaskTemplate? @relation(fields: [taskTemplateId], references: [id])
   assignees    TaskAssignee[]
@@ -747,8 +750,13 @@ model Meeting {
   serviceId       String?   @db.Uuid
   startAt         DateTime
   durationMinutes Int
-  link            String? // video-call URL
+  link            String? // video-call URL, or a dial-in — free text on purpose
   description     String?
+  /// the organiser: who booked it. Null only for rows that predate the field.
+  createdById     String?   @db.Uuid
+  /// the task opened alongside the meeting, when one was asked for (S8). SetNull, not Cascade:
+  /// deleting the task must not take the meeting's record of what was agreed with it.
+  taskId          String?   @unique @db.Uuid
   cancelledAt     DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -756,9 +764,13 @@ model Meeting {
   client       Client?              @relation(fields: [clientId], references: [id])
   lead         Lead?                @relation(fields: [leadId], references: [id])
   service      Service?             @relation(fields: [serviceId], references: [id])
+  createdBy    User?                @relation("MeetingCreatedBy", fields: [createdById], references: [id])
+  task         Task?                @relation(fields: [taskId], references: [id], onDelete: SetNull)
   participants MeetingParticipant[]
 
   @@index([startAt])
+  // the calendar's read: "live meetings in this window, in order"
+  @@index([cancelledAt, startAt])
 }
 
 model MeetingParticipant {
@@ -769,6 +781,9 @@ model MeetingParticipant {
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([meetingId, userId])
+  // the conflict check asks "which meetings is THIS PERSON in" — the composite primary key is
+  // ordered (meetingId, userId), so it cannot answer that without a scan
+  @@index([userId])
 }
 
 // ── Notifications ────────────────────────────────────────────────────────────

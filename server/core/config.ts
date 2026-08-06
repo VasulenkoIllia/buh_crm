@@ -5,12 +5,36 @@ const boolFromString = z
   .default("false")
   .transform((v) => ["true", "1", "yes"].includes(v.trim().toLowerCase()));
 
+/** Does the platform know this zone? `Intl` throws on an unknown name, which is the check. */
+function isRealTimezone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const envSchema = z.object({
   APP_NAME: z.string().default("buh_crm"),
   APP_DOMAIN: z.string().default("localhost"),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(3000),
-  TZ: z.string().default("Europe/Kyiv"),
+  /**
+   * The FIRM's timezone — the single answer to "what day is it" for the whole product: the
+   * scheduler's sweeps, every business date, and the hours the calendar draws.
+   *
+   * An IANA name, not an abbreviation. "EST" is a fixed −05:00 with no daylight saving, so from
+   * March to November it drifts an hour from every clock around it; "America/New_York" is the
+   * thing people mean when they say EST and moves with the season on its own.
+   *
+   * Validated rather than trusted: a typo here would not throw, it would silently make the whole
+   * app fall back to UTC and quietly shift every deadline and sweep.
+   */
+  TZ: z
+    .string()
+    .default("America/New_York")
+    .refine(isRealTimezone, "Not a known IANA timezone (e.g. America/New_York, Europe/Kyiv)"),
   LOG_LEVEL: z.string().default("info"),
 
   DATABASE_URL: z.string().min(1),

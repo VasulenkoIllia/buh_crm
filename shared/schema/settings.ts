@@ -25,6 +25,13 @@ export const firmProfileSchema = z.object({
   invoicePrefix: z.string().min(1).max(10),
   invoiceCounterDigits: z.number().int().min(3).max(6),
   currency: z.literal("USD"),
+  /**
+   * The firm's timezone — read-only here, because it comes from `TZ` in the environment and the
+   * scheduler reads the same value at boot. It travels to the browser so that instants (a meeting's
+   * start, "created at") are drawn on the FIRM's clock rather than whatever zone the viewer's
+   * machine happens to be set to (decision 2026-08-06).
+   */
+  timezone: z.string().min(1),
 });
 export type FirmProfile = z.infer<typeof firmProfileSchema>;
 

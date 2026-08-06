@@ -341,6 +341,49 @@ describe("archive — what each list shows", () => {
   });
 });
 
+describe("archive — a lead's work goes with it", () => {
+  /**
+   * Leads only became archivable in S11. Until then `Lead.archivedAt` was a column nothing wrote,
+   * so the board's filter — which excluded an archived CLIENT's tasks but never a lead's — was
+   * dormant and harmless. Making leads archivable turned it into a visible card that answers 404
+   * when clicked: the exact broken state the client-side fix exists to prevent.
+   */
+  it("takes the lead's tasks off the board, and out of the deadline projection", async () => {
+    const lead = await post("/api/leads", { name: "Talks then vanishes" });
+    const leadId = lead.json().id as string;
+    const task = await post("/api/tasks", {
+      title: "Prep for the lead call",
+      leadId,
+      deadline: dayIso(2),
+      assignees: [],
+    });
+    expect(task.statusCode).toBe(201);
+    const taskId = task.json().id as string;
+
+    const onBoard = async () =>
+      (await get("/api/tasks?view=board&status=all")).json().items.map((t: { id: string }) => t.id);
+    const onCalendar = async () =>
+      (await get(`/api/calendar?from=${dayIso(2)}&to=${dayIso(3)}`)).json().deadlines.map(
+        (d: { taskId: string }) => d.taskId,
+      );
+
+    expect(await onBoard()).toContain(taskId);
+    expect(await onCalendar()).toContain(taskId);
+
+    expect((await post(`/api/leads/${leadId}/archive`)).statusCode).toBe(200);
+
+    // the card must not be visible if opening it 404s — those two answers have to agree
+    expect(await onBoard()).not.toContain(taskId);
+    expect(await onCalendar()).not.toContain(taskId);
+    expect((await get(`/api/tasks/${taskId}`)).statusCode).toBe(404);
+
+    // and it all comes back with the lead
+    await post(`/api/leads/${leadId}/restore`);
+    expect(await onBoard()).toContain(taskId);
+    expect((await get(`/api/tasks/${taskId}`)).statusCode).toBe(200);
+  });
+});
+
 describe("archive — leads", () => {
   async function makeLead(name: string) {
     const res = await post("/api/leads", { name });

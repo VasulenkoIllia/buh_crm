@@ -19,6 +19,7 @@ import { cn } from "@/shared/lib/cn";
 import { UserAvatar } from "@/shared/ui/avatar";
 import { useSettings } from "@/modules/settings";
 import { TimerBar } from "@/modules/tasks";
+import { FirmClock } from "./firm-clock";
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
@@ -66,6 +67,7 @@ export function AppLayout() {
         <header className="flex h-14 items-center justify-between border-b border-border bg-surface px-6">
           <div className="text-[15px] font-semibold" />
           <div className="flex items-center gap-4">
+            <FirmClock />
             <TimerBar />
             <HeaderActions />
           </div>

@@ -17,6 +17,7 @@ import { ServicesPage } from "@/modules/catalog";
 import { BillingPage } from "@/modules/payments";
 import { TasksPage } from "@/modules/tasks";
 import { ArchivePage } from "@/modules/archive";
+import { CalendarPage } from "@/modules/calendar";
 
 /** Old /unpaid path → /billing, preserving ?invoice= / ?client= deep links. */
 function RedirectToBilling() {
@@ -66,7 +67,7 @@ export const router = createBrowserRouter([
               // the screen was called "Unpaid" until 2026-07-25 — keep old links (and any
               // bookmarks) working, query string and all
               { path: "unpaid", element: <RedirectToBilling /> },
-              { path: "calendar", element: <ComingSoon module="Calendar" stage="S8" /> },
+              { path: "calendar", element: <CalendarPage /> },
               { path: "services", element: <ServicesPage /> },
               { path: "mailouts", element: <ComingSoon module="Mailouts" stage="S10" /> },
               { path: "reports", element: <ComingSoon module="Reports" stage="S12" /> },

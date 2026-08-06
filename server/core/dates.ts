@@ -10,6 +10,17 @@ export interface Day {
   d: number; // 1-31
 }
 
+/**
+ * Which calendar day an INSTANT falls on, in the firm's timezone, as "YYYY-MM-DD".
+ *
+ * Not `at.toISOString().slice(0, 10)` — that reads the day off the UTC clock, so at UTC+3 every
+ * instant before 03:00 reports the day before. A meeting booked for 00:30 on the 19th produced a
+ * task due on the 18th: due before the thing it was preparing for (found 2026-08-06).
+ */
+export function isoDayInTz(at: Date, tz: string): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(at); // en-CA renders YYYY-MM-DD
+}
+
 /** Today's calendar date in the firm timezone. */
 export function todayInTz(tz: string): Day {
   const s = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date()); // YYYY-MM-DD
@@ -78,3 +89,43 @@ export const dateToUtc = (d: string) => new Date(`${d}T00:00:00Z`);
  * process timezone, for the same reason the scheduler pins its cron timezone explicitly.
  */
 export const todayBusinessMs = (tz: string) => toUtc(todayInTz(tz)).getTime();
+
+/**
+ * How far the zone is ahead of UTC at that instant, in ms. DST-correct because it asks the
+ * zone what wall-clock time it was showing, rather than assuming a fixed offset.
+ */
+function zoneOffsetMs(at: Date, tz: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(at);
+  const n = (type: string) => Number(parts.find((p) => p.type === type)!.value);
+  return Date.UTC(n("year"), n("month") - 1, n("day"), n("hour"), n("minute"), n("second")) -
+    Math.floor(at.getTime() / 1000) * 1000;
+}
+
+/**
+ * The INSTANT at which a calendar day begins in the firm's timezone — midnight in Kyiv, not
+ * midnight UTC.
+ *
+ * This is not the same helper as `dateToUtc`, and using the wrong one is a silent bug. A stored
+ * DATE (a deadline, a due date, a period boundary) is a calendar day pinned to UTC midnight, and
+ * `dateToUtc` is right for those. A meeting is a real instant, so slicing a day of meetings on UTC
+ * midnight would, at UTC+3, hand back a window shifted three hours — quietly dropping every
+ * meeting before 03:00 and pulling in the tail of the previous day.
+ *
+ * Two passes, because the offset itself depends on the date: the first guess lands somewhere in
+ * the right day, and asking the zone again from there settles it across a DST change.
+ */
+export function zonedDayStart(dayIso: string, tz: string): Date {
+  const utcMidnight = new Date(`${dayIso}T00:00:00.000Z`);
+  const first = new Date(utcMidnight.getTime() - zoneOffsetMs(utcMidnight, tz));
+  const settled = zoneOffsetMs(first, tz);
+  return new Date(utcMidnight.getTime() - settled);
+}
