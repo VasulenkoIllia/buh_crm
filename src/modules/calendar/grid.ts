@@ -196,7 +196,18 @@ export function columnsFor<T extends { startAt: string; durationMinutes: number 
  * `fmtTime` is the shared one from `format.ts` — it already renders on the firm's clock, and a
  * second local copy is exactly how the two would drift.
  */
-export const fmtRange = (iso: string, minutes: number): string =>
-  `${fmtTime(iso)}–${fmtTime(new Date(new Date(iso).getTime() + minutes * 60_000))}`;
+/**
+ * "10:00–11:00", or "23:57–00:57 +1" when it runs into the next day.
+ *
+ * The `+1` is not decoration: a meeting ending at 00:57 reads as if it finished before it started
+ * unless something says the end is tomorrow. It is drawn only on the day it BEGINS — a calendar
+ * shows you when to be somewhere, and that is the start.
+ */
+export const fmtRange = (iso: string, minutes: number): string => {
+  const start = new Date(iso);
+  const end = new Date(start.getTime() + minutes * 60_000);
+  const nextDay = firmIsoDay(end) !== firmIsoDay(start);
+  return `${fmtTime(start)}–${fmtTime(end)}${nextDay ? " +1" : ""}`;
+};
 
 export { fmtTime };

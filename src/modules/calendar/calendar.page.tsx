@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import type { DeadlineItem, Meeting } from "@shared/schema/calendar";
@@ -55,6 +55,8 @@ export function CalendarPage() {
   const [userId, setUserId] = useState<string | undefined>();
   const [lanes, setLanes] = useState({ meetings: true, deadlines: true });
   const [formOpen, setFormOpen] = useState<{ startAt?: string; id?: string } | null>(null);
+  /** the meeting just saved — scrolled to once it has been drawn */
+  const [justSaved, setJustSaved] = useState<string | null>(null);
 
   const navigate = useNavigate();
   const { data: team } = useAssignees();
@@ -67,6 +69,16 @@ export function CalendarPage() {
     );
 
   const meetingsByDay = groupBy(data?.meetings ?? [], (m) => dayOfMeeting(m.startAt));
+
+  // the card is drawn on the render after the list refetches, so the scroll waits for it to exist
+  useEffect(() => {
+    if (!justSaved) return;
+    const card = document.querySelector(`[data-meeting-id="${justSaved}"]`);
+    if (!card) return;
+    card.scrollIntoView({ block: "center", behavior: "smooth" });
+    const timer = setTimeout(() => setJustSaved(null), 2000);
+    return () => clearTimeout(timer);
+  }, [justSaved, data]);
   const deadlinesByDay = groupBy(data?.deadlines ?? [], (d) => d.day);
 
   const title =
@@ -177,6 +189,14 @@ export function CalendarPage() {
           meetingId={formOpen.id}
           defaultStartAt={formOpen.startAt}
           onClose={() => setFormOpen(null)}
+          onSaved={(m) => {
+            // Take the person to what they just saved. A meeting booked for 23:57 lands in a row
+            // far below the fold — the calendar looked unchanged and it read as "nothing was
+            // created", which is the only sensible conclusion from a silent screen
+            // (user, 2026-08-06).
+            setAnchor(dayFromIso(dayOfMeeting(m.startAt)));
+            setJustSaved(m.id);
+          }}
         />
       )}
     </div>
@@ -476,6 +496,7 @@ function TimeGrid({
                   <button
                     key={item.id}
                     type="button"
+                    data-meeting-id={item.id}
                     onClick={() => onOpenMeeting(item.id)}
                     style={{
                       top: `${pos.topPct}%`,

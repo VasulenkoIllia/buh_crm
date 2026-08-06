@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle } from "lucide-react";
+import type { Meeting } from "@shared/schema/calendar";
 import { MEETING_DURATION_PRESETS } from "@shared/schema/calendar";
 import { useCatalog } from "@/modules/catalog";
 import { useClient } from "@/modules/clients";
@@ -57,12 +58,15 @@ export function MeetingModal({
   defaultClientId,
   defaultLeadId,
   onClose,
+  onSaved,
 }: {
   meetingId?: string;
   defaultStartAt?: string;
   defaultClientId?: string;
   defaultLeadId?: string;
   onClose: () => void;
+  /** where it landed — the calendar uses this to take you to it (see `onSaved` on the page) */
+  onSaved?: (meeting: Meeting) => void;
 }) {
   const navigate = useNavigate();
   const editing = !!meetingId;
@@ -153,11 +157,12 @@ export function MeetingModal({
   async function save() {
     setError(null);
     setTitleError(null);
+    let saved: Meeting | undefined;
     if (!title.trim()) return setTitleError("Give the meeting a title");
     if (!startAt) return setError("Pick a date and a start time");
     try {
       if (editing) {
-        await update.mutateAsync({
+        saved = await update.mutateAsync({
           id: meetingId!,
           input: {
             title,
@@ -174,7 +179,7 @@ export function MeetingModal({
           },
         });
       } else {
-        await create.mutateAsync({
+        saved = await create.mutateAsync({
           title,
           clientId: kind === "client" ? targetId : null,
           leadId: kind === "lead" ? targetId : null,
@@ -188,6 +193,7 @@ export function MeetingModal({
             : null,
         });
       }
+      if (saved) onSaved?.(saved);
       onClose();
     } catch (e) {
       setError((e as Error).message);

@@ -10,6 +10,7 @@ import {
   DEFAULT_START_HOUR,
   columnsFor,
   dayOfMeeting,
+  fmtRange,
   placeInGrid,
   rangeFor,
   slotInstant,
@@ -58,6 +59,16 @@ describe("calendar grid", () => {
       expect(firmMinutesOfDay(instant)).toBe(hour * 60);
       expect(dayOfMeeting(instant.toISOString())).toBe("2026-08-05");
     }
+  });
+
+  it("says when a meeting ends on the next day", () => {
+    // 23:57 + 60 min ends at 00:57 — without a marker that reads as ending before it started
+    expect(fmtRange(localAt(23, 57), 60)).toMatch(/23:57–00:57 \+1$/);
+    expect(fmtRange(localAt(10), 60)).toBe("10:00–11:00");
+    // exactly midnight is still the next day
+    expect(fmtRange(localAt(23), 60)).toMatch(/\+1$/);
+    // …and one minute short of it is not
+    expect(fmtRange(localAt(23), 59)).not.toMatch(/\+1$/);
   });
 
   it("starts the week on Monday", () => {
