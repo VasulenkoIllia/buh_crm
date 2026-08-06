@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import type { DeadlineItem, Meeting } from "@shared/schema/calendar";
@@ -11,6 +11,9 @@ import { FilterChips } from "@/shared/ui/tabs";
 import { useCalendar } from "./calendar.api";
 import { MeetingModal } from "./meeting-modal";
 import {
+  DAY_END_HOUR,
+  DAY_START_HOUR,
+  OPENING_HOUR,
   addDays,
   columnsFor,
   dayOfMeeting,
@@ -19,11 +22,9 @@ import {
   fmtTime,
   isoDay,
   placeInGrid,
-  rangeFor,
   slotInstant,
   startOfMonth,
   windowFor,
-  type GridRange,
   type ViewMode,
 } from "./grid";
 
@@ -163,7 +164,6 @@ export function CalendarPage() {
       {data && mode !== "month" && (
         <TimeGrid
           days={days}
-          range={rangeFor(data.meetings)}
           meetingsByDay={meetingsByDay}
           deadlinesByDay={deadlinesByDay}
           onOpenMeeting={(id) => setFormOpen({ id })}
@@ -372,7 +372,6 @@ function MonthGrid({
 
 function TimeGrid({
   days,
-  range,
   meetingsByDay,
   deadlinesByDay,
   onOpenMeeting,
@@ -381,8 +380,6 @@ function TimeGrid({
   onOpenDay,
 }: {
   days: Date[];
-  /** the hours actually drawn — widened past the working day when something falls outside it */
-  range: GridRange;
   meetingsByDay: Record<string, Meeting[]>;
   deadlinesByDay: Record<string, DeadlineItem[]>;
   onOpenMeeting: (id: string) => void;
@@ -391,8 +388,15 @@ function TimeGrid({
   /** undefined in the day view — there is nothing narrower to open */
   onOpenDay?: (day: Date) => void;
 }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // open on the working day; a meeting outside it is a scroll, not a surprise
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = (OPENING_HOUR / (DAY_END_HOUR - DAY_START_HOUR)) * el.scrollHeight;
+  }, []);
+
   const todayIso = firmToday();
-  const hours = Array.from({ length: range.endHour - range.startHour }, (_, i) => range.startHour + i);
+  const hours = Array.from({ length: DAY_END_HOUR - DAY_START_HOUR }, (_, i) => DAY_START_HOUR + i);
   const anyDeadlines = days.some((d) => (deadlinesByDay[isoDay(d)] ?? []).length > 0);
 
   return (
@@ -461,7 +465,10 @@ function TimeGrid({
         </div>
       )}
 
-      {/* hour grid */}
+      {/* The hour grid scrolls inside the panel. A full day is 24 rows; the view opens on the
+          working hours so the ordinary case looks ordinary, and anything early or late is a scroll
+          away rather than clamped to an edge or off the bottom of the page. */}
+      <div ref={scrollRef} className="max-h-[62vh] overflow-y-auto">
       <div
         className="relative grid"
         style={{ gridTemplateColumns: `56px repeat(${days.length}, minmax(0,1fr))` }}
@@ -491,7 +498,7 @@ function TimeGrid({
                 />
               ))}
               {laid.map(({ item, column, columns }) => {
-                const pos = placeInGrid(item.startAt, item.durationMinutes, range);
+                const pos = placeInGrid(item.startAt, item.durationMinutes);
                 return (
                   <button
                     key={item.id}
@@ -541,6 +548,7 @@ function TimeGrid({
             </div>
           );
         })}
+      </div>
       </div>
     </div>
   );

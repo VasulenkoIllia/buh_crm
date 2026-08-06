@@ -6,13 +6,10 @@ import {
   setFirmTimezone,
 } from "@/shared/lib/tz";
 import {
-  DEFAULT_END_HOUR,
-  DEFAULT_START_HOUR,
   columnsFor,
   dayOfMeeting,
   fmtRange,
   placeInGrid,
-  rangeFor,
   slotInstant,
   startOfWeek,
   windowFor,
@@ -28,9 +25,6 @@ import {
 beforeAll(() => setFirmTimezone("America/New_York"));
 
 const pad = (n: number) => String(n).padStart(2, "0");
-/** the working day the grid falls back to when nothing sits outside it */
-const WORKDAY = { startHour: DEFAULT_START_HOUR, endHour: DEFAULT_END_HOUR };
-
 const localAt = (h: number, min = 0, day = 5) =>
   firmWallClockToInstant(`2026-08-${pad(day)}T${pad(h)}:${pad(min)}`).toISOString();
 
@@ -88,63 +82,45 @@ describe("calendar grid", () => {
     expect(month.from).toBe("2026-07-27"); // the Monday before 1 August
   });
 
-  it("places a meeting by its minutes into the drawn range", () => {
-    const noon = placeInGrid(localAt(14), 60, WORKDAY);
-    expect(noon.clippedStart).toBe(false);
-    expect(noon.topPct).toBeGreaterThan(0);
-    expect(noon.heightPct).toBeCloseTo((60 / 720) * 100, 5);
-  });
+  it("draws every hour at the same height, whatever day it is", () => {
+    /**
+     * The bug this pins: the grid used to stretch to fit whatever was loaded, so Thursday started
+     * at 03:00 and Friday at 08:00 — the same hour sat at a different height on each, and one late
+     * meeting pushed everything else off the screen (user, 2026-08-06). The day is now fixed, so
+     * a position depends only on the time.
+     */
+    const noon = placeInGrid(localAt(12), 60);
+    expect(noon.topPct).toBeCloseTo((12 / 24) * 100, 5);
+    expect(noon.heightPct).toBeCloseTo((60 / 1440) * 100, 5);
 
-  // These two pin the CLAMP, which still matters: the range is computed from the meetings the
-  // calendar loaded, and a caller can always hand in a narrower one.
-  it("clamps an event that runs past the end of the grid instead of drawing outside it", () => {
-    const late = placeInGrid(localAt(19), 240, WORKDAY); // 19:00 + 4h, grid ends at 20:00
+    // an early meeting is at its real position, not pinned to an edge with an arrow
+    const early = placeInGrid(localAt(3), 60);
+    expect(early.topPct).toBeCloseTo((3 / 24) * 100, 5);
+    expect(early.clippedStart).toBe(false);
+
+    // and a late one likewise
+    const late = placeInGrid(localAt(23), 30);
+    expect(late.topPct).toBeCloseTo((23 / 24) * 100, 5);
     expect(late.topPct + late.heightPct).toBeLessThanOrEqual(100.001);
-    expect(late.clippedEnd).toBe(true);
   });
 
-  it("clamps an event starting after the grid has ended", () => {
-    const night = placeInGrid(localAt(22), 60, WORKDAY);
-    expect(night.topPct).toBeLessThanOrEqual(100);
-    expect(night.topPct + night.heightPct).toBeLessThanOrEqual(100.001);
-  });
-
-  it("flags an event starting before the drawn day rather than moving it", () => {
-    expect(placeInGrid(localAt(6), 60, WORKDAY).clippedStart).toBe(true);
-  });
-
-  it("stretches the drawn hours to fit whatever is in the window", () => {
-    // the working day, when everything is inside it
-    expect(rangeFor([{ startAt: localAt(10), durationMinutes: 60 }])).toEqual(WORKDAY);
-
-    // an early call widens the top rather than being pinned to the 08:00 line with an arrow —
-    // the label used to read 03:00 while the box sat against 08:00, so position contradicted text
-    expect(rangeFor([{ startAt: localAt(3), durationMinutes: 60 }]).startHour).toBe(3);
-
-    // a late one widens the bottom
-    expect(rangeFor([{ startAt: localAt(21), durationMinutes: 90 }]).endHour).toBe(23);
-
-    // and an event running past midnight stops at the end of its own day
-    expect(rangeFor([{ startAt: localAt(23), durationMinutes: 120 }]).endHour).toBe(24);
-
-    // widened, the early meeting is drawn where it actually is, with no clipping marker
-    const wide = rangeFor([{ startAt: localAt(3), durationMinutes: 60 }]);
-    const pos = placeInGrid(localAt(3), 60, wide);
-    expect(pos.topPct).toBe(0);
-    expect(pos.clippedStart).toBe(false);
+  it("stops a meeting running past midnight at the end of its own day", () => {
+    const crosser = placeInGrid(localAt(23, 30), 120);
+    expect(crosser.clippedEnd).toBe(true);
+    expect(crosser.topPct + crosser.heightPct).toBeLessThanOrEqual(100.001);
   });
 
   it("gives a short meeting a readable box, and marks it compact", () => {
-    // 15 minutes is 2% of a 12-hour grid — about 13px, which cannot hold a line of text
-    const quick = placeInGrid(localAt(10), 15, WORKDAY);
+    // 15 minutes is 1% of a full day — a few pixels, which cannot hold a line of text
+    const quick = placeInGrid(localAt(10), 15);
     expect(quick.compact).toBe(true);
-    expect(quick.heightPct).toBeGreaterThan((15 / 720) * 100);
+    expect(quick.heightPct).toBeGreaterThan((15 / 1440) * 100);
     // and it still never leaves the grid
     expect(quick.topPct + quick.heightPct).toBeLessThanOrEqual(100.001);
 
-    const hour = placeInGrid(localAt(10), 60, WORKDAY);
+    const hour = placeInGrid(localAt(10), 60);
     expect(hour.compact).toBe(false);
-    expect(hour.heightPct).toBeCloseTo((60 / 720) * 100, 5);
+    expect(hour.heightPct).toBeCloseTo((60 / 1440) * 100, 5);
   });
 
   it("gives a lone meeting the full width", () => {
