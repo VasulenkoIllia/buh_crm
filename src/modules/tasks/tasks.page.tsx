@@ -364,7 +364,18 @@ export function TasksPage() {
       )}
       {data && columns && layout === "table" && (
         <div className="flex min-h-0 flex-1 flex-col">
-          <TaskTable columns={columns} tasks={tasks} team={team ?? []} onOpen={(t) => setSelectedId(t.id)} />
+          <TaskTable
+            columns={columns}
+            tasks={tasks}
+            team={team ?? []}
+            onOpen={(t) => setSelectedId(t.id)}
+            ticked={closed ? ticked : undefined}
+            onTick={
+              closed
+                ? (id) => setTicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))
+                : undefined
+            }
+          />
           <Pager page={data.page} pageCount={pageCount} total={data.total} onPage={setPage} />
         </div>
       )}
@@ -825,13 +836,23 @@ function TaskTable({
   tasks,
   team,
   onOpen,
+  ticked = [],
+  onTick,
 }: {
   columns: TaskColumn[];
   tasks: Task[];
   team: AssigneeInfo[];
   onOpen: (t: Task) => void;
+  /**
+   * Ticking is only offered on the closed views, where a bulk archive is the point. When it is
+   * off the row stays one big button, exactly as it was — the Active table did not need changing
+   * and a redesign it did not ask for is a regression waiting to happen.
+   */
+  ticked?: string[];
+  onTick?: (id: string) => void;
 }) {
   const { data: settings } = useSettings();
+  const selectable = !!onTick;
   const grid = "grid grid-cols-[26px_1fr_150px_130px_96px_110px_88px_70px] items-center";
 
   return (
@@ -855,22 +876,44 @@ function TaskTable({
           const priority = settings?.priorities.find((p) => p.id === t.priorityId);
           const column = columns.find((c) => c.id === t.statusColumnId);
           const assignee = team.find((u) => u.id === t.assignees[0]);
+          const Row = selectable ? "div" : "button";
           return (
-            <button
+            <Row
               key={t.id}
-              type="button"
-              onClick={() => onOpen(t)}
+              {...(selectable ? {} : { type: "button" as const, onClick: () => onOpen(t) })}
               className={cn(
                 grid,
                 "w-full border-b border-[#f2f4f6] px-3.5 py-[11px] text-left text-[13px] last:border-0 hover:bg-divider/30",
                 overdue && "bg-[#fdf5f5]",
+                ticked.includes(t.id) && "bg-[#eef1fb]",
               )}
             >
-              <span
-                className="h-2 w-2 rounded-full"
-                style={{ backgroundColor: overdue ? "#d63c3c" : (priority?.color ?? "#c7ccd3") }}
-              />
-              <span className="min-w-0 truncate font-medium">{t.title}</span>
+              {selectable ? (
+                // the tick takes the dot's cell: on finished or called-off work a priority colour
+                // says almost nothing, and choosing rows is what this view is for
+                <input
+                  type="checkbox"
+                  aria-label={`Select ${t.title}`}
+                  checked={ticked.includes(t.id)}
+                  onChange={() => onTick?.(t.id)}
+                />
+              ) : (
+                <span
+                  className="h-2 w-2 rounded-full"
+                  style={{ backgroundColor: overdue ? "#d63c3c" : (priority?.color ?? "#c7ccd3") }}
+                />
+              )}
+              {selectable ? (
+                <button
+                  type="button"
+                  className="min-w-0 truncate text-left font-medium hover:underline"
+                  onClick={() => onOpen(t)}
+                >
+                  {t.title}
+                </button>
+              ) : (
+                <span className="min-w-0 truncate font-medium">{t.title}</span>
+              )}
               <span className="min-w-0 truncate text-muted">
                 <TargetName task={t} />
               </span>
@@ -890,7 +933,7 @@ function TaskTable({
               <span className="text-right">
                 <TrackedTime seconds={t.trackedSeconds} emptyAs="dash" />
               </span>
-            </button>
+            </Row>
           );
         })}
       </div>
