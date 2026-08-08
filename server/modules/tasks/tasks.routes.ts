@@ -4,6 +4,7 @@ import { z } from "zod";
 import { uuid } from "@shared/schema/common.js";
 import {
   addTimeEntryInput,
+  bulkArchiveTasksInput,
   createColumnInput,
   createTaskCommentInput,
   createTaskInput,
@@ -119,6 +120,12 @@ export async function registerRoutes(instance: FastifyInstance) {
     "/:id/archive",
     { preHandler: requireAuth, schema: { params: idParams } },
     async (request) => service.archiveTask(request.params.id, request.currentUser!),
+  );
+
+  app.post(
+    "/bulk-archive",
+    { preHandler: requireAuth, schema: { body: bulkArchiveTasksInput } },
+    async (request) => service.bulkArchive(request.body, request.currentUser!),
   );
 
   app.post(

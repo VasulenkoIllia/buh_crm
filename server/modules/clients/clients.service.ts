@@ -159,8 +159,23 @@ export async function listClients(query: ClientListQuery) {
               : {}),
         };
 
+  /**
+   * Clients holding this service RIGHT NOW.
+   *
+   * `inForceTodayWhere` is the same function `REGULAR_FILTER` uses and the same rule
+   * `toClientDto` derives `categories` from — deliberately, not incidentally. A second definition
+   * of "in force today" would drift, and the screen would then list a client under a service whose
+   * chip their own row does not show.
+   */
+  const and: Prisma.ClientWhereInput[] = [];
+  if (query.serviceId) {
+    and.push({
+      subscriptions: { some: { serviceId: query.serviceId, ...inForceTodayWhere(config.TZ) } },
+    });
+  }
+
   if (query.search) {
-    where.AND = [
+    and.push(
       {
         OR: [
           { firstName: { contains: query.search, mode: "insensitive" } },
@@ -171,8 +186,9 @@ export async function listClients(query: ClientListQuery) {
           { companies: { some: { name: { contains: query.search, mode: "insensitive" } } } },
         ],
       },
-    ];
+    );
   }
+  if (and.length > 0) where.AND = and;
 
   const [{ items, total }, counts] = await Promise.all([
     repo.listClients({

@@ -637,7 +637,7 @@ describe("tasks", () => {
 
     const inWindow = await app.inject({
       method: "GET",
-      url: "/api/tasks?view=board&status=done&doneWithinDays=7",
+      url: "/api/tasks?view=board&status=done&withinDays=7",
       headers: { cookie: adminCookie },
     });
     expect(inWindow.json().items.map((t: { id: string }) => t.id)).toContain(taskId);
@@ -653,7 +653,7 @@ describe("tasks", () => {
     });
     const stillWeek = await app.inject({
       method: "GET",
-      url: "/api/tasks?view=board&status=done&doneWithinDays=7",
+      url: "/api/tasks?view=board&status=done&withinDays=7",
       headers: { cookie: adminCookie },
     });
     expect(stillWeek.json().items.map((t: { id: string }) => t.id)).not.toContain(taskId);
@@ -891,6 +891,133 @@ describe("tasks", () => {
       payload: { body: "still here?" },
     });
     expect(comment.statusCode).toBe(404);
+  });
+
+  it("filters by service, and 'none' finds the internal work no service covers", async () => {
+    const svc = await app.inject({
+      method: "POST", url: "/api/catalog", headers: { cookie: adminCookie },
+      payload: { name: "Filterable service", type: "one_time", defaultAmount: 1000 },
+    });
+    const serviceId = svc.json().id as string;
+    const clientId = await makeClient("FilterByService");
+    const sub = await app.inject({
+      method: "POST", url: `/api/clients/${clientId}/subscriptions`, headers: { cookie: adminCookie },
+      payload: { serviceId, amount: 1000, period: "month" },
+    });
+    const subscriptionId = sub.json().subscriptions.find(
+      (x: { serviceId: string }) => x.serviceId === serviceId,
+    ).id;
+
+    const throughService = await app.inject({
+      method: "POST", url: "/api/tasks", headers: { cookie: adminCookie },
+      payload: { title: "Billable via service", clientId, subscriptionId, assignees: [] },
+    });
+    const internal = await app.inject({
+      method: "POST", url: "/api/tasks", headers: { cookie: adminCookie },
+      payload: { title: "Firm's own time", clientId, internal: true, assignees: [] },
+    });
+    expect(internal.statusCode).toBe(201);
+
+    const ids = async (q: string) =>
+      (await app.inject({ method: "GET", url: `/api/tasks?view=board&status=all&${q}`, headers: { cookie: adminCookie } }))
+        .json().items.map((t: { id: string }) => t.id);
+
+    expect(await ids(`serviceId=${serviceId}`)).toContain(throughService.json().id);
+    expect(await ids(`serviceId=${serviceId}`)).not.toContain(internal.json().id);
+
+    // "none" is the whole point of the option: internal work belongs to no service, and without
+    // it there is no way to reach it through this filter at all
+    expect(await ids("serviceId=none")).toContain(internal.json().id);
+    expect(await ids("serviceId=none")).not.toContain(throughService.json().id);
+  });
+
+  it("windows Done by when it was FINISHED and Cancelled by when it was CALLED OFF", async () => {
+    const clientId = await makeClient("Windowed");
+    const mk = async (title: string) =>
+      (await app.inject({
+        method: "POST", url: "/api/tasks", headers: { cookie: adminCookie },
+        payload: { title, clientId, internal: true, assignees: [] },
+      })).json().id as string;
+
+    const doneId = await mk("Finished long ago");
+    const cancelledId = await mk("Called off long ago");
+    await app.inject({ method: "PATCH", url: `/api/tasks/${doneId}`, headers: { cookie: adminCookie }, payload: { done: true } });
+    await app.inject({ method: "PATCH", url: `/api/tasks/${cancelledId}`, headers: { cookie: adminCookie }, payload: { cancelled: true } });
+
+    // push both stamps back beyond a 7-day window
+    const old = new Date(Date.now() - 30 * 86_400_000);
+    await prisma.task.update({ where: { id: doneId }, data: { completedAt: old } });
+    await prisma.task.update({ where: { id: cancelledId }, data: { cancelledAt: old } });
+
+    const ids = async (status: string, q = "") =>
+      (await app.inject({ method: "GET", url: `/api/tasks?view=board&status=${status}${q}`, headers: { cookie: adminCookie } }))
+        .json().items.map((t: { id: string }) => t.id);
+
+    // no window → everything ever, which is what Cancelled defaults to (user, 2026-08-08)
+    expect(await ids("done")).toContain(doneId);
+    expect(await ids("cancelled")).toContain(cancelledId);
+
+    // Cancelled counts from `cancelledAt`, NOT `completedAt` — called-off work is never completed,
+    // so reusing the Done column would have quietly returned nothing here
+    expect(await ids("done", "&withinDays=7")).not.toContain(doneId);
+    expect(await ids("cancelled", "&withinDays=7")).not.toContain(cancelledId);
+
+    await prisma.task.update({ where: { id: cancelledId }, data: { cancelledAt: new Date() } });
+    expect(await ids("cancelled", "&withinDays=7")).toContain(cancelledId);
+  });
+
+  it("archives many at once, and says how many it would not touch", async () => {
+    const clientId = await makeClient("BulkArchive");
+    const mk = async (title: string) =>
+      (await app.inject({
+        method: "POST", url: "/api/tasks", headers: { cookie: adminCookie },
+        payload: { title, clientId, internal: true, assignees: [] },
+      })).json().id as string;
+
+    const done = await mk("Finished");
+    const cancelled = await mk("Called off");
+    const open = await mk("Still open");
+    await app.inject({ method: "PATCH", url: `/api/tasks/${done}`, headers: { cookie: adminCookie }, payload: { done: true } });
+    await app.inject({ method: "PATCH", url: `/api/tasks/${cancelled}`, headers: { cookie: adminCookie }, payload: { cancelled: true } });
+
+    const res = await app.inject({
+      method: "POST", url: "/api/tasks/bulk-archive", headers: { cookie: adminCookie },
+      payload: { taskIds: [done, cancelled, open] },
+    });
+    expect(res.statusCode).toBe(200);
+    // open work must never vanish in a bulk action — and the caller is TOLD it was skipped
+    expect(res.json()).toEqual({ changed: 2, skipped: 1 });
+
+    const archived = await prisma.task.findMany({
+      where: { id: { in: [done, cancelled, open] }, archivedAt: { not: null } },
+      select: { id: true },
+    });
+    expect(archived.map((t) => t.id).sort()).toEqual([done, cancelled].sort());
+
+    // running it again changes nothing: already-archived rows are not eligible twice
+    const again = await app.inject({
+      method: "POST", url: "/api/tasks/bulk-archive", headers: { cookie: adminCookie },
+      payload: { taskIds: [done, cancelled] },
+    });
+    expect(again.json()).toEqual({ changed: 0, skipped: 2 });
+  });
+
+  it("refuses to bulk-archive a task whose client is archived", async () => {
+    const clientId = await makeClient("GoneBulk");
+    const task = (await app.inject({
+      method: "POST", url: "/api/tasks", headers: { cookie: adminCookie },
+      payload: { title: "Closed then orphaned", clientId, internal: true, assignees: [] },
+    })).json().id as string;
+    await app.inject({ method: "PATCH", url: `/api/tasks/${task}`, headers: { cookie: adminCookie }, payload: { done: true } });
+    await app.inject({ method: "POST", url: `/api/clients/${clientId}/archive`, headers: { cookie: adminCookie } });
+
+    // it is already invisible; archiving would bury it a level deeper, out of reach of the
+    // client's own restore
+    const res = await app.inject({
+      method: "POST", url: "/api/tasks/bulk-archive", headers: { cookie: adminCookie },
+      payload: { taskIds: [task] },
+    });
+    expect(res.json()).toEqual({ changed: 0, skipped: 1 });
   });
 
   it("generates tasks on the rhythm day, idempotently, honoring per-client overrides", async () => {

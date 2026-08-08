@@ -77,6 +77,28 @@ export function countTasksInColumn(columnId: string) {
  * and the moment leads became archivable (S11) that gap became a card you could see but not open.
  * One definition, used by every list.
  */
+/** The rows a bulk action was asked about — with the archive flags it needs to judge them. */
+export function findTasksByIds(ids: string[]) {
+  return prisma.task.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true,
+      done: true,
+      cancelledAt: true,
+      archivedAt: true,
+      client: { select: { archivedAt: true } },
+      lead: { select: { archivedAt: true } },
+    },
+  });
+}
+
+export function archiveTasks(ids: string[], byUserId: string) {
+  return prisma.task.updateMany({
+    where: { id: { in: ids } },
+    data: { archivedAt: new Date(), archivedById: byUserId },
+  });
+}
+
 export function liveTargetWhere(): Prisma.TaskWhereInput {
   return {
     AND: [

@@ -51,8 +51,11 @@ export interface TaskQuery {
   view: "board" | "table";
   /** only work whose deadline day has passed */
   overdue?: boolean;
-  /** Done view: how many days back to include (undefined = everything ever completed) */
-  doneWithinDays?: number;
+  /** closed views: how many days back (undefined = everything ever) — counted from the column
+   *  that view is about, `completedAt` for Done and `cancelledAt` for Cancelled */
+  withinDays?: number;
+  /** a catalog service, or "none" for work that goes through no service (internal) */
+  serviceId?: string;
   assigneeId?: string;
   /** the target filter — a task belongs to one or the other, so only one is ever set */
   clientId?: string;
@@ -72,7 +75,8 @@ export function useTasks(query: TaskQuery) {
   const params = new URLSearchParams({ view: query.view, status: query.status });
   if (query.overdue) params.set("overdue", "true");
   if (query.archived) params.set("archived", "true");
-  if (query.doneWithinDays) params.set("doneWithinDays", String(query.doneWithinDays));
+  if (query.withinDays) params.set("withinDays", String(query.withinDays));
+  if (query.serviceId) params.set("serviceId", query.serviceId);
   if (query.assigneeId) params.set("assigneeId", query.assigneeId);
   if (query.clientId) params.set("clientId", query.clientId);
   if (query.leadId) params.set("leadId", query.leadId);
@@ -212,6 +216,22 @@ export function useRestoreTask() {
   const invalidate = useInvalidateTasks();
   return useMutation({
     mutationFn: (id: string) => api<Task>(`/api/tasks/${id}/restore`, { method: "POST" }),
+    onSuccess: invalidate,
+  });
+}
+
+/**
+ * Archive many closed tasks at once. Returns what it actually did — `{changed, skipped}` — so the
+ * screen can report a partial run instead of implying it archived everything selected.
+ */
+export function useBulkArchiveTasks() {
+  const invalidate = useInvalidateTasks();
+  return useMutation({
+    mutationFn: (taskIds: string[]) =>
+      api<{ changed: number; skipped: number }>("/api/tasks/bulk-archive", {
+        method: "POST",
+        body: { taskIds },
+      }),
     onSuccess: invalidate,
   });
 }

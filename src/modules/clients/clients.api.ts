@@ -36,6 +36,7 @@ export function useClients(query: Partial<ClientListQuery>, opts?: { enabled?: b
   const params = new URLSearchParams();
   if (query.tab) params.set("tab", query.tab);
   if (query.search) params.set("search", query.search);
+  if (query.serviceId) params.set("serviceId", query.serviceId);
   if (query.page) params.set("page", String(query.page));
   if (query.pageSize) params.set("pageSize", String(query.pageSize));
   return useQuery({

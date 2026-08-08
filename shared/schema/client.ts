@@ -239,6 +239,12 @@ export const clientListQuery = z.object({
    */
   tab: z.enum(["one_time", "regular", "all", "archived"]).default("one_time"),
   search: z.string().trim().optional(),
+  /**
+   * Clients holding this service RIGHT NOW. A client's services are derived from subscriptions in
+   * force today, never stored — so this filter must ask the same question the row's chips answer,
+   * or the two disagree about who has what (see `inForceTodayWhere`).
+   */
+  serviceId: uuid.optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
 });

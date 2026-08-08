@@ -33,6 +33,7 @@ import {
   useDeleteColumn,
   useTaskTargets,
   useTask,
+  useBulkArchiveTasks,
   useTaskColumns,
   useTasks,
   useUpdateColumn,
@@ -65,7 +66,16 @@ export function TasksPage() {
   const [targetFilter, setTargetFilter] = useState("");
   const [assigneeFilter, setAssigneeFilter] = useState("");
   const [layout, setLayout] = useState<Layout>("board");
+  /**
+   * The date window on a closed view. Done defaults to a week because finished work piles up
+   * forever; **Cancelled defaults to everything**, because there is far less of it and hunting for
+   * one called off by mistake must not depend on remembering when (user, 2026-08-08).
+   */
   const [donePeriod, setDonePeriod] = useState<DonePeriod>("7");
+  const [cancelledPeriod, setCancelledPeriod] = useState<DonePeriod>("all");
+  const [serviceFilter, setServiceFilter] = useState("");
+  /** ticked rows in a closed view — `selected` is taken: that is the task open in the modal */
+  const [ticked, setTicked] = useState<string[]>([]);
   const [page, setPage] = useState(1);
 
   const [targetKind, targetId] = targetFilter ? targetFilter.split(":") : [undefined, undefined];
@@ -85,7 +95,11 @@ export function TasksPage() {
     status: cancelled ? "cancelled" : done ? "done" : "open",
     view: layout,
     overdue: !closed && pill === "overdue",
-    doneWithinDays: done && donePeriod !== "all" ? Number(donePeriod) : undefined,
+    withinDays: (() => {
+      const p = done ? donePeriod : cancelled ? cancelledPeriod : "all";
+      return closed && p !== "all" ? Number(p) : undefined;
+    })(),
+    serviceId: serviceFilter || undefined,
     assigneeId: mineOnly ? user?.id : assigneeFilter || undefined,
     clientId: targetKind === "client" ? targetId : undefined,
     leadId: targetKind === "lead" ? targetId : undefined,
@@ -95,11 +109,20 @@ export function TasksPage() {
   const { data: columns } = useTaskColumns();
   const { data: team } = useAssignees();
   const { data: taskTargets } = useTaskTargets();
+  const { data: catalog } = useCatalog();
+  const bulkArchive = useBulkArchiveTasks();
+  const [bulkNote, setBulkNote] = useState<{ text: string; hint?: string } | null>(null);
+
+  // a tick belongs to the rows that were on screen when it was made; anything that changes the
+  // list must drop it, or Archive would act on rows the person can no longer see
+  useEffect(() => {
+    setTicked([]);
+  }, [view, layout, pill, targetFilter, assigneeFilter, donePeriod, cancelledPeriod, serviceFilter, page]);
 
   // any filter change starts the table back at page 1 — page 7 of the old result set is nonsense
   useEffect(() => {
     setPage(1);
-  }, [view, layout, pill, targetFilter, assigneeFilter, donePeriod]);
+  }, [view, layout, pill, targetFilter, assigneeFilter, donePeriod, cancelledPeriod, serviceFilter]);
   const [formOpen, setFormOpen] = useState(false);
   const [formColumnId, setFormColumnId] = useState<string | undefined>();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -155,15 +178,17 @@ export function TasksPage() {
       <div className="flex flex-none items-start justify-between gap-3 border-b border-border bg-surface px-6 pb-3 pt-4">
         <div className="flex min-w-0 flex-wrap items-center gap-3">
         <h1 className="text-[18px] font-semibold">Tasks</h1>
-        {/* Done is a PERIOD, not a state. Cancelled is neither: "mine"/"overdue" don't apply to
-            work that was called off, and showing chips that do nothing is worse than showing none. */}
-        {done ? (
+        {/* Both closed views take a PERIOD, not a state — "mine"/"overdue" mean nothing for work
+            that is finished or called off. They differ only in where they start: Done at a week
+            because it piles up, Cancelled at everything because it does not, and the one you are
+            hunting for is usually the one you called off by mistake (user, 2026-08-08). */}
+        {closed ? (
           <FilterChips
-            value={donePeriod}
-            onChange={setDonePeriod}
+            value={done ? donePeriod : cancelledPeriod}
+            onChange={done ? setDonePeriod : setCancelledPeriod}
             options={DONE_PERIODS.map((p) => ({ value: p.value, label: p.label }))}
           />
-        ) : cancelled ? null : (
+        ) : (
           <FilterChips
             value={pill}
             onChange={setPill}
@@ -176,6 +201,23 @@ export function TasksPage() {
         )}
         {/* searchable: this lists every client AND lead with live work — a plain dropdown
             stops being usable long before the firm does */}
+        {/* the catalog service the work goes through. "Internal" is not a service — it is the
+            absence of one, and without the option every internal task is unreachable here. */}
+        <div className="w-44">
+          <SearchSelect
+            value={serviceFilter}
+            onChange={setServiceFilter}
+            placeholder="All services"
+            emptyLabel="All services"
+            ariaLabel="Filter by service"
+            options={[
+              { value: "none", label: "Internal — no service" },
+              ...(catalog ?? [])
+                .filter((sv) => sv.active)
+                .map((sv) => ({ value: sv.id, label: sv.name })),
+            ]}
+          />
+        </div>
         <div className="w-44">
           <SearchSelect
             value={targetFilter}
@@ -257,15 +299,66 @@ export function TasksPage() {
           onAddInColumn={openNewTask}
         />
       )}
+      {/* Bulk archive. It reports what it ACTUALLY did — a run that tidies 3 of the 5 you ticked
+          and says nothing is worse than one that refuses, so the count of skipped rows and the
+          reason for them are part of the answer, not an afterthought. */}
+      {closed && ticked.length > 0 && (
+        <div className="mx-6 mt-3 flex flex-wrap items-center gap-3 rounded-(--radius-card) border border-border bg-surface px-4 py-2.5 text-[13px]">
+          <span className="font-medium">{ticked.length} selected</span>
+          <Button
+            size="sm"
+            disabled={bulkArchive.isPending}
+            onClick={async () => {
+              setBulkNote(null);
+              try {
+                const { changed, skipped } = await bulkArchive.mutateAsync(ticked);
+                setTicked([]);
+                setBulkNote({
+                  text:
+                    changed > 0
+                      ? `Archived ${changed} task${changed === 1 ? "" : "s"}.`
+                      : "Nothing to do — none of those could be archived.",
+                  hint:
+                    skipped > 0
+                      ? `${skipped} skipped — already archived, or belonging to an archived client.`
+                      : undefined,
+                });
+              } catch (e) {
+                setBulkNote({ text: (e as Error).message });
+              }
+            }}
+          >
+            📦 Archive
+          </Button>
+          <button
+            type="button"
+            className="text-[12px] text-muted hover:underline"
+            onClick={() => setTicked([])}
+          >
+            clear selection
+          </button>
+        </div>
+      )}
+      {bulkNote && (
+        <p className="mx-6 mt-2 text-[13px] text-muted">
+          {bulkNote.text}
+          {bulkNote.hint && <span className="ml-1 text-faint">{bulkNote.hint}</span>}
+        </p>
+      )}
+
       {data && layout === "board" && closed && (
         <DoneGrid
           tasks={tasks}
           team={team ?? []}
           // Cancelled isn't windowed by date: there is far less of it, and hunting for the one
           // you called off by mistake shouldn't depend on remembering when
-          period={cancelled ? "all" : donePeriod}
+          period={done ? donePeriod : cancelledPeriod}
           cancelled={cancelled}
-          onWiden={() => setDonePeriod("all")}
+          ticked={ticked}
+          onTick={(id) =>
+            setTicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))
+          }
+          onWiden={() => (done ? setDonePeriod("all") : setCancelledPeriod("all"))}
           onOpen={(t) => setSelectedId(t.id)}
         />
       )}
@@ -602,6 +695,8 @@ function DoneGrid({
   cancelled = false,
   onWiden,
   onOpen,
+  ticked,
+  onTick,
 }: {
   tasks: Task[];
   team: { id: string; firstName: string; lastName: string; avatarFileId: string | null }[];
@@ -610,6 +705,8 @@ function DoneGrid({
   cancelled?: boolean;
   onWiden: () => void;
   onOpen: (t: Task) => void;
+  ticked: string[];
+  onTick: (id: string) => void;
 }) {
   if (tasks.length === 0 && cancelled) {
     return <p className="p-6 text-[13px] text-muted">Nothing has been cancelled.</p>;
@@ -632,17 +729,29 @@ function DoneGrid({
     // that the client's name truncated to a single letter
     <div className="grid flex-1 auto-rows-min grid-cols-1 gap-2.5 overflow-auto p-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {tasks.map((t) => (
-        <button
+        <div
           key={t.id}
-          type="button"
-          onClick={() => onOpen(t)}
-          className="rounded-[9px] border border-border bg-surface px-3 py-[11px] text-left opacity-85 shadow-[0_1px_2px_rgba(0,0,0,.04)] hover:opacity-100"
+          className={cn(
+            "rounded-[9px] border bg-surface px-3 py-[11px] text-left opacity-85 shadow-[0_1px_2px_rgba(0,0,0,.04)] hover:opacity-100",
+            ticked.includes(t.id) ? "border-primary opacity-100" : "border-border",
+          )}
         >
-          <div className="text-[13px] font-semibold">
-            <span className={cn("mr-1", cancelled ? "text-[#b5651d]" : "text-success")}>
-              {cancelled ? "⊘" : "✓"}
-            </span>
-            <span className="text-muted line-through">{t.title}</span>
+          <div className="flex items-start gap-2 text-[13px] font-semibold">
+            {/* the tick is its own control, not part of opening the card — clicking a card to read
+                it must never be the same gesture as choosing it for a bulk action */}
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              aria-label={`Select ${t.title}`}
+              checked={ticked.includes(t.id)}
+              onChange={() => onTick(t.id)}
+            />
+            <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onOpen(t)}>
+              <span className={cn("mr-1", cancelled ? "text-[#b5651d]" : "text-success")}>
+                {cancelled ? "⊘" : "✓"}
+              </span>
+              <span className="text-muted line-through">{t.title}</span>
+            </button>
           </div>
           {/* WHO did it and for WHOM — a finished task is a record of work done, and this card
               used to show neither, which read as "the assignee disappeared when I closed it"
@@ -667,7 +776,7 @@ function DoneGrid({
             </span>
             {t.trackedSeconds > 0 && <TrackedTime seconds={t.trackedSeconds} />}
           </div>
-        </button>
+        </div>
       ))}
     </div>
   );

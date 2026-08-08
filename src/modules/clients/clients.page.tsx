@@ -7,6 +7,7 @@ import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { cn } from "@/shared/lib/cn";
 import { fmtMoney } from "@/shared/lib/money";
 import { Button } from "@/shared/ui/button";
+import { SearchSelect } from "@/shared/ui/search-select";
 import { FilterChips } from "@/shared/ui/tabs";
 import { ClientFormModal } from "./client-form";
 import { useClients } from "./clients.api";
@@ -27,11 +28,17 @@ const TAB_HINTS: Record<TabKey, string> = {
 export function ClientsPage() {
   const [tab, setTab] = useState<TabKey>("one_time");
   const [search, setSearch] = useState("");
+  const [serviceId, setServiceId] = useState("");
   const [page, setPage] = useState(1);
   const [formOpen, setFormOpen] = useState(false);
   const navigate = useNavigate();
 
-  const { data, isLoading, error } = useClients({ tab, search: search || undefined, page });
+  const { data, isLoading, error } = useClients({
+    tab,
+    search: search || undefined,
+    serviceId: serviceId || undefined,
+    page,
+  });
   const { data: services } = useCatalog();
   const serviceById = new Map((services ?? []).map((s) => [s.id, s]));
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
@@ -52,6 +59,21 @@ export function ClientsPage() {
             setPage(1);
           }}
         />
+        {/* Who holds this service RIGHT NOW — the same question the row's chips answer, asked of
+            the database by the same rule (see `inForceTodayWhere`). */}
+        <div className="w-56">
+          <SearchSelect
+            value={serviceId}
+            options={(services ?? []).filter((s) => s.active).map((s) => ({ value: s.id, label: s.name }))}
+            placeholder="Any service"
+            emptyLabel="Any service"
+            ariaLabel="Filter by service"
+            onChange={(v) => {
+              setServiceId(v);
+              setPage(1);
+            }}
+          />
+        </div>
         <Button className="ml-auto" onClick={() => setFormOpen(true)}>
           + New client
         </Button>
@@ -76,7 +98,7 @@ export function ClientsPage() {
 
       {data && !isLoading && (
         <>
-          {data.counts.one_time + data.counts.regular === 0 && !search ? (
+          {data.counts.one_time + data.counts.regular === 0 && !search && !serviceId ? (
             <EmptyState onCreate={() => setFormOpen(true)} />
           ) : (
             <div className="overflow-x-auto rounded-(--radius-panel) border border-border bg-surface">
@@ -92,7 +114,7 @@ export function ClientsPage() {
               ))}
               {data.items.length === 0 && (
                 <div className="px-4 py-[34px] text-center text-[13px] text-faint">
-                  No clients match your search
+                  No clients match these filters
                 </div>
               )}
             </div>

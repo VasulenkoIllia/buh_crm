@@ -1,5 +1,6 @@
 import type {
   AddTimeEntryInput,
+  BulkArchiveTasksInput,
   CreateColumnInput,
   CreateTaskCommentInput,
   CreateTaskInput,
@@ -186,22 +187,30 @@ export async function listTasks(query: TaskListQuery) {
   // work that was called off. A cancelled task is NOT open — it left the board on purpose.
   if (query.status === "open") and.push({ done: false, cancelledAt: null });
   if (query.status === "cancelled") and.push({ cancelledAt: { not: null } });
-  if (query.status === "done") {
-    and.push({ done: true, cancelledAt: null }); // called-off work is its own answer, not "done"
-    // Completed work only piles up, so the Done view shows a WINDOW of it (default: the last
-    // week) instead of everything the firm has ever finished. Counted in whole business days
-    // from the firm's today, so "7 days" means the last seven calendar days, not 168 hours.
-    // (`completedAt` is a real timestamp, so the oldest day's cut lands on UTC midnight rather
-    // than the firm's — a few hours of slack at the far edge of a week-wide window.)
-    if (query.doneWithinDays) {
-      and.push({
-        completedAt: { gte: new Date(today - (query.doneWithinDays - 1) * 86_400_000) },
-      });
-    }
+  if (query.status === "done") and.push({ done: true, cancelledAt: null }); // "done" is not "called off"
+
+  /**
+   * The date window on a closed view — and it counts from a DIFFERENT COLUMN per view, which is
+   * the whole reason the parameter is no longer called `doneWithinDays`. Done asks when the work
+   * was finished; Cancelled asks when it was called off. Using `completedAt` for both would
+   * silently return nothing on Cancelled, since called-off work is never completed.
+   *
+   * Counted in whole business days from the firm's today, so "7 days" is the last seven calendar
+   * days, not 168 hours. (Both columns are real timestamps, so the oldest day's cut lands on UTC
+   * midnight rather than the firm's — a few hours of slack at the far edge of a week-wide window.)
+   */
+  if (query.withinDays && (query.status === "done" || query.status === "cancelled")) {
+    const since = new Date(today - (query.withinDays - 1) * 86_400_000);
+    and.push(query.status === "done" ? { completedAt: { gte: since } } : { cancelledAt: { gte: since } });
   }
   if (query.search) and.push({ title: { contains: query.search, mode: "insensitive" } });
   if (query.assigneeId) and.push({ assignees: { some: { userId: query.assigneeId } } });
   if (query.clientId) and.push({ clientId: query.clientId });
+  // "none" is not a service id — it means work that goes through no service at all, which is every
+  // internal task. Without it they would be unreachable through this filter (user, 2026-08-08).
+  if (query.serviceId) {
+    and.push(query.serviceId === "none" ? { serviceId: null } : { serviceId: query.serviceId });
+  }
   if (query.leadId) and.push({ leadId: query.leadId });
   // "overdue" is answered by SQL, not by filtering the page in the browser — otherwise the
   // filter would only ever search the rows the board happened to load. Same business-date rule
@@ -512,10 +521,12 @@ export async function deleteComment(commentId: string, actor: User) {
  * disappear. Only a DONE task can be archived (user, 2026-08-01), the same rule invoices follow:
  * otherwise something still owed to a client could leave the board with no trace of why.
  */
+/** Closed business: finished, or called off. Open work must never be able to vanish. */
+const archivableState = (t: { done: boolean; cancelledAt: Date | null }) => t.done || !!t.cancelledAt;
+
 export async function archiveTask(id: string, actor: User) {
   const task = liveTaskOr404(await repo.findTask(id));
-  // finished business either way: done, or called off. Open work must not be able to vanish.
-  if (!task.done && !task.cancelledAt) {
+  if (!archivableState(task)) {
     throw new ConflictError(
       "Finish or cancel the task first — only closed work can be archived",
     );
@@ -542,6 +553,28 @@ export async function restoreTask(id: string) {
   }
   await repo.updateTask(id, { archivedAt: null, archivedById: null });
   return getTask(id);
+}
+
+/**
+ * Archive many at once.
+ *
+ * Eligibility is `archivableState` — the SAME predicate the single archive uses — so the two can
+ * never disagree about what "closed work" means. Anything not eligible is counted and reported,
+ * never silently skipped: a bulk action that does part of its job in silence is worse than one
+ * that refuses outright.
+ *
+ * A task whose client or lead is archived is refused here too. It is already invisible everywhere,
+ * and archiving it would bury it a second level down, out of reach of the client's own restore.
+ */
+export async function bulkArchive(input: BulkArchiveTasksInput, actor: User) {
+  const tasks = await repo.findTasksByIds(input.taskIds);
+  const eligible = tasks.filter(
+    (t) => !t.archivedAt && !t.client?.archivedAt && !t.lead?.archivedAt && archivableState(t),
+  );
+  if (eligible.length > 0) {
+    await repo.archiveTasks(eligible.map((t) => t.id), actor.id);
+  }
+  return { changed: eligible.length, skipped: input.taskIds.length - eligible.length };
 }
 
 // ── timer ────────────────────────────────────────────────────────────────────

@@ -221,16 +221,45 @@ export const taskListQuery = z.object({
     .optional()
     .transform((v) => v === "true"),
   /**
-   * Done view only: how far back to look, in whole days (7 = today plus the six before it).
-   * Omitted = every completed task ever, which is what the screen must not default to.
+   * Closed views: how far back to look, in whole days (7 = today plus the six before it).
+   *
+   * Which DATE it counts from depends on the view, because they are different columns — Done
+   * windows on `completedAt`, Cancelled on `cancelledAt`. It was called `doneWithinDays` while
+   * only Done had it; the name stopped being true the moment Cancelled got the same chips
+   * (user, 2026-08-08).
+   *
+   * Omitted = everything ever. That IS the default for Cancelled (there is far less of it, and
+   * hunting for one called off by mistake must not depend on remembering when — user, 2026-08-08)
+   * and deliberately NOT the default for Done.
    */
-  doneWithinDays: z.coerce.number().int().min(1).max(3650).optional(),
+  withinDays: z.coerce.number().int().min(1).max(3650).optional(),
+  /**
+   * The catalog service the work goes through. `"none"` is not a service — it means work that
+   * goes through none at all, which is every internal task; without it they are unreachable
+   * through this filter (user, 2026-08-08).
+   */
+  serviceId: z.union([uuid, z.literal("none")]).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(50),
 });
 export type TaskListQuery = z.infer<typeof taskListQuery>;
 
 // ── Columns ──────────────────────────────────────────────────────────────────
+
+/**
+ * Archive many at once. Same eligibility as archiving one — closed work only — and the answer
+ * always says how many were SKIPPED, because a bulk action that silently does part of the job is
+ * worse than one that refuses.
+ */
+export const bulkArchiveTasksInput = z.object({
+  taskIds: z.array(uuid).min(1).max(200),
+});
+export type BulkArchiveTasksInput = z.infer<typeof bulkArchiveTasksInput>;
+
+export const bulkArchiveResult = z.object({
+  changed: z.number().int(),
+  skipped: z.number().int(),
+});
 
 export const createColumnInput = z.object({ name: z.string().trim().min(1).max(40) });
 export type CreateColumnInput = z.infer<typeof createColumnInput>;
