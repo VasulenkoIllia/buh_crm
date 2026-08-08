@@ -196,7 +196,8 @@ export async function listClients(query: ClientListQuery) {
       skip: (query.page - 1) * query.pageSize,
       take: query.pageSize,
     }),
-    repo.countClientsByTab(REGULAR_FILTER()),
+    // the chips count what each tab would show UNDER THESE FILTERS — see the repository
+    repo.countClientsByTab(REGULAR_FILTER(), and),
   ]);
   const debts = await debtByClient(items.map((c) => c.id));
   return {

@@ -708,16 +708,22 @@ function DoneGrid({
   ticked: string[];
   onTick: (id: string) => void;
 }) {
-  if (tasks.length === 0 && cancelled) {
-    return <p className="p-6 text-[13px] text-muted">Nothing has been cancelled.</p>;
-  }
   if (tasks.length === 0) {
-    // don't claim "nothing was ever finished" when a window is on and older work may exist
+    /**
+     * One empty state for both views, because the rule is the same and having two meant only one
+     * of them followed it: an empty list with a WINDOW on says nothing about work outside that
+     * window. Cancelled used to answer "Nothing has been cancelled" flat out — and it kept saying
+     * that after it gained date chips, so picking "Last 7 days" claimed there were none at all
+     * (found 2026-08-08, in the same change that added the chips).
+     */
+    const word = cancelled ? "cancelled" : "completed";
     return period === "all" ? (
-      <p className="p-6 text-[13px] text-muted">No completed tasks yet.</p>
+      <p className="p-6 text-[13px] text-muted">
+        {cancelled ? "Nothing has been cancelled." : "No completed tasks yet."}
+      </p>
     ) : (
       <p className="p-6 text-[13px] text-muted">
-        Nothing completed in this period.{" "}
+        Nothing {word} in this period.{" "}
         <button type="button" className="text-primary-link hover:underline" onClick={onWiden}>
           Look at all time
         </button>

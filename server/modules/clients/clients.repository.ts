@@ -37,11 +37,25 @@ export async function listClients(args: {
   return { items, total };
 }
 
-/** Tab counts for the clients screen pills (regular / one-time). */
-export async function countClientsByTab(regularFilter: Prisma.ClientWhereInput) {
+/**
+ * Tab counts for the clients screen pills.
+ *
+ * They count what each tab WOULD SHOW under the filters currently on, not the whole book. A chip
+ * reading "One-time 8" beside a list of one — because a service filter cut it down — invites the
+ * reader to hunt for seven rows that were never going to appear. Billing's chips already worked
+ * this way; these did not (2026-08-08).
+ */
+export async function countClientsByTab(
+  regularFilter: Prisma.ClientWhereInput,
+  shared: Prisma.ClientWhereInput[] = [],
+) {
+  const base: Prisma.ClientWhereInput = {
+    archivedAt: null,
+    ...(shared.length > 0 ? { AND: shared } : {}),
+  };
   const [total, regular] = await prisma.$transaction([
-    prisma.client.count({ where: { archivedAt: null } }),
-    prisma.client.count({ where: { archivedAt: null, ...regularFilter } }),
+    prisma.client.count({ where: base }),
+    prisma.client.count({ where: { ...base, ...regularFilter } }),
   ]);
   return { regular, one_time: total - regular };
 }
