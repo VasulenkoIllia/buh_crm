@@ -523,18 +523,21 @@ export function TaskFormModal({
  * lives in the input itself — re-pick freely by editing the text (no separate
  * "change" control); create a client or a lead inline.
  */
-function ClientLeadSearch({
+export function ClientLeadSearch({
   value,
   onPick,
   onClear,
   onNewClient,
   onNewLead,
+  placeholder = "Search or pick a client / lead…",
 }: {
   value: Target | null;
   onPick: (t: Target) => void;
   onClear: () => void;
-  onNewClient: () => void;
-  onNewLead: () => void;
+  /** omitted → no inline "+ New client" row (the calendar has no use for it) */
+  onNewClient?: () => void;
+  onNewLead?: () => void;
+  placeholder?: string;
 }) {
   const [query, setQuery] = useState(value?.label ?? "");
   const [open, setOpen] = useState(false);
@@ -574,7 +577,7 @@ function ClientLeadSearch({
       <div className="relative">
         <Input
           className={cn("w-full pr-16", value && "border-primary font-medium")}
-          placeholder="Search or pick a client / lead…"
+          placeholder={placeholder}
           value={query}
           onChange={(e) => onType(e.target.value)}
           onFocus={(e) => {
@@ -603,14 +606,20 @@ function ClientLeadSearch({
           )
         )}
       </div>
-      <div className="mt-1 flex gap-3 text-[12px]">
-        <button type="button" className="font-medium text-primary-link hover:underline" onClick={onNewClient}>
-          + New client
-        </button>
-        <button type="button" className="font-medium text-primary-link hover:underline" onClick={onNewLead}>
-          + New lead
-        </button>
-      </div>
+      {(onNewClient ?? onNewLead) && (
+        <div className="mt-1 flex gap-3 text-[12px]">
+          {onNewClient && (
+            <button type="button" className="font-medium text-primary-link hover:underline" onClick={onNewClient}>
+              + New client
+            </button>
+          )}
+          {onNewLead && (
+            <button type="button" className="font-medium text-primary-link hover:underline" onClick={onNewLead}>
+              + New lead
+            </button>
+          )}
+        </div>
+      )}
       {open && (
         <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-(--radius-field) border border-border bg-surface shadow-(--shadow-card)">
           {!searching && (clientMatches.length > 0 || leadMatches.length > 0) && (

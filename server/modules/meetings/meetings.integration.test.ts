@@ -191,6 +191,45 @@ describe("meetings — booking", () => {
   });
 });
 
+describe("meetings — who can be booked with", () => {
+  /**
+   * The meeting form first fed its picker from the tasks BOARD FILTER list, which is scoped to
+   * clients and leads that already have work — right for a filter, useless as a picker. A brand
+   * new lead simply could not be chosen (user, 2026-08-06).
+   *
+   * The API never had that restriction, so this pins the contract the picker now relies on: a lead
+   * or client with no tasks at all is a perfectly good meeting target.
+   */
+  it("books a meeting with a lead that has no tasks whatsoever", async () => {
+    const lead = await post("/api/leads", { name: "Fresh lead, no work yet" });
+    const leadId = lead.json().id as string;
+    expect(await prisma.task.count({ where: { leadId } })).toBe(0);
+
+    const res = await post("/api/calendar/meetings", {
+      title: "First conversation",
+      leadId,
+      startAt: at(day(5), "10:00"),
+      durationMinutes: 15,
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({ leadId, leadName: "Fresh lead, no work yet" });
+  });
+
+  it("books a meeting with a client that has no tasks whatsoever", async () => {
+    const id = await makeClient("Untouched");
+    expect(await prisma.task.count({ where: { clientId: id } })).toBe(0);
+
+    const res = await post("/api/calendar/meetings", {
+      title: "Intro call",
+      clientId: id,
+      startAt: at(day(5), "11:00"),
+      durationMinutes: 15,
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().clientName).toBe("Untouched");
+  });
+});
+
 describe("meetings — the conflict boundary", () => {
   let baseId: string;
 

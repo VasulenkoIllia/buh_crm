@@ -105,6 +105,14 @@ export function useTask(id: string | null) {
 }
 
 /** Every client and lead with live work — the option list behind the board's target filter. */
+/**
+ * Clients and leads that HAVE work — the board's target filter.
+ *
+ * Not a picker. Filtering by someone with no tasks would return nothing, so the list is scoped;
+ * choosing someone to book a meeting with is the opposite question, and using this there meant a
+ * brand new lead could not be selected at all (user, 2026-08-06). For picking, use
+ * `ClientLeadSearch`, which searches every live client and lead on the server.
+ */
 export function useTaskTargets() {
   return useQuery({
     queryKey: [...TASKS_KEY, "targets"],

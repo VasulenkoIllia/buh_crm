@@ -15,6 +15,9 @@ import { uuid } from "./common.js";
 
 export const MEETING_DURATION_PRESETS = [15, 30, 45, 60, 90] as const;
 
+/** What a new meeting starts at. Short check-ins are the common case here (user, 2026-08-06). */
+export const DEFAULT_MEETING_MINUTES = 15;
+
 /** The window a calendar view may ask for. A month view is ~6 weeks, so this leaves room. */
 export const MAX_CALENDAR_RANGE_DAYS = 62;
 

@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle } from "lucide-react";
 import type { Meeting } from "@shared/schema/calendar";
-import { MEETING_DURATION_PRESETS } from "@shared/schema/calendar";
+import { DEFAULT_MEETING_MINUTES, MEETING_DURATION_PRESETS } from "@shared/schema/calendar";
 import { useCatalog } from "@/modules/catalog";
 import { useClient } from "@/modules/clients";
-import { useAssignees, useTaskTargets, type TaskTargetInfo } from "@/modules/tasks";
+import { ClientLeadSearch, useAssignees, type Target } from "@/modules/tasks";
 import { cn } from "@/shared/lib/cn";
 import { firmWallClockToInstant, firmZoneAbbr, instantToFirmWallClock } from "@/shared/lib/tz";
 import { useDebounced } from "@/shared/lib/use-debounced";
@@ -72,16 +72,17 @@ export function MeetingModal({
   const editing = !!meetingId;
   const { data: existing } = useMeeting(meetingId);
   const { data: team } = useAssignees();
-  const { data: targets } = useTaskTargets();
   const create = useCreateMeeting();
   const update = useUpdateMeeting();
 
   const [title, setTitle] = useState("");
-  const [target, setTarget] = useState("");
+  const [target, setTarget] = useState<Target | null>(null);
   const [start, setStart] = useState(() =>
     splitInstant(defaultStartAt ?? new Date().toISOString()),
   );
-  const [duration, setDuration] = useState(60);
+  // 15 minutes: most meetings this firm books are short check-ins, and a preset that is usually
+  // wrong costs a correction every single time (user, 2026-08-06)
+  const [duration, setDuration] = useState(DEFAULT_MEETING_MINUTES);
   const [link, setLink] = useState("");
   const [description, setDescription] = useState("");
   const [participants, setParticipants] = useState<string[]>([]);
@@ -105,10 +106,10 @@ export function MeetingModal({
       setTitle(existing.title);
       setTarget(
         existing.clientId
-          ? `client:${existing.clientId}`
+          ? { kind: "client", id: existing.clientId, label: existing.clientName ?? "Client" }
           : existing.leadId
-            ? `lead:${existing.leadId}`
-            : "",
+            ? { kind: "lead", id: existing.leadId, label: existing.leadName ?? "Lead" }
+            : null,
       );
       setStart(splitInstant(existing.startAt));
       setDuration(existing.durationMinutes);
@@ -116,14 +117,13 @@ export function MeetingModal({
       setDescription(existing.description ?? "");
       setParticipants(existing.participantIds);
     } else if (defaultClientId) {
-      setTarget(`client:${defaultClientId}`);
+      setTarget({ kind: "client", id: defaultClientId, label: "" });
     } else if (defaultLeadId) {
-      setTarget(`lead:${defaultLeadId}`);
+      setTarget({ kind: "lead", id: defaultLeadId, label: "" });
     }
   }, [existing, defaultClientId, defaultLeadId]);
 
-  const [kind, targetId] = target ? target.split(":") : [null, null];
-  const clientId = kind === "client" ? targetId! : undefined;
+  const clientId = target?.kind === "client" ? target.id : undefined;
   const { data: client } = useClient(withTask && taskMode === "service" ? clientId : undefined);
 
   const startAt = start.date && start.time ? joinToInstant(start.date, start.time) : null;
@@ -181,8 +181,8 @@ export function MeetingModal({
       } else {
         saved = await create.mutateAsync({
           title,
-          clientId: kind === "client" ? targetId : null,
-          leadId: kind === "lead" ? targetId : null,
+          clientId: target?.kind === "client" ? target.id : null,
+          leadId: target?.kind === "lead" ? target.id : null,
           startAt,
           durationMinutes: duration,
           link: link || null,
@@ -276,23 +276,21 @@ export function MeetingModal({
 
         <div className="grid grid-cols-2 gap-3.5">
           <FormField label="Client or lead" htmlFor="m-target">
-            <SearchSelect
-              id="m-target"
-              value={target}
-              disabled={editing}
-              placeholder={editing ? "Can't be changed after booking" : "Search…"}
-              emptyLabel="Internal — nobody outside the firm"
-              options={(targets ?? []).map((t: TaskTargetInfo) => ({
-                value: `${t.kind}:${t.id}`,
-                label: t.name,
-                hint: t.kind === "lead" ? "(lead)" : undefined,
-              }))}
-              onChange={(v) => {
-                setTarget(v);
-                setSubscriptionId("");
-                if (!v.startsWith("client:")) setTaskMode("internal");
-              }}
-            />
+            {editing ? (
+              // re-targeting is not supported: a linked task would be left pointing elsewhere
+              <Input value={target?.label ?? "Internal"} disabled readOnly />
+            ) : (
+              <ClientLeadSearch
+                value={target}
+                onPick={setTarget}
+                onClear={() => {
+                  setTarget(null);
+                  setSubscriptionId("");
+                  setTaskMode("internal");
+                }}
+                placeholder="Search — or leave empty for an internal meeting"
+              />
+            )}
           </FormField>
           <FormField label={`Starts (${firmZoneAbbr()})`} htmlFor="m-date">
             <div className="flex gap-2">
@@ -427,7 +425,7 @@ export function MeetingModal({
                   </>
                 ) : (
                   <p className="text-[12px] text-faint">
-                    {kind === "lead"
+                    {target?.kind === "lead"
                       ? "Work on this lead — free, because a lead holds no services yet."
                       : "The firm's own time. Pick a client above if it should go through a service."}
                   </p>
