@@ -1,15 +1,25 @@
-import { useState } from "react";
-import { CalendarClock, Pause, Play, Plus, Repeat } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { CalendarClock, Pause, Pencil, Play, Repeat } from "lucide-react";
 import type { Campaign } from "@shared/schema/campaigns";
 import { RHYTHM_LABELS } from "@shared/campaigns";
 import { cn } from "@/shared/lib/cn";
 import { fmtDate, fmtDateTime } from "@/shared/lib/format";
-import { Button } from "@/shared/ui/button";
+import { IconButton } from "@/shared/ui/button";
 import { CampaignModal } from "./campaign-modal";
 import { CampaignDetailModal } from "./campaign-detail";
 import { useCampaigns, useSetCampaignActive } from "./mailouts.api";
 
-const GRID = "grid-cols-[minmax(180px,1fr)_150px_120px_130px_110px_auto]";
+/**
+ * Every track a fixed width except the first — no `auto`, no second `fr`.
+ *
+ * Each row is its own grid container, so a content-sized track is measured against THAT row: the
+ * header's "Status" (45px) against the body's pill + pause + Edit (150px). Every column left of it
+ * then landed in a different place on the header than in the rows, which is exactly what made this
+ * table look broken while every value in it was right.
+ */
+const GRID = "grid-cols-[minmax(180px,1fr)_130px_120px_150px_80px_170px]";
+/** the tracks add up to 830 + five 12px gaps — say the real number, not a smaller comfortable one */
+const MIN = "min-w-[890px]";
 
 /**
  * The Campaigns tab — letters the firm has planned but not yet sent.
@@ -18,22 +28,39 @@ const GRID = "grid-cols-[minmax(180px,1fr)_150px_120px_130px_110px_auto]";
  * question a schedule can be judged on: a campaign nobody can see the next date of is a campaign
  * nobody trusts.
  */
-export function Campaigns() {
+export function Campaigns({ newSignal }: { newSignal: number }) {
   const { data, isLoading } = useCampaigns();
   const [editing, setEditing] = useState<Campaign | null>(null);
   const [creating, setCreating] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const setActive = useSetCampaignActive();
+
+  /**
+   * A CHANGE in the signal opens the editor — never the signal's mere presence.
+   *
+   * The page header owns the "New …" button and passes a counter down. Switching tabs unmounts
+   * this list, so a plain `> 0` check fired again on the way back: leave the tab and return, and
+   * the editor opened by itself. Seeding the ref from the incoming value makes a mount a no-op.
+   */
+  const handled = useRef(newSignal);
+  useEffect(() => {
+    if (newSignal === handled.current) return;
+    handled.current = newSignal;
+    setCreating(true);
+  }, [newSignal]);
 
   const items = data?.items ?? [];
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
-        <Button size="sm" onClick={() => setCreating(true)}>
-          <Plus size={14} /> New campaign
-        </Button>
-      </div>
+      {/* The app's global handler only acts on 401, so a refused stop/start — "there are no dates
+          left", say — went nowhere at all. A control that can fail must have somewhere to say so. */}
+      {error && (
+        <p className="mb-3 rounded-(--radius-field) bg-danger/10 px-3 py-2 text-[13px] text-danger-text">
+          {error}
+        </p>
+      )}
 
       {isLoading ? (
         <p className="text-[13px] text-muted">Loading…</p>
@@ -49,7 +76,8 @@ export function Campaigns() {
         <div className="overflow-x-auto rounded-(--radius-panel) border border-border bg-surface">
           <div
             className={cn(
-              "grid min-w-[760px] items-center gap-x-3 border-b border-border px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-faint",
+              "grid items-center gap-x-3 border-b border-border px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-faint",
+              MIN,
               GRID,
             )}
           >
@@ -66,7 +94,8 @@ export function Campaigns() {
               key={c.id}
               onClick={() => setOpen(c.id)}
               className={cn(
-                "grid min-w-[760px] cursor-pointer items-center gap-x-3 border-b border-border px-4 py-2.5 text-[13px] last:border-0 hover:bg-[#fafbfc]",
+                "grid cursor-pointer items-center gap-x-3 border-b border-border px-4 py-2.5 text-[13px] last:border-0 hover:bg-[#fafbfc]",
+                MIN,
                 GRID,
               )}
             >
@@ -77,51 +106,58 @@ export function Campaigns() {
                 )}
               </div>
               <div className="truncate text-muted">{c.templateName}</div>
-              <div className="flex items-center gap-1 text-muted">
-                {c.rhythm !== "once" && <Repeat size={11} />}
+              <div className="flex items-center gap-1 whitespace-nowrap text-muted">
+                {c.rhythm !== "once" && <Repeat size={11} className="shrink-0" />}
                 {RHYTHM_LABELS[c.rhythm]}
               </div>
-              <div className="text-muted">
+              <div className="whitespace-nowrap text-muted">
                 {c.nextRunOn ? (
                   <span className="flex items-center gap-1">
-                    <CalendarClock size={11} />
-                    {fmtDate(c.nextRunOn)} · {c.sendAt}
+                    <CalendarClock size={11} className="shrink-0" />
+                    {fmtDate(c.nextRunOn)}
+                    <span className="text-faint">{c.sendAt}</span>
                   </span>
                 ) : c.lastRunAt ? (
-                  `Last sent ${fmtDateTime(c.lastRunAt)}`
+                  <span title={fmtDateTime(c.lastRunAt)}>Last sent {fmtDate(c.lastRunAt)}</span>
                 ) : (
                   "—"
                 )}
               </div>
-              <div className="text-muted">
+              <div className="whitespace-nowrap text-muted">
                 {c.recipientCount}
-                {c.runCount > 0 && ` · sent ${c.runCount}×`}
+                {c.runCount > 0 && <span className="text-faint"> · {c.runCount}×</span>}
               </div>
-              <div className="flex items-center justify-end gap-2">
+              {/* The quiet icon strip every list in this app uses — 28×28, grey at rest, meaning
+                  in the tooltip. Hand-rolled buttons and a text "Edit" here made this row the only
+                  one in the product that looked different (see IconButton's own comment). */}
+              <div
+                className="flex items-center justify-end gap-1"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <CampaignStatus campaign={c} />
                 {c.status !== "finished" && (
-                  <button
-                    type="button"
-                    title={c.status === "scheduled" ? "Stop" : "Start again"}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setActive.mutate({ id: c.id, active: c.status !== "scheduled" });
+                  <IconButton
+                    label={
+                      c.status === "scheduled"
+                        ? "Stop — no more letters until it is started again"
+                        : "Start again"
+                    }
+                    disabled={setActive.isPending}
+                    onClick={() => {
+                      setError(null);
+                      setActive
+                        .mutateAsync({ id: c.id, active: c.status !== "scheduled" })
+                        .catch((e) =>
+                          setError(e instanceof Error ? e.message : "Could not change it"),
+                        );
                     }}
-                    className="rounded p-1 text-muted hover:bg-divider hover:text-ink"
                   >
-                    {c.status === "scheduled" ? <Pause size={13} /> : <Play size={13} />}
-                  </button>
+                    {c.status === "scheduled" ? <Pause size={15} /> : <Play size={15} />}
+                  </IconButton>
                 )}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setEditing(c);
-                  }}
-                  className="text-[12px] text-primary-link hover:underline"
-                >
-                  Edit
-                </button>
+                <IconButton label="Edit campaign" onClick={() => setEditing(c)}>
+                  <Pencil size={15} />
+                </IconButton>
               </div>
             </div>
           ))}

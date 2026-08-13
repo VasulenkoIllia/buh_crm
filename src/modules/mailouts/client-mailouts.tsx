@@ -4,20 +4,34 @@ import { RHYTHM_LABELS } from "@shared/campaigns";
 import { cn } from "@/shared/lib/cn";
 import { fmtDate, fmtDateTime } from "@/shared/lib/format";
 import { Button } from "@/shared/ui/button";
+import { FilterChips } from "@/shared/ui/tabs";
 import { ComposeModal } from "./compose-modal";
 import { ClientMailoutModal } from "./client-mailout-modal";
 import { StatusPill } from "./status-pill";
 import { useClientMailState, useSetSubscription } from "./mailouts.api";
 
 /**
- * The client card's Mailouts tab — the two questions the firm actually asks about a client:
- * *what have we sent them?* and *are they still willing to hear from us?*
+ * The client card's Mailouts tab — three questions, and now only one of them on screen at a time.
+ *
+ *   *Are they still willing to hear from us?*  the consent panel, always on top: it is the state
+ *                                              everything else is conditional on.
+ *   *What have we sent them?*                  Sent.
+ *   *What are we about to?*                    Scheduled.
+ *
+ * The last two used to be stacked, so a client on three campaigns pushed their letter history
+ * below the fold and the tab read as a wall. Chips rather than a second underline row: the card
+ * already owns the underline, and two of them stacked stop meaning "you are here".
  *
  * The subscription control is worded carefully. It governs COMMERCIAL mail only, and the card
  * says so, because "unsubscribed" reading as "we can't contact them" would be wrong and would
  * eventually stop somebody sending an invoice.
  */
-const HISTORY_GRID = "grid-cols-[minmax(180px,1fr)_150px_130px_130px_auto]";
+const HISTORY_GRID = "grid-cols-[minmax(180px,1fr)_150px_140px_150px_90px]";
+const HISTORY_MIN = "min-w-[760px]";
+const SCHEDULED_GRID = "grid-cols-[minmax(180px,1fr)_150px_130px]";
+const SCHEDULED_MIN = "min-w-[490px]";
+
+type View = "sent" | "scheduled";
 
 export function ClientMailouts({
   clientId,
@@ -30,6 +44,8 @@ export function ClientMailouts({
   const setSubscription = useSetSubscription(clientId);
   const [composing, setComposing] = useState(false);
   const [openLetter, setOpenLetter] = useState<string | null>(null);
+  const [view, setView] = useState<View>("sent");
+  const [error, setError] = useState<string | null>(null);
 
   if (isLoading || !data) return <p className="text-[13px] text-muted">Loading…</p>;
 
@@ -40,6 +56,12 @@ export function ClientMailouts({
 
   return (
     <div className="space-y-4">
+      {/* the global handler only acts on 401 — anything else needs a place to be said */}
+      {error && (
+        <p className="rounded-(--radius-field) bg-danger/10 px-3 py-2 text-[13px] text-danger-text">
+          {error}
+        </p>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-(--radius-panel) border border-border bg-surface p-4 shadow-(--shadow-card)">
         <div className="flex items-start gap-2.5">
           {data.subscribed ? (
@@ -68,19 +90,24 @@ export function ClientMailouts({
                 )}
               </p>
             )}
-            {!data.hasEmail && (
-              <p className="mt-1 text-[12px] text-danger-text">
-                {reachable.length > 0
-                  ? `No email on the client card — only their ${reachable.length === 1 ? "company" : "companies"} can be written to.`
-                  : "This client has no email address — nothing can be sent to them at all."}
-              </p>
-            )}
-            {data.targets.length > 1 && (
-              <p className="mt-1 text-[12px] text-muted">
-                {data.targets.length} addresses on file — theirs and{" "}
-                {data.targets.length - 1 === 1 ? "one company" : `${data.targets.length - 1} companies`}.
-              </p>
-            )}
+            {/* One line, and it is always true. Two used to sit here and contradict each other:
+                a red "no email on the client card" above a count of "4 addresses on file" that was
+                counting the client's own empty row as one of them. */}
+            <p
+              className={cn(
+                "mt-1 text-[12px]",
+                reachable.length === 0 ? "text-danger-text" : "text-muted",
+              )}
+            >
+              {reachable.length === 0
+                ? "No address anywhere — nothing can be sent to them or their companies."
+                : `${reachable.length} address${reachable.length === 1 ? "" : "es"} to write to` +
+                  (data.hasEmail
+                    ? reachable.length > 1
+                      ? " — theirs and their companies."
+                      : "."
+                    : " — their companies only; the client card has none.")}
+            </p>
           </div>
         </div>
 
@@ -88,7 +115,14 @@ export function ClientMailouts({
           <Button
             size="sm"
             variant="secondary"
-            onClick={() => setSubscription.mutate(!data.subscribed)}
+            onClick={() => {
+              setError(null);
+              setSubscription
+                .mutateAsync(!data.subscribed)
+                .catch((e) =>
+                  setError(e instanceof Error ? e.message : "Could not change the subscription"),
+                );
+            }}
             disabled={setSubscription.isPending}
           >
             {data.subscribed ? "Unsubscribe" : "Re-subscribe"}
@@ -99,85 +133,114 @@ export function ClientMailouts({
         </div>
       </div>
 
-      {data.campaigns.length > 0 && (
-        <div className="rounded-(--radius-panel) border border-border bg-surface">
-          <div className="border-b border-border px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-faint">
-            Scheduled for them
-          </div>
-          {data.campaigns.map((c) => (
-            <div
-              key={`${c.id}:${c.companyId ?? ""}`}
-              className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-2.5 text-[13px] last:border-0"
-            >
-              <span className="min-w-0 flex-1 truncate">
-                {c.name}
-                {c.companyName && <span className="text-muted"> · {c.companyName}</span>}
-              </span>
-              <span className="flex items-center gap-1 text-[12px] text-muted">
-                {c.rhythm !== "once" && <Repeat size={11} />}
-                {RHYTHM_LABELS[c.rhythm]}
-              </span>
-              <span className="flex items-center gap-1 text-[12px] text-muted">
-                <CalendarClock size={11} />
-                {c.status !== "scheduled"
-                  ? "Stopped"
-                  : c.nextRunOn
-                    ? fmtDate(c.nextRunOn)
-                    : "—"}
-              </span>
-              {/* said here rather than only at send time: a client queued for a letter they will
-                  never receive is exactly what somebody wants to know before the date, not after */}
-              {c.blockedReason && (
-                <span className="w-full text-[12px] text-[#8a5a12]">
-                  Would be skipped — {c.blockedReason.toLowerCase()}
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+      <FilterChips
+        value={view}
+        onChange={setView}
+        options={[
+          { value: "sent" as const, label: "Sent", count: data.history.length },
+          { value: "scheduled" as const, label: "Scheduled", count: data.campaigns.length },
+        ]}
+      />
 
-      {data.history.length === 0 ? (
-        <div className="rounded-(--radius-panel) border border-dashed border-[#cfd4db] bg-surface p-12 text-center">
-          <div className="text-[15px] font-semibold">Nothing sent to this client yet</div>
-          <p className="mt-1 text-[13px] text-muted">
-            Every letter — and every one that was skipped, with the reason — appears here.
-          </p>
-        </div>
+      {view === "sent" ? (
+        data.history.length === 0 ? (
+          <Empty
+            title="Nothing sent to this client yet"
+            hint="Every letter — and every one that was skipped, with the reason — appears here."
+          />
+        ) : (
+          <div className="overflow-x-auto rounded-(--radius-panel) border border-border bg-surface">
+            <div
+              className={cn(
+                "grid items-center gap-x-3 border-b border-border px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-faint",
+                HISTORY_MIN,
+                HISTORY_GRID,
+              )}
+            >
+              <div>Subject</div>
+              <div>To</div>
+              <div>Template</div>
+              <div>When</div>
+              <div className="text-right">Status</div>
+            </div>
+
+            {data.history.map((h) => (
+              <div
+                key={h.id}
+                onClick={() => setOpenLetter(h.id)}
+                className={cn(
+                  "grid cursor-pointer items-center gap-x-3 border-b border-border px-4 py-2.5 text-[13px] last:border-0 hover:bg-[#fafbfc]",
+                  HISTORY_MIN,
+                  HISTORY_GRID,
+                )}
+              >
+                <div className="min-w-0">
+                  <div className="truncate">{h.subject}</div>
+                  {/* the reason a letter was skipped belongs beside it, not in a detail nobody opens */}
+                  {h.reason && <p className="truncate text-[12px] text-muted">{h.reason}</p>}
+                </div>
+                <div className="truncate text-muted">
+                  {h.companyName ?? "Client\u2019s own address"}
+                </div>
+                <div className="truncate text-muted">{h.templateName ?? "One-off letter"}</div>
+                <div className="whitespace-nowrap text-muted">
+                  {fmtDateTime(h.sentAt ?? h.createdAt)}
+                </div>
+                <div className="text-right">
+                  <StatusPill status={h.status} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      ) : data.campaigns.length === 0 ? (
+        <Empty
+          title="Nothing scheduled for them"
+          hint="Campaigns this client is on appear here, with the date each one goes out."
+        />
       ) : (
         <div className="overflow-x-auto rounded-(--radius-panel) border border-border bg-surface">
           <div
             className={cn(
-              "grid min-w-[700px] items-center gap-x-3 border-b border-border px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-faint",
-              HISTORY_GRID,
+              "grid items-center gap-x-3 border-b border-border px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-faint",
+              SCHEDULED_MIN,
+              SCHEDULED_GRID,
             )}
           >
-            <div>Subject</div>
-            <div>To</div>
-            <div>Template</div>
-            <div>When</div>
-            <div className="text-right">Status</div>
+            <div>Campaign</div>
+            <div>Rhythm</div>
+            <div className="text-right">Next</div>
           </div>
 
-          {data.history.map((h) => (
+          {data.campaigns.map((c) => (
             <div
-              key={h.id}
-              onClick={() => setOpenLetter(h.id)}
+              key={`${c.id}:${c.companyId ?? ""}`}
               className={cn(
-                "grid min-w-[700px] cursor-pointer items-center gap-x-3 border-b border-border px-4 py-2.5 text-[13px] last:border-0 hover:bg-[#fafbfc]",
-                HISTORY_GRID,
+                "grid items-center gap-x-3 border-b border-border px-4 py-2.5 text-[13px] last:border-0",
+                SCHEDULED_MIN,
+                SCHEDULED_GRID,
               )}
             >
               <div className="min-w-0">
-                <div className="truncate">{h.subject}</div>
-                {/* the reason a letter was skipped belongs beside it, not in a detail nobody opens */}
-                {h.reason && <p className="truncate text-[12px] text-muted">{h.reason}</p>}
+                <div className="truncate">
+                  {c.name}
+                  {c.companyName && <span className="text-muted"> · {c.companyName}</span>}
+                </div>
+                {/* said here rather than only at send time: a client queued for a letter they will
+                    never receive is what somebody wants to know BEFORE the date, not after */}
+                {c.blockedReason && (
+                  <p className="truncate text-[12px] text-[#8a5a12]">
+                    Would be skipped — {c.blockedReason.toLowerCase()}
+                  </p>
+                )}
               </div>
-              <div className="truncate text-muted">{h.companyName ?? "Client\u2019s own address"}</div>
-              <div className="truncate text-muted">{h.templateName ?? "One-off letter"}</div>
-              <div className="text-muted">{fmtDateTime(h.sentAt ?? h.createdAt)}</div>
-              <div className="text-right">
-                <StatusPill status={h.status} />
+              <div className="flex items-center gap-1 whitespace-nowrap text-muted">
+                {c.rhythm !== "once" && <Repeat size={11} className="shrink-0" />}
+                {RHYTHM_LABELS[c.rhythm]}
+              </div>
+              <div className="flex items-center justify-end gap-1 whitespace-nowrap text-muted">
+                <CalendarClock size={11} className="shrink-0" />
+                {c.status !== "scheduled" ? "Stopped" : c.nextRunOn ? fmtDate(c.nextRunOn) : "—"}
               </div>
             </div>
           ))}
@@ -200,6 +263,16 @@ export function ClientMailouts({
         clientName={clientName}
         onClose={() => setOpenLetter(null)}
       />
+    </div>
+  );
+}
+
+/** The project's empty state: dashed, roomy, one line of what to do about it. */
+function Empty({ title, hint }: { title: string; hint: string }) {
+  return (
+    <div className="rounded-(--radius-panel) border border-dashed border-[#cfd4db] bg-surface p-12 text-center">
+      <div className="text-[15px] font-semibold">{title}</div>
+      <p className="mt-1 text-[13px] text-muted">{hint}</p>
     </div>
   );
 }

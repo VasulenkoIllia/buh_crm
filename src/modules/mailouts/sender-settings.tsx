@@ -1,9 +1,20 @@
 import { useState } from "react";
-import { AlertTriangle, Check, Info, Plus, Receipt, Star } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  Info,
+  Pencil,
+  Plug,
+  Plus,
+  Receipt,
+  Send,
+  Star,
+  Trash2,
+} from "lucide-react";
 import type { MailSenderAccountDto, SenderTestResult } from "@shared/schema/mailouts";
 import { useAuth } from "@/app/auth";
 import { cn } from "@/shared/lib/cn";
-import { Button } from "@/shared/ui/button";
+import { Button, IconButton } from "@/shared/ui/button";
 import { SenderAccountModal } from "./sender-account-modal";
 import {
   useDeleteSender,
@@ -179,44 +190,66 @@ function AccountCard({
           <p className="truncate font-mono text-[12px] text-muted">{account.effectiveAccount}</p>
         </div>
 
+        {/* Six text buttons stood here — "Edit · Make default · Use for invoices · Test · Send me
+            a letter · Delete" — repeated on every mailbox, which is exactly the wall of repeated
+            words IconButton was introduced to end. The controls no longer appear and disappear
+            either: a toggle that is already on is shown ON and disabled with the reason, because a
+            button that vanishes when you use it is harder to learn than one that stays. */}
         {isAdmin && (
-          <div className="flex shrink-0 flex-wrap gap-1">
-            <Button size="sm" variant="text" onClick={onEdit}>
-              Edit
-            </Button>
-            {!account.isDefault && account.active && (
-              <Button
-                size="sm"
-                variant="text"
-                onClick={() => act(() => makeDefault.mutateAsync(account.id))}
-              >
-                Make default
-              </Button>
-            )}
-            {!account.isInvoiceSender && account.active && (
-              <Button
-                size="sm"
-                variant="text"
-                onClick={() => act(() => makeInvoice.mutateAsync(account.id))}
-              >
-                Use for invoices
-              </Button>
-            )}
-            <Button size="sm" variant="text" onClick={() => run(false)} disabled={test.isPending}>
-              Test
-            </Button>
-            <Button size="sm" variant="text" onClick={() => run(true)} disabled={test.isPending}>
-              Send me a letter
-            </Button>
-            {!account.isDefault && (
-              <Button
-                size="sm"
-                variant="text"
-                onClick={() => act(() => remove.mutateAsync(account.id))}
-              >
-                Delete
-              </Button>
-            )}
+          <div className="flex shrink-0 items-center gap-1">
+            <IconButton label="Edit this mailbox" onClick={onEdit}>
+              <Pencil size={15} />
+            </IconButton>
+            <IconButton
+              label={
+                account.isDefault
+                  ? "The default mailbox — make another one the default to move it"
+                  : "Make this the default mailbox"
+              }
+              disabled={makeDefault.isPending || account.isDefault || !account.active}
+              className={cn(account.isDefault && "text-primary-link hover:text-primary-link")}
+              onClick={() => act(() => makeDefault.mutateAsync(account.id))}
+            >
+              <Star size={15} fill={account.isDefault ? "currentColor" : "none"} />
+            </IconButton>
+            <IconButton
+              label={
+                account.isInvoiceSender
+                  ? "Invoices go from here"
+                  : "Send invoices from this mailbox"
+              }
+              disabled={makeInvoice.isPending || account.isInvoiceSender || !account.active}
+              className={cn(account.isInvoiceSender && "text-primary-link hover:text-primary-link")}
+              onClick={() => act(() => makeInvoice.mutateAsync(account.id))}
+            >
+              <Receipt size={15} />
+            </IconButton>
+            <IconButton
+              label="Test the connection — connects and authenticates, sends nothing"
+              disabled={test.isPending}
+              onClick={() => run(false)}
+            >
+              <Plug size={15} />
+            </IconButton>
+            <IconButton
+              label="Send a real test letter to your own address"
+              disabled={test.isPending}
+              onClick={() => run(true)}
+            >
+              <Send size={15} />
+            </IconButton>
+            <IconButton
+              label={
+                account.isDefault
+                  ? "The default mailbox cannot be deleted — move the default first"
+                  : "Delete this mailbox"
+              }
+              disabled={remove.isPending || account.isDefault}
+              className="hover:text-danger"
+              onClick={() => act(() => remove.mutateAsync(account.id))}
+            >
+              <Trash2 size={15} />
+            </IconButton>
           </div>
         )}
       </div>
@@ -338,9 +371,9 @@ function FirmMailBlock({
 
           </div>
           {isAdmin && (
-            <Button size="sm" variant="text" onClick={() => setEditing(true)}>
-              Change
-            </Button>
+            <IconButton label="Change the firm's postal address" onClick={() => setEditing(true)}>
+              <Pencil size={15} />
+            </IconButton>
           )}
         </div>
       )}
@@ -406,9 +439,14 @@ function LetterheadRow({
               />
             </label>
             {logo && (
-              <Button size="sm" variant="text" onClick={() => remove.mutate(undefined as never)}>
-                Remove
-              </Button>
+              <IconButton
+                label="Remove the letterhead — letters fall back to the firm name in type"
+                disabled={remove.isPending}
+                className="hover:text-danger"
+                onClick={() => remove.mutate(undefined as never)}
+              >
+                <Trash2 size={15} />
+              </IconButton>
             )}
           </div>
         )}

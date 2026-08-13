@@ -889,6 +889,74 @@ function dedupeTargets(targets: MailoutTarget[]): { clientId: string; companyId:
  * wrong hands. And the unsubscribe check is the CLIENT's, so one opt-out covers their own address
  * and every company they hold: the stricter reading, and the one a regulator would take.
  */
+/**
+ * One addressee's fate, decided from data already in hand.
+ *
+ * Pulled out of `decide` so the same rule can be asked about one client against several letters
+ * without re-loading that client, their companies and their consent once per letter — which is
+ * what the client card did, up to fifty times, on a screen that refetches whenever the window
+ * regains focus. One rule, two callers, no second copy to drift.
+ */
+function judge(
+  letter: Letter,
+  client: SendableClient,
+  companyId: string | null,
+  account: SenderAccount,
+): { decision: Decision; unknown: string[] } {
+  const company = companyOf(client, companyId);
+  if (companyId && !company) {
+    return {
+      decision: {
+        clientId: client.id,
+        companyId,
+        clientName: clientLabel(client),
+        companyName: null,
+        email: null,
+        subject: letter.subject,
+        blockedReason: "That company is no longer on this client's card",
+        token: null,
+      },
+      unknown: [],
+    };
+  }
+
+  const recipient: Recipient = { client, company };
+  const email = addressOf(recipient);
+  const vars = varsFor(recipient, account);
+  const subject = renderMailText(letter.subject, vars);
+  const body = renderMailText(letter.body, vars);
+  const heading = renderMailText(letter.heading ?? "", vars);
+  const missing = [...new Set([...subject.missing, ...body.missing, ...heading.missing])];
+
+  // In the order the reasons matter: an addressee with no address cannot be told anything, an
+  // unsubscribed client must not be, and a card missing a value the letter needs would produce a
+  // sentence with a hole in it.
+  let blockedReason: string | null = null;
+  if (!email) {
+    blockedReason = company
+      ? `No email address on ${company.name}`
+      : "No email address on the client card";
+  } else if (letter.kind === "commercial" && client.mailPreference?.unsubscribedAt) {
+    blockedReason = "Unsubscribed from commercial mail";
+  } else if (missing.length) {
+    blockedReason = `Client card has no ${missing.map((m) => `{{${m}}}`).join(", ")}`;
+  }
+
+  return {
+    decision: {
+      clientId: client.id,
+      companyId,
+      clientName: clientLabel(client),
+      companyName: company?.name ?? null,
+      email,
+      subject: subject.text,
+      blockedReason,
+      token: client.mailPreference?.token ?? null,
+    },
+    unknown: [...subject.unknown, ...body.unknown, ...heading.unknown],
+  };
+}
+
 async function decide(
   letter: Letter,
   targets: MailoutTarget[],
@@ -920,52 +988,9 @@ async function decide(
       });
       continue;
     }
-
-    const company = companyOf(client, companyId);
-    if (companyId && !company) {
-      decisions.push({
-        clientId,
-        companyId,
-        clientName: clientLabel(client),
-        companyName: null,
-        email: null,
-        subject: letter.subject,
-        blockedReason: "That company is no longer on this client's card",
-        token: null,
-      });
-      continue;
-    }
-
-    const recipient: Recipient = { client, company };
-    const email = addressOf(recipient);
-    const vars = varsFor(recipient, account);
-    const subject = renderMailText(letter.subject, vars);
-    const body = renderMailText(letter.body, vars);
-    const heading = renderMailText(letter.heading ?? "", vars);
-    for (const u of [...subject.unknown, ...body.unknown, ...heading.unknown]) unknown.add(u);
-    const missing = [...new Set([...subject.missing, ...body.missing, ...heading.missing])];
-
-    let blockedReason: string | null = null;
-    if (!email) {
-      blockedReason = company
-        ? `No email address on ${company.name}`
-        : "No email address on the client card";
-    } else if (letter.kind === "commercial" && client.mailPreference?.unsubscribedAt) {
-      blockedReason = "Unsubscribed from commercial mail";
-    } else if (missing.length) {
-      blockedReason = `Client card has no ${missing.map((m) => `{{${m}}}`).join(", ")}`;
-    }
-
-    decisions.push({
-      clientId,
-      companyId,
-      clientName: clientLabel(client),
-      companyName: company?.name ?? null,
-      email,
-      subject: subject.text,
-      blockedReason,
-      token: client.mailPreference?.token ?? null,
-    });
+    const { decision, unknown: u } = judge(letter, client, companyId, account);
+    for (const v of u) unknown.add(v);
+    decisions.push(decision);
   }
 
   return { decisions, unknownVariables: [...unknown], clients: byId };
@@ -1185,6 +1210,69 @@ export async function send(actor: User, input: SendMailoutInput): Promise<Mailou
 //
 // Exported here rather than re-implemented next door: a campaign IS a mailout with a date, and the
 // moment it grows its own copy of "who can be written to" the two start drifting.
+
+/**
+ * What would happen to ONE client under several planned letters, in a fixed number of queries.
+ *
+ * The client card lists every campaign a client is on and says, per campaign, whether they would
+ * actually be reached. Asking `assessTargets` once per campaign re-read that client, their
+ * companies, their consent, the template and the mailbox every time — up to fifty rounds of five
+ * queries on a screen that refetches whenever the window regains focus.
+ *
+ * Here the client is loaded once, the templates in one query, and each distinct mailbox once.
+ * The rule itself is `judge`, the same one a real send goes through.
+ */
+export async function assessClientPlans(
+  clientId: string,
+  plans: {
+    templateId: string;
+    kind: MailoutKind;
+    senderAccountId: string | null;
+    companyId: string | null;
+  }[],
+): Promise<(string | null)[]> {
+  if (plans.length === 0) return [];
+
+  const [clients, templates] = await Promise.all([
+    repo.findSendableClients([clientId]),
+    repo.findTemplatesByIds([...new Set(plans.map((p) => p.templateId))]),
+  ]);
+  const client = clients[0];
+  if (!client) return plans.map(() => "Archived or no longer exists");
+  const byTemplate = new Map(templates.map((t) => [t.id, t]));
+
+  // one lookup per distinct mailbox, not per plan — most firms have one
+  const accounts = new Map<string, SenderAccount>();
+  const accountFor = async (chosen: string | null, templateDefault: string | null) => {
+    const key = `${chosen ?? ""}|${templateDefault ?? ""}`;
+    let account = accounts.get(key);
+    if (!account) {
+      account = await resolveSenderAccount(chosen, templateDefault);
+      accounts.set(key, account);
+    }
+    return account;
+  };
+
+  const out: (string | null)[] = [];
+  for (const plan of plans) {
+    const template = byTemplate.get(plan.templateId);
+    if (!template) {
+      out.push("Its template no longer exists");
+      continue;
+    }
+    const account = await accountFor(plan.senderAccountId, template.senderAccountId);
+    const letter: Letter = {
+      subject: template.subject,
+      heading: template.heading,
+      body: template.body,
+      kind: plan.kind,
+      templateId: template.id,
+      senderAccountId: template.senderAccountId,
+    };
+    out.push(judge(letter, client, plan.companyId, account).decision.blockedReason);
+  }
+  return out;
+}
 
 /** What would happen to these addressees if this template went out right now. */
 export async function assessTargets(
@@ -1439,18 +1527,16 @@ export async function clientCampaigns(clientId: string): Promise<ClientCampaign[
   const rows = await campaignRepo.listClientCampaigns(clientId);
   if (rows.length === 0) return [];
 
-  // One assessment per campaign, for THIS client only — the card asks about them, not about the
-  // whole list. The template id rides along on the row, so this is not a query per campaign.
-  const assessed = await Promise.all(
-    rows.map(async (r): Promise<string | null> => {
-      const [decision] = await assessTargets(
-        r.campaign.templateId,
-        r.campaign.kind as MailoutKind,
-        r.campaign.senderAccountId,
-        [{ clientId, companyId: r.companyId }],
-      );
-      return decision?.blockedReason ?? null;
-    }),
+  // ONE batched assessment for the whole list — see `assessClientPlans`. This used to be a call
+  // per campaign, each re-loading the same client.
+  const assessed = await assessClientPlans(
+    clientId,
+    rows.map((r) => ({
+      templateId: r.campaign.templateId,
+      kind: r.campaign.kind as MailoutKind,
+      senderAccountId: r.campaign.senderAccountId,
+      companyId: r.companyId,
+    })),
   );
 
   return rows.map((r, i) => ({

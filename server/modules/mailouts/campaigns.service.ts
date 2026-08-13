@@ -218,10 +218,21 @@ export async function update(id: string, input: CampaignInput): Promise<Campaign
 
   // Moving the dates re-derives what is due next. Counted from yesterday so a start date set to
   // TODAY is still due today — the sweep has not necessarily run yet.
+  //
+  // A STOPPED campaign keeps no date at all. It has one invariant — stopped means no date — and
+  // editing one used to break it: the list then showed "Next 13/08" beside a Stopped pill for a
+  // campaign that would never send. The date is derived again when it is started.
   const next =
-    existing.lastRunAt === null
-      ? firstRunOn(startsOn, endsOn)
-      : nextRunAfter(startsOn, input.rhythm, Math.max(todayMs() - 86_400_000, dayMs(existing.lastRunAt)), endsOn);
+    existing.status === "stopped"
+      ? null
+      : existing.lastRunAt === null
+        ? firstRunOn(startsOn, endsOn)
+        : nextRunAfter(
+            startsOn,
+            input.rhythm,
+            Math.max(todayMs() - 86_400_000, dayMs(existing.lastRunAt)),
+            endsOn,
+          );
 
   await repo.updateCampaign(
     id,
@@ -237,7 +248,9 @@ export async function update(id: string, input: CampaignInput): Promise<Campaign
       sendAt: input.sendAt,
       endsOn: endsOn === null ? null : new Date(endsOn),
       nextRunOn: next === null ? null : new Date(next),
-      status: next === null ? "finished" : existing.status,
+      // "no date left" only finishes a campaign that was RUNNING — a stopped one stays stopped,
+      // and can still be started again once its schedule makes sense
+      status: existing.status === "stopped" ? "stopped" : next === null ? "finished" : "scheduled",
     },
     dedupe(input.recipients),
   );

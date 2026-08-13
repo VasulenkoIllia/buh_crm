@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Building2, Search, Trash2 } from "lucide-react";
 import type { Campaign, CampaignInput } from "@shared/schema/campaigns";
 import type { MailoutTarget } from "@shared/schema/mailouts";
@@ -68,10 +68,22 @@ export function CampaignModal({
     { enabled: open },
   );
 
+  /**
+   * The loaded campaign, held in a ref so the reset effect can read it WITHOUT depending on it.
+   *
+   * `refetchOnWindowFocus` is on app-wide, and every campaign mutation invalidates this query, so
+   * the detail object's identity changes often. As a dependency it reset the form each time —
+   * alt-tab away while editing and everything typed was gone. The effect keys on the campaign's
+   * ID instead: that changes when a DIFFERENT campaign is opened, which is the only time a reset
+   * is wanted.
+   */
+  const latest = useRef(existing.data);
+  latest.current = existing.data;
+
   const loadedId = existing.data?.id ?? null;
   useEffect(() => {
     if (!open) return;
-    const c = existing.data;
+    const c = latest.current;
     setName(c?.name ?? "");
     setTemplateId(c?.templateId ?? "");
     setSenderAccountId(c?.senderAccountId ?? "");
@@ -83,9 +95,7 @@ export function CampaignModal({
     setSelected(new Set(c?.recipients.map((r) => keyOf(r.clientId, r.companyId)) ?? []));
     setSearch("");
     setError(null);
-    // `loadedId`, not the object: the detail refetches and hands down a new one each time, which
-    // as a dependency would wipe whatever was half-typed.
-  }, [open, loadedId, existing.data]);
+  }, [open, loadedId]);
 
   const activeTemplates = useMemo(
     () => (templates.data ?? []).filter((t) => t.active),

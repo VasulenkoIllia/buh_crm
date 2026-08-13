@@ -1,9 +1,9 @@
-import { useState } from "react";
-import { Pencil, Send } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Pencil, Plus, Power, Send, Trash2 } from "lucide-react";
 import type { EmailTemplate } from "@shared/schema/mailouts";
 import { cn } from "@/shared/lib/cn";
 import { fmtDateTime } from "@/shared/lib/format";
-import { Button } from "@/shared/ui/button";
+import { Button, IconButton } from "@/shared/ui/button";
 import { Tabs } from "@/shared/ui/tabs";
 import { Campaigns } from "./campaigns";
 import { ComposeModal } from "./compose-modal";
@@ -17,6 +17,11 @@ import { useDeleteTemplate, useMailouts, useTemplates, useUpdateTemplate } from 
  * Written in the project's own visual language rather than a private one: `mx-auto max-w-[…]` with
  * no extra padding (the app layout already gives `p-6`), a 20px semibold h1, `--radius-panel`
  * surfaces, and grid rows instead of `<table>` — the shape Billing and Clients use.
+ *
+ * The header follows Clients and Billing exactly: **one row** of h1 + a short inline note + the
+ * primary action pinned right. It used to be a title row plus a paragraph whose length changed
+ * with the tab, so the tabs — and everything under them — sat at a different height on every tab.
+ * A screen that moves when you switch tabs reads as a different screen each time.
  */
 const TABS = [
   { value: "log" as const, label: "Sent" },
@@ -26,35 +31,62 @@ const TABS = [
 ];
 type Tab = (typeof TABS)[number]["value"];
 
+/**
+ * One line each, and one line is the point.
+ *
+ * These sit between the tabs and the panel, so a two-line one on a single tab would push that
+ * tab's content down and no other's — the exact jump this rewrite removes. Anything that needs
+ * more than a line belongs next to the control it explains, where it can be read in context.
+ */
 const BLURB: Record<Tab, string> = {
-  log: "Every letter that went out, and what happened to each recipient — including the ones that were skipped, and why.",
-  campaigns:
-    "Letters planned for a date rather than sent by hand — once, or on a rhythm. Who is on the list is checked again on the day, so anyone who unsubscribed in between is skipped.",
-  templates:
-    "A template is a letter you send more than once, personalised per client. The frame — logo, signature, contact buttons, footer — is the same on all of them; only the subject, heading and body change.",
+  log: "Every letter that went out, and what happened to each recipient — skipped ones included.",
+  campaigns: "Letters planned for a date rather than sent by hand — once, or on a rhythm.",
+  templates: "A letter you send more than once, personalised per client. Only the words change.",
   sender: "Which mailboxes letters go from, and the firm's details that appear in every one.",
+};
+
+/** One primary action per tab, always in the same place — never one in the header and one below. */
+const ACTION: Record<Tab, string | null> = {
+  log: "New mailout",
+  campaigns: "New campaign",
+  templates: "New template",
+  sender: null,
 };
 
 export function MailoutsPage() {
   const [tab, setTab] = useState<Tab>("log");
   const [composing, setComposing] = useState(false);
   const [openMailout, setOpenMailout] = useState<string | null>(null);
+  // the tab-level "new" buttons live in the header now, so the tabs own a signal rather than a button
+  const [newCampaign, setNewCampaign] = useState(0);
+  const [newTemplate, setNewTemplate] = useState(0);
+
+  const act = () => {
+    if (tab === "log") setComposing(true);
+    if (tab === "campaigns") setNewCampaign((n) => n + 1);
+    if (tab === "templates") setNewTemplate((n) => n + 1);
+  };
 
   return (
     <div className="mx-auto max-w-[960px]">
-      <div className="mb-1 flex items-center justify-between">
+      {/* `min-h-9` is the Button's own height: without it the Sender tab, which has no action,
+          sat 8px shorter and moved the tabs — the jump this whole rewrite is about. */}
+      <div className="mb-3.5 flex min-h-9 flex-wrap items-center gap-3.5">
         <h1 className="text-[20px] font-semibold">Mailouts</h1>
-        <Button onClick={() => setComposing(true)}>
-          <Send size={14} /> New mailout
-        </Button>
+        <span className="text-[13px] text-muted-400">{BLURB[tab]}</span>
+        {ACTION[tab] && (
+          <Button className="ml-auto shrink-0" onClick={act}>
+            {tab === "log" ? <Send size={14} /> : <Plus size={14} />}
+            {ACTION[tab]}
+          </Button>
+        )}
       </div>
-      <p className="mb-3 text-[13px] text-muted-400">{BLURB[tab]}</p>
 
       <Tabs className="mb-4" value={tab} onChange={setTab} options={TABS} />
 
       {tab === "log" && <SentLog onOpen={setOpenMailout} />}
-      {tab === "campaigns" && <Campaigns />}
-      {tab === "templates" && <TemplateList />}
+      {tab === "campaigns" && <Campaigns newSignal={newCampaign} />}
+      {tab === "templates" && <TemplateList newSignal={newTemplate} />}
       {tab === "sender" && <SenderSettings />}
 
       <ComposeModal
@@ -79,7 +111,15 @@ function Empty({ title, hint }: { title: string; hint: string }) {
 
 // ── the log ──────────────────────────────────────────────────────────────────
 
-const LOG_GRID = "grid-cols-[minmax(220px,1fr)_150px_130px_140px_auto]";
+/**
+ * Every track a fixed width except the first.
+ *
+ * Each row is its own grid container, so an `auto` or `fr` track is measured against THAT row's
+ * content — the header's "Recipients" against the body's row of pills. The columns then land in
+ * different places on every line, which is what made the Campaigns table read as broken.
+ */
+const LOG_GRID = "grid-cols-[minmax(200px,1fr)_150px_130px_140px_170px]";
+const LOG_MIN = "min-w-[840px]";
 
 function SentLog({ onOpen }: { onOpen: (id: string) => void }) {
   const [page, setPage] = useState(1);
@@ -102,7 +142,8 @@ function SentLog({ onOpen }: { onOpen: (id: string) => void }) {
       <div className="overflow-x-auto rounded-(--radius-panel) border border-border bg-surface">
         <div
           className={cn(
-            "grid min-w-[760px] items-center gap-x-3 border-b border-border px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-faint",
+            "grid items-center gap-x-3 border-b border-border px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-faint",
+            LOG_MIN,
             LOG_GRID,
           )}
         >
@@ -118,7 +159,8 @@ function SentLog({ onOpen }: { onOpen: (id: string) => void }) {
             key={m.id}
             onClick={() => onOpen(m.id)}
             className={cn(
-              "grid min-w-[760px] cursor-pointer items-center gap-x-3 border-b border-border px-4 py-2.5 text-[13px] last:border-0 hover:bg-[#fafbfc]",
+              "grid cursor-pointer items-center gap-x-3 border-b border-border px-4 py-2.5 text-[13px] last:border-0 hover:bg-[#fafbfc]",
+              LOG_MIN,
               LOG_GRID,
             )}
           >
@@ -132,7 +174,7 @@ function SentLog({ onOpen }: { onOpen: (id: string) => void }) {
             </div>
             <div className="truncate text-muted">{m.templateName ?? "One-off letter"}</div>
             <div className="truncate text-muted">{m.createdByName ?? "—"}</div>
-            <div className="text-muted">{fmtDateTime(m.createdAt)}</div>
+            <div className="whitespace-nowrap text-muted">{fmtDateTime(m.createdAt)}</div>
             <div className="flex justify-end gap-1.5">
               {m.counts.sent > 0 && <StatusPill status="sent" count={m.counts.sent} />}
               {m.counts.queued > 0 && <StatusPill status="queued" count={m.counts.queued} />}
@@ -172,13 +214,34 @@ function SentLog({ onOpen }: { onOpen: (id: string) => void }) {
 
 // ── templates ────────────────────────────────────────────────────────────────
 
-function TemplateList() {
+/**
+ * `newSignal` is a counter, not a boolean.
+ *
+ * The header owns the "New template" button now, and the editor lives here with the list it edits.
+ * A boolean would need clearing after every open, and would silently fail the second time it was
+ * pressed; a rising number cannot get stuck.
+ */
+function TemplateList({ newSignal }: { newSignal: number }) {
   const { data, isLoading } = useTemplates();
   const update = useUpdateTemplate();
   const remove = useDeleteTemplate();
   const [editing, setEditing] = useState<EmailTemplate | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /**
+   * A CHANGE in the signal opens the editor — never the signal's mere presence.
+   *
+   * The page header owns the "New …" button and passes a counter down. Switching tabs unmounts
+   * this list, so a plain `> 0` check fired again on the way back: leave the tab and return, and
+   * the editor opened by itself. Seeding the ref from the incoming value makes a mount a no-op.
+   */
+  const handled = useRef(newSignal);
+  useEffect(() => {
+    if (newSignal === handled.current) return;
+    handled.current = newSignal;
+    setCreating(true);
+  }, [newSignal]);
 
   async function tryDelete(t: EmailTemplate) {
     setError(null);
@@ -192,12 +255,6 @@ function TemplateList() {
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
-        <Button size="sm" variant="secondary" onClick={() => setCreating(true)}>
-          + New template
-        </Button>
-      </div>
-
       {error && (
         <p className="mb-3 rounded-(--radius-field) bg-danger/10 px-3 py-2 text-[13px] text-danger-text">
           {error}
@@ -234,19 +291,34 @@ function TemplateList() {
                 </div>
                 <p className="truncate text-[13px] text-muted">{t.subject}</p>
               </div>
-              <Button size="sm" variant="text" onClick={() => setEditing(t)}>
-                <Pencil size={13} /> Edit
-              </Button>
-              <Button
-                size="sm"
-                variant="text"
-                onClick={() => update.mutate({ id: t.id, input: { active: !t.active } })}
-              >
-                {t.active ? "Deactivate" : "Activate"}
-              </Button>
-              <Button size="sm" variant="text" onClick={() => tryDelete(t)}>
-                Delete
-              </Button>
+              {/* The quiet icon strip, same as Services and the client card. Three text links per
+                  row put four repeated words on every line and pulled the eye off the template
+                  they act on — the reason IconButton exists (see its comment). */}
+              <div className="flex flex-none items-center gap-1">
+                <IconButton label="Edit template" onClick={() => setEditing(t)}>
+                  <Pencil size={15} />
+                </IconButton>
+                <IconButton
+                  label={
+                    t.active
+                      ? "Deactivate — it stays in history but cannot be sent or scheduled"
+                      : "Activate"
+                  }
+                  disabled={update.isPending}
+                  className={t.active ? "hover:text-danger" : undefined}
+                  onClick={() => update.mutate({ id: t.id, input: { active: !t.active } })}
+                >
+                  <Power size={15} />
+                </IconButton>
+                <IconButton
+                  label="Delete template"
+                  disabled={remove.isPending}
+                  className="hover:text-danger"
+                  onClick={() => tryDelete(t)}
+                >
+                  <Trash2 size={15} />
+                </IconButton>
+              </div>
             </div>
           ))}
         </div>

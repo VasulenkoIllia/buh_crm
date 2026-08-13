@@ -12,6 +12,11 @@ export function findTemplate(id: string) {
   return prisma.emailTemplate.findUnique({ where: { id } });
 }
 
+/** Several templates in one query — the client card asks about every campaign it is on at once. */
+export function findTemplatesByIds(ids: string[]) {
+  return prisma.emailTemplate.findMany({ where: { id: { in: ids } } });
+}
+
 export function findTemplateByName(name: string) {
   return prisma.emailTemplate.findFirst({
     where: { name: { equals: name, mode: "insensitive" } },

@@ -429,6 +429,48 @@ describe("firing", () => {
     await runDueCampaigns(NOON);
     expect(await prisma.mailout.count({ where: { campaignId: c.id } })).toBe(1);
   });
+
+  /**
+   * A stopped campaign has one invariant — stopped means no date — and editing one used to break
+   * it: the list then showed "Next 13/08" beside a Stopped pill, for a campaign the sweep would
+   * (correctly) refuse to send. A date on screen that nothing will act on is worse than none.
+   */
+  it("keeps a stopped campaign dateless when it is edited", async () => {
+    const c = (await makeCampaign({ startsOn: FUTURE, rhythm: "monthly" })).json();
+    await app.inject({
+      method: "POST",
+      url: `/api/mailouts/campaigns/${c.id}/active`,
+      headers: { cookie },
+      payload: { active: false },
+    });
+
+    const edited = await app.inject({
+      method: "PUT",
+      url: `/api/mailouts/campaigns/${c.id}`,
+      headers: { cookie },
+      payload: {
+        name: c.name,
+        templateId,
+        rhythm: "monthly",
+        startsOn: FUTURE,
+        recipients: to(clientA, clientC),
+      },
+    });
+    expect(edited.statusCode).toBe(200);
+    expect(edited.json().status).toBe("stopped");
+    expect(edited.json().nextRunOn).toBeNull();
+    // the edit itself still took effect
+    expect(edited.json().recipients).toHaveLength(2);
+
+    // …and starting it again derives the date afresh
+    const started = await app.inject({
+      method: "POST",
+      url: `/api/mailouts/campaigns/${c.id}/active`,
+      headers: { cookie },
+      payload: { active: true },
+    });
+    expect(started.json().nextRunOn).toBe(FUTURE);
+  });
 });
 
 describe("consent", () => {
