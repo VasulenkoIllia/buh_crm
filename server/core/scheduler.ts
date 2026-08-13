@@ -4,7 +4,8 @@ import { config } from "./config.js";
 
 // In-process scheduler skeleton (S0). Jobs land per stage:
 //   S6 — subscription task generation · S7 — per-period invoices
-//   S9 — notification triggers · S10 — campaigns/reminders
+//   S9 — notification triggers. (S10 shipped without a job: mailouts are sent by a person,
+//   never on a timer — scheduled campaigns are a later round.)
 //
 // Contract (decision 2026-07-17):
 //   - every job is IDEMPOTENT (unique keys in the DB, insert-or-skip);

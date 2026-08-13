@@ -102,16 +102,25 @@ enum NotificationKind {
   system
 }
 
-enum CampaignAudience {
-  all
-  by_service
-  by_debt
-  manual
+/**
+ * The line the CAN-SPAM Act draws, and the reason it is stored rather than inferred.
+ *
+ * `commercial` mail (news, offers, seasonal reminders) must carry a working unsubscribe and the
+ * firm's postal address, and must honour an unsubscribe. `transactional` mail (an invoice, a
+ * password reset, a document request) is exempt from all three — and MUST stay exempt, because a
+ * client who unsubscribes from news still has to receive their bill.
+ */
+enum MailoutKind {
+  commercial
+  transactional
 }
 
-enum CampaignSchedule {
-  one_off
-  recurring
+/** What happened to one recipient of one send. `skipped` is a record, never a silent drop. */
+enum MailoutStatus {
+  queued
+  sent
+  failed
+  skipped
 }
 
 // ── Users & auth ─────────────────────────────────────────────────────────────
@@ -153,6 +162,8 @@ model User {
   uploadedFiles       File[]               @relation("FileUploadedBy")
   subscriptionPeriods SubscriptionPeriod[] @relation("SubscriptionPeriodCreatedBy")
   subscriptionPeriodsEnded SubscriptionPeriod[] @relation("SubscriptionPeriodEndedBy")
+  mailoutsSent        Mailout[]            @relation("MailoutCreatedBy")
+  clientsUnsubscribed ClientMailPreference[] @relation("MailPreferenceUnsubscribedBy")
 }
 
 model AuthToken {
@@ -216,7 +227,96 @@ model FirmProfile {
   invoiceCounter       Int     @default(0)
   currency             String  @default("USD")
 
-  logoFile File? @relation(fields: [logoFileId], references: [id])
+  // ── Mailouts (S10) ────────────────────────────────────────────────────────
+  //
+  // Only the firm-wide part lives here. Everything about a SENDER — From, signature, SMTP
+  // credentials — moved to `MailSenderAccount` on 2026-08-11, because a firm sends different kinds
+  // of letter from different mailboxes (news from info@, bills from billing@) and one set of
+  // fields could only ever describe one of them.
+  //
+  /** CAN-SPAM: the firm's physical address. One firm, one legal address — never per mailbox. */
+  postalAddress String?
+  /**
+   * The mark that goes in LETTERS — deliberately its own file, not `logoFileId`.
+   *
+   * The sidebar logo and the letterhead have different jobs: the sidebar is small, sits on a dark
+   * panel and can be any shape; the letterhead is 168px wide on white and needs a tight raster
+   * crop at the lockup's own aspect. One file could serve both only by being wrong for one of them.
+   */
+  mailLogoFileId String? @unique @db.Uuid
+
+  logoFile     File? @relation("FirmLogo", fields: [logoFileId], references: [id])
+  mailLogoFile File? @relation("FirmMailLogo", fields: [mailLogoFileId], references: [id])
+}
+
+/**
+ * A mailbox the firm sends client letters from.
+ *
+ * Several, because the letters are not all of a kind: seasonal news from `info@`, invoices from
+ * `billing@`, document requests from a particular accountant. Each carries its own `From`, its own
+ * signature — the block at the foot of the letter names a *person*, and that person differs by
+ * mailbox — and its own SMTP credentials.
+ *
+ * `smtpHost` null means "send over the `.env` account", so a firm can name a sender and start
+ * using it before its DNS and credentials are ready.
+ *
+ * Never hard-deleted: a `Mailout` records which account it went from, and history that points at a
+ * missing row stops being able to answer "where did this come from". Deactivate instead.
+ */
+model MailSenderAccount {
+  id   String @id @default(uuid()) @db.Uuid
+  /** what the firm calls it — "Newsletters", "Invoices". Unique, case-insensitively. */
+  name String
+
+  /** the From: header — the address must be one the SMTP account below may send AS */
+  fromName  String
+  fromEmail String
+  replyTo   String?
+  /** the contact block at the foot of every letter sent from here — a NAME and title, not data */
+  signature String?
+
+  // ── the tap-to-contact buttons ────────────────────────────────────────────
+  //
+  // Explicit fields, not parsed out of the signature. Reading them from free text meant GUESSING
+  // whether a line meant Telegram or a plain call, and a number written a new way produced a dead
+  // link nobody noticed. Each field here is one button, in a fixed order; empty means no button.
+  contactEmail    String?
+  contactPhone    String?
+  contactTelegram String?
+  contactWhatsapp String?
+  contactViber    String?
+  contactWebsite  String?
+
+  /**
+   * The mailbox invoices go out from, once Payments starts sending them.
+   *
+   * A named purpose rather than a second "default": the firm decides once that bills come from
+   * billing@ and news from info@, and the invoice code then has somewhere to read instead of
+   * inventing its own setting later.
+   */
+  isInvoiceSender Boolean @default(false)
+
+  /** null = borrow the `.env` account that sends invites and password resets */
+  smtpHost       String?
+  smtpPort       Int?
+  smtpSecure     Boolean?
+  smtpUser       String?
+  /// sealed with SECRETS_KEY, exactly like ClientSecret — never returned by the API
+  smtpPass       Bytes?
+  smtpPassIv     Bytes?
+  smtpPassTag    Bytes?
+  smtpKeyVersion Int?
+
+  /** exactly one account is the default; moved atomically, like Priority.isDefault */
+  isDefault Boolean  @default(false)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  mailouts  Mailout[]
+  templates EmailTemplate[]
+
+  @@index([active])
 }
 
 // ── Catalog ──────────────────────────────────────────────────────────────────
@@ -297,7 +397,8 @@ model Client {
   tasks         Task[]
   invoices      Invoice[]
   meetings      Meeting[]
-  reminders     Reminder[]
+  mailouts      MailoutRecipient[]
+  mailPreference ClientMailPreference?
   files         File[]                  @relation("ClientFiles")
   convertedLead Lead?                   @relation("LeadConvertedClient")
 
@@ -328,6 +429,7 @@ model Company {
   subscriptions Subscription[]
   invoices      Invoice[]
   tasks         Task[]
+  mailouts      MailoutRecipient[]
 
   @@index([clientId])
 }
@@ -808,48 +910,120 @@ model Notification {
 
 // ── Mailouts ─────────────────────────────────────────────────────────────────
 
+/**
+ * A reusable letter. `subject` and `body` carry `{{merge_vars}}` resolved per recipient by
+ * shared/mailouts.ts — the SAME renderer the browser preview calls, so what the firm proofreads is
+ * character-for-character what leaves the building.
+ *
+ * Only the subject, the heading and the body vary. The surrounding brand shell (logo, contact
+ * block, footer) lives in server/core/email-layout.ts and is not editable here — that is the whole
+ * point of "однаково з вигляду, змінюємо лише заголовок".
+ */
 model EmailTemplate {
-  id        String   @id @default(uuid()) @db.Uuid
-  name      String   @unique
+  id        String      @id @default(uuid()) @db.Uuid
+  name      String      @unique
   subject   String
-  body      String // rich text with merge-vars
-  variables Json?
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  /** the heading drawn above the body, `{{vars}}` allowed; falls back to the subject when null */
+  heading   String?
+  body      String
+  kind      MailoutKind @default(commercial)
+  active    Boolean     @default(true)
+  /** which mailbox this template usually goes from; null = the default account */
+  senderAccountId String? @db.Uuid
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
 
-  campaigns Campaign[]
-  reminders Reminder[]
+  senderAccount MailSenderAccount? @relation(fields: [senderAccountId], references: [id])
+  mailouts      Mailout[]
 }
 
-model Campaign {
-  id             String           @id @default(uuid()) @db.Uuid
-  name           String
-  templateId     String           @db.Uuid
-  audience       CampaignAudience
-  audienceConfig Json? // service id / debt threshold / manual client ids
-  schedule       CampaignSchedule
-  scheduleConfig Json? // date / recurrence
-  enabled        Boolean          @default(false)
-  lastRunAt      DateTime?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+/**
+ * One act of sending — to a single client or to a hundred.
+ *
+ * `subject`/`heading`/`body` are a SNAPSHOT taken at send time, still holding their `{{vars}}`.
+ * Editing the template afterwards must not rewrite history, and re-rendering per recipient is what
+ * lets the log show each person the exact letter they got.
+ */
+model Mailout {
+  id          String      @id @default(uuid()) @db.Uuid
+  /** null = a one-off personal letter, written straight into the composer */
+  templateId  String?     @db.Uuid
+  subject     String
+  heading     String?
+  body        String
+  kind        MailoutKind
+  /** the mailbox it actually went from — a record, so the log can answer "sent from where" */
+  senderAccountId String? @db.Uuid
+  createdById String?     @db.Uuid
+  createdAt   DateTime    @default(now())
 
-  template EmailTemplate @relation(fields: [templateId], references: [id])
+  senderAccount MailSenderAccount? @relation(fields: [senderAccountId], references: [id])
+  template   EmailTemplate?     @relation(fields: [templateId], references: [id])
+  createdBy  User?              @relation("MailoutCreatedBy", fields: [createdById], references: [id])
+  recipients MailoutRecipient[]
+
+  @@index([createdAt])
 }
 
-model Reminder {
-  id         String    @id @default(uuid()) @db.Uuid
-  clientId   String    @db.Uuid
-  templateId String    @db.Uuid
-  date       DateTime
-  sentAt     DateTime?
-  createdAt  DateTime  @default(now())
+/**
+ * One client's copy of one send. `email` is a snapshot: the address it actually went to, so a later
+ * change on the client card cannot rewrite what the log says happened.
+ */
+/**
+ * One address this letter went to.
+ *
+ * A recipient is a client OR one of that client's companies — `companyId` null means the client
+ * themselves. A firm's client can hold several companies, each with its own inbox, and "send to
+ * the client" and "send to Kvitka Trade LLC" are different acts with different addresses.
+ *
+ * Consent stays on the CLIENT, deliberately: unsubscribing is a person saying "stop marketing to
+ * me", and honouring it for their personal address while still mailing their company's would be
+ * obeying the letter of the request and not the request.
+ */
+model MailoutRecipient {
+  id        String        @id @default(uuid()) @db.Uuid
+  mailoutId String        @db.Uuid
+  clientId  String        @db.Uuid
+  /** null = the client's own address; otherwise the company whose inbox this went to */
+  companyId String?       @db.Uuid
+  email     String
+  status    MailoutStatus @default(queued)
+  /** why it was skipped or how it failed — "no email address", "missing {{company}}", SMTP error */
+  reason    String?
+  sentAt    DateTime?
+  createdAt DateTime      @default(now())
 
-  client   Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  template EmailTemplate @relation(fields: [templateId], references: [id])
+  mailout Mailout  @relation(fields: [mailoutId], references: [id], onDelete: Cascade)
+  client  Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  // RESTRICT, like the billing provenance FKs and for the same reason: "we wrote to this company"
+  // is history, and deleting the company must be refused rather than quietly erasing the letters.
+  // The clients module turns that refusal into a sentence naming the count.
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Restrict)
 
-  @@index([date, sentAt])
+  // Uniqueness needs TWO indexes, because Postgres treats NULLs as distinct: this one stops the
+  // same company twice, and a partial index in the migration stops the same client twice.
+  @@unique([mailoutId, clientId, companyId])
+  @@index([clientId, createdAt])
+  @@index([companyId])
+}
+
+/**
+ * Whether a client accepts COMMERCIAL mail. Absent row = subscribed; the firm never has to
+ * back-fill one to start sending.
+ *
+ * `token` is the unguessable secret in the one-click unsubscribe link — the route it opens is the
+ * only unauthenticated write in the app, so it can afford nothing weaker.
+ */
+model ClientMailPreference {
+  clientId       String    @id @db.Uuid
+  unsubscribedAt DateTime?
+  /** set when the firm unsubscribed them from the card rather than the client clicking the link */
+  unsubscribedById String? @db.Uuid
+  token          String    @unique
+  updatedAt      DateTime  @updatedAt
+
+  client         Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  unsubscribedBy User?  @relation("MailPreferenceUnsubscribedBy", fields: [unsubscribedById], references: [id])
 }
 
 // ── Files ────────────────────────────────────────────────────────────────────
@@ -867,7 +1041,8 @@ model File {
   client        Client?      @relation("ClientFiles", fields: [clientId], references: [id], onDelete: Cascade)
   uploadedBy    User         @relation("FileUploadedBy", fields: [uploadedById], references: [id])
   avatarOfUser  User?        @relation("UserAvatar")
-  logoOfProfile FirmProfile?
+  logoOfProfile     FirmProfile? @relation("FirmLogo")
+  mailLogoOfProfile FirmProfile? @relation("FirmMailLogo")
 
   @@index([clientId])
 }

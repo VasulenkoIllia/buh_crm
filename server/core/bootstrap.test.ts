@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "./db.js";
-import { ensureBootstrapAdmin } from "./bootstrap.js";
+import { ensureBaseData, ensureBootstrapAdmin } from "./bootstrap.js";
+import { config } from "./config.js";
 
 const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 
@@ -51,5 +52,45 @@ describe("ensureBootstrapAdmin", () => {
     expect(res.created).toBe(false);
     expect(log.error).toHaveBeenCalledOnce();
     expect(await prisma.user.count()).toBe(0);
+  });
+});
+
+describe("ensureBaseData — the default mailbox", () => {
+  beforeEach(async () => {
+    await prisma.mailoutRecipient.deleteMany();
+    await prisma.mailout.deleteMany();
+    await prisma.emailTemplate.deleteMany();
+    await prisma.mailSenderAccount.deleteMany();
+  });
+
+  /**
+   * Without this the Mailouts module is inert on day one: the first thing a new firm meets is
+   * "No sender mailbox is set up", for an account the server already has and already uses.
+   */
+  it("gives a fresh install somewhere to send from", async () => {
+    await ensureBaseData();
+
+    const accounts = await prisma.mailSenderAccount.findMany();
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0].isDefault).toBe(true);
+    // the address the server is actually entitled to send as — the one From that works untouched
+    expect(accounts[0].fromEmail).toBe(config.MAIL_FROM);
+    // NULL, not a copy of the env host: "borrow the .env account" has to keep meaning that when
+    // the environment's SMTP details later change
+    expect(accounts[0].smtpHost).toBeNull();
+  });
+
+  /** It is the firm's row from then on. A bootstrap that rewrote it would undo edits every deploy. */
+  it("never touches a mailbox that already exists", async () => {
+    await prisma.mailSenderAccount.create({
+      data: { name: "Theirs", fromName: "Renamed", fromEmail: "them@example.com", isDefault: true },
+    });
+
+    await ensureBaseData();
+
+    const accounts = await prisma.mailSenderAccount.findMany();
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0].name).toBe("Theirs");
+    expect(accounts[0].fromEmail).toBe("them@example.com");
   });
 });

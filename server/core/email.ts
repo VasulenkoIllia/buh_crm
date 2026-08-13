@@ -1,9 +1,20 @@
 import nodemailer, { type Transporter } from "nodemailer";
 import { config, isDev } from "./config.js";
+import { escapeHtml } from "./html.js";
 
 // Shared SMTP transport (Nodemailer → Mailpit in dev). Modules never touch SMTP
 // directly — they call sendEmail(template, to, data). Treated as an unreliable
 // boundary: retried, never blocks the request path (callers fire-and-forget).
+//
+// There are two doors, and the difference matters:
+//
+//   sendEmail()     — the built-in transactional letters (invite, password reset). Their bodies
+//                     are code, their names are a closed TypeScript union, and callers
+//                     fire-and-forget because a failed invite must not fail the request.
+//   sendRawEmail()  — mailouts, whose subject and body come from the DATABASE and so can never be
+//                     a member of that union. Awaited, not fire-and-forget: the mailout log
+//                     records what happened to each recipient, which is only possible if the
+//                     caller finds out.
 
 export interface EmailTemplates {
   invite: { inviteUrl: string; invitedBy: string };
@@ -15,16 +26,6 @@ export type EmailTemplateName = keyof EmailTemplates;
 /** The web origin used in email links (dev = Vite, prod = the real domain). */
 export function webOrigin(): string {
   return isDev ? "http://localhost:5173" : `https://${config.APP_DOMAIN}`;
-}
-
-/** Escape user-influenced values before interpolating into email HTML. */
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
 }
 
 function render<T extends EmailTemplateName>(
@@ -59,26 +60,74 @@ function render<T extends EmailTemplateName>(
 }
 
 /** Test outbox — in NODE_ENV=test emails are collected here instead of sent. */
-export const testOutbox: Array<{ to: string; subject: string; html: string }> = [];
+export const testOutbox: Array<{
+  to: string;
+  subject: string;
+  html: string;
+  text?: string;
+  from?: string;
+  replyTo?: string;
+}> = [];
 
-let transporter: Transporter | null = null;
+/**
+ * A second SMTP account, for mailouts.
+ *
+ * Kept apart from the `.env` account on purpose: a spam complaint damages the reputation of the
+ * address it was sent from, and the `.env` address is the one that delivers password resets. A
+ * reset in a spam folder locks someone out of the CRM (decision 2026-08-11).
+ */
+export interface SmtpAccount {
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string | null;
+  pass: string | null;
+}
 
-function getTransporter(): Transporter {
-  transporter ??= nodemailer.createTransport({
-    host: config.SMTP_HOST,
-    port: config.SMTP_PORT,
-    secure: config.SMTP_SECURE,
+const transporters = new Map<string, Transporter>();
+
+function buildTransport(account: SmtpAccount): Transporter {
+  return nodemailer.createTransport({
+    host: account.host,
+    port: account.port,
+    secure: account.secure,
     // On a submission port (587, secure=false) force STARTTLS instead of relying on
     // opportunistic upgrade — many providers (e.g. illion.tax) reject plaintext AUTH,
     // which otherwise fails silently. Skipped in dev so Mailpit (no TLS) still works.
-    requireTLS: !isDev && !config.SMTP_SECURE,
-    auth: config.SMTP_USER ? { user: config.SMTP_USER, pass: config.SMTP_PASS } : undefined,
+    requireTLS: !isDev && !account.secure,
+    auth: account.user ? { user: account.user, pass: account.pass ?? undefined } : undefined,
     // fail fast instead of hanging on an unreachable host
     connectionTimeout: 10_000,
     greetingTimeout: 10_000,
     socketTimeout: 20_000,
   });
-  return transporter;
+}
+
+/** The account from `.env` — invites, password resets, and mailouts until a second one is set. */
+export function envAccount(): SmtpAccount {
+  return {
+    host: config.SMTP_HOST,
+    port: config.SMTP_PORT,
+    secure: config.SMTP_SECURE,
+    user: config.SMTP_USER || null,
+    pass: config.SMTP_PASS || null,
+  };
+}
+
+/**
+ * Transports are pooled per account, keyed by everything that defines a connection. Rebuilding one
+ * per send would open a fresh TCP+TLS handshake for every recipient of a hundred-client mailout;
+ * keying by the password as well means editing the account in Settings takes effect at once
+ * instead of leaving a stale authenticated connection behind.
+ */
+function getTransporter(account: SmtpAccount): Transporter {
+  const key = `${account.host}:${account.port}:${account.secure}:${account.user ?? ""}:${account.pass ?? ""}`;
+  let t = transporters.get(key);
+  if (!t) {
+    t = buildTransport(account);
+    transporters.set(key, t);
+  }
+  return t;
 }
 
 const MAX_ATTEMPTS = 3;
@@ -98,7 +147,7 @@ export async function sendEmail<T extends EmailTemplateName>(
   let lastError: unknown;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      await getTransporter().sendMail({ from: config.MAIL_FROM, to, subject, html });
+      await getTransporter(envAccount()).sendMail({ from: config.MAIL_FROM, to, subject, html });
       return;
     } catch (err) {
       lastError = err;
@@ -110,5 +159,87 @@ export async function sendEmail<T extends EmailTemplateName>(
     `[email] send failed after ${MAX_ATTEMPTS} attempts — template=${template} to=${to}:`,
     lastError,
   );
+  throw lastError;
+}
+
+// ── the second door: letters whose text comes from the database ──────────────
+
+export interface RawEmail {
+  to: string;
+  subject: string;
+  html: string;
+  /** the text/plain alternative. Omitting it measurably worsens spam scoring. */
+  text?: string;
+  /** `"ILLION Tax & Accounting <info@illion.tax>"`; falls back to MAIL_FROM */
+  from?: string | null;
+  replyTo?: string | null;
+  attachments?: Array<{ filename: string; content: Buffer; cid?: string; contentType?: string }>;
+  /** extra headers — `List-Unsubscribe` and friends, which Gmail and Yahoo now require of bulk mail */
+  headers?: Record<string, string>;
+  /** which SMTP account to send over; defaults to the `.env` one */
+  account?: SmtpAccount | null;
+}
+
+/**
+ * Send a letter built at runtime, and REPORT the outcome to the caller.
+ *
+ * Two attempts, not three: a mailout to a hundred clients calls this a hundred times, and a dead
+ * SMTP host would otherwise triple an already long wall time. One retry absorbs a transient blip;
+ * anything worse is recorded against the recipient as `failed`, and the firm re-sends to just
+ * those from the log. That is better than a longer retry loop, because it is visible.
+ */
+/**
+ * Open a connection to an SMTP account and authenticate — without sending anything.
+ *
+ * The point is to fail HERE, in front of somebody who can fix it, rather than silently against a
+ * hundred recipients at 3am. Nodemailer's `verify()` performs the real handshake, STARTTLS and
+ * AUTH, so a wrong password or an unreachable host is caught for what it is.
+ *
+ * A fresh transport every time, not the pool: the whole question is whether these credentials work
+ * right now, and a pooled connection authenticated with the previous ones would answer the wrong
+ * question.
+ */
+export async function verifyAccount(account: SmtpAccount): Promise<void> {
+  const transport = buildTransport(account);
+  try {
+    await transport.verify();
+  } finally {
+    transport.close();
+  }
+}
+
+export async function sendRawEmail(email: RawEmail): Promise<void> {
+  if (config.NODE_ENV === "test") {
+    testOutbox.push({
+      to: email.to,
+      subject: email.subject,
+      html: email.html,
+      text: email.text,
+      from: email.from ?? config.MAIL_FROM,
+      replyTo: email.replyTo ?? undefined,
+    });
+    return;
+  }
+
+  const account = email.account ?? envAccount();
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      await getTransporter(account).sendMail({
+        from: email.from || config.MAIL_FROM,
+        to: email.to,
+        replyTo: email.replyTo || undefined,
+        subject: email.subject,
+        html: email.html,
+        text: email.text,
+        attachments: email.attachments,
+        headers: email.headers,
+      });
+      return;
+    } catch (err) {
+      lastError = err;
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 500));
+    }
+  }
   throw lastError;
 }

@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
@@ -45,6 +45,18 @@ export function readFileStream(relPath: string) {
   const absPath = resolve(uploadsRoot, relPath);
   assertInsideUploads(absPath);
   return createReadStream(absPath);
+}
+
+/**
+ * The whole file in memory — for the few callers that cannot stream. Today that is the mailout
+ * logo, which nodemailer embeds as a `cid:` attachment: a remote `<img src>` would need a
+ * publicly reachable endpoint on an app that is otherwise entirely behind auth, and would turn
+ * every opened letter into a request the firm can see. An inline attachment needs neither.
+ */
+export async function readFileBytes(relPath: string): Promise<Buffer> {
+  const absPath = resolve(uploadsRoot, relPath);
+  assertInsideUploads(absPath);
+  return readFile(absPath);
 }
 
 export async function deleteFileBytes(relPath: string) {

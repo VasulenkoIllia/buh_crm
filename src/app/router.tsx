@@ -18,6 +18,7 @@ import { BillingPage } from "@/modules/payments";
 import { TasksPage } from "@/modules/tasks";
 import { ArchivePage } from "@/modules/archive";
 import { CalendarPage } from "@/modules/calendar";
+import { MailoutsPage } from "@/modules/mailouts";
 
 /** Old /unpaid path → /billing, preserving ?invoice= / ?client= deep links. */
 function RedirectToBilling() {
@@ -69,7 +70,7 @@ export const router = createBrowserRouter([
               { path: "unpaid", element: <RedirectToBilling /> },
               { path: "calendar", element: <CalendarPage /> },
               { path: "services", element: <ServicesPage /> },
-              { path: "mailouts", element: <ComingSoon module="Mailouts" stage="S10" /> },
+              { path: "mailouts", element: <MailoutsPage /> },
               { path: "reports", element: <ComingSoon module="Reports" stage="S12" /> },
               { path: "archive", element: <ArchivePage /> },
               { path: "profile", element: <ProfilePage /> },

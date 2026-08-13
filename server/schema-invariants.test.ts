@@ -54,6 +54,26 @@ const REQUIRED = [
       "every boot, so without it the same reminder would be posted every morning",
     mustMatch: /ON public\."Task".*"subscriptionId".*"periodKey".*WHERE.*"systemKind" IS NOT NULL/is,
   },
+  {
+    name: "MailoutRecipient_one_client_row",
+    guarantees:
+      "one letter reaches a client's own address once. The table's UNIQUE(mailoutId, clientId, " +
+      "companyId) cannot say this on its own: companyId is NULL for the client's own row, and " +
+      "Postgres treats every NULL as distinct, so the same person would be mailable twice",
+    mustMatch: /ON public\."MailoutRecipient".*\("mailoutId", "clientId"\).*WHERE.*"companyId" IS NULL/is,
+  },
+  {
+    name: "MailSenderAccount_name_key_ci",
+    guarantees: "a mailbox name means one mailbox, however it was capitalised",
+    mustMatch: /ON public\."MailSenderAccount".*lower\(name\)/is,
+  },
+  {
+    name: "MailSenderAccount_one_default",
+    guarantees:
+      "exactly one sender mailbox is the default — with two, which one a letter goes from would " +
+      "depend on row order, and the log would record something nobody chose",
+    mustMatch: /ON public\."MailSenderAccount".*\("isDefault"\).*WHERE.*"isDefault"/is,
+  },
 ];
 
 describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
@@ -91,6 +111,9 @@ describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
       "Task.serviceId",
       "Task.companyId",
       "Subscription.companyId",
+      // a sent letter records that this company was written to — deleting the company must be
+      // refused, not silently erase the record
+      "MailoutRecipient.companyId",
     ]) {
       expect(restricted, `${fk} must be ON DELETE RESTRICT`).toContain(fk);
     }

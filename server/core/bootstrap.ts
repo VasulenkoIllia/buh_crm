@@ -40,6 +40,40 @@ export async function ensureBaseData() {
     update: {},
     create: { id: 1, name: config.APP_NAME },
   });
+
+  await ensureDefaultMailbox();
+}
+
+/**
+ * The firm always has somewhere to send from.
+ *
+ * Seeded from the `.env` account — the one that already delivers invites and password resets — so
+ * a fresh install can send a letter before anyone configures anything. Without this the Mailouts
+ * module is inert on day one and the first thing a new firm meets is "No sender mailbox is set up".
+ *
+ * `smtpHost` is deliberately left NULL: that is what "borrow the `.env` account" means, and it
+ * keeps the mailbox correct when the environment's SMTP details later change. Copying host, port
+ * and password in here would freeze a snapshot of `.env` that silently goes stale.
+ *
+ * Created ONCE, and never updated: from then on it is the firm's row to rename, re-point or
+ * deactivate. A bootstrap that rewrote it on every restart would undo their edits every deploy.
+ */
+async function ensureDefaultMailbox() {
+  if ((await prisma.mailSenderAccount.count()) > 0) return;
+
+  const firm = await prisma.firmProfile.findUnique({ where: { id: 1 } });
+  await prisma.mailSenderAccount.create({
+    data: {
+      name: "Server mailbox",
+      fromName: firm?.name ?? config.APP_NAME,
+      // the address the server is actually entitled to send as — most SMTP servers refuse any
+      // other, so this is the one From that is guaranteed to work untouched
+      fromEmail: config.MAIL_FROM,
+      contactEmail: config.MAIL_FROM,
+      isDefault: true,
+      isInvoiceSender: true,
+    },
+  });
 }
 
 interface BootstrapLogger {

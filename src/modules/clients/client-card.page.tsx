@@ -4,6 +4,7 @@ import { Download, Trash2 } from "lucide-react";
 import type { Client } from "@shared/schema/client";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { EntityMeetings } from "@/modules/calendar";
+import { ClientMailouts } from "@/modules/mailouts";
 import { EntityInvoices } from "@/modules/payments";
 import { EntityTasks } from "@/modules/tasks";
 import { useSettings } from "@/modules/settings";
@@ -33,6 +34,7 @@ const TABS = [
   { key: "invoices", label: "Invoices" },
   { key: "meetings", label: "Meetings" },
   { key: "services", label: "Services" },
+  { key: "mailouts", label: "Mailouts" },
   { key: "files", label: "Files" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
@@ -145,6 +147,9 @@ export function ClientCardPage() {
         <EntityMeetings target={{ kind: "client", id: client.id }} />
       )}
       {tab === "services" && <ServicesTab client={client} />}
+      {tab === "mailouts" && (
+        <ClientMailouts clientId={client.id} clientName={client.displayName} />
+      )}
       {tab === "files" && <FilesTab clientId={client.id} />}
       {TAB_STAGE[tab] && (
         <div className="rounded-(--radius-panel) border border-border bg-surface px-5 py-10 text-center text-[13px] text-muted">
@@ -305,10 +310,9 @@ function ProfileTab({ client }: { client: Client }) {
             {fmtDate(client.createdAt)}
           </div>
         </div>
-        <div>
-          <FieldLabel>Reminders</FieldLabel>
-          <div className="text-[13px] text-muted">Arrive with the Mailouts stage (S10).</div>
-        </div>
+        {/* "Reminders — arrive with the Mailouts stage (S10)" stood here until 2026-08-11. S10
+            shipped without scheduled reminders (the stub model was dropped), and the Mailouts tab
+            now shows what was actually sent — so the promise had become false twice over. */}
         {sourceName && (
           <div>
             <FieldLabel>Source</FieldLabel>

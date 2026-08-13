@@ -54,8 +54,14 @@ export type InvoiceDelivery = z.infer<typeof invoiceDelivery>;
 export const notificationKind = z.enum(["task", "meeting", "invoice", "system"]);
 export type NotificationKind = z.infer<typeof notificationKind>;
 
-export const campaignAudience = z.enum(["all", "by_service", "by_debt", "manual"]);
-export type CampaignAudience = z.infer<typeof campaignAudience>;
+/**
+ * The CAN-SPAM line (S10). `commercial` mail honours unsubscribe and must carry the firm's postal
+ * address; `transactional` mail — an invoice, a document request — does neither, because a client
+ * who unsubscribed from news still has to receive their bill.
+ */
+export const mailoutKind = z.enum(["commercial", "transactional"]);
+export type MailoutKind = z.infer<typeof mailoutKind>;
 
-export const campaignSchedule = z.enum(["one_off", "recurring"]);
-export type CampaignSchedule = z.infer<typeof campaignSchedule>;
+/** What became of one recipient of one send. `skipped` is recorded, never a silent drop. */
+export const mailoutStatus = z.enum(["queued", "sent", "failed", "skipped"]);
+export type MailoutStatus = z.infer<typeof mailoutStatus>;

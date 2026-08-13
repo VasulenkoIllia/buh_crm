@@ -255,9 +255,9 @@ async function assertCompanyNamesFree(
 }
 
 /**
- * Save the client's companies. A company that subscriptions, tasks or issued invoices still
- * point at can't just disappear — the save is refused with the reason instead of silently
- * orphaning that history.
+ * Save the client's companies. A company that subscriptions, tasks, issued invoices or sent
+ * letters still point at can't just disappear — the save is refused with the reason instead of
+ * silently orphaning that history.
  */
 async function applyCompanies(clientId: string, companies: repo.CompanyRecordInput[]) {
   await assertCompanyNamesFree(clientId, companies);
@@ -269,6 +269,7 @@ async function applyCompanies(clientId: string, companies: repo.CompanyRecordInp
       refs.subscriptions && `${refs.subscriptions} subscription(s)`,
       refs.tasks && `${refs.tasks} task(s)`,
       refs.invoices && `${refs.invoices} invoice(s)`,
+      refs.letters && `${refs.letters} sent letter(s)`,
     ].filter(Boolean);
     if (used.length > 0) {
       throw new ConflictError(

@@ -175,13 +175,16 @@ export function findCompaniesNamedElsewhere(clientId: string | null, names: stri
 
 /** What still points at these companies — a referenced company may not be dropped. */
 export async function countCompanyReferences(companyIds: string[]) {
-  if (companyIds.length === 0) return { subscriptions: 0, tasks: 0, invoices: 0 };
-  const [subscriptions, tasks, invoices] = await prisma.$transaction([
+  if (companyIds.length === 0) return { subscriptions: 0, tasks: 0, invoices: 0, letters: 0 };
+  const [subscriptions, tasks, invoices, letters] = await prisma.$transaction([
     prisma.subscription.count({ where: { companyId: { in: companyIds } } }),
     prisma.task.count({ where: { companyId: { in: companyIds } } }),
     prisma.invoice.count({ where: { companyId: { in: companyIds } } }),
+    // letters sent to the company's own inbox (S10). Counted here with the rest because the
+    // database refuses the delete either way — this is what turns that into a sentence.
+    prisma.mailoutRecipient.count({ where: { companyId: { in: companyIds } } }),
   ]);
-  return { subscriptions, tasks, invoices };
+  return { subscriptions, tasks, invoices, letters };
 }
 
 export interface PersonData {
