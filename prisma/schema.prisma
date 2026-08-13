@@ -116,6 +116,23 @@ enum MailoutKind {
 }
 
 /** What happened to one recipient of one send. `skipped` is a record, never a silent drop. */
+/// How often a campaign fires. `once` is a scheduled one-off — same entity, no special case.
+enum CampaignRhythm {
+  once
+  monthly
+  quarterly
+  yearly
+}
+
+/// `scheduled` is the only state that fires. `stopped` was ended by hand and can be resumed;
+/// `finished` ran out of dates and cannot. Both are kept rather than deleted — a campaign that
+/// sent letters is history, and the letters point back at it.
+enum CampaignStatus {
+  scheduled
+  stopped
+  finished
+}
+
 enum MailoutStatus {
   queued
   sent
@@ -163,6 +180,7 @@ model User {
   subscriptionPeriods SubscriptionPeriod[] @relation("SubscriptionPeriodCreatedBy")
   subscriptionPeriodsEnded SubscriptionPeriod[] @relation("SubscriptionPeriodEndedBy")
   mailoutsSent        Mailout[]            @relation("MailoutCreatedBy")
+  campaignsCreated    Campaign[]           @relation("CampaignCreatedBy")
   clientsUnsubscribed ClientMailPreference[] @relation("MailPreferenceUnsubscribedBy")
 }
 
@@ -314,6 +332,7 @@ model MailSenderAccount {
   updatedAt DateTime @updatedAt
 
   mailouts  Mailout[]
+  campaigns Campaign[]
   templates EmailTemplate[]
 
   @@index([active])
@@ -398,6 +417,7 @@ model Client {
   invoices      Invoice[]
   meetings      Meeting[]
   mailouts      MailoutRecipient[]
+  campaigns     CampaignRecipient[]
   mailPreference ClientMailPreference?
   files         File[]                  @relation("ClientFiles")
   convertedLead Lead?                   @relation("LeadConvertedClient")
@@ -430,6 +450,7 @@ model Company {
   invoices      Invoice[]
   tasks         Task[]
   mailouts      MailoutRecipient[]
+  campaigns     CampaignRecipient[]
 
   @@index([clientId])
 }
@@ -935,6 +956,7 @@ model EmailTemplate {
 
   senderAccount MailSenderAccount? @relation(fields: [senderAccountId], references: [id])
   mailouts      Mailout[]
+  campaigns     Campaign[]
 }
 
 /**
@@ -954,15 +976,103 @@ model Mailout {
   kind        MailoutKind
   /** the mailbox it actually went from — a record, so the log can answer "sent from where" */
   senderAccountId String? @db.Uuid
+  /** null = somebody pressed Send. Otherwise the campaign whose date came round. */
+  campaignId  String?     @db.Uuid
+  /**
+   * Which of that campaign's dates this run is for — "2026-09-01".
+   *
+   * The whole reason a missed date is safe: the sweep runs daily AND on every boot, so without a
+   * key naming the occurrence, a server that was down over the weekend would re-send on Monday and
+   * again on Tuesday. Null for a hand-pressed send, which has no occurrence.
+   */
+  periodKey   String?
+  /** null for a campaign run — nobody pressed anything */
   createdById String?     @db.Uuid
   createdAt   DateTime    @default(now())
 
   senderAccount MailSenderAccount? @relation(fields: [senderAccountId], references: [id])
   template   EmailTemplate?     @relation(fields: [templateId], references: [id])
+  campaign   Campaign?          @relation(fields: [campaignId], references: [id])
   createdBy  User?              @relation("MailoutCreatedBy", fields: [createdById], references: [id])
   recipients MailoutRecipient[]
+  /** clients whose opt-out was traced back to this letter — see ClientMailPreference */
+  unsubscribes ClientMailPreference[] @relation("UnsubscribedFrom")
 
+  // One run per occurrence, enforced by the database rather than by the sweep being careful.
+  // Hand-pressed sends are all (null, null) — and Postgres treats every NULL as distinct, so they
+  // never collide with each other, which is exactly what is wanted here.
+  @@unique([campaignId, periodKey])
   @@index([createdAt])
+}
+
+/// A planned mailout: a template, a list, and a date it goes out on — possibly again and again.
+///
+/// Deliberately NOT an audience rule ("everyone with service X"). The firm names who, the list is
+/// theirs to edit until it fires, and every run writes an ordinary Mailout — so the Sent log stays
+/// the single record of what actually left the building, whether a person pressed send or a date
+/// came round.
+model Campaign {
+  id              String         @id @default(uuid()) @db.Uuid
+  /** what the firm calls it — "Tax season reminder", not the letter's subject */
+  name            String
+  /** a campaign always sends a saved template; a one-off letter is what the composer is for */
+  templateId      String         @db.Uuid
+  senderAccountId String?        @db.Uuid
+  /**
+   * Copied from the template when the campaign is made, then owned here.
+   *
+   * `commercial` is the default and carries unsubscribe + the firm's postal address, and honours
+   * an opt-out. `transactional` is a deliberate choice: it reaches clients who unsubscribed and
+   * carries no unsubscribe link, which is lawful for a bill or a document request and unlawful
+   * for news. The editor warns before letting it be chosen.
+   */
+  kind            MailoutKind    @default(commercial)
+  rhythm          CampaignRhythm @default(once)
+  /** the first date it fires; for a rhythm, also the anchor day of the month */
+  startsOn        DateTime       @db.Date
+  /** firm-local time of day, "HH:MM" — the sweep runs daily, this decides which side of it */
+  sendAt          String         @default("09:00")
+  /** a rhythm's last allowed date; null = until somebody stops it */
+  endsOn          DateTime?      @db.Date
+  status          CampaignStatus @default(scheduled)
+  /** the next date due. Null once nothing is due — finished, or stopped by hand. */
+  nextRunOn       DateTime?      @db.Date
+  lastRunAt       DateTime?
+  createdById     String?        @db.Uuid
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  template      EmailTemplate      @relation(fields: [templateId], references: [id])
+  senderAccount MailSenderAccount? @relation(fields: [senderAccountId], references: [id])
+  createdBy     User?              @relation("CampaignCreatedBy", fields: [createdById], references: [id])
+  recipients    CampaignRecipient[]
+  runs          Mailout[]
+
+  // the sweep's only query: what is due today
+  @@index([status, nextRunOn])
+}
+
+/// One addressee on a campaign's list — the same client-or-company pair a send takes.
+model CampaignRecipient {
+  id         String   @id @default(uuid()) @db.Uuid
+  campaignId String   @db.Uuid
+  clientId   String   @db.Uuid
+  /** null = the client's own address; otherwise one of that client's companies */
+  companyId  String?  @db.Uuid
+  createdAt  DateTime @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  client   Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  // Cascade, unlike the sent letters' RESTRICT: this is a plan, not a record. Deleting a company
+  // that is merely queued up to be written to should quietly drop it from the list, not refuse.
+  company  Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Same two-index shape as MailoutRecipient, for the same reason: Postgres treats NULLs as
+  // distinct, so this cannot stop the client's own address appearing twice — a partial index in
+  // the migration says that half.
+  @@unique([campaignId, clientId, companyId])
+  @@index([clientId])
+  @@index([companyId])
 }
 
 /**
@@ -1019,11 +1129,22 @@ model ClientMailPreference {
   unsubscribedAt DateTime?
   /** set when the firm unsubscribed them from the card rather than the client clicking the link */
   unsubscribedById String? @db.Uuid
+  /**
+   * WHICH letter's link they clicked — so "unsubscribed from the March newsletter" is answerable.
+   *
+   * The token belongs to the client, not to a letter, so the click alone cannot say where it came
+   * from; the letter puts its own id in the link. That makes the id a claim rather than proof, and
+   * it is stored only after checking that the mailout really did have a row for this client.
+   *
+   * SetNull rather than Cascade: losing the provenance is better than losing the opt-out.
+   */
+  unsubscribedFromMailoutId String? @db.Uuid
   token          String    @unique
   updatedAt      DateTime  @updatedAt
 
   client         Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
   unsubscribedBy User?  @relation("MailPreferenceUnsubscribedBy", fields: [unsubscribedById], references: [id])
+  unsubscribedFrom Mailout? @relation("UnsubscribedFrom", fields: [unsubscribedFromMailoutId], references: [id], onDelete: SetNull)
 }
 
 // ── Files ────────────────────────────────────────────────────────────────────

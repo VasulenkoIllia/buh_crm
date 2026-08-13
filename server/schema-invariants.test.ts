@@ -63,6 +63,20 @@ const REQUIRED = [
     mustMatch: /ON public\."MailoutRecipient".*\("mailoutId", "clientId"\).*WHERE.*"companyId" IS NULL/is,
   },
   {
+    name: "CampaignRecipient_one_client_row",
+    guarantees:
+      "a campaign writes to a client's own address once per run. Same NULL problem as the sent " +
+      "letters: UNIQUE(campaignId, clientId, companyId) cannot see two NULL companyIds as equal",
+    mustMatch: /ON public\."CampaignRecipient".*\("campaignId", "clientId"\).*WHERE.*"companyId" IS NULL/is,
+  },
+  {
+    name: "Mailout_campaignId_periodKey_key",
+    guarantees:
+      "a campaign fires once per occurrence — the sweep runs daily AND on every boot, so without " +
+      "this a server down over a weekend would send the same letter twice on Monday",
+    mustMatch: /ON public\."Mailout".*\("campaignId", "periodKey"\)/is,
+  },
+  {
     name: "MailSenderAccount_name_key_ci",
     guarantees: "a mailbox name means one mailbox, however it was capitalised",
     mustMatch: /ON public\."MailSenderAccount".*lower\(name\)/is,

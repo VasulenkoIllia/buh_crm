@@ -31,6 +31,16 @@ export function countMailoutsForTemplate(templateId: string) {
   return prisma.mailout.count({ where: { templateId } });
 }
 
+/**
+ * …nor while a campaign is scheduled to send it.
+ *
+ * `Campaign.templateId` is ON DELETE RESTRICT, so the database refuses this either way — the count
+ * is what turns that refusal into a sentence naming the campaign instead of a 500.
+ */
+export function countCampaignsForTemplate(templateId: string) {
+  return prisma.campaign.count({ where: { templateId } });
+}
+
 export function deleteTemplate(id: string) {
   return prisma.emailTemplate.delete({ where: { id } });
 }
@@ -106,7 +116,18 @@ export function findByUnsubscribeToken(token: string) {
   });
 }
 
-export function setUnsubscribed(clientId: string, at: Date | null, byUserId: string | null) {
+/**
+ * `fromMailoutId` is the letter whose link was clicked, already verified by the service.
+ *
+ * Cleared on re-subscribe along with the rest: a stale "unsubscribed from the March newsletter"
+ * hanging off a client who is subscribed again would be read as current by anyone who saw it.
+ */
+export function setUnsubscribed(
+  clientId: string,
+  at: Date | null,
+  byUserId: string | null,
+  fromMailoutId: string | null = null,
+) {
   return prisma.clientMailPreference.upsert({
     where: { clientId },
     create: {
@@ -114,8 +135,13 @@ export function setUnsubscribed(clientId: string, at: Date | null, byUserId: str
       token: randomBytes(24).toString("base64url"),
       unsubscribedAt: at,
       unsubscribedById: byUserId,
+      unsubscribedFromMailoutId: at ? fromMailoutId : null,
     },
-    update: { unsubscribedAt: at, unsubscribedById: at ? byUserId : null },
+    update: {
+      unsubscribedAt: at,
+      unsubscribedById: at ? byUserId : null,
+      unsubscribedFromMailoutId: at ? fromMailoutId : null,
+    },
   });
 }
 
@@ -125,6 +151,16 @@ export function getMailPreference(clientId: string) {
     select: {
       unsubscribedAt: true,
       unsubscribedBy: { select: { firstName: true, lastName: true } },
+      // which letter's link they clicked, and what it was part of — so the card can say
+      // "unsubscribed after the March newsletter" rather than only "unsubscribed"
+      unsubscribedFrom: {
+        select: {
+          id: true,
+          subject: true,
+          campaignId: true,
+          campaign: { select: { name: true } },
+        },
+      },
     },
   });
 }

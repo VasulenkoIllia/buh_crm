@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { BellOff, Mail, Send } from "lucide-react";
+import { BellOff, CalendarClock, Mail, Repeat, Send } from "lucide-react";
+import { RHYTHM_LABELS } from "@shared/campaigns";
 import { cn } from "@/shared/lib/cn";
-import { fmtDateTime } from "@/shared/lib/format";
+import { fmtDate, fmtDateTime } from "@/shared/lib/format";
 import { Button } from "@/shared/ui/button";
 import { ComposeModal } from "./compose-modal";
 import { ClientMailoutModal } from "./client-mailout-modal";
@@ -57,6 +58,16 @@ export function ClientMailouts({
                   ? `Unsubscribed by ${data.unsubscribedByName}${data.unsubscribedAt ? ` on ${fmtDateTime(data.unsubscribedAt)}` : ""}. Invoices and account letters still reach them.`
                   : `Unsubscribed themselves${data.unsubscribedAt ? ` on ${fmtDateTime(data.unsubscribedAt)}` : ""}. Invoices and account letters still reach them.`}
             </p>
+            {/* which letter's link they clicked — the opt-out is global whatever prompted it, but
+                knowing WHICH letter costs subscribers is the only way to change anything */}
+            {!data.subscribed && data.unsubscribedFrom && (
+              <p className="mt-1 text-[12px] text-muted">
+                After the letter “{data.unsubscribedFrom.subject}”
+                {data.unsubscribedFrom.campaignName && (
+                  <> · campaign “{data.unsubscribedFrom.campaignName}”</>
+                )}
+              </p>
+            )}
             {!data.hasEmail && (
               <p className="mt-1 text-[12px] text-danger-text">
                 {reachable.length > 0
@@ -87,6 +98,44 @@ export function ClientMailouts({
           </Button>
         </div>
       </div>
+
+      {data.campaigns.length > 0 && (
+        <div className="rounded-(--radius-panel) border border-border bg-surface">
+          <div className="border-b border-border px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-faint">
+            Scheduled for them
+          </div>
+          {data.campaigns.map((c) => (
+            <div
+              key={`${c.id}:${c.companyId ?? ""}`}
+              className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-2.5 text-[13px] last:border-0"
+            >
+              <span className="min-w-0 flex-1 truncate">
+                {c.name}
+                {c.companyName && <span className="text-muted"> · {c.companyName}</span>}
+              </span>
+              <span className="flex items-center gap-1 text-[12px] text-muted">
+                {c.rhythm !== "once" && <Repeat size={11} />}
+                {RHYTHM_LABELS[c.rhythm]}
+              </span>
+              <span className="flex items-center gap-1 text-[12px] text-muted">
+                <CalendarClock size={11} />
+                {c.status !== "scheduled"
+                  ? "Stopped"
+                  : c.nextRunOn
+                    ? fmtDate(c.nextRunOn)
+                    : "—"}
+              </span>
+              {/* said here rather than only at send time: a client queued for a letter they will
+                  never receive is exactly what somebody wants to know before the date, not after */}
+              {c.blockedReason && (
+                <span className="w-full text-[12px] text-[#8a5a12]">
+                  Would be skipped — {c.blockedReason.toLowerCase()}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {data.history.length === 0 ? (
         <div className="rounded-(--radius-panel) border border-dashed border-[#cfd4db] bg-surface p-12 text-center">

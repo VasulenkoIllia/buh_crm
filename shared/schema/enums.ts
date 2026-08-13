@@ -65,3 +65,14 @@ export type MailoutKind = z.infer<typeof mailoutKind>;
 /** What became of one recipient of one send. `skipped` is recorded, never a silent drop. */
 export const mailoutStatus = z.enum(["queued", "sent", "failed", "skipped"]);
 export type MailoutStatus = z.infer<typeof mailoutStatus>;
+
+/** How often a planned mailout goes out. `once` is a scheduled one-off, not a special case. */
+export const campaignRhythm = z.enum(["once", "monthly", "quarterly", "yearly"]);
+export type CampaignRhythm = z.infer<typeof campaignRhythm>;
+
+/**
+ * `scheduled` is the only state that fires. `stopped` was ended by hand and can be resumed;
+ * `finished` ran out of dates and cannot.
+ */
+export const campaignStatus = z.enum(["scheduled", "stopped", "finished"]);
+export type CampaignStatus = z.infer<typeof campaignStatus>;

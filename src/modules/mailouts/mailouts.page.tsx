@@ -5,6 +5,7 @@ import { cn } from "@/shared/lib/cn";
 import { fmtDateTime } from "@/shared/lib/format";
 import { Button } from "@/shared/ui/button";
 import { Tabs } from "@/shared/ui/tabs";
+import { Campaigns } from "./campaigns";
 import { ComposeModal } from "./compose-modal";
 import { MailoutDetailModal } from "./mailout-detail";
 import { SenderSettings } from "./sender-settings";
@@ -19,6 +20,7 @@ import { useDeleteTemplate, useMailouts, useTemplates, useUpdateTemplate } from 
  */
 const TABS = [
   { value: "log" as const, label: "Sent" },
+  { value: "campaigns" as const, label: "Campaigns" },
   { value: "templates" as const, label: "Templates" },
   { value: "sender" as const, label: "Sender" },
 ];
@@ -26,6 +28,8 @@ type Tab = (typeof TABS)[number]["value"];
 
 const BLURB: Record<Tab, string> = {
   log: "Every letter that went out, and what happened to each recipient — including the ones that were skipped, and why.",
+  campaigns:
+    "Letters planned for a date rather than sent by hand — once, or on a rhythm. Who is on the list is checked again on the day, so anyone who unsubscribed in between is skipped.",
   templates:
     "A template is a letter you send more than once, personalised per client. The frame — logo, signature, contact buttons, footer — is the same on all of them; only the subject, heading and body change.",
   sender: "Which mailboxes letters go from, and the firm's details that appear in every one.",
@@ -49,6 +53,7 @@ export function MailoutsPage() {
       <Tabs className="mb-4" value={tab} onChange={setTab} options={TABS} />
 
       {tab === "log" && <SentLog onOpen={setOpenMailout} />}
+      {tab === "campaigns" && <Campaigns />}
       {tab === "templates" && <TemplateList />}
       {tab === "sender" && <SenderSettings />}
 

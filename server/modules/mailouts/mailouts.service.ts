@@ -23,7 +23,8 @@
  * still `queued` long after the fact means the process died mid-send — which the log shows
  * honestly, and the firm re-sends to exactly those.
  */
-import type { MailoutKind } from "@shared/schema/enums.js";
+import type { CampaignRhythm, CampaignStatus, MailoutKind } from "@shared/schema/enums.js";
+import type { ClientCampaign } from "@shared/schema/campaigns.js";
 import type {
   ClientMailoutDetail,
   ClientMailState,
@@ -74,7 +75,12 @@ import { deleteFileBytes, readFileBytes, saveFileBytes } from "../../core/files.
 import { clientLabel, personName } from "../../core/names.js";
 import { open, seal, secretsConfigured } from "../../core/secrets-crypto.js";
 import type { User } from "../../generated/prisma/client.js";
+import * as campaignRepo from "./campaigns.repository.js";
 import * as repo from "./mailouts.repository.js";
+
+/** A stored DATE as `YYYY-MM-DD`, read off the UTC-midnight instant days are stored on. */
+const isoDay = (d: Date | null) =>
+  d ? new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())).toISOString().slice(0, 10) : null;
 
 /** How many of a client's letters the card tab shows. */
 const CLIENT_HISTORY_LIMIT = 50;
@@ -162,6 +168,13 @@ export async function deleteTemplate(id: string) {
 
   // A sent mailout keeps a snapshot of its text, but it still points at the template by id for the
   // log's "which template was this" column. Deactivate instead, so history stays readable.
+  const scheduled = await repo.countCampaignsForTemplate(id);
+  if (scheduled > 0) {
+    throw new ConflictError(
+      `“${existing.name}” is scheduled by ${scheduled} campaign${scheduled === 1 ? "" : "s"} — change or delete ${scheduled === 1 ? "it" : "them"} first`,
+    );
+  }
+
   const used = await repo.countMailoutsForTemplate(id);
   if (used > 0) {
     throw new ConflictError(
@@ -722,8 +735,15 @@ interface Letter {
  * not ceremony: corporate mail scanners follow every link in an incoming message, and a GET that
  * mutated would unsubscribe clients who never opened the letter.
  */
-function unsubscribeUrl(token: string): string {
-  return `${webOrigin()}/api/mailouts/unsubscribe/${token}`;
+function unsubscribeUrl(token: string, fromMailoutId: string | null = null): string {
+  const base = `${webOrigin()}/api/mailouts/unsubscribe/${token}`;
+  // The letter's own id, so an opt-out can name what prompted it — "unsubscribed from the March
+  // newsletter" rather than just "unsubscribed". The token belongs to the CLIENT and is the same
+  // in every letter they ever get, so it cannot answer that on its own.
+  //
+  // A URL is a claim, not proof: anyone can edit one. The server stores this only after checking
+  // that the mailout really did write to that client — see `unsubscribeByToken`.
+  return fromMailoutId ? `${base}?m=${fromMailoutId}` : base;
 }
 
 function buildEmail(
@@ -732,6 +752,8 @@ function buildEmail(
   account: SenderAccount,
   firm: FirmProfile,
   token: string | null,
+  /** stamped into the unsubscribe link so an opt-out can say which letter prompted it */
+  mailoutId: string | null,
   /**
    * How the masthead image is referenced — NOT derived here.
    *
@@ -746,7 +768,7 @@ function buildEmail(
   const heading = letter.heading ? renderMailText(letter.heading, vars).text : subject;
   const body = renderMailText(letter.body, vars).text;
   const commercial = letter.kind === "commercial";
-  const unsub = commercial && token ? unsubscribeUrl(token) : null;
+  const unsub = commercial && token ? unsubscribeUrl(token, mailoutId) : null;
 
   const shell = {
     heading,
@@ -999,7 +1021,7 @@ export async function previewLetter(input: PreviewLetterInput): Promise<LetterPr
     signature: account.signature,
     contacts: contactsOf(account),
     postalAddress: commercial ? firm.postalAddress : null,
-    unsubscribeUrl: commercial ? unsubscribeUrl("sample-token") : null,
+    unsubscribeUrl: commercial ? unsubscribeUrl("sample-token", null) : null,
     logoSrc: dataSrc(await loadLogo(firm)),
   };
   const html = renderLetter(shell);
@@ -1059,19 +1081,40 @@ export async function preview(input: SendMailoutInput): Promise<MailoutPreview> 
 
 // ── send ─────────────────────────────────────────────────────────────────────
 
-export async function send(actor: User, input: SendMailoutInput): Promise<MailoutDetail> {
-  const firm = await repo.getFirmProfile();
-  const letter = await resolveLetter(input);
-  const account = await resolveSenderAccount(input.senderAccountId, letter.senderAccountId);
-  assertSendable(letter, firm);
+/** Who or what caused a send — a person at the composer, or a campaign whose date came round. */
+export interface Provenance {
+  actorId: string | null;
+  campaignId: string | null;
+  /** which of the campaign's dates, `YYYY-MM-DD`. The unique key that makes a double run fail. */
+  periodKey: string | null;
+}
 
-  const { decisions } = await decide(letter, input.recipients, account);
+/**
+ * Write the rows, then start delivering. **The one send path.**
+ *
+ * A person pressing Send and a campaign's date arriving differ in exactly two things: who to
+ * record as the cause, and whether an empty list is an error. Everything else — the addressee
+ * decisions, the unsubscribe tokens, the snapshot, the background delivery — is identical, and
+ * keeping it identical is the point. A second path that only nearly matched is how the two would
+ * drift until a scheduled letter quietly stopped honouring an opt-out.
+ *
+ * Never throws on "nobody is reachable": that judgement belongs to the caller. The composer
+ * refuses it, because a person is standing there and can fix the list; a campaign records the run
+ * with every row skipped and its reason, because the occurrence happened and pretending otherwise
+ * would make it fire again tomorrow, and the day after.
+ */
+async function dispatch(
+  letter: Letter,
+  account: SenderAccount,
+  firm: FirmProfile,
+  targets: MailoutTarget[],
+  provenance: Provenance,
+  /** forced onto every row, whatever the addressee's own state — see `runCampaign` */
+  blockAllBecause: string | null = null,
+): Promise<string> {
+  const { decisions } = await decide(letter, targets, account);
+  for (const d of decisions) if (blockAllBecause) d.blockedReason = blockAllBecause;
   const going = decisions.filter((d) => !d.blockedReason);
-  if (going.length === 0) {
-    throw new ValidationError(
-      "Nobody on this list can be sent to — see the reasons beside each name",
-    );
-  }
 
   // Everyone actually being mailed needs a stable unsubscribe token before the letter is built,
   // since the token goes inside it. Minted for the whole batch at once — see the repository.
@@ -1079,7 +1122,7 @@ export async function send(actor: User, input: SendMailoutInput): Promise<Mailou
   // Distinct CLIENTS, not rows: a client written to at three of their companies has one token,
   // because one click must take all three addresses off the list. Passing the row list instead
   // would ask the database to insert the same client three times.
-  if (letter.kind === "commercial") {
+  if (letter.kind === "commercial" && going.length > 0) {
     const tokens = await repo.ensureMailPreferences([...new Set(going.map((d) => d.clientId))]);
     for (const d of going) d.token = tokens.get(d.clientId) ?? d.token;
   }
@@ -1092,7 +1135,9 @@ export async function send(actor: User, input: SendMailoutInput): Promise<Mailou
       kind: letter.kind,
       template: letter.templateId ? { connect: { id: letter.templateId } } : undefined,
       senderAccount: { connect: { id: account.id } },
-      createdBy: { connect: { id: actor.id } },
+      createdBy: provenance.actorId ? { connect: { id: provenance.actorId } } : undefined,
+      campaign: provenance.campaignId ? { connect: { id: provenance.campaignId } } : undefined,
+      periodKey: provenance.periodKey,
     },
     decisions.map((d) => ({
       clientId: d.clientId,
@@ -1105,11 +1150,108 @@ export async function send(actor: User, input: SendMailoutInput): Promise<Mailou
 
   // Deliver after the response. `void` is the point: a hundred SMTP round-trips cannot happen
   // inside a request, and the log is what reports the outcome.
-  void deliver(mailout.id, letter, account, firm).catch((err) => {
-    console.error(`[mailouts] delivery run failed for mailout=${mailout.id}:`, err);
-  });
+  if (going.length > 0) {
+    void deliver(mailout.id, letter, account, firm).catch((err) => {
+      console.error(`[mailouts] delivery run failed for mailout=${mailout.id}:`, err);
+    });
+  }
+  return mailout.id;
+}
 
-  return detail(mailout.id);
+export async function send(actor: User, input: SendMailoutInput): Promise<MailoutDetail> {
+  const firm = await repo.getFirmProfile();
+  const letter = await resolveLetter(input);
+  const account = await resolveSenderAccount(input.senderAccountId, letter.senderAccountId);
+  assertSendable(letter, firm);
+
+  // Checked BEFORE any row is written: a person is standing at the composer and can fix the list,
+  // so an empty send is a refusal to their face rather than a log entry they may never open.
+  const { decisions } = await decide(letter, input.recipients, account);
+  if (decisions.every((d) => d.blockedReason)) {
+    throw new ValidationError(
+      "Nobody on this list can be sent to — see the reasons beside each name",
+    );
+  }
+
+  const id = await dispatch(letter, account, firm, input.recipients, {
+    actorId: actor.id,
+    campaignId: null,
+    periodKey: null,
+  });
+  return detail(id);
+}
+
+// ── what a campaign needs from the send path ─────────────────────────────────
+//
+// Exported here rather than re-implemented next door: a campaign IS a mailout with a date, and the
+// moment it grows its own copy of "who can be written to" the two start drifting.
+
+/** What would happen to these addressees if this template went out right now. */
+export async function assessTargets(
+  templateId: string,
+  kind: MailoutKind,
+  senderAccountId: string | null,
+  targets: MailoutTarget[],
+) {
+  const template = await repo.findTemplate(templateId);
+  if (!template) throw new NotFoundError("Template not found");
+  const account = await resolveSenderAccount(senderAccountId, template.senderAccountId);
+  const letter: Letter = {
+    subject: template.subject,
+    heading: template.heading,
+    body: template.body,
+    kind,
+    templateId: template.id,
+    senderAccountId: template.senderAccountId,
+  };
+  const { decisions } = await decide(letter, targets, account);
+  return decisions;
+}
+
+/**
+ * Fire one occurrence of a campaign.
+ *
+ * Records the run whatever happens — including when the firm has no postal address and a
+ * commercial letter is unlawful. Refusing outright would leave the campaign due tomorrow and every
+ * day after, failing silently in a place nobody looks; a run of "0 sent, 12 skipped: add the
+ * firm's postal address" is the same fact, in the log, once.
+ */
+export async function runCampaign(campaign: {
+  id: string;
+  templateId: string;
+  kind: MailoutKind;
+  senderAccountId: string | null;
+  targets: MailoutTarget[];
+  periodKey: string;
+}): Promise<string> {
+  const firm = await repo.getFirmProfile();
+  const template = await repo.findTemplate(campaign.templateId);
+  if (!template) throw new NotFoundError("Template not found");
+  const account = await resolveSenderAccount(campaign.senderAccountId, template.senderAccountId);
+  const letter: Letter = {
+    subject: template.subject,
+    heading: template.heading,
+    body: template.body,
+    kind: campaign.kind,
+    templateId: template.id,
+    senderAccountId: template.senderAccountId,
+  };
+
+  let blockAll: string | null = null;
+  try {
+    assertSendable(letter, firm);
+  } catch (err) {
+    blockAll = err instanceof Error ? err.message.slice(0, 300) : "This letter cannot be sent";
+  }
+
+  return dispatch(
+    letter,
+    account,
+    firm,
+    campaign.targets,
+    { actorId: null, campaignId: campaign.id, periodKey: campaign.periodKey },
+    blockAll,
+  );
 }
 
 async function deliver(
@@ -1182,7 +1324,7 @@ async function deliver(
       continue;
     }
 
-    const built = buildEmail(letter, { client, company }, account, firm, token, cidSrc(logo));
+    const built = buildEmail(letter, { client, company }, account, firm, token, mailoutId, cidSrc(logo));
     const message: RawEmail = {
       to: row.email,
       subject: built.subject,
@@ -1217,7 +1359,7 @@ async function deliver(
 
 const EMPTY_COUNTS = { sent: 0, failed: 0, skipped: 0, queued: 0 };
 
-async function countsFor(ids: string[]) {
+export async function countsFor(ids: string[]) {
   const rows = await repo.countByStatus(ids);
   const map = new Map<string, typeof EMPTY_COUNTS>();
   for (const id of ids) map.set(id, { ...EMPTY_COUNTS });
@@ -1285,12 +1427,53 @@ export async function list(query: MailoutListQuery): Promise<MailoutList> {
 
 // ── the client card ──────────────────────────────────────────────────────────
 
+/**
+ * The campaigns this client is signed up for — "what are we about to send them".
+ *
+ * Here rather than in `campaigns.service`, though it is entirely about campaigns: this is the
+ * client card's question, the card is served from this file, and putting it next door would make
+ * the two service modules import each other. A cycle between two files this size resolves today
+ * and breaks on the day somebody adds a top-level constant to one of them.
+ */
+export async function clientCampaigns(clientId: string): Promise<ClientCampaign[]> {
+  const rows = await campaignRepo.listClientCampaigns(clientId);
+  if (rows.length === 0) return [];
+
+  // One assessment per campaign, for THIS client only — the card asks about them, not about the
+  // whole list. The template id rides along on the row, so this is not a query per campaign.
+  const assessed = await Promise.all(
+    rows.map(async (r): Promise<string | null> => {
+      const [decision] = await assessTargets(
+        r.campaign.templateId,
+        r.campaign.kind as MailoutKind,
+        r.campaign.senderAccountId,
+        [{ clientId, companyId: r.companyId }],
+      );
+      return decision?.blockedReason ?? null;
+    }),
+  );
+
+  return rows.map((r, i) => ({
+    id: r.campaign.id,
+    name: r.campaign.name,
+    kind: r.campaign.kind as MailoutKind,
+    rhythm: r.campaign.rhythm as CampaignRhythm,
+    status: r.campaign.status as CampaignStatus,
+    nextRunOn: isoDay(r.campaign.nextRunOn),
+    companyId: r.companyId,
+    companyName: r.company?.name ?? null,
+    blockedReason: assessed[i],
+  }));
+}
+
 export async function clientState(clientId: string): Promise<ClientMailState> {
-  const [clients, pref, rows, firm] = await Promise.all([
+  const [clients, pref, rows, firm, campaigns] = await Promise.all([
     repo.findSendableClients([clientId]),
     repo.getMailPreference(clientId),
     repo.listClientMailouts(clientId, CLIENT_HISTORY_LIMIT),
     repo.getFirmProfile(),
+    // what is queued up for them, alongside what has already gone — see the schema comment
+    clientCampaigns(clientId),
   ]);
 
   // Render each subject for THIS client. The mailout row stores the template text with its
@@ -1317,6 +1500,15 @@ export async function clientState(clientId: string): Promise<ClientMailState> {
     subscribed: !pref?.unsubscribedAt,
     unsubscribedAt: pref?.unsubscribedAt?.toISOString() ?? null,
     unsubscribedByName: pref?.unsubscribedBy ? personName(pref.unsubscribedBy) : null,
+    unsubscribedFrom: pref?.unsubscribedFrom
+      ? {
+          mailoutId: pref.unsubscribedFrom.id,
+          subject: pref.unsubscribedFrom.subject,
+          campaignId: pref.unsubscribedFrom.campaignId,
+          campaignName: pref.unsubscribedFrom.campaign?.name ?? null,
+        }
+      : null,
+    campaigns,
     hasEmail: !!client?.email,
     // Own address first, then each company in the card's own order — the same order the client's
     // Companies tab shows, so the two screens never disagree about which company is which.
@@ -1412,12 +1604,33 @@ export async function setSubscription(actor: User, clientId: string, subscribed:
 
 // ── the public unsubscribe page ──────────────────────────────────────────────
 
-/** Applied by the client's own click. No actor — nobody in the firm did this. */
-export async function unsubscribeByToken(token: string): Promise<void> {
+/**
+ * Applied by the client's own click. No actor — nobody in the firm did this.
+ *
+ * `fromMailoutId` comes out of the link and is therefore a CLAIM. It is stored only after checking
+ * that the named mailout really did write to this client; otherwise it is dropped and the opt-out
+ * still happens. Getting the opt-out right matters, knowing which letter prompted it is a nicety,
+ * and the nicety must never be able to break the thing that matters.
+ */
+export async function unsubscribeByToken(
+  token: string,
+  fromMailoutId: string | null = null,
+): Promise<void> {
   const pref = await repo.findByUnsubscribeToken(token);
   if (!pref) throw new NotFoundError("This unsubscribe link is not valid");
   if (pref.unsubscribedAt) return; // already done — say so calmly, do not error
-  await repo.setUnsubscribed(pref.clientId, new Date(), null);
+
+  let source: string | null = null;
+  if (fromMailoutId) {
+    try {
+      source = (await campaignRepo.mailoutIncludesClient(fromMailoutId, pref.clientId))
+        ? fromMailoutId
+        : null;
+    } catch {
+      source = null; // a malformed id must not cost the client their opt-out
+    }
+  }
+  await repo.setUnsubscribed(pref.clientId, new Date(), null, source);
 }
 
 export async function unsubscribeTokenExists(token: string): Promise<boolean> {
@@ -1441,6 +1654,8 @@ export function unsubscribePage(opts: {
   token: string;
   firmName: string;
   state: "confirm" | "done" | "invalid";
+  /** carried through from the GET, so the POST that follows knows the letter too */
+  fromMailoutId?: string | null;
 }): string {
   const brand = "#37544F";
   const title =
@@ -1460,7 +1675,9 @@ export function unsubscribePage(opts: {
         : `<p>Stop receiving news and updates from ${escapeHtml(opts.firmName)}?</p>
            <p style="color:#6b7a77;font-size:14px;">Invoices and messages about your account will
            still reach you.</p>
-           <form method="post" action="/api/mailouts/unsubscribe/${escapeHtml(opts.token)}">
+           <form method="post" action="/api/mailouts/unsubscribe/${escapeHtml(opts.token)}${
+             opts.fromMailoutId ? `?m=${escapeHtml(opts.fromMailoutId)}` : ""
+           }">
              <button type="submit" style="margin-top:8px;background:${brand};color:#fff;border:0;
                border-radius:8px;padding:11px 20px;font-size:15px;cursor:pointer;">
                Unsubscribe

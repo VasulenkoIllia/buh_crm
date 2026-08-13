@@ -1,5 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
+  CampaignDetail,
+  CampaignInput,
+  CampaignList,
+} from "@shared/schema/campaigns";
+import type {
   ClientMailoutDetail,
   ClientMailState,
   CreateTemplateInput,
@@ -261,4 +266,65 @@ export function useTestSender() {
         body: { sendTestLetter },
       }),
   });
+}
+
+// ── campaigns ────────────────────────────────────────────────────────────────
+
+const CAMPAIGNS_KEY = [...MAILOUTS_KEY, "campaigns"] as const;
+
+export function useCampaigns() {
+  return useQuery({
+    queryKey: CAMPAIGNS_KEY,
+    queryFn: () => api<CampaignList>("/api/mailouts/campaigns"),
+    staleTime: 30_000,
+  });
+}
+
+export function useCampaign(id: string | null) {
+  return useQuery({
+    queryKey: [...CAMPAIGNS_KEY, id],
+    queryFn: () => api<CampaignDetail>(`/api/mailouts/campaigns/${id}`),
+    enabled: !!id,
+  });
+}
+
+/**
+ * Every campaign mutation invalidates the whole Mailouts tree, not just the campaign list.
+ *
+ * Firing writes into the Sent log and can move a client's subscription state, and a screen showing
+ * a campaign as "due today" beside a log that already lists its run is worse than a refetch.
+ */
+function useCampaignMutation<T, R>(fn: (input: T) => Promise<R>) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => qc.invalidateQueries({ queryKey: MAILOUTS_KEY }),
+  });
+}
+
+export function useCreateCampaign() {
+  return useCampaignMutation((input: CampaignInput) =>
+    api<CampaignDetail>("/api/mailouts/campaigns", { method: "POST", body: input }),
+  );
+}
+
+export function useUpdateCampaign() {
+  return useCampaignMutation(({ id, input }: { id: string; input: CampaignInput }) =>
+    api<CampaignDetail>(`/api/mailouts/campaigns/${id}`, { method: "PUT", body: input }),
+  );
+}
+
+export function useSetCampaignActive() {
+  return useCampaignMutation(({ id, active }: { id: string; active: boolean }) =>
+    api<CampaignDetail>(`/api/mailouts/campaigns/${id}/active`, {
+      method: "POST",
+      body: { active },
+    }),
+  );
+}
+
+export function useDeleteCampaign() {
+  return useCampaignMutation((id: string) =>
+    api<void>(`/api/mailouts/campaigns/${id}`, { method: "DELETE" }),
+  );
 }

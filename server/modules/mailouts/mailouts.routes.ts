@@ -23,6 +23,14 @@ const idParams = z.object({ id: uuid });
 const clientParams = z.object({ clientId: uuid });
 const tokenParams = z.object({ token: z.string().min(10).max(200) });
 
+/**
+ * Which letter the link came from — provenance only, never a credential.
+ *
+ * Optional and forgiving on purpose: letters already in inboxes carry no `m`, and a mangled one
+ * must cost the client nothing. The service verifies the claim before storing it.
+ */
+const unsubscribeQuery = z.object({ m: uuid.optional().catch(undefined) });
+
 type UnsubscribeState = "confirm" | "done" | "invalid";
 
 export async function registerRoutes(instance: FastifyInstance) {
@@ -55,14 +63,26 @@ export async function registerRoutes(instance: FastifyInstance) {
       (_req, _body, done) => done(null, undefined),
     );
 
-    const page = (request: { params: { token: string } }, reply: FastifyReply, state: UnsubscribeState, firmName: string) => {
+    const page = (
+      request: { params: { token: string }; query: { m?: string } },
+      reply: FastifyReply,
+      state: UnsubscribeState,
+      firmName: string,
+    ) => {
       reply.header("Content-Type", "text/html; charset=utf-8");
-      return reply.send(service.unsubscribePage({ token: request.params.token, firmName, state }));
+      return reply.send(
+        service.unsubscribePage({
+          token: request.params.token,
+          firmName,
+          state,
+          fromMailoutId: request.query.m ?? null,
+        }),
+      );
     };
 
     pub.withTypeProvider<ZodTypeProvider>().get(
       "/unsubscribe/:token",
-      { schema: { params: tokenParams } },
+      { schema: { params: tokenParams, querystring: unsubscribeQuery } },
       async (request, reply) => {
         const [known, firmName] = await Promise.all([
           service.unsubscribeTokenExists(request.params.token),
@@ -82,13 +102,13 @@ export async function registerRoutes(instance: FastifyInstance) {
         // could forge gets them one. All the check can do here is 403 a legitimate unsubscribe
         // whose Origin is the webmail the client is reading in.
         config: { skipOriginCheck: true },
-        schema: { params: tokenParams },
+        schema: { params: tokenParams, querystring: unsubscribeQuery },
       },
       async (request, reply) => {
         const firmName = await service.senderDisplayName();
         let state: UnsubscribeState = "done";
         try {
-          await service.unsubscribeByToken(request.params.token);
+          await service.unsubscribeByToken(request.params.token, request.query.m ?? null);
         } catch {
           state = "invalid";
         }

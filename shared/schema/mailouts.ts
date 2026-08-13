@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { uuid } from "./common.js";
-import { mailoutKind, mailoutStatus } from "./enums.js";
+import { campaignRhythm, campaignStatus, mailoutKind, mailoutStatus } from "./enums.js";
 
 /**
  * Client mailouts (S10).
@@ -249,6 +249,26 @@ export const clientMailoutRow = z.object({
 });
 export type ClientMailoutRow = z.infer<typeof clientMailoutRow>;
 
+/**
+ * A campaign as it appears on a CLIENT's card: what they are signed up to receive next.
+ *
+ * The card answers "what have we sent them" from the log; this answers "what are we about to".
+ */
+export const clientCampaignSchema = z.object({
+  id: uuid,
+  name: z.string(),
+  kind: mailoutKind,
+  rhythm: campaignRhythm,
+  status: campaignStatus,
+  nextRunOn: z.iso.date().nullable(),
+  /** null = they are on the list at their own address */
+  companyId: uuid.nullable(),
+  companyName: z.string().nullable(),
+  /** why this client would be skipped if it fired now; null = they would receive it */
+  blockedReason: z.string().nullable(),
+});
+export type ClientCampaign = z.infer<typeof clientCampaignSchema>;
+
 export const clientMailStateSchema = z.object({
   /** commercial mail only — transactional always sends */
   subscribed: z.boolean(),
@@ -273,6 +293,26 @@ export const clientMailStateSchema = z.object({
     }),
   ),
   history: z.array(clientMailoutRow),
+  /**
+   * The campaigns this client is signed up for — "what are we about to send them", where the
+   * history answers "what have we sent them". Both belong on the same tab: a firm looking at a
+   * client who just complained needs to see the queued letter, not only the ones already gone.
+   */
+  campaigns: z.array(clientCampaignSchema),
+  /**
+   * Which letter's link they clicked to unsubscribe, when they clicked one.
+   *
+   * The opt-out is global whatever prompted it; this names what prompted it, so "unsubscribed
+   * after the March newsletter" is answerable on the card and on the campaign.
+   */
+  unsubscribedFrom: z
+    .object({
+      mailoutId: uuid,
+      subject: z.string(),
+      campaignId: uuid.nullable(),
+      campaignName: z.string().nullable(),
+    })
+    .nullable(),
 });
 export type ClientMailState = z.infer<typeof clientMailStateSchema>;
 
