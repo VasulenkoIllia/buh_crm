@@ -73,13 +73,16 @@ export function ClientMailouts({
             <p className="text-[14px] font-medium">
               {data.subscribed ? "Subscribed to news and updates" : "Unsubscribed from news and updates"}
             </p>
-            <p className="text-[12px] leading-relaxed text-muted">
-              {data.subscribed
-                ? "Receives commercial mailouts as well as invoices and account letters."
-                : data.unsubscribedByName
+            {/* Only what the two lists below cannot say. "Receives commercial mailouts as well as
+                invoices" was boilerplate on every subscribed client, and a count of addresses
+                repeated what the Sent and Scheduled columns already name one by one. */}
+            {!data.subscribed && (
+              <p className="text-[12px] leading-relaxed text-muted">
+                {data.unsubscribedByName
                   ? `Unsubscribed by ${data.unsubscribedByName}${data.unsubscribedAt ? ` on ${fmtDateTime(data.unsubscribedAt)}` : ""}. Invoices and account letters still reach them.`
                   : `Unsubscribed themselves${data.unsubscribedAt ? ` on ${fmtDateTime(data.unsubscribedAt)}` : ""}. Invoices and account letters still reach them.`}
-            </p>
+              </p>
+            )}
             {/* which letter's link they clicked — the opt-out is global whatever prompted it, but
                 knowing WHICH letter costs subscribers is the only way to change anything */}
             {!data.subscribed && data.unsubscribedFrom && (
@@ -90,24 +93,12 @@ export function ClientMailouts({
                 )}
               </p>
             )}
-            {/* One line, and it is always true. Two used to sit here and contradict each other:
-                a red "no email on the client card" above a count of "4 addresses on file" that was
-                counting the client's own empty row as one of them. */}
-            <p
-              className={cn(
-                "mt-1 text-[12px]",
-                reachable.length === 0 ? "text-danger-text" : "text-muted",
-              )}
-            >
-              {reachable.length === 0
-                ? "No address anywhere — nothing can be sent to them or their companies."
-                : `${reachable.length} address${reachable.length === 1 ? "" : "es"} to write to` +
-                  (data.hasEmail
-                    ? reachable.length > 1
-                      ? " — theirs and their companies."
-                      : "."
-                    : " — their companies only; the client card has none.")}
-            </p>
+            {/* The one case worth a line: it is why "Send a letter" is disabled. */}
+            {reachable.length === 0 && (
+              <p className="mt-1 text-[12px] text-danger-text">
+                No address anywhere — nothing can be sent to them or their companies.
+              </p>
+            )}
           </div>
         </div>
 
