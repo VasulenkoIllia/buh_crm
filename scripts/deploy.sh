@@ -44,6 +44,24 @@ echo "   $DUMP ($(du -h "$DUMP" | cut -f1))"
 
 # ── 2. optional data reset ───────────────────────────────────────────────────
 if $RESET; then
+  # The reset runs BEFORE the pull (see the header), which means it uses the reset SQL ALREADY ON
+  # DISK — not the one arriving with this deploy. When a migration drops a table the old file still
+  # names, that file fails, the transaction rolls back, and the deploy stops with a fresh dump, the
+  # old code and untouched data. Exactly what a stale `DELETE FROM "Reminder"` was about to do.
+  #
+  # So: check the file against the branch first, and say what to do rather than finding out after
+  # the database is the only thing that moved.
+  say "Checking the reset script is current"
+  if git fetch --quiet origin 2>/dev/null &&
+     ! git diff --quiet FETCH_HEAD -- scripts/reset-data.sql 2>/dev/null; then
+    echo "   ✗ scripts/reset-data.sql on disk differs from the branch." >&2
+    echo "     --reset would run the OLD one, before this deploy pulls the new." >&2
+    echo "     Pull first, then reset:" >&2
+    echo "       git pull --ff-only && ./scripts/deploy.sh --reset" >&2
+    exit 1
+  fi
+  echo "   up to date"
+
   say "Wiping client data (the team is kept)"
   if ! $ASSUME_YES; then
     echo "   This deletes every client, task, invoice and file in \"$PG_DB\"."
