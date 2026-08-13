@@ -95,6 +95,15 @@ docker compose exec -T db psql -U "$PG_USER" -d "$PG_DB" -c \
           (select count(*) from "Task") tasks, (select count(*) from "Invoice") invoices,
           (select count(*) from "Priority") priorities, (select count(*) from "TaskColumn") columns;'
 
+# Mailouts (S10/S10.1). Worth its own line: `mailboxes 0` after a deploy means no letter can go
+# out at all, and a campaign due today would record a run with every row skipped rather than say so.
+docker compose exec -T db psql -U "$PG_USER" -d "$PG_DB" -c \
+  'select (select count(*) from "MailSenderAccount") mailboxes,
+          (select count(*) from "EmailTemplate") templates,
+          (select count(*) from "Campaign" where status = '"'"'scheduled'"'"') scheduled_campaigns,
+          (select count(*) from "Mailout") mailouts,
+          (select count(*) from "ClientMailPreference" where "unsubscribedAt" is not null) unsubscribed;'
+
 say "Done — $(git log -1 --format='%h %s')"
 echo "   rollback, if needed:"
 echo "     docker compose exec -T db psql -U $PG_USER -d $PG_DB < $DUMP"
