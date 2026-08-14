@@ -21,6 +21,10 @@
  * task and invoice sweeps deliberately do the opposite and catch up every missed period, because
  * a missing invoice is a missing fact. A campaign catching up the same way would empty six months
  * of newsletters into a client's inbox in one morning.
+ *
+ * A hand-picked list follows the same rule: the due day goes out, days behind it are skipped, and
+ * the campaign lands on the next day still ahead. A "15 March deadline" letter arriving in August
+ * is worse than one that never arrived.
  */
 import type {
   Campaign,
@@ -32,7 +36,7 @@ import type {
 } from "@shared/schema/campaigns.js";
 import type { MailoutTarget } from "@shared/schema/mailouts.js";
 import type { CampaignRhythm, CampaignStatus, MailoutKind } from "@shared/schema/enums.js";
-import { firstRunOn, nextRunAfter, periodKeyOf } from "@shared/campaigns.js";
+import { firstDateOf, firstRunOn, nextDateAfter, nextRunAfter, periodKeyOf } from "@shared/campaigns.js";
 import { config } from "../../core/config.js";
 import { fromDate } from "../../core/dates.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
@@ -77,6 +81,7 @@ function toCampaign(row: repo.CampaignRow): Campaign {
     startsOn: isoDay(row.startsOn)!,
     sendAt: row.sendAt,
     endsOn: isoDay(row.endsOn),
+    dates: row.dates.map((d) => isoDay(d.on)!),
     status: row.status as CampaignStatus,
     nextRunOn: isoDay(row.nextRunOn),
     lastRunAt: row.lastRunAt?.toISOString() ?? null,
@@ -140,6 +145,34 @@ export async function detail(id: string): Promise<CampaignDetail> {
 
 // ── writing ──────────────────────────────────────────────────────────────────
 
+/**
+ * When is this campaign next due, given where we are counting from?
+ *
+ * The one place both kinds of schedule are answered, so `create`, `update`, `setActive` and the
+ * sweep cannot drift into four slightly different ideas of "next". A rule projects forward from
+ * its anchor; a hand-picked list is simply looked up.
+ */
+function nextDue(
+  campaign: { rhythm: CampaignRhythm; startsOnMs: number; endsOnMs: number | null; dateMs: number[] },
+  fromMs: number,
+): number | null {
+  return campaign.rhythm === "dates"
+    ? nextDateAfter(campaign.dateMs, fromMs, campaign.endsOnMs)
+    : nextRunAfter(campaign.startsOnMs, campaign.rhythm, fromMs, campaign.endsOnMs);
+}
+
+/** The very first date, before anything has run. */
+function firstDue(campaign: {
+  rhythm: CampaignRhythm;
+  startsOnMs: number;
+  endsOnMs: number | null;
+  dateMs: number[];
+}): number | null {
+  return campaign.rhythm === "dates"
+    ? firstDateOf(campaign.dateMs)
+    : firstRunOn(campaign.startsOnMs, campaign.endsOnMs);
+}
+
 /** Collapse duplicates the same way a send does — twice on a list means one letter. */
 function dedupe(targets: MailoutTarget[]) {
   const seen = new Map<string, { clientId: string; companyId: string | null }>();
@@ -170,9 +203,16 @@ export async function create(actor: User, input: CampaignInput): Promise<Campaig
   await assertNameFree(input.name);
   await assertTemplateUsable(input.templateId);
 
-  const startsOn = parseDay(input.startsOn);
+  // For a `dates` campaign the list is the only source of truth: `startsOn` is set from its
+  // earliest day and whatever the client sent is ignored, because two fields that can disagree
+  // about the same thing eventually will.
+  const dateMs = input.rhythm === "dates" ? [...new Set((input.dates ?? []).map(parseDay))] : [];
   const endsOn = input.endsOn ? parseDay(input.endsOn) : null;
-  const nextRun = firstRunOn(startsOn, endsOn);
+  // non-null is safe: `campaignInput` refuses `rhythm: "dates"` with an empty list, so by here
+  // there is always at least one day to take the earliest of
+  const startsOn = input.rhythm === "dates" ? firstDateOf(dateMs)! : parseDay(input.startsOn);
+
+  const nextRun = firstDue({ rhythm: input.rhythm, startsOnMs: startsOn, endsOnMs: endsOn, dateMs });
   if (nextRun === null) {
     throw new ValidationError("This campaign would never run — check the dates");
   }
@@ -191,6 +231,7 @@ export async function create(actor: User, input: CampaignInput): Promise<Campaig
       createdBy: { connect: { id: actor.id } },
     },
     dedupe(input.recipients),
+    dateMs.map((ms) => new Date(ms)),
   );
   return detail(row.id);
 }
@@ -213,8 +254,10 @@ export async function update(id: string, input: CampaignInput): Promise<Campaign
   await assertNameFree(input.name, id);
   await assertTemplateUsable(input.templateId);
 
-  const startsOn = parseDay(input.startsOn);
+  const dateMs = input.rhythm === "dates" ? [...new Set((input.dates ?? []).map(parseDay))] : [];
   const endsOn = input.endsOn ? parseDay(input.endsOn) : null;
+  const startsOn = input.rhythm === "dates" ? firstDateOf(dateMs)! : parseDay(input.startsOn);
+  const schedule = { rhythm: input.rhythm, startsOnMs: startsOn, endsOnMs: endsOn, dateMs };
 
   // Moving the dates re-derives what is due next. Counted from yesterday so a start date set to
   // TODAY is still due today — the sweep has not necessarily run yet.
@@ -226,13 +269,8 @@ export async function update(id: string, input: CampaignInput): Promise<Campaign
     existing.status === "stopped"
       ? null
       : existing.lastRunAt === null
-        ? firstRunOn(startsOn, endsOn)
-        : nextRunAfter(
-            startsOn,
-            input.rhythm,
-            Math.max(todayMs() - 86_400_000, dayMs(existing.lastRunAt)),
-            endsOn,
-          );
+        ? firstDue(schedule)
+        : nextDue(schedule, Math.max(todayMs() - 86_400_000, dayMs(existing.lastRunAt)));
 
   await repo.updateCampaign(
     id,
@@ -253,6 +291,7 @@ export async function update(id: string, input: CampaignInput): Promise<Campaign
       status: existing.status === "stopped" ? "stopped" : next === null ? "finished" : "scheduled",
     },
     dedupe(input.recipients),
+    dateMs.map((ms) => new Date(ms)),
   );
   return detail(id);
 }
@@ -276,12 +315,14 @@ export async function setActive(id: string, active: boolean): Promise<CampaignDe
     return detail(id);
   }
 
-  const startsOn = dayMs(existing.startsOn);
-  const endsOn = existing.endsOn ? dayMs(existing.endsOn) : null;
+  const schedule = {
+    rhythm: existing.rhythm as CampaignRhythm,
+    startsOnMs: dayMs(existing.startsOn),
+    endsOnMs: existing.endsOn ? dayMs(existing.endsOn) : null,
+    dateMs: existing.dates.map((d) => dayMs(d.on)),
+  };
   const next =
-    existing.lastRunAt === null
-      ? firstRunOn(startsOn, endsOn)
-      : nextRunAfter(startsOn, existing.rhythm as CampaignRhythm, todayMs() - 86_400_000, endsOn);
+    existing.lastRunAt === null ? firstDue(schedule) : nextDue(schedule, todayMs() - 86_400_000);
   if (next === null) {
     throw new ValidationError("There are no dates left — change the schedule before starting it");
   }
@@ -348,12 +389,14 @@ export async function runDueCampaigns(
 
       // Counted from TODAY, not from the date that was missed — see the module comment. A campaign
       // five months late sends one letter and lines up the next one, not five letters.
-      const endsOn = campaign.endsOn ? dayMs(campaign.endsOn) : null;
-      const next = nextRunAfter(
-        dayMs(campaign.startsOn),
-        campaign.rhythm as CampaignRhythm,
+      const next = nextDue(
+        {
+          rhythm: campaign.rhythm as CampaignRhythm,
+          startsOnMs: dayMs(campaign.startsOn),
+          endsOnMs: campaign.endsOn ? dayMs(campaign.endsOn) : null,
+          dateMs: campaign.dates.map((d) => dayMs(d.on)),
+        },
         Math.max(today, runOn),
-        endsOn,
       );
       await repo.markCampaignRun(campaign.id, {
         nextRunOn: next === null ? null : new Date(next),

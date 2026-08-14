@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { firstRunOn, nextRunAfter, periodKeyOf } from "./campaigns.js";
+import { campaignRhythm } from "./schema/enums.js";
+import {
+  firstDateOf,
+  firstRunOn,
+  nextDateAfter,
+  nextRunAfter,
+  periodKeyOf,
+  RHYTHM_LABELS,
+} from "./campaigns.js";
 
 const day = (iso: string) => Date.parse(`${iso}T00:00:00.000Z`);
 const iso = (ms: number | null) => (ms === null ? null : new Date(ms).toISOString().slice(0, 10));
@@ -75,5 +83,40 @@ describe("the first run", () => {
 describe("the occurrence key", () => {
   it("names the calendar day, which is what makes a double run impossible", () => {
     expect(periodKeyOf(day("2026-09-01"))).toBe("2026-09-01");
+  });
+});
+
+describe("a hand-picked list of days", () => {
+  const dates = [day("2026-09-15"), day("2026-03-15"), day("2026-04-15")];
+
+  it("answers with the earliest day still ahead, whatever order they were typed", () => {
+    expect(iso(firstDateOf(dates))).toBe("2026-03-15");
+    expect(iso(nextDateAfter(dates, day("2026-01-01")))).toBe("2026-03-15");
+    expect(iso(nextDateAfter(dates, day("2026-03-15")))).toBe("2026-04-15");
+    expect(iso(nextDateAfter(dates, day("2026-04-15")))).toBe("2026-09-15");
+  });
+
+  it("runs out rather than repeating", () => {
+    expect(nextDateAfter(dates, day("2026-09-15"))).toBeNull();
+    expect(firstDateOf([])).toBeNull();
+  });
+
+  it("never returns the day it was asked from", () => {
+    for (const from of dates) expect(nextDateAfter(dates, from)).not.toBe(from);
+  });
+
+  it("has no rhythm arithmetic — a dates campaign is never projected forward", () => {
+    expect(nextRunAfter(day("2026-03-15"), "dates", day("2026-03-15"))).toBeNull();
+  });
+});
+
+/**
+ * `CampaignRhythm` is declared twice — a zod enum for validation, and a plain union here so this
+ * module stays zod-free and out of the browser bundle. That duplication is deliberate; the two
+ * silently disagreeing is not, and adding a value to one is exactly the moment it happens.
+ */
+describe("the two declarations of the rhythm", () => {
+  it("cover the same values", () => {
+    expect(Object.keys(RHYTHM_LABELS).sort()).toEqual([...campaignRhythm.options].sort());
   });
 });

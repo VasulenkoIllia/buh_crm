@@ -3,7 +3,7 @@
  *
  * Three rules shape everything here (decision 2026-08-01):
  *   1. The value is encrypted at rest and NEVER leaves through the list endpoint.
- *   2. Revealing costs the admin's own password and lasts five minutes — counted here, on the
+ *   2. Revealing costs the viewer's OWN password and lasts five minutes — counted here, on the
  *      server, because a countdown in the browser is decoration.
  *   3. Every reveal, and every FAILED unlock, is journalled. A run of failures is the only signal
  *      that somebody is guessing.
@@ -36,12 +36,14 @@ function activeGrant(userId: string, clientId: string): number | null {
   return until;
 }
 
-/** Creating, editing, deleting and revealing are all admin-only; reading labels is not. */
-function assertAdmin(actor: User): void {
-  if (actor.role !== "admin") {
-    throw new ForbiddenError("Only an administrator can manage a client's secrets");
-  }
-}
+// Secrets used to be admin-only (2026-08-01). They are not any more (user, 2026-08-14): everyone
+// who works a client's file needs the portal login for it, and a rule that sends half the team to
+// ask an admin every time is a rule people route around — by keeping the password somewhere else.
+//
+// What did NOT change is the part that actually protects the value: reading one still costs the
+// viewer's own password, the grant still expires after five minutes, and every look and every
+// failed attempt is still journalled with a name against it. The role was never what stopped
+// somebody sitting down at an unlocked laptop; the password is.
 
 function assertConfigured(): void {
   if (!secretsConfigured()) {
@@ -73,7 +75,6 @@ export async function createSecret(
   actor: User,
   ip: string | null,
 ) {
-  assertAdmin(actor);
   if (!(await repo.clientExists(clientId))) throw new NotFoundError("Client not found");
 
   // A pointer-only entry (no value) is a first-class choice, not a mistake: it is how something
@@ -104,7 +105,6 @@ export async function updateSecret(
   actor: User,
   ip: string | null,
 ) {
-  assertAdmin(actor);
   const secret = await repo.findSecret(clientId, secretId);
   if (!secret) throw new NotFoundError("Secret not found");
 
@@ -139,7 +139,6 @@ export async function deleteSecret(
   actor: User,
   ip: string | null,
 ) {
-  assertAdmin(actor);
   // Deleting is destructive and irreversible, so it costs the same password as reading does
   // (user, 2026-08-03). Losing a client's portal login to a stray click is its own kind of leak.
   if (!activeGrant(actor.id, clientId)) {
@@ -171,7 +170,6 @@ export async function unlock(
   actor: User,
   ip: string | null,
 ) {
-  assertAdmin(actor);
   if (!(await repo.clientExists(clientId))) throw new NotFoundError("Client not found");
 
   const ok = actor.passwordHash ? await argon2.verify(actor.passwordHash, input.password) : false;
@@ -210,7 +208,6 @@ export async function revealSecret(
   actor: User,
   ip: string | null,
 ) {
-  assertAdmin(actor);
   const until = activeGrant(actor.id, clientId);
   if (!until) {
     throw new ForbiddenError("Enter your password to view this client's secrets");
@@ -244,11 +241,10 @@ export async function revealSecret(
   return { value, expiresAt: new Date(until).toISOString() };
 }
 
-/** The client's access history — admin only; it names who looked at what. */
+/** The client's access history — it names who looked at what, and when. */
 const AUDIT_PAGE_SIZE = 10;
 
-export async function listAudit(clientId: string, actor: User, page = 1) {
-  assertAdmin(actor);
+export async function listAudit(clientId: string, page = 1) {
   const { items, total } = await repo.listAudit(clientId, Math.max(1, page), AUDIT_PAGE_SIZE);
   const rows = items.map((r) => ({
     id: r.id,

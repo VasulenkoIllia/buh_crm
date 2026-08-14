@@ -66,8 +66,13 @@ export type MailoutKind = z.infer<typeof mailoutKind>;
 export const mailoutStatus = z.enum(["queued", "sent", "failed", "skipped"]);
 export type MailoutStatus = z.infer<typeof mailoutStatus>;
 
-/** How often a planned mailout goes out. `once` is a scheduled one-off, not a special case. */
-export const campaignRhythm = z.enum(["once", "monthly", "quarterly", "yearly"]);
+/**
+ * How often a planned mailout goes out. `once` is a scheduled one-off, not a special case.
+ *
+ * `dates` is a hand-picked list — an accounting calendar is 15 March, 15 April, 15 September:
+ * deadlines, not a rhythm. Kept in step with the zod-free copy in `shared/campaigns.ts` by a test.
+ */
+export const campaignRhythm = z.enum(["once", "dates", "monthly", "quarterly", "yearly"]);
 export type CampaignRhythm = z.infer<typeof campaignRhythm>;
 
 /**

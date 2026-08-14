@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Building2, Search, Trash2 } from "lucide-react";
+import { AlertTriangle, Building2, Search, Trash2, X } from "lucide-react";
 import type { Campaign, CampaignInput } from "@shared/schema/campaigns";
 import type { MailoutTarget } from "@shared/schema/mailouts";
 import { useClients } from "@/modules/clients";
 import { cn } from "@/shared/lib/cn";
+import { fmtDate } from "@/shared/lib/format";
 import { Button } from "@/shared/ui/button";
 import { FormField, Input, Select } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
@@ -59,6 +60,8 @@ export function CampaignModal({
   const [startsOn, setStartsOn] = useState("");
   const [sendAt, setSendAt] = useState("09:00");
   const [endsOn, setEndsOn] = useState("");
+  const [dates, setDates] = useState<string[]>([]);
+  const [newDate, setNewDate] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -92,6 +95,8 @@ export function CampaignModal({
     setStartsOn(c?.startsOn ?? new Date().toISOString().slice(0, 10));
     setSendAt(c?.sendAt ?? "09:00");
     setEndsOn(c?.endsOn ?? "");
+    setDates(c?.dates ?? []);
+    setNewDate("");
     setSelected(new Set(c?.recipients.map((r) => keyOf(r.clientId, r.companyId)) ?? []));
     setSearch("");
     setError(null);
@@ -119,9 +124,13 @@ export function CampaignModal({
       senderAccountId: senderAccountId || null,
       kind,
       rhythm,
-      startsOn,
       sendAt,
-      endsOn: rhythm === "once" || !endsOn ? null : endsOn,
+      // a list ends by running out; only a rule needs a stop date
+      endsOn: rhythm === "once" || rhythm === "dates" || !endsOn ? null : endsOn,
+      // `startsOn` is derived from the list server-side, but send the earliest anyway so the
+      // request is self-consistent rather than relying on the server to repair it
+      startsOn: rhythm === "dates" ? (dates.slice().sort()[0] ?? startsOn) : startsOn,
+      dates: rhythm === "dates" ? dates : undefined,
       recipients: [...selected].map(toTarget),
     };
     try {
@@ -145,7 +154,18 @@ export function CampaignModal({
   }
 
   const visible = clients.data?.items ?? [];
-  const ready = name.trim() && templateId && startsOn && selected.size > 0;
+  const ready =
+    name.trim() &&
+    templateId &&
+    selected.size > 0 &&
+    (rhythm === "dates" ? dates.length > 0 : !!startsOn);
+
+  function addDate() {
+    const d = newDate.trim();
+    if (!d || dates.includes(d)) return;
+    setDates((prev) => [...prev, d].sort());
+    setNewDate("");
+  }
   const busy = create.isPending || update.isPending || remove.isPending;
 
   return (
@@ -247,29 +267,90 @@ export function CampaignModal({
           )}
 
           <p className="pt-1 text-[12px] font-medium uppercase tracking-wide text-muted">When</p>
-          <div className="grid grid-cols-2 gap-2">
-            <FormField label="First date">
-              <Input type="date" value={startsOn} onChange={(e) => setStartsOn(e.target.value)} />
-            </FormField>
-            <FormField label="Time">
-              <Input type="time" value={sendAt} onChange={(e) => setSendAt(e.target.value)} />
-            </FormField>
-          </div>
-          <FormField label="Repeat">
+          <FormField label="Schedule">
             <Select
               value={rhythm}
               onChange={(e) => setRhythm(e.target.value as CampaignInput["rhythm"])}
             >
-              <option value="once">Once</option>
+              <option value="once">Once, on a date</option>
+              <option value="dates">On set dates</option>
               <option value="monthly">Every month</option>
               <option value="quarterly">Every quarter</option>
               <option value="yearly">Every year</option>
             </Select>
           </FormField>
-          {rhythm !== "once" && (
-            <FormField label="Stop after (optional)">
-              <Input type="date" value={endsOn} onChange={(e) => setEndsOn(e.target.value)} />
-            </FormField>
+
+          {/* A hand-picked list rather than a rule: an accounting calendar is 15 March, 15 April,
+              15 September — deadlines, not a rhythm, and bending them into "every quarter" would
+              be a lie the schedule then acts on. */}
+          {rhythm === "dates" ? (
+            <>
+              <div className="grid grid-cols-[1fr_auto_120px] items-end gap-2">
+                <FormField label="Add a date">
+                  <Input
+                    type="date"
+                    value={newDate}
+                    onChange={(e) => setNewDate(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addDate();
+                      }
+                    }}
+                  />
+                </FormField>
+                <Button variant="secondary" onClick={addDate} disabled={!newDate}>
+                  Add
+                </Button>
+                <FormField label="Time">
+                  <Input type="time" value={sendAt} onChange={(e) => setSendAt(e.target.value)} />
+                </FormField>
+              </div>
+              {dates.length === 0 ? (
+                <p className="text-[12px] text-muted">
+                  No dates yet — the campaign goes out once on each one you add.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {dates.map((d) => (
+                    <span
+                      key={d}
+                      className="inline-flex items-center gap-1.5 rounded-(--radius-chip) bg-[#eef0f3] py-1 pl-2.5 pr-1.5 text-[12px] text-ink"
+                    >
+                      {fmtDate(d)}
+                      <button
+                        type="button"
+                        aria-label={`Remove ${fmtDate(d)}`}
+                        className="text-muted hover:text-danger"
+                        onClick={() => setDates((prev) => prev.filter((x) => x !== d))}
+                      >
+                        <X size={12} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <FormField label={rhythm === "once" ? "Date" : "First date"}>
+                  <Input
+                    type="date"
+                    value={startsOn}
+                    onChange={(e) => setStartsOn(e.target.value)}
+                  />
+                </FormField>
+                <FormField label="Time">
+                  <Input type="time" value={sendAt} onChange={(e) => setSendAt(e.target.value)} />
+                </FormField>
+              </div>
+              {rhythm !== "once" && (
+                <FormField label="Stop after (optional)">
+                  <Input type="date" value={endsOn} onChange={(e) => setEndsOn(e.target.value)} />
+                </FormField>
+              )}
+            </>
           )}
         </div>
 

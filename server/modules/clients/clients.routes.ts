@@ -218,6 +218,6 @@ export async function registerRoutes(instance: FastifyInstance) {
   app.get(
     "/:id/secrets/audit",
     { schema: { params: idParams, querystring: z.object({ page: z.coerce.number().int().min(1).default(1) }) } },
-    async (request) => secrets.listAudit(request.params.id, request.currentUser!, request.query.page),
+    async (request) => secrets.listAudit(request.params.id, request.query.page),
   );
 }

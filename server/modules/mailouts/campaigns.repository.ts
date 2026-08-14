@@ -8,6 +8,7 @@ import { prisma } from "../../core/db.js";
  */
 
 const campaignInclude = {
+  dates: { select: { on: true }, orderBy: { on: "asc" } },
   template: { select: { name: true, subject: true, body: true } },
   senderAccount: { select: { name: true } },
   createdBy: { select: { firstName: true, lastName: true } },
@@ -35,9 +36,14 @@ export function findCampaignByName(name: string) {
 export function createCampaign(
   data: Prisma.CampaignCreateInput,
   recipients: Prisma.CampaignRecipientCreateManyCampaignInput[],
+  dates: Date[],
 ) {
   return prisma.campaign.create({
-    data: { ...data, recipients: { createMany: { data: recipients } } },
+    data: {
+      ...data,
+      recipients: { createMany: { data: recipients } },
+      dates: { createMany: { data: dates.map((on) => ({ on })) } },
+    },
     include: campaignInclude,
   });
 }
@@ -53,6 +59,8 @@ export function updateCampaign(
   id: string,
   data: Prisma.CampaignUpdateInput,
   recipients: Prisma.CampaignRecipientCreateManyCampaignInput[] | null,
+  /** null = leave the days alone (a stop/start does not touch them) */
+  dates: Date[] | null = null,
 ) {
   return prisma.$transaction(async (tx) => {
     if (recipients) {
@@ -60,6 +68,12 @@ export function updateCampaign(
       await tx.campaignRecipient.createMany({
         data: recipients.map((r) => ({ ...r, campaignId: id })),
       });
+    }
+    if (dates) {
+      // Replaced wholesale, like the recipients: these rows carry no state of their own — which
+      // day already fired lives on `Mailout.periodKey` — so there is nothing to preserve.
+      await tx.campaignDate.deleteMany({ where: { campaignId: id } });
+      await tx.campaignDate.createMany({ data: dates.map((on) => ({ campaignId: id, on })) });
     }
     return tx.campaign.update({ where: { id }, data, include: campaignInclude });
   });

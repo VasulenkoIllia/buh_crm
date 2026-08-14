@@ -473,6 +473,128 @@ describe("firing", () => {
   });
 });
 
+/**
+ * A hand-picked list of days, rather than a rule.
+ *
+ * An accounting firm's calendar is 15 March, 15 April, 15 September — deadlines, not a rhythm.
+ * The list is the only source of truth here: `startsOn` is derived from it, and which day already
+ * fired is still `Mailout.periodKey`, so nothing new can drift out of step.
+ */
+describe("campaigns on set dates", () => {
+  it("takes the days as typed and lines up the earliest", async () => {
+    const res = await makeCampaign({
+      rhythm: "dates",
+      startsOn: "2099-12-31", // deliberately wrong — the list decides, not this
+      dates: ["2099-09-15", "2099-03-15", "2099-04-15"],
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().dates).toEqual(["2099-03-15", "2099-04-15", "2099-09-15"]);
+    expect(res.json().startsOn).toBe("2099-03-15");
+    expect(res.json().nextRunOn).toBe("2099-03-15");
+  });
+
+  it("refuses an empty list, and the same day twice", async () => {
+    expect((await makeCampaign({ rhythm: "dates", dates: [] })).statusCode).toBe(400);
+    expect(
+      (await makeCampaign({ rhythm: "dates", dates: ["2099-03-15", "2099-03-15"] })).statusCode,
+    ).toBe(400);
+  });
+
+  it("refuses a stop date — a list ends by running out", async () => {
+    const res = await makeCampaign({
+      rhythm: "dates",
+      dates: ["2099-03-15"],
+      endsOn: "2099-12-31",
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("walks the list one day at a time and then finishes", async () => {
+    const [first, second] = ["2026-03-15", "2026-04-15"];
+    const c = (
+      await makeCampaign({ rhythm: "dates", dates: [first, second], recipients: to(clientA) })
+    ).json();
+    const read = async () =>
+      (
+        await app.inject({
+          method: "GET",
+          url: `/api/mailouts/campaigns/${c.id}`,
+          headers: { cookie },
+        })
+      ).json();
+
+    // swept five days after the first date and before the second
+    await runDueCampaigns(new Date("2026-03-20T12:00:00.000Z"));
+    await settled((await runOf(c.id, first)).id);
+    expect(await prisma.mailout.count({ where: { campaignId: c.id } })).toBe(1);
+    expect(await read()).toMatchObject({ status: "scheduled", nextRunOn: second });
+
+    await runDueCampaigns(new Date("2026-04-20T12:00:00.000Z"));
+    await settled((await runOf(c.id, second)).id);
+    expect(await read()).toMatchObject({ status: "finished", nextRunOn: null, runCount: 2 });
+    expect(await prisma.mailout.count({ where: { campaignId: c.id } })).toBe(2);
+  });
+
+  /**
+   * The same no-backlog rule a rhythm follows, and for the same reason: a "15 March deadline"
+   * letter arriving in August is worse than one that did not arrive. The due day goes out, the
+   * ones behind it are skipped, and the campaign lands on the next day still ahead — here, none.
+   */
+  it("does not send the days it slept through", async () => {
+    const c = (
+      await makeCampaign({
+        rhythm: "dates",
+        dates: ["2020-03-10", "2020-04-10", "2020-05-10"],
+        recipients: to(clientA),
+      })
+    ).json();
+
+    await runDueCampaigns();
+    await settled((await runOf(c.id, "2020-03-10")).id);
+
+    expect(await prisma.mailout.count({ where: { campaignId: c.id } })).toBe(1);
+    const after = (
+      await app.inject({
+        method: "GET",
+        url: `/api/mailouts/campaigns/${c.id}`,
+        headers: { cookie },
+      })
+    ).json();
+    expect(after.status).toBe("finished");
+  });
+
+  it("fires once per day however many times the sweep runs", async () => {
+    const c = (await makeCampaign({ rhythm: "dates", dates: [PAST], recipients: to(clientA) })).json();
+    await runDueCampaigns();
+    await settled((await runOf(c.id, PAST)).id);
+    await runDueCampaigns();
+    await runDueCampaigns();
+    expect(await prisma.mailout.count({ where: { campaignId: c.id } })).toBe(1);
+  });
+
+  it("can have days added and removed until they come round", async () => {
+    const c = (await makeCampaign({ rhythm: "dates", dates: ["2099-03-15"] })).json();
+    const edited = await app.inject({
+      method: "PUT",
+      url: `/api/mailouts/campaigns/${c.id}`,
+      headers: { cookie },
+      payload: {
+        name: c.name,
+        templateId,
+        rhythm: "dates",
+        startsOn: "2099-03-15",
+        dates: ["2099-06-01", "2099-01-20"],
+        recipients: to(clientA),
+      },
+    });
+    expect(edited.statusCode).toBe(200);
+    expect(edited.json().dates).toEqual(["2099-01-20", "2099-06-01"]);
+    // the earliest moved earlier, and so did what is due next
+    expect(edited.json().nextRunOn).toBe("2099-01-20");
+    expect(edited.json().startsOn).toBe("2099-01-20");
+  });
+});
+
 describe("consent", () => {
   it("skips a client who unsubscribed between planning and the date", async () => {
     const c = (await makeCampaign({ startsOn: PAST, recipients: to(clientA, clientC) })).json();

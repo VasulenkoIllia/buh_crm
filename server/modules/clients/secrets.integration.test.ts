@@ -118,31 +118,6 @@ describe("client secrets", () => {
     expect(JSON.stringify(res.json())).not.toContain("super-secret");
   });
 
-  it("refuses a non-admin: no unlock, no reveal, no writes", async () => {
-    const unlock = await app.inject({
-      method: "POST",
-      url: `/api/clients/${clientId}/secrets/unlock`,
-      headers: { cookie: userCookie },
-      payload: { password: PASSWORD },
-    });
-    expect(unlock.statusCode).toBe(403);
-
-    const reveal = await app.inject({
-      method: "POST",
-      url: `/api/clients/${clientId}/secrets/${secretId}/reveal`,
-      headers: { cookie: userCookie },
-    });
-    expect(reveal.statusCode).toBe(403);
-
-    const create = await app.inject({
-      method: "POST",
-      url: `/api/clients/${clientId}/secrets`,
-      headers: { cookie: userCookie },
-      payload: { label: "nope", value: "x" },
-    });
-    expect(create.statusCode).toBe(403);
-  });
-
   it("refuses to reveal without a grant, and a wrong password is journalled", async () => {
     __clearGrants();
     const cold = await app.inject({
@@ -322,5 +297,86 @@ describe("client secrets", () => {
     expect(await prisma.clientSecret.findUnique({ where: { id: secretId } })).toBeNull();
     // deleting the secret must not erase who looked at it — the rows stay, `secretId` goes null
     expect(await prisma.secretAuditLog.count({ where: { clientId } })).toBeGreaterThan(before);
+  });
+
+  /**
+   * Secrets were admin-only until 2026-08-14. The ROLE went; the password did not.
+   *
+   * Both halves are here on purpose. A rule half the team has to ask an admin about is a rule they
+   * route around, by keeping the login somewhere worse — so an ordinary user must be able to do
+   * the work. But a user with a session is not a user who just typed their password, and the
+   * second test is what stops "any signed-in user" quietly becoming "anyone at an unlocked laptop".
+   *
+   * Self-contained: it makes and removes its own secret rather than borrowing the shared one,
+   * which by this point in the file has already been deleted by the audit-trail test.
+   */
+  it("lets an ordinary user write, unlock and reveal", async () => {
+    __clearGrants();
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/secrets`,
+      headers: { cookie: userCookie },
+      payload: { label: "Theirs", value: "user-written-value" },
+    });
+    expect(created.statusCode).toBe(201);
+    const mine = created.json().find((x: { label: string }) => x.label === "Theirs");
+
+    const unlock = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/secrets/unlock`,
+      headers: { cookie: userCookie },
+      payload: { password: PASSWORD },
+    });
+    expect(unlock.statusCode).toBe(200);
+
+    const reveal = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/secrets/${mine.id}/reveal`,
+      headers: { cookie: userCookie },
+    });
+    expect(reveal.statusCode).toBe(200);
+    expect(reveal.json().value).toBe("user-written-value");
+
+    // journalled under their own name — the log names a person, never a role
+    const audit = await app.inject({
+      method: "GET",
+      url: `/api/clients/${clientId}/secrets/audit`,
+      headers: { cookie: userCookie },
+    });
+    expect(audit.json().items.some((r: { byName: string }) => r.byName === "Sec User")).toBe(true);
+
+    const drop = await app.inject({
+      method: "DELETE",
+      url: `/api/clients/${clientId}/secrets/${mine.id}`,
+      headers: { cookie: userCookie },
+    });
+    expect(drop.statusCode).toBe(200);
+  });
+
+  it("still refuses an ordinary user who has not entered their password", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/secrets`,
+      headers: { cookie: userCookie },
+      payload: { label: "Locked", value: "v" },
+    });
+    const mine = created.json().find((x: { label: string }) => x.label === "Locked");
+    __clearGrants();
+
+    const reveal = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/secrets/${mine.id}/reveal`,
+      headers: { cookie: userCookie },
+    });
+    expect(reveal.statusCode).toBe(403);
+
+    const wrong = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/secrets/unlock`,
+      headers: { cookie: userCookie },
+      payload: { password: "not-their-password" },
+    });
+    expect(wrong.statusCode).toBe(403);
   });
 });

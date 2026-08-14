@@ -10,14 +10,20 @@
  * time of day only decides which side of the daily sweep it lands on.
  */
 
-export type CampaignRhythm = "once" | "monthly" | "quarterly" | "yearly";
+/**
+ * Declared here AND as a zod enum in `schema/enums.ts`, on purpose: this module must stay zod-free
+ * so the browser can compute a next-run date without pulling the schema runtime into the bundle
+ * (measured at +433 kB when that last happened). `campaigns.test.ts` asserts the two agree — the
+ * duplication is deliberate, drifting apart is not.
+ */
+export type CampaignRhythm = "once" | "dates" | "monthly" | "quarterly" | "yearly";
 
 /** `YYYY-MM-DD` of a business date — the key that says which occurrence a run was for. */
 export function periodKeyOf(dateMs: number): string {
   return new Date(dateMs).toISOString().slice(0, 10);
 }
 
-const MONTHS: Record<Exclude<CampaignRhythm, "once">, number> = {
+const MONTHS: Record<Exclude<CampaignRhythm, "once" | "dates">, number> = {
   monthly: 1,
   quarterly: 3,
   yearly: 12,
@@ -40,7 +46,9 @@ export function nextRunAfter(
   fromMs: number,
   endsOnMs: number | null = null,
 ): number | null {
-  if (rhythm === "once") return null;
+  // Neither has a rule to project forward: a one-off has no next, and a `dates` campaign's next
+  // day is whatever the firm typed — see `nextDateAfter`.
+  if (rhythm === "once" || rhythm === "dates") return null;
 
   const anchor = new Date(anchorMs);
   const anchorDay = anchor.getUTCDate();
@@ -93,9 +101,27 @@ function occurrence(anchor: Date, anchorDay: number, monthsForward: number): num
   return Date.UTC(year, month, Math.min(anchorDay, lastDay));
 }
 
+/**
+ * The next day on a hand-picked list, or null when the list is used up.
+ *
+ * Its own function rather than a branch inside `nextRunAfter`, because there is no arithmetic
+ * here at all — the answer is a lookup in what somebody typed. Dates are compared as business
+ * dates, so the caller may pass them in any order.
+ */
+export function nextDateAfter(dates: number[], fromMs: number, endsOnMs: number | null = null): number | null {
+  const later = dates.filter((d) => d > fromMs && (endsOnMs === null || d <= endsOnMs));
+  return later.length === 0 ? null : Math.min(...later);
+}
+
+/** The first day of a hand-picked list — the earliest, whatever order they were entered in. */
+export function firstDateOf(dates: number[]): number | null {
+  return dates.length === 0 ? null : Math.min(...dates);
+}
+
 /** How the rhythm reads on screen. */
 export const RHYTHM_LABELS: Record<CampaignRhythm, string> = {
   once: "Once",
+  dates: "On set dates",
   monthly: "Every month",
   quarterly: "Every quarter",
   yearly: "Every year",

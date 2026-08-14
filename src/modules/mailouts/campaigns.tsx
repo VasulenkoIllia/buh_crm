@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { CalendarClock, Pause, Pencil, Play, Repeat } from "lucide-react";
+import { CalendarClock, CalendarDays, Pause, Pencil, Play, Repeat } from "lucide-react";
 import type { Campaign } from "@shared/schema/campaigns";
 import { RHYTHM_LABELS } from "@shared/campaigns";
 import { cn } from "@/shared/lib/cn";
@@ -107,8 +107,13 @@ export function Campaigns({ newSignal }: { newSignal: number }) {
               </div>
               <div className="truncate text-muted">{c.templateName}</div>
               <div className="flex items-center gap-1 whitespace-nowrap text-muted">
-                {c.rhythm !== "once" && <Repeat size={11} className="shrink-0" />}
-                {RHYTHM_LABELS[c.rhythm]}
+                {c.rhythm !== "once" && c.rhythm !== "dates" && (
+                  <Repeat size={11} className="shrink-0" />
+                )}
+                {c.rhythm === "dates" && <CalendarDays size={11} className="shrink-0" />}
+                {c.rhythm === "dates"
+                  ? `${c.dates.length} date${c.dates.length === 1 ? "" : "s"}`
+                  : RHYTHM_LABELS[c.rhythm]}
               </div>
               <div className="whitespace-nowrap text-muted">
                 {c.nextRunOn ? (

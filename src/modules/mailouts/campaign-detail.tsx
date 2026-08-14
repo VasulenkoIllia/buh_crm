@@ -25,7 +25,7 @@ export function CampaignDetailModal({ id, onClose }: { id: string | null; onClos
           <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted">
             <CampaignStatus campaign={data} />
             <span className="flex items-center gap-1">
-              {data.rhythm !== "once" && <Repeat size={11} />}
+              {data.rhythm !== "once" && data.rhythm !== "dates" && <Repeat size={11} />}
               {RHYTHM_LABELS[data.rhythm]}
             </span>
             {data.nextRunOn && (
@@ -34,6 +34,12 @@ export function CampaignDetailModal({ id, onClose }: { id: string | null; onClos
               </span>
             )}
             {data.endsOn && <span>Stops after {fmtDate(data.endsOn)}</span>}
+            {data.rhythm === "dates" && (
+              <span>
+                {data.dates.length} date{data.dates.length === 1 ? "" : "s"}:{" "}
+                {data.dates.map(fmtDate).join(" · ")}
+              </span>
+            )}
             <span>{data.templateName}</span>
             {data.senderAccountName && <span>From {data.senderAccountName}</span>}
             <span>{data.kind === "commercial" ? "Commercial" : "Transactional"}</span>

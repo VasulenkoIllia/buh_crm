@@ -35,8 +35,16 @@ export const campaignInput = z
      */
     kind: mailoutKind.default("commercial"),
     rhythm: campaignRhythm.default("once"),
-    /** the first date it fires; for a rhythm, also the anchor day of the month */
+    /**
+     * The first date it fires; for a rhythm, also the anchor day of the month.
+     *
+     * For `dates` it is DERIVED — the service sets it to the earliest day on the list and ignores
+     * whatever was sent, because the list is the only source of truth there and two fields that
+     * can disagree eventually will.
+     */
     startsOn: z.iso.date(),
+    /** the hand-picked days, for `rhythm: "dates"` and meaningless otherwise */
+    dates: z.array(z.iso.date()).max(60).optional(),
     /** firm-local time of day — the sweep runs daily, this only decides which side of it */
     sendAt: z
       .string()
@@ -46,9 +54,18 @@ export const campaignInput = z
     endsOn: z.iso.date().nullable().optional(),
     recipients: z.array(mailoutTarget).min(1, "Pick at least one recipient").max(500),
   })
-  .refine((v) => v.rhythm !== "once" || !v.endsOn, {
+  .refine((v) => v.rhythm !== "dates" || (v.dates?.length ?? 0) > 0, {
+    path: ["dates"],
+    message: "Pick at least one date",
+  })
+  .refine((v) => v.rhythm !== "dates" || new Set(v.dates).size === (v.dates?.length ?? 0), {
+    path: ["dates"],
+    message: "The same date twice",
+  })
+  // "stop after" is a rule's limit; a list already says when it ends by ending
+  .refine((v) => (v.rhythm !== "once" && v.rhythm !== "dates") || !v.endsOn, {
     path: ["endsOn"],
-    message: "A one-off has nothing to end — remove the end date or give it a rhythm",
+    message: "Only a repeating campaign has an end date — a list ends when it runs out",
   })
   .refine((v) => !v.endsOn || v.endsOn >= v.startsOn, {
     path: ["endsOn"],
@@ -102,6 +119,8 @@ export const campaignSchema = z.object({
   startsOn: z.iso.date(),
   sendAt: z.string(),
   endsOn: z.iso.date().nullable(),
+  /** the hand-picked days, earliest first; empty for every rhythm but `dates` */
+  dates: z.array(z.iso.date()),
   status: campaignStatus,
   /** the next date due; null once nothing is — finished, or stopped by hand */
   nextRunOn: z.iso.date().nullable(),

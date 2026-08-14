@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Eye, KeyRound, Pencil, Trash2 } from "lucide-react";
 import type { ClientSecret } from "@shared/schema/client";
-import { useAuth } from "@/app/auth";
 import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
 import { fmtDateTime } from "@/shared/lib/format";
@@ -24,16 +23,19 @@ import {
  * The client's Secrets tab — tax-portal logins, client-bank credentials, КЕП passwords.
  *
  * Everyone who can open the client reads the LABEL and DESCRIPTION: knowing that a tax-portal
- * login exists, and what it is for, is ordinary working knowledge. The VALUE needs an admin, their
- * own password, and a five-minute window that the SERVER counts.
+ * login exists, and what it is for, is ordinary working knowledge. The VALUE needs the viewer's
+ * OWN password and a five-minute window that the SERVER counts.
+ *
+ * Admin-only until 2026-08-14. The role went, the password did not: everyone who works a client's
+ * file needs its portal login, and a rule half the team has to route around gets routed around by
+ * keeping the password somewhere worse. What actually guards the value is the password prompt and
+ * the log with a name in it, and both are still here.
  *
  * The plaintext lives in component state and nowhere else — never in the react-query cache, where
  * it would survive navigation and show up in devtools — and it is wiped when the window closes,
  * when the row is collapsed, and when this component unmounts.
  */
 export function SecretsTab({ clientId }: { clientId: string }) {
-  const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
   const { data: secrets, isLoading, error } = useClientSecrets(clientId);
   const { data: grant } = useSecretGrant(clientId);
   const remove = useDeleteSecret(clientId);
@@ -52,35 +54,31 @@ export function SecretsTab({ clientId }: { clientId: string }) {
             heading, where someone who wants it will look (user, 2026-08-03). */}
         <h2
           className="flex items-center gap-2 text-[15px] font-semibold"
-          title="Stored encrypted. Only an administrator can read or delete a value, and only for five minutes after entering their password. Every look is logged."
+          title="Stored encrypted. Reading or deleting a value costs your own password and lasts five minutes. Every look is logged, with your name on it."
         >
           <KeyRound size={16} className="text-muted" />
           Secrets
           {unlocked && grant?.expiresAt && <Countdown until={grant.expiresAt} />}
         </h2>
-        {isAdmin && (
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="text-[12px] text-primary-link hover:underline"
-              onClick={() => setAuditOpen(true)}
-            >
-              Access log
-            </button>
-            <Button variant="secondary" size="sm" onClick={() => setEditing("new")}>
-              + Add secret
-            </Button>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="text-[12px] text-primary-link hover:underline"
+            onClick={() => setAuditOpen(true)}
+          >
+            Access log
+          </button>
+          <Button variant="secondary" size="sm" onClick={() => setEditing("new")}>
+            + Add secret
+          </Button>
+        </div>
       </div>
 
       {isLoading && <p className="text-[13px] text-muted">Loading…</p>}
       {error && <p className="text-[13px] text-danger-text">Failed to load.</p>}
       {secrets?.length === 0 && (
         <p className="text-[13px] text-muted">
-          {isAdmin
-            ? "No secrets yet — add the client's portal or bank login."
-            : "No secrets stored for this client."}
+          No secrets yet — add the client&apos;s portal or bank login.
         </p>
       )}
       {failure && <p className="mb-2 text-[12px] text-danger-text">{failure}</p>}
@@ -91,7 +89,6 @@ export function SecretsTab({ clientId }: { clientId: string }) {
             key={s.id}
             clientId={clientId}
             secret={s}
-            isAdmin={isAdmin}
             unlocked={unlocked}
             onNeedUnlock={() => setUnlockFor(s.id)}
             // the editor now shows the stored value, so it costs the same password as reading
@@ -143,7 +140,6 @@ function Countdown({ until }: { until: string }) {
 function SecretRow({
   clientId,
   secret,
-  isAdmin,
   unlocked,
   onNeedUnlock,
   onEdit,
@@ -151,7 +147,6 @@ function SecretRow({
 }: {
   clientId: string;
   secret: ClientSecret;
-  isAdmin: boolean;
   unlocked: boolean;
   onNeedUnlock: () => void;
   onEdit: () => void;
@@ -202,7 +197,7 @@ function SecretRow({
           </Chip>
         )}
         <span className="ml-auto flex items-center gap-1">
-          {secret.hasValue && isAdmin && (
+          {secret.hasValue && (
             <IconButton
               label={value ? "Hide" : "Reveal — needs your password, shows for 5 minutes"}
               disabled={busy}
@@ -211,25 +206,19 @@ function SecretRow({
               <Eye size={15} className={cn(value && "text-primary-link")} />
             </IconButton>
           )}
-          {isAdmin && (
-            <>
-              <IconButton
-                label={
-                  secret.hasValue && !unlocked ? "Edit secret — needs your password" : "Edit secret"
-                }
-                onClick={onEdit}
-              >
-                <Pencil size={15} />
-              </IconButton>
-              <IconButton
-                label={unlocked ? "Delete secret" : "Delete secret — needs your password"}
-                className="hover:text-danger"
-                onClick={onDelete}
-              >
-                <Trash2 size={15} />
-              </IconButton>
-            </>
-          )}
+          <IconButton
+            label={secret.hasValue && !unlocked ? "Edit secret — needs your password" : "Edit secret"}
+            onClick={onEdit}
+          >
+            <Pencil size={15} />
+          </IconButton>
+          <IconButton
+            label={unlocked ? "Delete secret" : "Delete secret — needs your password"}
+            className="hover:text-danger"
+            onClick={onDelete}
+          >
+            <Trash2 size={15} />
+          </IconButton>
         </span>
       </div>
       {secret.description && (
@@ -263,7 +252,7 @@ function SecretRow({
   );
 }
 
-/** Re-authentication. The password is the admin's OWN login password — nothing new to remember. */
+/** Re-authentication. The password is the viewer's OWN login password — nothing new to remember. */
 function UnlockModal({ clientId, onClose }: { clientId: string; onClose: () => void }) {
   const unlock = useUnlockSecrets(clientId);
   const [password, setPassword] = useState("");

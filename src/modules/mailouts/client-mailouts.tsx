@@ -226,7 +226,9 @@ export function ClientMailouts({
                 )}
               </div>
               <div className="flex items-center gap-1 whitespace-nowrap text-muted">
-                {c.rhythm !== "once" && <Repeat size={11} className="shrink-0" />}
+                {c.rhythm !== "once" && c.rhythm !== "dates" && (
+                  <Repeat size={11} className="shrink-0" />
+                )}
                 {RHYTHM_LABELS[c.rhythm]}
               </div>
               <div className="flex items-center justify-end gap-1 whitespace-nowrap text-muted">

@@ -117,8 +117,13 @@ enum MailoutKind {
 
 /** What happened to one recipient of one send. `skipped` is a record, never a silent drop. */
 /// How often a campaign fires. `once` is a scheduled one-off — same entity, no special case.
+///
+/// `dates` is a hand-picked list rather than a rule: an accounting firm's calendar is 15 March,
+/// 15 April, 15 September — deadlines, not a rhythm, and forcing them into "every quarter" would
+/// be a lie the sweep then acts on.
 enum CampaignRhythm {
   once
+  dates
   monthly
   quarterly
   yearly
@@ -1046,10 +1051,29 @@ model Campaign {
   senderAccount MailSenderAccount? @relation(fields: [senderAccountId], references: [id])
   createdBy     User?              @relation("CampaignCreatedBy", fields: [createdById], references: [id])
   recipients    CampaignRecipient[]
+  dates         CampaignDate[]
   runs          Mailout[]
 
   // the sweep's only query: what is due today
   @@index([status, nextRunOn])
+}
+
+/// One day a `dates` campaign goes out on.
+///
+/// Deliberately stateless — no "sent" flag. Which day already fired is already recorded by
+/// `Mailout.periodKey`, and `UNIQUE(campaignId, periodKey)` is what stops a second run. A flag
+/// here would be a second answer to the same question, and the two would eventually disagree.
+model CampaignDate {
+  id         String   @id @default(uuid()) @db.Uuid
+  campaignId String   @db.Uuid
+  /// the calendar day, stored as UTC midnight like every other business date
+  on         DateTime @db.Date
+  createdAt  DateTime @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, on])
+  @@index([campaignId])
 }
 
 /// One addressee on a campaign's list — the same client-or-company pair a send takes.

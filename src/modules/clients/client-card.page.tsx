@@ -25,16 +25,21 @@ import {
   useUploadClientFile,
 } from "./clients.api";
 
+/**
+ * Ordered the way the firm works a client (user, 2026-08-14): who they are, then what the firm has
+ * agreed to do, then the work itself, then what was sent. Secrets and Files sit at the end — they
+ * are looked up when needed, not read through.
+ */
 const TABS = [
   { key: "profile", label: "Profile" },
   { key: "companies", label: "Companies" },
   { key: "people", label: "People" },
-  { key: "secrets", label: "Secrets" },
-  { key: "tasks", label: "Tasks" },
-  { key: "invoices", label: "Invoices" },
-  { key: "meetings", label: "Meetings" },
   { key: "services", label: "Services" },
+  { key: "tasks", label: "Tasks" },
+  { key: "meetings", label: "Meetings" },
+  { key: "invoices", label: "Invoices" },
   { key: "mailouts", label: "Mailouts" },
+  { key: "secrets", label: "Secrets" },
   { key: "files", label: "Files" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
