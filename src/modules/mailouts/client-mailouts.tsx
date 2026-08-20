@@ -2,7 +2,7 @@ import { useState } from "react";
 import { BellOff, CalendarClock, CalendarPlus, Mail, Repeat, Send } from "lucide-react";
 import { RHYTHM_LABELS } from "@shared/campaigns";
 import { cn } from "@/shared/lib/cn";
-import { fmtDate, fmtDateTime } from "@/shared/lib/format";
+import { fmtBizDate, fmtDateTime } from "@/shared/lib/format";
 import { Button } from "@/shared/ui/button";
 import { FilterChips } from "@/shared/ui/tabs";
 import { CampaignModal } from "./campaign-modal";
@@ -246,7 +246,7 @@ export function ClientMailouts({
               </div>
               <div className="flex items-center justify-end gap-1 whitespace-nowrap text-muted">
                 <CalendarClock size={11} className="shrink-0" />
-                {c.status !== "scheduled" ? "Stopped" : c.nextRunOn ? fmtDate(c.nextRunOn) : "—"}
+                {c.status !== "scheduled" ? "Stopped" : c.nextRunOn ? fmtBizDate(c.nextRunOn) : "—"}
               </div>
             </div>
           ))}

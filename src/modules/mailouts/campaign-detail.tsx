@@ -1,7 +1,7 @@
 import { BellOff, CalendarClock, Repeat } from "lucide-react";
 import { Link } from "react-router-dom";
 import { RHYTHM_LABELS } from "@shared/campaigns";
-import { fmtDate, fmtDateTime } from "@/shared/lib/format";
+import { fmtBizDate, fmtDateTime } from "@/shared/lib/format";
 import { Modal } from "@/shared/ui/modal";
 import { CampaignStatus } from "./campaigns";
 import { useCampaign } from "./mailouts.api";
@@ -30,14 +30,14 @@ export function CampaignDetailModal({ id, onClose }: { id: string | null; onClos
             </span>
             {data.nextRunOn && (
               <span className="flex items-center gap-1">
-                <CalendarClock size={11} /> Next {fmtDate(data.nextRunOn)} at {data.sendAt}
+                <CalendarClock size={11} /> Next {fmtBizDate(data.nextRunOn)} at {data.sendAt}
               </span>
             )}
-            {data.endsOn && <span>Stops after {fmtDate(data.endsOn)}</span>}
+            {data.endsOn && <span>Stops after {fmtBizDate(data.endsOn)}</span>}
             {data.rhythm === "dates" && (
               <span>
                 {data.dates.length} date{data.dates.length === 1 ? "" : "s"}:{" "}
-                {data.dates.map(fmtDate).join(" · ")}
+                {data.dates.map(fmtBizDate).join(" · ")}
               </span>
             )}
             <span>{data.templateName}</span>
@@ -110,7 +110,7 @@ export function CampaignDetailModal({ id, onClose }: { id: string | null; onClos
                   </Link>
                   <span className="ml-auto text-[12px] text-muted">
                     {fmtDateTime(o.unsubscribedAt)}
-                    {o.periodKey && ` · ${fmtDate(o.periodKey)} letter`}
+                    {o.periodKey && ` · ${fmtBizDate(o.periodKey)} letter`}
                   </span>
                 </div>
               ))

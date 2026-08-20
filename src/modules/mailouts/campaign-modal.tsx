@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Trash2, X } from "lucide-react";
 import type { Campaign, CampaignInput } from "@shared/schema/campaigns";
-import { fmtDate } from "@/shared/lib/format";
+import { fmtBizDate } from "@/shared/lib/format";
 import { Button } from "@/shared/ui/button";
 import { FormField, Input, Select } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
@@ -316,10 +316,10 @@ export function CampaignModal({
                       key={d}
                       className="inline-flex items-center gap-1.5 rounded-(--radius-chip) bg-[#eef0f3] py-1 pl-2.5 pr-1.5 text-[12px] text-ink"
                     >
-                      {fmtDate(d)}
+                      {fmtBizDate(d)}
                       <button
                         type="button"
-                        aria-label={`Remove ${fmtDate(d)}`}
+                        aria-label={`Remove ${fmtBizDate(d)}`}
                         className="text-muted hover:text-danger"
                         onClick={() => setDates((prev) => prev.filter((x) => x !== d))}
                       >

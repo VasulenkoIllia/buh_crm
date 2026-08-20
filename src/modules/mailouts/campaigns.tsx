@@ -3,7 +3,7 @@ import { CalendarClock, CalendarDays, Pause, Pencil, Play, Repeat } from "lucide
 import type { Campaign } from "@shared/schema/campaigns";
 import { RHYTHM_LABELS } from "@shared/campaigns";
 import { cn } from "@/shared/lib/cn";
-import { fmtDate, fmtDateTime } from "@/shared/lib/format";
+import { fmtBizDate, fmtDate, fmtDateTime } from "@/shared/lib/format";
 import { IconButton } from "@/shared/ui/button";
 import { CampaignModal } from "./campaign-modal";
 import { CampaignDetailModal } from "./campaign-detail";
@@ -119,7 +119,7 @@ export function Campaigns({ newSignal }: { newSignal: number }) {
                 {c.nextRunOn ? (
                   <span className="flex items-center gap-1">
                     <CalendarClock size={11} className="shrink-0" />
-                    {fmtDate(c.nextRunOn)}
+                    {fmtBizDate(c.nextRunOn)}
                     <span className="text-faint">{c.sendAt}</span>
                   </span>
                 ) : c.lastRunAt ? (
