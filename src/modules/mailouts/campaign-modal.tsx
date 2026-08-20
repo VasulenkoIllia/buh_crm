@@ -1,14 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Building2, Search, Trash2, X } from "lucide-react";
+import { AlertTriangle, Trash2, X } from "lucide-react";
 import type { Campaign, CampaignInput } from "@shared/schema/campaigns";
-import type { MailoutTarget } from "@shared/schema/mailouts";
-import { useClients } from "@/modules/clients";
-import { cn } from "@/shared/lib/cn";
 import { fmtDate } from "@/shared/lib/format";
 import { Button } from "@/shared/ui/button";
 import { FormField, Input, Select } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
 import { Segmented } from "@/shared/ui/segmented";
+import { PresetTarget, RecipientPicker, targetsToKeys, toTarget } from "./recipient-picker";
 import {
   useCampaign,
   useCreateCampaign,
@@ -17,16 +15,6 @@ import {
   useTemplates,
   useUpdateCampaign,
 } from "./mailouts.api";
-
-const PICKER_PAGE_SIZE = 100;
-
-const keyOf = (clientId: string, companyId: string | null) =>
-  companyId ? `${clientId}:${companyId}` : clientId;
-
-function toTarget(key: string): MailoutTarget {
-  const [clientId, companyId] = key.split(":");
-  return companyId ? { clientId, companyId } : { clientId };
-}
 
 /**
  * Planning a campaign: what letter, to whom, and when.
@@ -39,11 +27,20 @@ export function CampaignModal({
   open,
   campaign,
   onClose,
+  presetClientId,
+  presetTargets,
 }: {
   open: boolean;
   /** null = a new one */
   campaign: Campaign | null;
   onClose: () => void;
+  /**
+   * Opened from a client's card — that client starts selected and their inboxes are pinned above
+   * the search. The same shape the one-off composer takes, and for the same reason: scheduling a
+   * reminder for one client should not begin by hunting for them in a list of everyone.
+   */
+  presetClientId?: string;
+  presetTargets?: PresetTarget[];
 }) {
   const templates = useTemplates();
   const senders = useMailSenders();
@@ -63,13 +60,8 @@ export function CampaignModal({
   const [dates, setDates] = useState<string[]>([]);
   const [newDate, setNewDate] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const clients = useClients(
-    { tab: "all", search: search || undefined, pageSize: PICKER_PAGE_SIZE },
-    { enabled: open },
-  );
 
   /**
    * The loaded campaign, held in a ref so the reset effect can read it WITHOUT depending on it.
@@ -82,6 +74,12 @@ export function CampaignModal({
    */
   const latest = useRef(existing.data);
   latest.current = existing.data;
+
+  // Primitives, never the array — `presetTargets` comes from the client card's deliberately
+  // uncached mail state, so a refetch hands down a new one and an array in the deps below would
+  // reset the form mid-typing. The same trap the composer fell into.
+  const hasPresetTargets = !!presetTargets;
+  const presetHasOwnAddress = !!presetTargets?.some((t) => !t.companyId && t.email);
 
   const loadedId = existing.data?.id ?? null;
   useEffect(() => {
@@ -97,24 +95,26 @@ export function CampaignModal({
     setEndsOn(c?.endsOn ?? "");
     setDates(c?.dates ?? []);
     setNewDate("");
-    setSelected(new Set(c?.recipients.map((r) => keyOf(r.clientId, r.companyId)) ?? []));
-    setSearch("");
+    // A saved campaign restores its own list. A NEW one opened from a client's card starts with
+    // that client's own address — unless they have none, in which case starting with a recipient
+    // the form already knows is unreachable makes the first thing it says a refusal.
+    setSelected(
+      new Set(
+        c
+          ? targetsToKeys(c.recipients)
+          : presetClientId && (!hasPresetTargets || presetHasOwnAddress)
+            ? [presetClientId]
+            : [],
+      ),
+    );
     setError(null);
-  }, [open, loadedId]);
+  }, [open, loadedId, presetClientId, hasPresetTargets, presetHasOwnAddress]);
 
   const activeTemplates = useMemo(
     () => (templates.data ?? []).filter((t) => t.active),
     [templates.data],
   );
 
-  function toggle(key: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }
 
   async function save() {
     setError(null);
@@ -153,7 +153,6 @@ export function CampaignModal({
     }
   }
 
-  const visible = clients.data?.items ?? [];
   const ready =
     name.trim() &&
     templateId &&
@@ -355,48 +354,14 @@ export function CampaignModal({
         </div>
 
         <div className="space-y-2">
-          <p className="text-[12px] font-medium uppercase tracking-wide text-muted">To whom</p>
-          <div className="relative">
-            <Search
-              size={14}
-              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-faint"
-            />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search clients…"
-              className="pl-8"
-            />
-          </div>
-
-          <div className="max-h-[420px] overflow-y-auto rounded-(--radius-field) border border-border">
-            {clients.isLoading ? (
-              <p className="p-3 text-[13px] text-muted">Loading…</p>
-            ) : visible.length === 0 ? (
-              <p className="p-3 text-[13px] text-faint">No clients match.</p>
-            ) : (
-              visible.map((c) => (
-                <div key={c.id} className="border-b border-divider last:border-0">
-                  <Row
-                    name={c.displayName}
-                    email={c.email}
-                    checked={selected.has(c.id)}
-                    onToggle={() => toggle(c.id)}
-                  />
-                  {c.companies.map((co) => (
-                    <Row
-                      key={co.id}
-                      name={co.name}
-                      email={co.email}
-                      nested
-                      checked={selected.has(keyOf(c.id, co.id))}
-                      onToggle={() => toggle(keyOf(c.id, co.id))}
-                    />
-                  ))}
-                </div>
-              ))
-            )}
-          </div>
+          {/* the same picker the one-off composer uses — see recipient-picker.tsx */}
+          <RecipientPicker
+            value={selected}
+            onChange={setSelected}
+            enabled={open}
+            presetClientId={presetClientId}
+            presetTargets={presetTargets}
+          />
           <p className="text-[12px] text-muted">
             Who is on the list is checked again on the day — anyone who has unsubscribed or lost
             their address by then is skipped, with the reason recorded.
@@ -404,42 +369,5 @@ export function CampaignModal({
         </div>
       </div>
     </Modal>
-  );
-}
-
-function Row({
-  name,
-  email,
-  checked,
-  onToggle,
-  nested = false,
-}: {
-  name: string;
-  email: string | null;
-  checked: boolean;
-  onToggle: () => void;
-  nested?: boolean;
-}) {
-  return (
-    <label
-      className={cn(
-        "flex cursor-pointer items-center gap-2.5 px-3 py-2 hover:bg-divider/50",
-        nested && "border-l-2 border-divider pl-6",
-      )}
-    >
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={onToggle}
-        className="size-3.5 accent-[var(--color-primary)]"
-      />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] text-ink">
-          {nested && <Building2 size={11} className="mr-1 inline text-faint" />}
-          {name}
-        </span>
-        <span className="block truncate text-[12px] text-muted">{email ?? "no email address"}</span>
-      </span>
-    </label>
   );
 }

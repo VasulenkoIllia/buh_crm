@@ -1,41 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Building2, Check, Search } from "lucide-react";
+import { AlertTriangle, Check } from "lucide-react";
 import type {
   EmailTemplate,
   MailoutPreview,
   MailoutPreviewRow,
-  MailoutTarget,
   SendMailoutInput,
 } from "@shared/schema/mailouts";
-import { useClients } from "@/modules/clients";
-import { useCatalog } from "@/modules/catalog";
-import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { FormField, Input, Select, Textarea } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
 import { Segmented } from "@/shared/ui/segmented";
+import { RecipientPicker, toTarget } from "./recipient-picker";
 import { useMailSenders, usePreviewMailout, useSendMailout, useTemplates } from "./mailouts.api";
 
-/** The list is long; ask the server rather than filtering a page of 25 in the browser. */
-const PICKER_PAGE_SIZE = 100;
-
 type Step = "who" | "check";
-
-/**
- * One addressee, flattened to a string so the picker can hold them all in one Set.
- *
- * A client and each of that client's companies are separate addressees with separate inboxes, and
- * the picker has to be able to hold "Olena, and Kvitka Trade, but not Sonyachny FOP". Encoding the
- * pair rather than keeping two structures means selection, counting and the payload all read off
- * the same thing.
- */
-const keyOf = (clientId: string, companyId: string | null) =>
-  companyId ? `${clientId}:${companyId}` : clientId;
-
-function toTarget(key: string): MailoutTarget {
-  const [clientId, companyId] = key.split(":");
-  return companyId ? { clientId, companyId } : { clientId };
-}
 
 /**
  * The composer — four answers, then a check.
@@ -72,7 +50,6 @@ export function ComposeModal({
   presetTargets?: { companyId: string | null; name: string; email: string | null }[];
 }) {
   const templates = useTemplates();
-  const services = useCatalog();
   const senders = useMailSenders();
   const preview = usePreviewMailout();
   const send = useSendMailout();
@@ -85,14 +62,10 @@ export function ComposeModal({
   const [body, setBody] = useState("");
   const [kind, setKind] = useState<"commercial" | "transactional">("commercial");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [search, setSearch] = useState("");
-  const [serviceId, setServiceId] = useState("");
   // "" = let the server decide: the template's mailbox, else the firm's default
   const [senderAccountId, setSenderAccountId] = useState("");
   const [result, setResult] = useState<MailoutPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const pinnedName = presetTargets?.[0]?.name;
 
   /**
    * Primitives, deliberately — never the array itself in the reset effect below.
@@ -104,10 +77,6 @@ export function ComposeModal({
    */
   const hasPresetTargets = !!presetTargets;
   const presetHasOwnAddress = !!presetTargets?.some((t) => !t.companyId && t.email);
-  const clients = useClients(
-    { tab: "all", search: search || undefined, serviceId: serviceId || undefined, pageSize: PICKER_PAGE_SIZE },
-    { enabled: open },
-  );
 
   useEffect(() => {
     if (!open) return;
@@ -125,8 +94,6 @@ export function ComposeModal({
         presetClientId && (!hasPresetTargets || presetHasOwnAddress) ? [presetClientId] : [],
       ),
     );
-    setSearch("");
-    setServiceId("");
     setSenderAccountId("");
     setResult(null);
     setError(null);
@@ -153,17 +120,7 @@ export function ComposeModal({
     };
   }, [mode, templateId, subject, heading, body, kind, selected, senderAccountId]);
 
-  function toggle(key: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }
 
-  const visible = clients.data?.items ?? [];
-  const allVisibleSelected = visible.length > 0 && visible.every((c) => selected.has(c.id));
 
   async function goToCheck() {
     if (!payload) return;
@@ -348,111 +305,14 @@ export function ComposeModal({
           </FormField>
           </div>
 
-          {/* who gets it */}
-          <div className="space-y-2">
-            <p className="text-[12px] font-medium uppercase tracking-wide text-muted">To whom</p>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Search
-                  size={14}
-                  className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-faint"
-                />
-                <Input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search clients…"
-                  className="pl-8"
-                />
-              </div>
-              <Select
-                value={serviceId}
-                onChange={(e) => setServiceId(e.target.value)}
-                className="w-[140px]"
-              >
-                <option value="">All services</option>
-                {(services.data ?? []).map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-
-            {/* deliberately the clients' OWN addresses only — a bulk button that silently also
-                wrote to every company would be a much bigger act than the label admits */}
-            <button
-              type="button"
-              onClick={() =>
-                setSelected((prev) => {
-                  const next = new Set(prev);
-                  for (const c of visible) {
-                    if (allVisibleSelected) next.delete(c.id);
-                    else next.add(c.id);
-                  }
-                  return next;
-                })
-              }
-              className="text-[12px] text-primary-link hover:underline"
-              disabled={visible.length === 0}
-            >
-              {allVisibleSelected ? "Clear these" : `Select these ${visible.length}`}
-            </button>
-
-            {presetClientId && presetTargets && presetTargets.length > 0 && (
-              <div className="rounded-(--radius-field) border border-border">
-                <p className="border-b border-divider px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-faint">
-                  {pinnedName}
-                </p>
-                {presetTargets.map((t) => (
-                  <Addressee
-                    key={t.companyId ?? "own"}
-                    name={t.companyId ? t.name : "Their own address"}
-                    email={t.email}
-                    nested={!!t.companyId}
-                    checked={selected.has(keyOf(presetClientId, t.companyId))}
-                    onToggle={() => toggle(keyOf(presetClientId, t.companyId))}
-                  />
-                ))}
-              </div>
-            )}
-
-            <div className="max-h-[330px] overflow-y-auto rounded-(--radius-field) border border-border">
-              {clients.isLoading ? (
-                <p className="p-3 text-[13px] text-muted">Loading…</p>
-              ) : visible.length === 0 ? (
-                <p className="p-3 text-[13px] text-faint">No clients match.</p>
-              ) : (
-                visible.map((c) => (
-                  <div key={c.id} className="border-b border-divider last:border-0">
-                    <Addressee
-                      name={c.displayName}
-                      email={c.email}
-                      checked={selected.has(c.id)}
-                      onToggle={() => toggle(c.id)}
-                    />
-                    {/* the client's companies, each its own inbox — indented, because they belong
-                        to the client above and are not clients in their own right */}
-                    {c.companies.map((co) => (
-                      <Addressee
-                        key={co.id}
-                        name={co.name}
-                        email={co.email}
-                        nested
-                        checked={selected.has(keyOf(c.id, co.id))}
-                        onToggle={() => toggle(keyOf(c.id, co.id))}
-                      />
-                    ))}
-                  </div>
-                ))
-              )}
-            </div>
-            {clients.data && clients.data.total > visible.length && (
-              <p className="text-[12px] text-muted">
-                Showing {visible.length} of {clients.data.total} — narrow the search to reach the
-                rest.
-              </p>
-            )}
-          </div>
+          {/* who gets it — the same picker the campaign editor uses */}
+          <RecipientPicker
+            value={selected}
+            onChange={setSelected}
+            enabled={open}
+            presetClientId={presetClientId}
+            presetTargets={presetTargets}
+          />
         </div>
       ) : (
         result && <CheckStep preview={result} />
@@ -559,51 +419,5 @@ function RecipientRow({
       </p>
       <p className="truncate text-[12px] text-muted">{reason ?? row.email ?? "no address"}</p>
     </div>
-  );
-}
-
-/**
- * One line in the picker: a client, or — indented — one of their companies.
- *
- * The same row for both on purpose. A company is a real addressee with its own inbox, not a
- * property of the client, and the moment it is drawn as a lesser thing somebody starts wondering
- * whether ticking it really sends anything.
- */
-function Addressee({
-  name,
-  email,
-  checked,
-  onToggle,
-  nested = false,
-}: {
-  name: string;
-  email: string | null;
-  checked: boolean;
-  onToggle: () => void;
-  nested?: boolean;
-}) {
-  return (
-    <label
-      className={cn(
-        "flex cursor-pointer items-center gap-2.5 px-3 py-2 hover:bg-divider/50",
-        nested && "border-l-2 border-divider pl-6",
-      )}
-    >
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={onToggle}
-        className="size-3.5 accent-[var(--color-primary)]"
-      />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] text-ink">
-          {nested && <Building2 size={11} className="mr-1 inline text-faint" />}
-          {name}
-        </span>
-        <span className="block truncate text-[12px] text-muted">
-          {email ?? "no email address"}
-        </span>
-      </span>
-    </label>
   );
 }

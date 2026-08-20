@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { BellOff, CalendarClock, Mail, Repeat, Send } from "lucide-react";
+import { BellOff, CalendarClock, CalendarPlus, Mail, Repeat, Send } from "lucide-react";
 import { RHYTHM_LABELS } from "@shared/campaigns";
 import { cn } from "@/shared/lib/cn";
 import { fmtDate, fmtDateTime } from "@/shared/lib/format";
 import { Button } from "@/shared/ui/button";
 import { FilterChips } from "@/shared/ui/tabs";
+import { CampaignModal } from "./campaign-modal";
 import { ComposeModal } from "./compose-modal";
 import { ClientMailoutModal } from "./client-mailout-modal";
 import { StatusPill } from "./status-pill";
@@ -43,6 +44,7 @@ export function ClientMailouts({
   const { data, isLoading } = useClientMailState(clientId);
   const setSubscription = useSetSubscription(clientId);
   const [composing, setComposing] = useState(false);
+  const [scheduling, setScheduling] = useState(false);
   const [openLetter, setOpenLetter] = useState<string | null>(null);
   const [view, setView] = useState<View>("sent");
   const [error, setError] = useState<string | null>(null);
@@ -118,6 +120,17 @@ export function ClientMailouts({
           >
             {data.subscribed ? "Unsubscribe" : "Re-subscribe"}
           </Button>
+          {/* Two halves of the same act — write to this client now, or on a date. Scheduling from
+              here rather than from the Campaigns tab is the difference between "set a reminder for
+              Olena" and "make a campaign, then find Olena in a list of everyone". */}
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => setScheduling(true)}
+            disabled={reachable.length === 0}
+          >
+            <CalendarPlus size={13} /> Schedule
+          </Button>
           <Button size="sm" onClick={() => setComposing(true)} disabled={reachable.length === 0}>
             <Send size={13} /> Send a letter
           </Button>
@@ -187,7 +200,7 @@ export function ClientMailouts({
       ) : data.campaigns.length === 0 ? (
         <Empty
           title="Nothing scheduled for them"
-          hint="Campaigns this client is on appear here, with the date each one goes out."
+          hint="Use Schedule above to set a reminder for this client — once, on set dates, or on a rhythm."
         />
       ) : (
         <div className="overflow-x-auto rounded-(--radius-panel) border border-border bg-surface">
@@ -246,6 +259,13 @@ export function ClientMailouts({
         // the composer reports the MAILOUT it created; this tab lists recipient rows, so the
         // freshly sent letter is found by refetching rather than opened by an id of another kind
         onSent={() => setComposing(false)}
+        presetClientId={clientId}
+        presetTargets={data.targets}
+      />
+      <CampaignModal
+        open={scheduling}
+        campaign={null}
+        onClose={() => setScheduling(false)}
         presetClientId={clientId}
         presetTargets={data.targets}
       />
