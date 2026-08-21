@@ -1,17 +1,33 @@
 # buh_crm
 
-Internal CRM for an accounting firm (~10-person team, single firm — not SaaS). Manages clients,
-leads, services, tasks, invoices, meetings, and the team.
+Internal CRM for an accounting firm (~10-person team, single firm — not SaaS). Manages clients and
+the companies they hold, leads, a service catalog, tasks with time tracking, invoicing and debt,
+meetings, client mailouts, and the team.
 
-**Status:** pre-build. Specs, design, and the dev plan are complete (kept in internal docs,
-not in this repository); development proceeds stage by stage — foundation (DB schema, auth)
-first, then module by module.
+**Status:** in use, built stage by stage. Clients, Leads, Catalog, Tasks, Payments, Calendar,
+Archive, Client secrets and Mailouts are done; Reports and the production hardening pass are not.
+Specs, design and the dev plan are kept in internal docs, not in this repository.
+
+**Modules**
+
+| | |
+|---|---|
+| **Clients** | a client, the companies they hold, their services (subscription or one-time), files, debt |
+| **Leads** | pipeline, and conversion into a client |
+| **Catalog** | services, task templates, and the rule that decides when each one bills |
+| **Tasks** | board and table, generation on a rhythm, a timer, one-time billable jobs |
+| **Payments** | invoices with positions, partial payments, debt, an audited change log |
+| **Calendar** | meetings and deadlines on one firm clock |
+| **Mailouts** | letter templates, one-off sends, campaigns on a date or a rhythm, unsubscribe |
+| **Secrets** | a client's credentials, encrypted, behind a password prompt and an access log |
+| **Archive** | closed work and settled invoices tidied away — never deleted |
 
 ## Stack
 
 - **Backend:** Node 20 · TypeScript · Fastify · Prisma · PostgreSQL 16 · Zod (shared schemas) · cookie sessions + Argon2.
 - **Frontend:** React 19 · Vite · Tailwind · shadcn/ui · TanStack Query/Table · dnd-kit · React Hook Form.
-- **Infra:** Docker Compose (web + api + db) behind Traefik. Dev email via Mailpit.
+- **Infra:** Docker Compose — one `app` container serving the API *and* the built SPA, plus `db`,
+  behind Traefik. Migrations run on container start. Dev email via Mailpit.
 
 ## Architecture
 
