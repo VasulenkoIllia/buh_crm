@@ -666,6 +666,8 @@ export function NewInvoiceModal({
   const [subscriptionId, setSubscriptionId] = useState("");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
+  const [itemised, setItemised] = useState(false);
+  const [lines, setLines] = useState<DraftLine[]>([emptyLine()]);
   const [dueDate, setDueDate] = useState("");
   const [noDueDate, setNoDueDate] = useState(false);
   const [mode, setMode] = useState<"invoice" | "with_task">("invoice");
@@ -686,17 +688,22 @@ export function NewInvoiceModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the picked client changes
   }, [client.data?.id]);
 
+  // the same two shapes the editor offers, and the same rule: with positions on, they are the total
+  const filled = lines.filter((l) => l.description.trim());
+  const total = itemised ? draftTotal(filled) : parseMoney(amount);
+
   async function submit() {
     setError(null);
     if (!clientId) return setError("Pick a client");
-    const minor = parseMoney(amount);
-    if (minor <= 0) return setError("Enter an amount");
+    if (itemised && filled.length === 0) return setError("Add at least one position, with a name");
+    if (total <= 0) return setError("Enter an amount");
     try {
       const invoice = await createInvoice.mutateAsync({
         clientId,
         subscriptionId: subscriptionId || null,
         description: description.trim() || undefined,
-        amount: minor,
+        amount: total,
+        lines: itemised ? toLineInput(filled) : undefined,
         // a date sets it · "no due date" sends null · leaving it empty inherits the service preset
         dueDate: dueDate || (noDueDate ? null : undefined),
         withTask: mode === "with_task",
@@ -715,7 +722,8 @@ export function NewInvoiceModal({
       title="New invoice"
       open
       onClose={onClose}
-      size="md"
+      // a table of positions does not fit a 512px dialog; it grows when you ask for one
+      size={itemised ? "lg" : "md"}
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
@@ -758,7 +766,7 @@ export function NewInvoiceModal({
           />
         </FormField>
 
-        <FormField label="Description">
+        <FormField label={itemised ? "Note on the invoice" : "Description"}>
           <Textarea
             className="h-[60px]"
             placeholder="What this invoice is for"
@@ -767,18 +775,31 @@ export function NewInvoiceModal({
           />
         </FormField>
 
+        {/* The same choice the editor offers, so an invoice is made the way it is later corrected
+            (user, 2026-08-21). Nothing about the toggle is stored — see InvoiceLine's comment. */}
+        <Segmented
+          value={itemised ? "lines" : "flat"}
+          onChange={(v) => setItemised(v === "lines")}
+          options={[
+            { value: "flat", label: "One amount" },
+            { value: "lines", label: "Positions" },
+          ]}
+        />
+
         <div className="flex gap-3">
-          <div className="flex-1">
-            <FormField label="Amount">
-              <Input
-                inputMode="decimal"
-                placeholder="0.00"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-              />
-            </FormField>
-          </div>
-          <div className="w-[170px]">
+          {!itemised && (
+            <div className="flex-1">
+              <FormField label="Amount">
+                <Input
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                />
+              </FormField>
+            </div>
+          )}
+          <div className={itemised ? "flex-1" : "w-[170px]"}>
             <FormField label="Due date">
               <Input
                 type="date"
@@ -803,6 +824,8 @@ export function NewInvoiceModal({
             )}
           </div>
         </div>
+
+        {itemised && <LinesEditor lines={lines} onChange={setLines} />}
 
         <FormField label="What to create">
           <Segmented
