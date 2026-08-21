@@ -143,11 +143,19 @@ export interface JobInvoiceInput {
  * The task's row is locked FIRST and its `invoiceId` re-read inside the transaction: two people
  * marking the same job done at the same moment would otherwise both see "not billed yet" and the
  * client would get two invoices for one job. Returns null when someone else already billed it.
+ *
+ * "Already billed" means billed by an invoice that STILL COUNTS. A cancelled one is void — it owes
+ * nothing, it is out of the debt and the unpaid list — and treating it as a bill left the job
+ * permanently unbillable: this guard refused it, and a cancelled invoice cannot be edited either,
+ * so the work was stranded between the two. Voiding the paper must not void the job.
+ *
+ * The link itself is left alone on cancel, so a voided invoice can still say what it was for; it
+ * moves only when the job is genuinely billed again.
  */
 export function issueJobInvoice(input: JobInvoiceInput) {
   return repo.inTransaction(async (tx) => {
     const task = await repo.lockTaskForInvoicing(tx, input.taskId);
-    if (task.invoiceId) return null; // already billed — by us a moment ago, or by whoever raced us
+    if (task.invoiceId && !task.invoice?.cancelledAt) return null;
     return issueInvoiceIn(tx, input);
   });
 }

@@ -683,7 +683,10 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
   const patch = (input: UpdateTaskInput) => update.mutate({ id: task.id, input });
   const updateError = update.error instanceof ApiError ? update.error.message : null;
 
-  const editableAmount = task.kind === "once" && !task.invoice;
+  // a CANCELLED invoice is void — it owes nothing and cannot itself be edited, so it must not
+  // keep the job's price locked at a number nobody is going to pay
+  const editableAmount =
+    task.kind === "once" && (!task.invoice || task.invoice.status === "cancelled");
   // a completed task is a locked snapshot — everything read-only until Reopen.
   // (Admin can still correct the time log below — that's a deliberate exception.)
   const locked = task.done || !!task.cancelledAt;

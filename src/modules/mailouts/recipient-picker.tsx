@@ -16,7 +16,7 @@ const PICKER_PAGE_SIZE = 100;
  * the picker has to hold "Olena, and Kvitka Trade, but not Sonyachny FOP". Encoding the pair rather
  * than keeping two structures means selection, counting and the payload all read off one thing.
  */
-export const keyOf = (clientId: string, companyId: string | null) =>
+const keyOf = (clientId: string, companyId: string | null) =>
   companyId ? `${clientId}:${companyId}` : clientId;
 
 export function toTarget(key: string): MailoutTarget {

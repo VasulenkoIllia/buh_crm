@@ -22,6 +22,18 @@ import { issueJobInvoice } from "../payments/index.js";
 import * as repo from "./tasks.repository.js";
 
 /** The job's invoice WITH its settlement state — same derivation rule as the Billing screen. */
+/**
+ * Is this job billed by an invoice that still counts?
+ *
+ * A cancelled invoice is void — no balance, out of the debt, out of the unpaid list — so a job
+ * pointing at one is NOT billed. Reading `invoiceId` alone stranded such a job: it could not be
+ * re-invoiced (the billing guard saw a link), its price could not be corrected (the same guard),
+ * and the cancelled invoice could not be edited either.
+ */
+function billedLive(task: { invoiceId: string | null; invoice?: { cancelledAt: Date | null } | null }) {
+  return !!task.invoiceId && !task.invoice?.cancelledAt;
+}
+
 function toTaskInvoice(invoice: NonNullable<repo.TaskRecord["invoice"]>, todayMs: number) {
   const paid = invoice.paidTotal;
   return {
@@ -402,12 +414,14 @@ export async function createTask(input: CreateTaskInput, actor: User) {
 export async function updateTask(id: string, input: UpdateTaskInput, actor: User) {
   const task = liveTaskOr404(await repo.findTask(id));
 
-  // a job's price is editable only until an invoice is issued
+  // A job's price is editable until a LIVE invoice is issued. A cancelled one owes nothing and
+  // cannot be edited itself, so treating it as a lock left the job frozen at a price nobody was
+  // ever going to pay.
   if (input.amount !== undefined) {
     if (task.kind !== "once") {
       throw new ValidationError("Only one-time job tasks carry a price");
     }
-    if (task.invoiceId) {
+    if (billedLive(task)) {
       throw new ValidationError("The invoice is already issued — the price is locked");
     }
   }
@@ -466,7 +480,7 @@ export async function updateTask(id: string, input: UpdateTaskInput, actor: User
   if (input.assignees) await repo.setAssignees(id, input.assignees);
 
   // one-time job billed on completion: issue the invoice the moment it's marked done
-  if (input.done === true && task.kind === "once" && !task.invoiceId && task.clientId) {
+  if (input.done === true && task.kind === "once" && !billedLive(task) && task.clientId) {
     const amount = input.amount !== undefined ? input.amount : task.amount;
     if (amount != null) {
       const sub = task.subscriptionId

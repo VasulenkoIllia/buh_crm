@@ -679,7 +679,10 @@ function BoardCard({
         {task.invoice && (
           <InvoiceStatusPill status={task.invoice.status} prefix="💰" size="sm" />
         )}
-        {task.kind === "once" && !task.invoice && <Chip tone="amber">⏳ unbilled</Chip>}
+        {/* a voided invoice is not a bill — the job is unbilled again and the board should say so */}
+        {task.kind === "once" && (!task.invoice || task.invoice.status === "cancelled") && (
+          <Chip tone="amber">⏳ unbilled</Chip>
+        )}
         {task.kind === "sub" && <Chip tone="blue">📅 auto</Chip>}
       </div>
       {/* start/stop the timer straight from the board, with what's already on the clock */}

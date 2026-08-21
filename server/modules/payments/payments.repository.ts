@@ -75,8 +75,27 @@ export function updateInvoice(id: string, data: Prisma.InvoiceUncheckedUpdateInp
 }
 
 /** Keep a linked job's price in step with its invoice (the task price is locked to it). */
-export function syncTaskAmounts(invoiceId: string, amount: number) {
-  return prisma.task.updateMany({ where: { invoiceId }, data: { amount } });
+/**
+ * Carry the invoice's total onto the job it bills, so the client is never shown two numbers.
+ *
+ * Only when there is exactly ONE job on it. Writing the invoice total onto several would give each
+ * of them the whole amount — three jobs on a 1 320 invoice would report 3 960 of work — and it
+ * would do it silently, in money. That situation cannot arise today (an invoice carries one task,
+ * the one `withTask` creates), and this is what keeps it from becoming a quiet corruption on the
+ * day it can: nothing is written, and the log says so.
+ */
+export async function syncTaskAmounts(invoiceId: string, amount: number) {
+  const tasks = await prisma.task.findMany({ where: { invoiceId }, select: { id: true } });
+  if (tasks.length === 0) return { updated: 0 };
+  if (tasks.length > 1) {
+    console.warn(
+      `[payments] invoice=${invoiceId} bills ${tasks.length} jobs — their prices were left alone. ` +
+        `A per-job amount needs a line per job (see the hourly-billing backlog).`,
+    );
+    return { updated: 0 };
+  }
+  await prisma.task.update({ where: { id: tasks[0].id }, data: { amount } });
+  return { updated: 1 };
 }
 
 /** Archive / restore a set of invoices in one statement (callers pre-check the rules). */
@@ -260,7 +279,14 @@ export async function lockTaskForInvoicing(tx: Prisma.TransactionClient, taskId:
   return tx.task.update({
     where: { id: taskId },
     data: { updatedAt: new Date() }, // the write is what takes the lock
-    select: { id: true, invoiceId: true, amount: true },
+    // `cancelledAt` rides along because "already billed" has to mean billed by an invoice that
+    // still counts — a voided one must not keep the job hostage forever
+    select: {
+      id: true,
+      invoiceId: true,
+      amount: true,
+      invoice: { select: { cancelledAt: true } },
+    },
   });
 }
 

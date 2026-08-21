@@ -1081,3 +1081,128 @@ describe("invoice positions", () => {
     expect(res.json().lines).toHaveLength(2);
   });
 });
+
+/**
+ * Voiding the paper must not void the job.
+ *
+ * A one-time job's invoice is cancelled when the amount was wrong or it should never have been
+ * issued. Before this, the task kept pointing at the void invoice — and `issueJobInvoice` refuses
+ * a task that has one, while a cancelled invoice cannot be edited either. The work was stranded
+ * between the two guards, billable by nothing, correctable by nothing.
+ */
+describe("a cancelled invoice releases the job it billed", () => {
+  async function billedJob(name: string) {
+    const clientId = await makeClient(name);
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/invoices",
+      headers: { cookie: userCookie },
+      payload: {
+        clientId,
+        amount: 100_00,
+        description: "Audit",
+        withTask: true,
+        taskTitle: "Audit",
+        assigneeIds: [],
+      },
+    });
+    const invoice = created.json();
+    const task = await prisma.task.findFirstOrThrow({ where: { invoiceId: invoice.id } });
+    return { clientId, invoice, task };
+  }
+
+  it("lets the job's price be corrected again", async () => {
+    const { invoice, task } = await billedJob("Voided");
+
+    const locked = await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/${task.id}`,
+      headers: { cookie: adminCookie },
+      payload: { amount: 50_00 },
+    });
+    expect(locked.statusCode).toBe(400);
+    expect(locked.json().error.message).toMatch(/price is locked/i);
+
+    await app.inject({
+      method: "POST",
+      url: `/api/invoices/${invoice.id}/cancel`,
+      headers: { cookie: adminCookie },
+    });
+
+    const freed = await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/${task.id}`,
+      headers: { cookie: adminCookie },
+      payload: { amount: 50_00 },
+    });
+    expect(freed.statusCode).toBe(200);
+    expect((await prisma.task.findFirstOrThrow({ where: { id: task.id } })).amount).toBe(50_00);
+  });
+
+  /** …and the void invoice still says what it was for. Cancelling is not forgetting. */
+  it("keeps the cancelled invoice's record of the job", async () => {
+    const { invoice, task } = await billedJob("Remembered");
+    await app.inject({
+      method: "POST",
+      url: `/api/invoices/${invoice.id}/cancel`,
+      headers: { cookie: adminCookie },
+    });
+
+    const after = await app.inject({
+      method: "GET",
+      url: `/api/invoices/${invoice.id}`,
+      headers: { cookie: adminCookie },
+    });
+    expect(after.json()).toMatchObject({ status: "cancelled", taskId: task.id, taskTitle: "Audit" });
+  });
+});
+
+/**
+ * The invoice total is the JOB's price only while there is one job on it. With several, writing
+ * the total onto each would report the whole amount three times over — silently, in money.
+ */
+describe("carrying the total onto the job", () => {
+  it("leaves the prices alone when an invoice bills more than one job", async () => {
+    const clientId = await makeClient("Shared");
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/invoices",
+      headers: { cookie: userCookie },
+      payload: {
+        clientId,
+        amount: 100_00,
+        withTask: true,
+        taskTitle: "First",
+        description: "First",
+        assigneeIds: [],
+      },
+    });
+    const invoice = created.json();
+    const first = await prisma.task.findFirstOrThrow({ where: { invoiceId: invoice.id } });
+
+    // the state the app cannot produce yet — written directly, which is the point of the guard
+    const second = await prisma.task.create({
+      data: {
+        title: "Second",
+        clientId,
+        kind: "once",
+        amount: 40_00,
+        invoiceId: invoice.id,
+        statusColumnId: first.statusColumnId,
+        priorityId: first.priorityId,
+      },
+    });
+
+    await app.inject({
+      method: "PATCH",
+      url: `/api/invoices/${invoice.id}`,
+      headers: { cookie: adminCookie },
+      payload: { amount: 300_00 },
+    });
+
+    // the invoice moved; neither job was handed the whole of it
+    expect((await prisma.invoice.findFirstOrThrow({ where: { id: invoice.id } })).amount).toBe(300_00);
+    expect((await prisma.task.findFirstOrThrow({ where: { id: first.id } })).amount).toBe(100_00);
+    expect((await prisma.task.findFirstOrThrow({ where: { id: second.id } })).amount).toBe(40_00);
+  });
+});
