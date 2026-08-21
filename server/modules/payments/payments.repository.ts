@@ -17,6 +17,7 @@ const invoiceInclude = {
     include: { createdBy: { select: { firstName: true, lastName: true } } },
   },
   tasks: { select: { id: true, title: true }, take: 1 },
+  lines: { orderBy: { order: "asc" } },
 } satisfies Prisma.InvoiceInclude;
 
 export type InvoiceRecord = Prisma.InvoiceGetPayload<{ include: typeof invoiceInclude }>;
@@ -199,6 +200,50 @@ export async function insertInvoice(
   return tx.invoice.create({
     data: { ...data, number, ...(taskId ? { tasks: { connect: { id: taskId } } } : {}) },
   });
+}
+
+/**
+ * Update an invoice AND its positions in one transaction.
+ *
+ * One call because they are one fact: the amount is derived from the rows, so a reader must never
+ * be able to catch the two disagreeing. `lines === null` leaves the existing rows alone.
+ */
+export function updateInvoiceWithLines(
+  id: string,
+  data: Prisma.InvoiceUpdateInput,
+  lines: StoredLineRow[] | null,
+) {
+  return prisma.$transaction(async (tx) => {
+    if (lines !== null) await replaceLines(tx, id, lines);
+    return tx.invoice.update({ where: { id }, data, include: invoiceInclude });
+  });
+}
+
+export interface StoredLineRow {
+  order: number;
+  description: string;
+  quantity: number | null;
+  unitRate: number | null;
+  amount: number;
+}
+
+/**
+ * Replace an invoice's positions wholesale.
+ *
+ * Delete-then-insert rather than a diff: a position has no identity worth preserving — nothing
+ * points at one, and it carries no state of its own — so a diff would be more code for the same
+ * result. Always called inside the caller's transaction, so the invoice's amount and the rows it
+ * is derived from can never be seen apart.
+ */
+export async function replaceLines(
+  tx: Prisma.TransactionClient,
+  invoiceId: string,
+  lines: StoredLineRow[],
+) {
+  await tx.invoiceLine.deleteMany({ where: { invoiceId } });
+  if (lines.length > 0) {
+    await tx.invoiceLine.createMany({ data: lines.map((l) => ({ ...l, invoiceId })) });
+  }
 }
 
 /** Run `fn` in a transaction — used by the issuer to wrap numbering + insert. */

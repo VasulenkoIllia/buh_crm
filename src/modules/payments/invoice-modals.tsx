@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ChevronDown, History as HistoryIcon, Pencil, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { Invoice } from "@shared/schema/payment";
+import { lineAmount } from "@shared/schema/payment";
 import { useAuth } from "@/app/auth";
 import { useCatalog } from "@/modules/catalog";
 import { useClient, useClients } from "@/modules/clients";
@@ -242,6 +243,31 @@ export function InvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClos
             </div>
           </div>
 
+          {/* The breakdown, when there is one. An invoice without positions shows nothing here and
+              reads exactly as it did before they existed. */}
+          {invoice.lines.length > 0 && (
+            <div className="mt-3 overflow-hidden rounded-(--radius-field) border border-border">
+              {invoice.lines.map((line) => (
+                <div
+                  key={line.id}
+                  className="flex items-baseline gap-3 border-b border-divider px-3 py-2 text-[13px] last:border-0"
+                >
+                  <span className="min-w-0 flex-1 truncate">{line.description}</span>
+                  {line.quantity != null && line.unitRate != null && (
+                    <span className="whitespace-nowrap text-[12px] text-muted tabular-nums">
+                      {(line.quantity / 100).toFixed(2)} h × {fmtMoney(line.unitRate)}
+                    </span>
+                  )}
+                  <span className="w-[110px] text-right tabular-nums">{fmtMoney(line.amount)}</span>
+                </div>
+              ))}
+              <div className="flex items-baseline gap-3 border-t border-border bg-[#fafbfc] px-3 py-2 text-[13px] font-medium">
+                <span className="flex-1">Total</span>
+                <span className="w-[110px] text-right tabular-nums">{fmtMoney(invoice.amount)}</span>
+              </div>
+            </div>
+          )}
+
           {/* DISCLOSURE, not a row action — so it keeps its word ("History") and wears an icon
               beside it. An icon alone here would be a riddle: nothing else on the card is hidden. */}
           {isAdmin && (
@@ -417,16 +443,25 @@ function EditInvoiceForm({
   const [amount, setAmount] = useState(moneyInputValue(invoice.amount));
   const [description, setDescription] = useState(invoice.description ?? "");
   const [dueDate, setDueDate] = useState(invoice.dueDate ? invoice.dueDate.slice(0, 10) : "");
+  const [itemised, setItemised] = useState(invoice.lines.length > 0);
+  const [lines, setLines] = useState<DraftLine[]>(() =>
+    invoice.lines.length > 0 ? toDraftLines(invoice.lines) : [emptyLine()],
+  );
+
+  const filled = lines.filter((l) => l.description.trim());
+  const total = itemised ? draftTotal(filled) : parseMoney(amount);
 
   async function save() {
     onError(null);
-    const minor = parseMoney(amount);
-    if (minor <= 0) return onError("Enter an amount");
+    if (itemised && filled.length === 0) return onError("Add at least one position, with a name");
+    if (total <= 0) return onError("Enter an amount");
     try {
       await update.mutateAsync({
         invoiceId: invoice.id,
         input: {
-          amount: minor,
+          amount: total,
+          // [] clears the positions and hands the total back to the amount field
+          lines: itemised ? toLineInput(filled) : [],
           description: description.trim() || null,
           dueDate: dueDate || null, // cleared = no due date
         },
@@ -439,10 +474,24 @@ function EditInvoiceForm({
 
   return (
     <div className="space-y-3 rounded-(--radius-panel) border border-primary/40 bg-[#f7f8fa] p-3">
+      <Segmented
+        value={itemised ? "lines" : "flat"}
+        onChange={(v) => setItemised(v === "lines")}
+        options={[
+          { value: "flat", label: "One amount" },
+          { value: "lines", label: "Positions" },
+        ]}
+      />
+
       <div className="flex gap-3">
         <div className="w-[140px]">
           <FormField label="Amount">
-            <Input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <Input
+              inputMode="decimal"
+              value={itemised ? moneyInputValue(total) : amount}
+              readOnly={itemised}
+              onChange={(e) => setAmount(e.target.value)}
+            />
           </FormField>
         </div>
         <div className="w-[150px]">
@@ -456,9 +505,12 @@ function EditInvoiceForm({
           </FormField>
         </div>
       </div>
+      {itemised && <LinesEditor lines={lines} onChange={setLines} />}
+
       <p className="text-[12px] text-faint">
-        Already paid: {fmtMoney(invoice.paid)} — the amount can't go below that. Clearing the date
-        leaves the invoice with no due date.
+        Already paid: {fmtMoney(invoice.paid)} — the amount can&apos;t go below that. Clearing the
+        date leaves the invoice with no due date.
+        {itemised && " With positions on, the amount is their sum."}
       </p>
       <div className="flex gap-2">
         <Button size="sm" disabled={update.isPending} onClick={() => void save()}>
@@ -786,3 +838,138 @@ export function NewInvoiceModal({
     </Modal>
   );
 }
+
+/**
+ * The positions editor — the toggle the firm asked for.
+ *
+ * It changes what you FILL IN, not what is stored: with it off an invoice is a single amount, as
+ * every invoice was before this existed; with it on the amount is the sum of the rows. There is no
+ * "invoice type" anywhere in the database, because the difference is "does it have a breakdown"
+ * and the rows themselves already answer that.
+ *
+ * Hours are entered as hours ("3.5") and carried as hundredths, so the arithmetic stays integer —
+ * a float hour times a rate is where the last cent goes missing.
+ */
+function LinesEditor({
+  lines,
+  onChange,
+}: {
+  lines: DraftLine[];
+  onChange: (next: DraftLine[]) => void;
+}) {
+  const set = (i: number, patch: Partial<DraftLine>) =>
+    onChange(lines.map((l, n) => (n === i ? { ...l, ...patch } : l)));
+
+  return (
+    <div className="space-y-1.5">
+      <div className="grid grid-cols-[1fr_80px_110px_110px_28px] items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-faint">
+        <div>Position</div>
+        <div className="text-right">Hours</div>
+        <div className="text-right">Rate</div>
+        <div className="text-right">Amount</div>
+        <div />
+      </div>
+
+      {lines.map((line, i) => {
+        const computed = draftAmount(line);
+        return (
+          <div key={i} className="grid grid-cols-[1fr_80px_110px_110px_28px] items-center gap-2">
+            <Input
+              value={line.description}
+              placeholder="Consultation"
+              onChange={(e) => set(i, { description: e.target.value })}
+            />
+            <Input
+              inputMode="decimal"
+              className="text-right"
+              placeholder="—"
+              value={line.hours}
+              onChange={(e) => set(i, { hours: e.target.value })}
+            />
+            <Input
+              inputMode="decimal"
+              className="text-right"
+              placeholder="—"
+              value={line.rate}
+              onChange={(e) => set(i, { rate: e.target.value })}
+            />
+            {/* read-only the moment hours AND a rate are both there — the number is theirs, and
+                two editable fields that must agree is how they stop agreeing */}
+            <Input
+              inputMode="decimal"
+              className="text-right"
+              value={computed !== null ? moneyInputValue(computed) : line.amount}
+              readOnly={computed !== null}
+              onChange={(e) => set(i, { amount: e.target.value })}
+            />
+            <IconButton
+              label="Remove this position"
+              className="hover:text-danger"
+              onClick={() => onChange(lines.filter((_, n) => n !== i))}
+            >
+              <Trash2 size={15} />
+            </IconButton>
+          </div>
+        );
+      })}
+
+      <div className="flex items-center justify-between pt-1">
+        <Button size="sm" variant="secondary" onClick={() => onChange([...lines, emptyLine()])}>
+          + Position
+        </Button>
+        <span className="text-[13px]">
+          Total{" "}
+          <span className="font-semibold tabular-nums">{fmtMoney(draftTotal(lines))}</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** A row while it is being typed — strings, because a half-typed number is not a number yet. */
+interface DraftLine {
+  description: string;
+  hours: string;
+  rate: string;
+  amount: string;
+}
+
+const emptyLine = (): DraftLine => ({ description: "", hours: "", rate: "", amount: "" });
+
+/** Hours as typed → hundredths of an hour. "3.5" → 350. */
+const parseHours = (text: string): number | null => {
+  const n = Number(text.replace(",", ".").trim());
+  return text.trim() === "" || !Number.isFinite(n) || n <= 0 ? null : Math.round(n * 100);
+};
+
+/** A row's amount when hours AND a rate are both present — otherwise the typed one stands. */
+function draftAmount(line: DraftLine): number | null {
+  const hours = parseHours(line.hours);
+  const rate = parseMoney(line.rate);
+  return hours !== null && rate > 0 ? lineAmount(hours, rate) : null;
+}
+
+const draftTotal = (lines: DraftLine[]) =>
+  lines.reduce((sum, l) => sum + (draftAmount(l) ?? parseMoney(l.amount)), 0);
+
+/** Draft rows → what the API takes. */
+const toLineInput = (lines: DraftLine[]) =>
+  lines.map((l) => {
+    const hours = parseHours(l.hours);
+    const rate = parseMoney(l.rate);
+    return {
+      description: l.description.trim(),
+      quantity: hours,
+      unitRate: rate > 0 ? rate : null,
+      amount: draftAmount(l) ?? parseMoney(l.amount),
+    };
+  });
+
+/** A stored invoice's positions → editable rows. */
+const toDraftLines = (lines: Invoice["lines"]): DraftLine[] =>
+  lines.map((l) => ({
+    description: l.description,
+    hours: l.quantity != null ? String(l.quantity / 100) : "",
+    rate: l.unitRate != null ? moneyInputValue(l.unitRate) : "",
+    amount: moneyInputValue(l.amount),
+  }));

@@ -813,6 +813,7 @@ model Invoice {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
+  lines        InvoiceLine[]
   client       Client            @relation(fields: [clientId], references: [id])
   company      Company?          @relation(fields: [companyId], references: [id], onDelete: Restrict)
   // Restrict, not SetNull: an invoice must never lose what it was for. The catalog/company
@@ -834,6 +835,35 @@ model Invoice {
   @@index([tidiedAt])
   // the working list is "this firm's live invoices, newest first" — one index answers it
   @@index([cancelledAt, tidiedAt, issuedAt])
+}
+
+/// One position on an invoice — what the total is made of.
+///
+/// Optional, and that is the design: an invoice with no lines is a single amount, exactly as every
+/// invoice was before this existed, and renders unchanged. When lines ARE present the invoice's
+/// `amount` is their sum — computed on the server, never taken from the browser — so there is one
+/// number for money and one place that decides it.
+///
+/// `quantity` and `unitRate` are optional too, so one shape covers both "Consultation — 500" and
+/// "3.50 h × 200.00 = 700". A stored "invoice type" would have remembered which form was filled
+/// in rather than what is true about the document.
+model InvoiceLine {
+  id          String @id @default(uuid()) @db.Uuid
+  invoiceId   String @db.Uuid
+  /// display order, 0-based — the firm's ordering, not the insert order
+  order       Int
+  description String
+  /// HUNDREDTHS OF AN HOUR: 2.50 h = 250. Integers like money, for the same reason — a float
+  /// hour times a rate is where the last cent goes missing.
+  quantity    Int?
+  /// minor units per hour
+  unitRate    Int?
+  /// minor units; = round(quantity × unitRate / 100) when both are set, else as entered
+  amount      Int
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
 }
 
 model Payment {

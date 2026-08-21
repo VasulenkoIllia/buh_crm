@@ -23,6 +23,33 @@ export const paymentSchema = z.object({
 });
 export type Payment = z.infer<typeof paymentSchema>;
 
+/**
+ * One position on an invoice.
+ *
+ * `quantity` is HUNDREDTHS OF AN HOUR — 2.50 h = 250 — so hours are integers for the same reason
+ * money is: a float hour times a rate is where the last cent goes missing. Both it and `unitRate`
+ * are optional, so one shape covers "Consultation — 500" and "3.50 × 200 = 700".
+ */
+export const invoiceLineSchema = z.object({
+  id: uuid,
+  order: z.number().int(),
+  description: z.string(),
+  quantity: z.number().int().nullable(),
+  unitRate: money.nullable(),
+  amount: money,
+});
+export type InvoiceLine = z.infer<typeof invoiceLineSchema>;
+
+/** Hours × rate, in minor units — the ONE place the arithmetic lives, so both sides agree. */
+export function lineAmount(quantity: number | null, unitRate: number | null): number | null {
+  if (quantity == null || unitRate == null) return null;
+  return Math.round((quantity * unitRate) / 100);
+}
+
+/** What an invoice's amount must be, given its lines. Empty list = the amount stands on its own. */
+export const linesTotal = (lines: { amount: number }[]) =>
+  lines.reduce((sum, l) => sum + l.amount, 0);
+
 export const invoiceSchema = z.object({
   id: uuid,
   number: z.string().min(1),
@@ -59,6 +86,8 @@ export const invoiceSchema = z.object({
   /** the job this invoice was issued for (one-time task), if any */
   taskId: uuid.nullable(),
   taskTitle: z.string().nullable(),
+  /** the breakdown; empty = a single amount, which is how every invoice looked before lines */
+  lines: z.array(invoiceLineSchema),
   payments: z.array(paymentSchema),
 });
 export type Invoice = z.infer<typeof invoiceSchema>;
@@ -124,6 +153,20 @@ export type InvoiceListQuery = z.infer<typeof invoiceListQuery>;
  * target exactly like a task does; without one the invoice is a bare client charge.
  * `withTask` additionally opens a job for it, already linked to this invoice.
  */
+/**
+ * A position as the form sends it. `amount` is sent so the browser can show a live total, and is
+ * RECOMPUTED on the server whenever hours and a rate are both present — the total a client types
+ * is never the total that gets stored.
+ */
+export const invoiceLineInput = z.object({
+  description: z.string().trim().min(1, "Name the position").max(200),
+  /** hundredths of an hour; null = a flat position with no hours */
+  quantity: z.number().int().min(1).max(1_000_00).nullable().optional(),
+  unitRate: money.nullable().optional(),
+  amount: money.min(0),
+});
+export type InvoiceLineInput = z.infer<typeof invoiceLineInput>;
+
 export const createInvoiceInput = z
   .object({
     clientId: uuid,
@@ -132,6 +175,8 @@ export const createInvoiceInput = z
     amount: money.min(1, "Amount is required"),
     /** a date sets it · `null` = explicitly no due date · omitted = inherit the service's dueDays */
     dueDate: z.iso.date().nullable().optional(),
+    /** positions; when given, the invoice's amount is their sum and `amount` above is ignored */
+    lines: z.array(invoiceLineInput).max(50).optional(),
     withTask: z.boolean().default(false),
     taskTitle: z.string().trim().max(200).optional(),
     assigneeIds: z.array(uuid).default([]),
@@ -148,6 +193,12 @@ export type CreateInvoiceInput = z.infer<typeof createInvoiceInput>;
  */
 export const updateInvoiceInput = z.object({
   amount: money.min(1).optional(),
+  /**
+   * Omitted = the positions are left alone (every caller before this one).
+   * `[]` = cleared, and then `amount` decides the total again.
+   * Non-empty = replaced wholesale, and the total is their sum.
+   */
+  lines: z.array(invoiceLineInput).max(50).optional(),
   description: z.string().trim().max(500).nullable().optional(),
   /** a date sets it · `null` clears it · omitted keeps the current one */
   dueDate: z.iso.date().nullable().optional(),

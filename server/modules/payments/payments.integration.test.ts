@@ -78,6 +78,7 @@ async function makeInvoice(clientId: string, amount: number, extra: Record<strin
 }
 
 async function wipe() {
+  await prisma.invoiceLine.deleteMany();
   await prisma.paymentAuditLog.deleteMany();
   await prisma.payment.deleteMany();
   await prisma.timeEntry.deleteMany();
@@ -889,5 +890,194 @@ describe("payments", () => {
     expect(res.json().items).toHaveLength(1);
     expect(res.json().items[0].status).toBe("overdue");
     expect(res.json().totals).toEqual({ receivable: 70_000, overdue: 70_000 });
+  });
+});
+
+/**
+ * Positions — an invoice can say what its total is made of.
+ *
+ * Two things are worth being paranoid about, and each has its own test below. **An invoice with no
+ * positions must behave exactly as it always has** — that is the whole regression surface of this
+ * feature. And when positions ARE present they own the total, so a number sent alongside them can
+ * never be what gets stored; otherwise the invoice would carry an amount its own rows contradict.
+ */
+describe("invoice positions", () => {
+  it("leaves an invoice with no positions exactly as it was", async () => {
+    const clientId = await makeClient("Plain");
+    const invoice = await makeInvoice(clientId, 50_000);
+    expect(invoice.lines).toEqual([]);
+    expect(invoice.amount).toBe(50_000);
+
+    // the old edit path, untouched: an amount and nothing else
+    const edited = await app.inject({
+      method: "PATCH",
+      url: `/api/invoices/${invoice.id}`,
+      headers: { cookie: adminCookie },
+      payload: { amount: 60_000 },
+    });
+    expect(edited.statusCode).toBe(200);
+    expect(edited.json()).toMatchObject({ amount: 60_000, lines: [] });
+  });
+
+  it("adds up hours × rate, and the server does the arithmetic", async () => {
+    const clientId = await makeClient("Hourly");
+    const invoice = await makeInvoice(clientId, 100_00);
+
+    const edited = await app.inject({
+      method: "PATCH",
+      url: `/api/invoices/${invoice.id}`,
+      headers: { cookie: adminCookie },
+      payload: {
+        // the amount below is a LIE — the positions decide, and it must be ignored
+        amount: 999_99,
+        lines: [
+          { description: "Consultation", quantity: 150, unitRate: 200_00, amount: 1 },
+          { description: "Report", quantity: 300, unitRate: 200_00, amount: 1 },
+          { description: "Postage", amount: 12_00 },
+        ],
+      },
+    });
+    expect(edited.statusCode).toBe(200);
+    const body = edited.json();
+
+    // 1.50 h × 200.00 = 300.00 · 3.00 h × 200.00 = 600.00 · flat 12.00
+    expect(body.lines.map((l: { amount: number }) => l.amount)).toEqual([300_00, 600_00, 12_00]);
+    expect(body.amount).toBe(912_00);
+    expect(body.lines[2].quantity).toBeNull();
+    expect(body.lines[2].unitRate).toBeNull();
+  });
+
+  it("keeps the positions in order, and re-orders on replace", async () => {
+    const clientId = await makeClient("Ordered");
+    const invoice = await makeInvoice(clientId, 100_00);
+    const put = (descriptions: string[]) =>
+      app.inject({
+        method: "PATCH",
+        url: `/api/invoices/${invoice.id}`,
+        headers: { cookie: adminCookie },
+        payload: { lines: descriptions.map((description) => ({ description, amount: 10_00 })) },
+      });
+
+    expect((await put(["A", "B", "C"])).json().lines.map((l: { description: string }) => l.description))
+      .toEqual(["A", "B", "C"]);
+    expect((await put(["C", "A"])).json().lines.map((l: { description: string }) => l.description))
+      .toEqual(["C", "A"]);
+  });
+
+  it("clears the positions when given an empty list, and the amount decides again", async () => {
+    const clientId = await makeClient("Cleared");
+    const invoice = await makeInvoice(clientId, 100_00);
+    await app.inject({
+      method: "PATCH",
+      url: `/api/invoices/${invoice.id}`,
+      headers: { cookie: adminCookie },
+      payload: { lines: [{ description: "Work", quantity: 200, unitRate: 150_00, amount: 1 }] },
+    });
+
+    const cleared = await app.inject({
+      method: "PATCH",
+      url: `/api/invoices/${invoice.id}`,
+      headers: { cookie: adminCookie },
+      payload: { amount: 77_00, lines: [] },
+    });
+    expect(cleared.json()).toMatchObject({ amount: 77_00, lines: [] });
+  });
+
+  /**
+   * `lines` omitted means "leave them alone" — but they still own the total, so an amount sent
+   * without them must not be able to contradict the rows underneath it.
+   */
+  it("refuses to let a bare amount disagree with the positions it is made of", async () => {
+    const clientId = await makeClient("Consistent");
+    const invoice = await makeInvoice(clientId, 100_00);
+    await app.inject({
+      method: "PATCH",
+      url: `/api/invoices/${invoice.id}`,
+      headers: { cookie: adminCookie },
+      payload: { lines: [{ description: "Work", quantity: 200, unitRate: 150_00, amount: 1 }] },
+    });
+
+    const edited = await app.inject({
+      method: "PATCH",
+      url: `/api/invoices/${invoice.id}`,
+      headers: { cookie: adminCookie },
+      payload: { amount: 5_00, description: "just a note" },
+    });
+    expect(edited.json()).toMatchObject({ amount: 300_00, description: "just a note" });
+  });
+
+  it("still refuses a total below what has been paid", async () => {
+    const clientId = await makeClient("Paid");
+    const invoice = await makeInvoice(clientId, 100_00);
+    await app.inject({
+      method: "POST",
+      url: `/api/invoices/${invoice.id}/payments`,
+      headers: { cookie: adminCookie },
+      payload: { amount: 80_00, paidAt: "2026-08-20" },
+    });
+
+    const tooLow = await app.inject({
+      method: "PATCH",
+      url: `/api/invoices/${invoice.id}`,
+      headers: { cookie: adminCookie },
+      payload: { lines: [{ description: "Work", quantity: 100, unitRate: 50_00, amount: 1 }] },
+    });
+    expect(tooLow.statusCode).toBe(400);
+    expect(tooLow.json().error.message).toMatch(/already been paid/i);
+  });
+
+  /** The invoice and its job must never show the client two different numbers. */
+  it("carries the total onto the linked job", async () => {
+    const clientId = await makeClient("Jobbed");
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/invoices",
+      headers: { cookie: userCookie },
+      payload: {
+        clientId,
+        amount: 100_00,
+        description: "Audit",
+        withTask: true,
+        taskTitle: "Audit",
+        assigneeIds: [],
+      },
+    });
+    const invoice = created.json();
+
+    await app.inject({
+      method: "PATCH",
+      url: `/api/invoices/${invoice.id}`,
+      headers: { cookie: adminCookie },
+      payload: {
+        lines: [
+          { description: "Fieldwork", quantity: 425, unitRate: 200_00, amount: 1 },
+          { description: "Write-up", quantity: 100, unitRate: 200_00, amount: 1 },
+        ],
+      },
+    });
+
+    // 4.25 h + 1.00 h at 200.00 = 1050.00
+    const task = await prisma.task.findFirstOrThrow({ where: { invoiceId: invoice.id } });
+    expect(task.amount).toBe(1050_00);
+  });
+
+  it("can be created itemised from the start", async () => {
+    const clientId = await makeClient("Born");
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/invoices",
+      headers: { cookie: userCookie },
+      payload: {
+        clientId,
+        amount: 1, // ignored — the positions decide
+        lines: [
+          { description: "Consultation", quantity: 250, unitRate: 240_00, amount: 1 },
+          { description: "Filing fee", amount: 35_00 },
+        ],
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({ amount: 635_00 });
+    expect(res.json().lines).toHaveLength(2);
   });
 });

@@ -3,13 +3,14 @@ import type {
   BulkTidyInput,
   BulkDeliveryInput,
   CreateInvoiceInput,
+  InvoiceLineInput,
   InvoiceListQuery,
   MarkPaidInput,
   SetDeliveryInput,
   UpdateInvoiceInput,
   UpdatePaymentInput,
 } from "@shared/schema/payment.js";
-import { deriveStatus } from "@shared/schema/payment.js";
+import { deriveStatus, lineAmount, linesTotal } from "@shared/schema/payment.js";
 import type { Prisma, User } from "../../generated/prisma/client.js";
 import { config } from "../../core/config.js";
 import { dateToUtc, todayBusinessMs } from "../../core/dates.js";
@@ -25,6 +26,27 @@ import * as repo from "./payments.repository.js";
  */
 const balanceOf = (inv: { amount: number; paidTotal: number; cancelledAt: Date | null }) =>
   inv.cancelledAt ? 0 : Math.max(0, inv.amount - inv.paidTotal);
+
+/**
+ * The positions as they will be STORED — the server's arithmetic, not the browser's.
+ *
+ * A position that carries both hours and a rate has its amount computed here and whatever the form
+ * sent is discarded. A position without them keeps the amount that was typed, which is what makes
+ * "Consultation — 500" and "3.50 × 200" the same shape. Order is the order they arrived in.
+ */
+function toStoredLines(lines: InvoiceLineInput[]) {
+  return lines.map((l, order) => {
+    const quantity = l.quantity ?? null;
+    const unitRate = l.unitRate ?? null;
+    return {
+      order,
+      description: l.description,
+      quantity,
+      unitRate,
+      amount: lineAmount(quantity, unitRate) ?? l.amount,
+    };
+  });
+}
 
 export function toInvoiceDto(
   inv: repo.InvoiceRecord,
@@ -63,6 +85,14 @@ export function toInvoiceDto(
     sentByName: inv.sentBy ? personName(inv.sentBy) : null,
     taskId: inv.tasks[0]?.id ?? null,
     taskTitle: inv.tasks[0]?.title ?? null,
+    lines: inv.lines.map((l) => ({
+      id: l.id,
+      order: l.order,
+      description: l.description,
+      quantity: l.quantity,
+      unitRate: l.unitRate,
+      amount: l.amount,
+    })),
     payments: inv.payments.map((p) => ({
       id: p.id,
       invoiceId: p.invoiceId,
@@ -186,13 +216,20 @@ export async function createInvoice(input: CreateInvoiceInput, user: User) {
     }
   }
 
+  // Positions decide the total when there are any — the number the browser sent is only what it
+  // was showing while you typed, and is never what gets stored.
+  const lines = input.lines?.length ? toStoredLines(input.lines) : null;
+  const amount = lines ? linesTotal(lines) : input.amount;
+  if (lines && amount <= 0) throw new ValidationError("The positions add up to nothing");
+
   const invoice = await issueInvoice({
     clientId: input.clientId,
     companyId,
     serviceId,
     subscriptionId: input.subscriptionId ?? null,
     description: input.description ?? null,
-    amount: input.amount,
+    amount,
+    lines,
     // a date sets it · explicit null = no due date at all · omitted = inherit the service's dueDays
     dueDate: input.dueDate === undefined ? undefined : input.dueDate ? dateToUtc(input.dueDate) : null,
     dueDays,
@@ -206,7 +243,7 @@ export async function createInvoice(input: CreateInvoiceInput, user: User) {
       companyId,
       serviceId,
       subscriptionId: input.subscriptionId ?? null,
-      amount: input.amount,
+      amount,
       invoiceId: invoice.id,
       description: input.description ?? null,
       createdById: user.id,
@@ -228,20 +265,43 @@ export async function updateInvoice(id: string, input: UpdateInvoiceInput, user:
   if (!invoice) throw new NotFoundError("Invoice not found");
   if (invoice.cancelledAt) throw new ValidationError("A cancelled invoice can't be edited");
 
-  if (input.amount !== undefined && input.amount < invoice.paidTotal) {
+  /**
+   * What the total becomes. Three cases, and only one of them trusts the `amount` field:
+   *
+   *   lines omitted   — the positions stay as they are. If there ARE any, they still own the
+   *                     total, so an `amount` sent alongside them is ignored rather than allowed
+   *                     to disagree with the rows underneath it.
+   *   lines: []       — cleared, and the invoice goes back to being a single number.
+   *   lines: [...]    — replaced, and their sum is the total.
+   */
+  const newLines = input.lines === undefined ? null : toStoredLines(input.lines);
+  const keepsLines = input.lines === undefined && invoice.lines.length > 0;
+  const amount =
+    newLines && newLines.length > 0
+      ? linesTotal(newLines)
+      : keepsLines
+        ? linesTotal(invoice.lines)
+        : (input.amount ?? invoice.amount);
+
+  if (amount <= 0) throw new ValidationError("The invoice would come to nothing");
+  if (amount < invoice.paidTotal) {
     throw new ValidationError("The amount can't be less than what's already been paid");
   }
 
   const before = { amount: invoice.amount, description: invoice.description, dueDate: invoice.dueDate?.toISOString() ?? null };
-  const updated = await repo.updateInvoice(id, {
-    ...(input.amount !== undefined ? { amount: input.amount } : {}),
-    ...(input.description !== undefined ? { description: input.description ?? null } : {}),
-    ...(input.dueDate !== undefined
-      ? { dueDate: input.dueDate ? dateToUtc(input.dueDate) : null }
-      : {}),
-  });
-  if (input.amount !== undefined && input.amount !== invoice.amount) {
-    await repo.syncTaskAmounts(id, input.amount);
+  const updated = await repo.updateInvoiceWithLines(
+    id,
+    {
+      ...(amount !== invoice.amount ? { amount } : {}),
+      ...(input.description !== undefined ? { description: input.description ?? null } : {}),
+      ...(input.dueDate !== undefined
+        ? { dueDate: input.dueDate ? dateToUtc(input.dueDate) : null }
+        : {}),
+    },
+    newLines,
+  );
+  if (amount !== invoice.amount) {
+    await repo.syncTaskAmounts(id, amount);
   }
   await repo.writeAudit({
     invoiceId: id,

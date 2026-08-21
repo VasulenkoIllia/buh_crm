@@ -44,6 +44,22 @@ export interface IssueInvoiceInput {
   createdById?: string | null;
   /** link an already-created task (one-time job billing) */
   taskId?: string | null;
+  /**
+   * The breakdown, written in the SAME transaction as the invoice.
+   *
+   * `amount` above must already be their sum — the caller derives it, because the caller is the
+   * one that decides whether positions or a typed number own the total. Writing them apart would
+   * leave a moment where an invoice's amount and the rows it is made of disagree.
+   */
+  lines?: StoredLine[] | null;
+}
+
+export interface StoredLine {
+  order: number;
+  description: string;
+  quantity: number | null;
+  unitRate: number | null;
+  amount: number;
 }
 
 const isUniqueOn = (err: unknown, field: string) =>
@@ -87,7 +103,11 @@ export async function issueInvoice(input: IssueInvoiceInput) {
   const { data, year } = invoiceRow(input);
   for (let attempt = 0; ; attempt++) {
     try {
-      return await repo.inTransaction((tx) => repo.insertInvoice(tx, year, data, input.taskId));
+      return await repo.inTransaction(async (tx) => {
+        const invoice = await repo.insertInvoice(tx, year, data, input.taskId);
+        if (input.lines?.length) await repo.replaceLines(tx, invoice.id, input.lines);
+        return invoice;
+      });
     } catch (err) {
       if (attempt < 5 && isUniqueOn(err, "number")) continue; // burnt number → take the next one
       throw err;
