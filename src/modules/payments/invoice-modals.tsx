@@ -168,14 +168,20 @@ export function InvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClos
             </p>
           )}
 
+          {/* The editor spans the WHOLE card, above the two columns.
+              It used to sit inside the left one, which was fine for three fields and impossible
+              for a table of positions: description, hours, rate and amount cannot share half a
+              modal, so the row overflowed and ran under the payment panel (user, 2026-08-21). */}
+          {editing && (
+            <EditInvoiceForm invoice={invoice} onDone={() => setEditing(false)} onError={setError} />
+          )}
+
           {/* Two columns so the card fits without scrolling: WHAT is owed and what the invoice is
              on the left, the MOVEMENT of money — history, the payment form, the journal — on the
              right (user, 2026-08-01). One column on a narrow window. */}
           <div className="grid items-start gap-x-5 gap-y-4 md:grid-cols-2">
           <div className="space-y-4">
-          {editing ? (
-            <EditInvoiceForm invoice={invoice} onDone={() => setEditing(false)} onError={setError} />
-          ) : (
+          {(
           /* What's still OWED is the number this screen exists to answer, so it leads; the
              billed total and what's come in are the context behind it. */
           <div className="rounded-(--radius-panel) border border-border p-3">
@@ -184,9 +190,9 @@ export function InvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClos
                 <div className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-faint">
                   {invoice.balance === 0 ? "Settled" : "Remaining"}
                   {/* acts on THIS invoice → an icon, the same control the catalog rows use */}
-                  {isAdmin && !invoice.cancelledAt && (
+                  {isAdmin && !invoice.cancelledAt && !editing && (
                     <IconButton
-                      label="Edit amount, description or due date"
+                      label="Edit the amount, positions, description or due date"
                       className="h-6 w-6"
                       onClick={() => setEditing(true)}
                     >
@@ -483,24 +489,28 @@ function EditInvoiceForm({
         ]}
       />
 
-      <div className="flex gap-3">
-        <div className="w-[140px]">
-          <FormField label="Amount">
-            <Input
-              inputMode="decimal"
-              value={itemised ? moneyInputValue(total) : amount}
-              readOnly={itemised}
-              onChange={(e) => setAmount(e.target.value)}
-            />
-          </FormField>
-        </div>
+      <div className="flex flex-wrap gap-3">
+        {/* With positions on, the total lives at the foot of the table where it is being added up.
+            A second, read-only "Amount" beside the due date was the same number twice, and the
+            eye could not tell which one it was meant to act on. */}
+        {!itemised && (
+          <div className="w-[140px]">
+            <FormField label="Amount">
+              <Input
+                inputMode="decimal"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+              />
+            </FormField>
+          </div>
+        )}
         <div className="w-[150px]">
           <FormField label="Due date">
             <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
           </FormField>
         </div>
-        <div className="flex-1">
-          <FormField label="Description">
+        <div className="min-w-[200px] flex-1">
+          <FormField label={itemised ? "Note on the invoice" : "Description"}>
             <Input value={description} onChange={(e) => setDescription(e.target.value)} />
           </FormField>
         </div>
@@ -508,9 +518,9 @@ function EditInvoiceForm({
       {itemised && <LinesEditor lines={lines} onChange={setLines} />}
 
       <p className="text-[12px] text-faint">
-        Already paid: {fmtMoney(invoice.paid)} — the amount can&apos;t go below that. Clearing the
-        date leaves the invoice with no due date.
-        {itemised && " With positions on, the amount is their sum."}
+        {invoice.paid > 0
+          ? `Already paid ${fmtMoney(invoice.paid)} — the total can't go below that.`
+          : "Clearing the due date leaves the invoice with none."}
       </p>
       <div className="flex gap-2">
         <Button size="sm" disabled={update.isPending} onClick={() => void save()}>
@@ -862,7 +872,7 @@ function LinesEditor({
 
   return (
     <div className="space-y-1.5">
-      <div className="grid grid-cols-[1fr_80px_110px_110px_28px] items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-faint">
+      <div className="grid grid-cols-[minmax(140px,1fr)_90px_120px_120px_32px] items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-faint">
         <div>Position</div>
         <div className="text-right">Hours</div>
         <div className="text-right">Rate</div>
@@ -873,7 +883,7 @@ function LinesEditor({
       {lines.map((line, i) => {
         const computed = draftAmount(line);
         return (
-          <div key={i} className="grid grid-cols-[1fr_80px_110px_110px_28px] items-center gap-2">
+          <div key={i} className="grid grid-cols-[minmax(140px,1fr)_90px_120px_120px_32px] items-center gap-2">
             <Input
               value={line.description}
               placeholder="Consultation"
