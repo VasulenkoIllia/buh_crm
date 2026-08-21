@@ -306,7 +306,14 @@ function TemplateList({ newSignal }: { newSignal: number }) {
                   }
                   disabled={update.isPending}
                   className={t.active ? "hover:text-danger" : undefined}
-                  onClick={() => update.mutate({ id: t.id, input: { active: !t.active } })}
+                  onClick={() => {
+                    setError(null);
+                    update
+                      .mutateAsync({ id: t.id, input: { active: !t.active } })
+                      .catch((e) =>
+                        setError(e instanceof Error ? e.message : "Could not change the template"),
+                      );
+                  }}
                 >
                   <Power size={15} />
                 </IconButton>

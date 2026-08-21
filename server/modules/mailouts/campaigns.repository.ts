@@ -140,6 +140,9 @@ export function listCampaignOptOuts(campaignId: string) {
       unsubscribedFrom: { select: { periodKey: true } },
     },
     orderBy: { unsubscribedAt: "desc" },
+    // bounded: this one grows with CLIENT behaviour rather than the firm's, and it renders in a
+    // panel on the campaign card. The count beside the heading is what answers "how many".
+    take: 100,
   });
 }
 

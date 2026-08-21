@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { prisma } from "./core/db.js";
 
@@ -103,6 +104,44 @@ describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
       expect(def).toMatch(/CREATE UNIQUE INDEX/i);
       expect(def, `${index.name} no longer covers what it must`).toMatch(index.mustMatch);
     }
+  });
+
+  /**
+   * **Every table is either wiped by `--reset` or deliberately kept.**
+   *
+   * `scripts/reset-data.sql` runs BEFORE the deploy pulls, so when it fails the server is left with
+   * a fresh dump, the old code and untouched data. It has broken that way three times in one
+   * round: a `DELETE FROM "Reminder"` for a table a migration had dropped, a `DELETE FROM
+   * "Company"` blocked by the new RESTRICT on sent letters, and — in a test's own wipe — templates
+   * deleted before the campaigns that hold them.
+   *
+   * Every one was the same shape: a list of table names that a new migration made wrong. Nothing
+   * could catch it, because that file runs on a server and nowhere else. This is that check: ask
+   * the DATABASE what tables exist and hold the script to all of them.
+   */
+  it("wipes every table on --reset, or names it as deliberately kept", async () => {
+    const sql = await readFile(
+      new URL("../scripts/reset-data.sql", import.meta.url),
+      "utf8",
+    );
+    const rows = await prisma.$queryRaw<{ tablename: string }[]>`
+      SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+    `;
+
+    /** Kept on purpose: the team stays signed in, and Prisma owns its own ledger. */
+    const KEPT = new Set(["User", "Session", "AuthToken", "_prisma_migrations"]);
+
+    const missed = rows
+      .map((r) => r.tablename)
+      .filter((t) => !KEPT.has(t))
+      .filter((t) => !new RegExp(`DELETE FROM "${t}"`).test(sql));
+
+    expect(
+      missed,
+      `scripts/reset-data.sql does not clear: ${missed.join(", ")}. A --reset deploy fails on the ` +
+        `server, AFTER the dump and BEFORE the pull. Add the DELETE (in FK order) or add the table ` +
+        `to KEPT here with a reason.`,
+    ).toEqual([]);
   });
 
   it("keeps billing history un-blankable (ON DELETE RESTRICT on the provenance FKs)", async () => {

@@ -22,13 +22,20 @@ UPDATE "FirmProfile" SET "logoFileId" = NULL;
 -- would otherwise outlive the FirmProfile it belongs to.
 DELETE FROM "MailoutRecipient";
 DELETE FROM "CampaignRecipient";
+DELETE FROM "CampaignDate";
 DELETE FROM "ClientMailPreference";
 DELETE FROM "Mailout";
 DELETE FROM "Campaign";
 DELETE FROM "EmailTemplate";
 DELETE FROM "MailSenderAccount";
 
--- children first, parents after
+-- Children first, parents after.
+--
+-- Rows that would CASCADE from a parent below are still named here on purpose. A cascade is
+-- invisible to a reader and, worse, to the next migration: `MailoutRecipient.companyId` was a
+-- cascade until it became RESTRICT, and the wipe broke on a server. An explicit DELETE costs
+-- nothing on an empty table and survives that change. `server/schema-invariants.test.ts` holds
+-- this file to every table the database has.
 DELETE FROM "PaymentAuditLog";
 DELETE FROM "Payment";
 DELETE FROM "TimeEntry";
@@ -36,7 +43,9 @@ DELETE FROM "Subtask";
 DELETE FROM "TaskAssignee";
 DELETE FROM "TaskComment";
 DELETE FROM "Task";
+DELETE FROM "InvoiceLine";
 DELETE FROM "Invoice";
+DELETE FROM "SubscriptionPeriod";
 DELETE FROM "Subscription";
 DELETE FROM "MeetingParticipant";
 DELETE FROM "Meeting";
@@ -44,6 +53,8 @@ DELETE FROM "Meeting";
 -- design-phase stub nothing ever wrote to. Left in, this line failed with 42P01 and took the
 -- whole reset, and therefore the deploy, down with it.)
 DELETE FROM "ClientPerson";
+DELETE FROM "SecretAuditLog";
+DELETE FROM "ClientSecret";
 DELETE FROM "Company";
 DELETE FROM "File";
 DELETE FROM "Client";

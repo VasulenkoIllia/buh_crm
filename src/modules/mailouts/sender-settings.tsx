@@ -443,7 +443,14 @@ function LetterheadRow({
                 label="Remove the letterhead — letters fall back to the firm name in type"
                 disabled={remove.isPending}
                 className="hover:text-danger"
-                onClick={() => remove.mutate(undefined as never)}
+                onClick={() => {
+                  setError(null);
+                  remove
+                    .mutateAsync(undefined as never)
+                    .catch((e) =>
+                      setError(e instanceof Error ? e.message : "Could not remove the letterhead"),
+                    );
+                }}
               >
                 <Trash2 size={15} />
               </IconButton>

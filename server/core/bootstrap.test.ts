@@ -59,6 +59,10 @@ describe("ensureBaseData — the default mailbox", () => {
   beforeEach(async () => {
     await prisma.mailoutRecipient.deleteMany();
     await prisma.mailout.deleteMany();
+    // before the templates: Campaign.templateId is ON DELETE RESTRICT, so a campaign left behind
+    // by another suite makes `emailTemplate.deleteMany()` fail and this one look broken
+    await prisma.campaignRecipient.deleteMany();
+    await prisma.campaign.deleteMany();
     await prisma.emailTemplate.deleteMany();
     await prisma.mailSenderAccount.deleteMany();
   });

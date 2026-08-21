@@ -37,9 +37,17 @@ export function useTemplates() {
   });
 }
 
+/**
+ * The whole Mailouts tree, not just the templates list.
+ *
+ * A template's NAME is shown by five other screens — the campaigns list and card, the Sent log, a
+ * mailout's detail and a client's card — because each of them names the letter it came from.
+ * Invalidating only `TEMPLATES_KEY` left a renamed template reading as its old name everywhere
+ * else until something happened to refetch.
+ */
 function useInvalidateTemplates() {
   const qc = useQueryClient();
-  return () => qc.invalidateQueries({ queryKey: TEMPLATES_KEY });
+  return () => qc.invalidateQueries({ queryKey: MAILOUTS_KEY });
 }
 
 export function useCreateTemplate() {
