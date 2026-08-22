@@ -64,6 +64,7 @@ import {
   type RawEmail,
   type SmtpAccount,
 } from "../../core/email.js";
+import { explainSendError } from "../../core/send-error.js";
 import {
   applyHighlight,
   LOGO_CID,
@@ -80,7 +81,11 @@ import * as repo from "./mailouts.repository.js";
 
 /** A stored DATE as `YYYY-MM-DD`, read off the UTC-midnight instant days are stored on. */
 const isoDay = (d: Date | null) =>
-  d ? new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())).toISOString().slice(0, 10) : null;
+  d
+    ? new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+        .toISOString()
+        .slice(0, 10)
+    : null;
 
 /** How many of a client's letters the card tab shows. */
 const CLIENT_HISTORY_LIMIT = 50;
@@ -146,7 +151,9 @@ export async function createTemplate(input: CreateTemplateInput) {
       heading: input.heading ?? null,
       body: input.body,
       kind: input.kind,
-      senderAccount: input.senderAccountId ? { connect: { id: input.senderAccountId } } : undefined,
+      senderAccount: input.senderAccountId
+        ? { connect: { id: input.senderAccountId } }
+        : undefined,
     }),
   );
 }
@@ -328,7 +335,8 @@ function accountChecks(account: SenderAccount, firm: FirmProfile): SenderCheck[]
     checks.push({
       level: "error",
       field: "postalAddress",
-      message: "The firm has no postal address, so commercial mailouts are refused from any mailbox.",
+      message:
+        "The firm has no postal address, so commercial mailouts are refused from any mailbox.",
     });
   }
 
@@ -367,13 +375,14 @@ function toSenderAccount(account: SenderAccount, firm: FirmProfile): MailSenderA
 }
 
 export async function listSenderAccounts(): Promise<MailSenderState> {
-  const [accounts, firm] = await Promise.all([repo.listSenderAccounts(), repo.getFirmProfile()]);
+  const [accounts, firm] = await Promise.all([
+    repo.listSenderAccounts(),
+    repo.getFirmProfile(),
+  ]);
   return {
     accounts: accounts.map((a) => toSenderAccount(a, firm)),
     postalAddress: firm.postalAddress,
-    logo: firm.mailLogoFile
-      ? { id: firm.mailLogoFile.id, name: firm.mailLogoFile.name }
-      : null,
+    logo: firm.mailLogoFile ? { id: firm.mailLogoFile.id, name: firm.mailLogoFile.name } : null,
     server: {
       label: `${config.SMTP_HOST}:${config.SMTP_PORT}${config.SMTP_USER ? ` as ${config.SMTP_USER}` : ""}`,
       fromEmail: config.MAIL_FROM,
@@ -464,7 +473,8 @@ function sealPassword(password: string) {
 
 function accountWrite(input: SenderAccountInput) {
   const data: Record<string, unknown> = {};
-  const blank = (v: string | null | undefined) => (v === undefined ? undefined : v?.trim() || null);
+  const blank = (v: string | null | undefined) =>
+    v === undefined ? undefined : v?.trim() || null;
 
   if (input.name !== undefined) data.name = input.name.trim();
   if (input.fromName !== undefined) data.fromName = input.fromName.trim();
@@ -535,7 +545,8 @@ export async function updateSenderAccount(
 export async function makeSenderAccountDefault(id: string): Promise<MailSenderState> {
   const account = await repo.findSenderAccount(id);
   if (!account) throw new NotFoundError("Mailbox not found");
-  if (!account.active) throw new ValidationError("Activate the mailbox before making it default");
+  if (!account.active)
+    throw new ValidationError("Activate the mailbox before making it default");
   await repo.makeSenderAccountDefault(id);
   return listSenderAccounts();
 }
@@ -631,10 +642,14 @@ export async function testSenderAccount(
   try {
     await verifyAccount(smtp);
   } catch (err) {
+    // The whole point of a test button is to hand back an instruction, not a diagnosis. The same
+    // translator the delivery log uses runs here, so a wrong password reads the same way in both
+    // places — and the raw text stays in the server log for whoever needs the protocol detail.
+    console.error(`[mailouts] test connect failed for account=${id}:`, err);
     return {
       ok: false,
       step: "connect",
-      message: `Could not connect or sign in: ${err instanceof Error ? err.message : String(err)}`,
+      message: explainSendError(err, { host: smtp.host, port: smtp.port }).message,
       sentTo: null,
     };
   }
@@ -648,7 +663,12 @@ export async function testSenderAccount(
     };
   }
   if (!actor.email) {
-    return { ok: false, step: "send", message: "Your account has no email address.", sentTo: null };
+    return {
+      ok: false,
+      step: "send",
+      message: "Your account has no email address.",
+      sentTo: null,
+    };
   }
 
   const logo = await loadLogo(firm);
@@ -679,12 +699,11 @@ export async function testSenderAccount(
       attachments: logo ? [{ ...logo, cid: LOGO_CID }] : undefined,
     });
   } catch (err) {
+    console.error(`[mailouts] test send failed for account=${id}:`, err);
     return {
       ok: false,
       step: "send",
-      message:
-        `Signed in, but the server refused the letter: ${err instanceof Error ? err.message : String(err)}. ` +
-        `This is usually the From address — most servers only send as the account they authenticated.`,
+      message: `Signed in, but the letter did not go. ${explainSendError(err, { host: smtp.host, port: smtp.port }).message}`,
       sentTo: null,
     };
   }
@@ -868,7 +887,9 @@ async function resolveLetter(input: SendMailoutInput): Promise<Letter> {
  * here instead, where "you asked twice, they get one letter" is plainly what was meant. Order is
  * preserved so the preview lists people in the order they were picked.
  */
-function dedupeTargets(targets: MailoutTarget[]): { clientId: string; companyId: string | null }[] {
+function dedupeTargets(
+  targets: MailoutTarget[],
+): { clientId: string; companyId: string | null }[] {
   const seen = new Map<string, { clientId: string; companyId: string | null }>();
   for (const t of targets) {
     const companyId = t.companyId ?? null;
@@ -1315,7 +1336,10 @@ export async function runCampaign(campaign: {
   const firm = await repo.getFirmProfile();
   const template = await repo.findTemplate(campaign.templateId);
   if (!template) throw new NotFoundError("Template not found");
-  const account = await resolveSenderAccount(campaign.senderAccountId, template.senderAccountId);
+  const account = await resolveSenderAccount(
+    campaign.senderAccountId,
+    template.senderAccountId,
+  );
   const letter: Letter = {
     subject: template.subject,
     heading: template.heading,
@@ -1375,7 +1399,10 @@ async function deliver(
       err instanceof Error
         ? `Sender account unusable: ${err.message}`.slice(0, 300)
         : "Sender account unusable";
-    console.error(`[mailouts] cannot resolve the sending account for mailout=${mailoutId}:`, err);
+    console.error(
+      `[mailouts] cannot resolve the sending account for mailout=${mailoutId}:`,
+      err,
+    );
     for (const row of queued) {
       await repo.markRecipient(row.id, { status: "failed", reason }).catch(() => {});
     }
@@ -1387,7 +1414,10 @@ async function deliver(
   for (const row of queued) {
     const client = byId.get(row.clientId);
     if (!client) {
-      await repo.markRecipient(row.id, { status: "failed", reason: "Client archived mid-send" });
+      await repo.markRecipient(row.id, {
+        status: "failed",
+        reason: "Client archived mid-send",
+      });
       continue;
     }
 
@@ -1396,7 +1426,10 @@ async function deliver(
     // sending a letter that greets a company the firm no longer has.
     const company = companyOf(client, row.companyId);
     if (row.companyId && !company) {
-      await repo.markRecipient(row.id, { status: "failed", reason: "Company removed mid-send" });
+      await repo.markRecipient(row.id, {
+        status: "failed",
+        reason: "Company removed mid-send",
+      });
       continue;
     }
 
@@ -1412,7 +1445,15 @@ async function deliver(
       continue;
     }
 
-    const built = buildEmail(letter, { client, company }, account, firm, token, mailoutId, cidSrc(logo));
+    const built = buildEmail(
+      letter,
+      { client, company },
+      account,
+      firm,
+      token,
+      mailoutId,
+      cidSrc(logo),
+    );
     const message: RawEmail = {
       to: row.email,
       subject: built.subject,
@@ -1428,16 +1469,25 @@ async function deliver(
       await sendRawEmail(message);
       await repo.markRecipient(row.id, { status: "sent", sentAt: new Date(), reason: null });
     } catch (err) {
+      // The reason is what the person reading the log will see, so it is the SENTENCE, not the
+      // protocol text — `getaddrinfo ENOTFOUND` told them nothing except that something broke,
+      // which the red pill beside it already said. The raw error still goes to the server log,
+      // because that is what a hosting support desk asks for.
+      const failure = explainSendError(err, { host: smtp.host, port: smtp.port });
+      console.error(`[mailouts] send failed for recipient=${row.id} (${failure.fault}):`, err);
       // `.catch` on the marking too: if THAT throws, an unhandled rejection would abandon the
       // loop and strand every remaining recipient on `queued`. One lost status line is a much
       // smaller failure than a run that stops halfway without saying so.
       await repo
         .markRecipient(row.id, {
           status: "failed",
-          reason: err instanceof Error ? err.message.slice(0, 300) : "Send failed",
+          reason: failure.message.slice(0, 300),
         })
         .catch((markErr) =>
-          console.error(`[mailouts] could not record failure for recipient=${row.id}:`, markErr),
+          console.error(
+            `[mailouts] could not record failure for recipient=${row.id}:`,
+            markErr,
+          ),
         );
     }
   }

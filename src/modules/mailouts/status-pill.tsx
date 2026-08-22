@@ -27,3 +27,18 @@ export function StatusPill({ status, count }: { status: MailoutStatus; count?: n
     </span>
   );
 }
+
+/**
+ * How the sentence UNDER a row should read.
+ *
+ * A skip and a failure both leave a reason behind, but they are not the same news: a skip is the
+ * firm being protected from sending something broken, a failure is a letter that did not go and
+ * somebody has to act. Rendering both in the same grey said they were equivalent. Shared from
+ * here because the delivery log and the client card show the same line, and two copies of a rule
+ * is how the two screens start disagreeing.
+ */
+export function reasonTone(status: MailoutStatus): string {
+  if (status === "failed") return "text-danger-text";
+  if (status === "skipped") return "text-[#8a5a12]";
+  return "text-muted";
+}

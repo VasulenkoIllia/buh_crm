@@ -1,6 +1,7 @@
 import nodemailer, { type Transporter } from "nodemailer";
 import { config, isDev } from "./config.js";
 import { escapeHtml } from "./html.js";
+import { explainSendError } from "./send-error.js";
 
 // Shared SMTP transport (Nodemailer → Mailpit in dev). Modules never touch SMTP
 // directly — they call sendEmail(template, to, data). Treated as an unreliable
@@ -147,7 +148,12 @@ export async function sendEmail<T extends EmailTemplateName>(
   let lastError: unknown;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      await getTransporter(envAccount()).sendMail({ from: config.MAIL_FROM, to, subject, html });
+      await getTransporter(envAccount()).sendMail({
+        from: config.MAIL_FROM,
+        to,
+        subject,
+        html,
+      });
       return;
     } catch (err) {
       lastError = err;
@@ -173,7 +179,12 @@ export interface RawEmail {
   /** `"ILLION Tax & Accounting <info@illion.tax>"`; falls back to MAIL_FROM */
   from?: string | null;
   replyTo?: string | null;
-  attachments?: Array<{ filename: string; content: Buffer; cid?: string; contentType?: string }>;
+  attachments?: Array<{
+    filename: string;
+    content: Buffer;
+    cid?: string;
+    contentType?: string;
+  }>;
   /** extra headers — `List-Unsubscribe` and friends, which Gmail and Yahoo now require of bulk mail */
   headers?: Record<string, string>;
   /** which SMTP account to send over; defaults to the `.env` one */
@@ -268,6 +279,10 @@ export async function sendRawEmail(email: RawEmail): Promise<void> {
       return;
     } catch (err) {
       lastError = err;
+      // A permanent refusal is permanent by definition: a second `550 no such user` costs wall
+      // time on a long run and knocks on the receiving server twice with the same bad address,
+      // which does the sending domain's reputation no favours. Only a blip is worth a retry.
+      if (!explainSendError(err).retryable) break;
       if (attempt < 2) await new Promise((r) => setTimeout(r, 500));
     }
   }

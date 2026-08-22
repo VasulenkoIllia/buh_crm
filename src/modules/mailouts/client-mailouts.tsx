@@ -8,7 +8,7 @@ import { FilterChips } from "@/shared/ui/tabs";
 import { CampaignModal } from "./campaign-modal";
 import { ComposeModal } from "./compose-modal";
 import { ClientMailoutModal } from "./client-mailout-modal";
-import { StatusPill } from "./status-pill";
+import { StatusPill, reasonTone } from "./status-pill";
 import { useClientMailState, useSetSubscription } from "./mailouts.api";
 
 /**
@@ -73,7 +73,9 @@ export function ClientMailouts({
           )}
           <div>
             <p className="text-[14px] font-medium">
-              {data.subscribed ? "Subscribed to news and updates" : "Unsubscribed from news and updates"}
+              {data.subscribed
+                ? "Subscribed to news and updates"
+                : "Unsubscribed from news and updates"}
             </p>
             {/* Only what the two lists below cannot say. "Receives commercial mailouts as well as
                 invoices" was boilerplate on every subscribed client, and a count of addresses
@@ -113,7 +115,9 @@ export function ClientMailouts({
               setSubscription
                 .mutateAsync(!data.subscribed)
                 .catch((e) =>
-                  setError(e instanceof Error ? e.message : "Could not change the subscription"),
+                  setError(
+                    e instanceof Error ? e.message : "Could not change the subscription",
+                  ),
                 );
             }}
             disabled={setSubscription.isPending}
@@ -131,7 +135,11 @@ export function ClientMailouts({
           >
             <CalendarPlus size={13} /> Schedule
           </Button>
-          <Button size="sm" onClick={() => setComposing(true)} disabled={reachable.length === 0}>
+          <Button
+            size="sm"
+            onClick={() => setComposing(true)}
+            disabled={reachable.length === 0}
+          >
             <Send size={13} /> Send a letter
           </Button>
         </div>
@@ -181,7 +189,11 @@ export function ClientMailouts({
                 <div className="min-w-0">
                   <div className="truncate">{h.subject}</div>
                   {/* the reason a letter was skipped belongs beside it, not in a detail nobody opens */}
-                  {h.reason && <p className="truncate text-[12px] text-muted">{h.reason}</p>}
+                  {h.reason && (
+                    <p className={cn("truncate text-[12px]", reasonTone(h.status))}>
+                      {h.reason}
+                    </p>
+                  )}
                 </div>
                 <div className="truncate text-muted">
                   {h.companyName ?? "Client\u2019s own address"}
@@ -246,7 +258,11 @@ export function ClientMailouts({
               </div>
               <div className="flex items-center justify-end gap-1 whitespace-nowrap text-muted">
                 <CalendarClock size={11} className="shrink-0" />
-                {c.status !== "scheduled" ? "Stopped" : c.nextRunOn ? fmtBizDate(c.nextRunOn) : "—"}
+                {c.status !== "scheduled"
+                  ? "Stopped"
+                  : c.nextRunOn
+                    ? fmtBizDate(c.nextRunOn)
+                    : "—"}
               </div>
             </div>
           ))}
