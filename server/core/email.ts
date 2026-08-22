@@ -208,6 +208,33 @@ export async function verifyAccount(account: SmtpAccount): Promise<void> {
   }
 }
 
+/**
+ * What the mail server said NO to, as a sentence — or null when it took everything.
+ *
+ * A resolved send is not a delivered letter, and it is not even an accepted one. When the
+ * receiving server refuses an address at `RCPT TO` — the usual answer for a mailbox that does not
+ * exist on a domain it is authoritative for — nodemailer does NOT throw: it resolves, with that
+ * address in `rejected`. Discarding the result therefore recorded "sent" about a letter the server
+ * had just declined to take, which is the worst kind of wrong: confident.
+ *
+ * What this still cannot see is an address accepted here and bounced minutes later, which is a
+ * different mechanism entirely (see the delivery backlog). This only stops us claiming success for
+ * a refusal we were told about to our face.
+ */
+export function refusalOf(info: {
+  rejected?: (string | { address?: string })[];
+  rejectedErrors?: { message?: string }[];
+  response?: string;
+}): string | null {
+  if (!info.rejected?.length) return null;
+  const who = info.rejected
+    .map((r) => (typeof r === "string" ? r : (r.address ?? "")))
+    .filter(Boolean)
+    .join(", ");
+  const said = (info.rejectedErrors?.[0]?.message ?? info.response ?? "").toString().trim();
+  return `The mail server refused ${who || "the recipient"}${said ? ` — ${said}` : ""}`;
+}
+
 export async function sendRawEmail(email: RawEmail): Promise<void> {
   if (config.NODE_ENV === "test") {
     testOutbox.push({
@@ -225,7 +252,7 @@ export async function sendRawEmail(email: RawEmail): Promise<void> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      await getTransporter(account).sendMail({
+      const info = await getTransporter(account).sendMail({
         from: email.from || config.MAIL_FROM,
         to: email.to,
         replyTo: email.replyTo || undefined,
@@ -235,6 +262,9 @@ export async function sendRawEmail(email: RawEmail): Promise<void> {
         attachments: email.attachments,
         headers: email.headers,
       });
+
+      const refusal = refusalOf(info);
+      if (refusal) throw new Error(refusal);
       return;
     } catch (err) {
       lastError = err;
