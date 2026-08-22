@@ -27,6 +27,9 @@ import { useClientMailState, useSetSubscription } from "./mailouts.api";
  * says so, because "unsubscribed" reading as "we can't contact them" would be wrong and would
  * eventually stop somebody sending an invoice.
  */
+/** Matches the Mailouts log, so a firm reading both screens counts in the same units. */
+const HISTORY_PAGE_SIZE = 25;
+
 const HISTORY_GRID = "grid-cols-[minmax(180px,1fr)_150px_140px_150px_90px]";
 const HISTORY_MIN = "min-w-[760px]";
 const SCHEDULED_GRID = "grid-cols-[minmax(180px,1fr)_150px_130px]";
@@ -41,7 +44,8 @@ export function ClientMailouts({
   clientId: string;
   clientName: string;
 }) {
-  const { data, isLoading } = useClientMailState(clientId);
+  const [page, setPage] = useState(1);
+  const { data, isLoading } = useClientMailState(clientId, page, HISTORY_PAGE_SIZE);
   const setSubscription = useSetSubscription(clientId);
   const [composing, setComposing] = useState(false);
   const [scheduling, setScheduling] = useState(false);
@@ -149,13 +153,13 @@ export function ClientMailouts({
         value={view}
         onChange={setView}
         options={[
-          { value: "sent" as const, label: "Sent", count: data.history.length },
+          { value: "sent" as const, label: "Sent", count: data.historyTotal },
           { value: "scheduled" as const, label: "Scheduled", count: data.campaigns.length },
         ]}
       />
 
       {view === "sent" ? (
-        data.history.length === 0 ? (
+        data.historyTotal === 0 ? (
           <Empty
             title="Nothing sent to this client yet"
             hint="Every letter — and every one that was skipped, with the reason — appears here."
@@ -207,6 +211,11 @@ export function ClientMailouts({
                 </div>
               </div>
             ))}
+            <HistoryPager
+              page={page}
+              pages={Math.ceil(data.historyTotal / HISTORY_PAGE_SIZE)}
+              onChange={setPage}
+            />
           </div>
         )
       ) : data.campaigns.length === 0 ? (
@@ -297,6 +306,47 @@ export function ClientMailouts({
 }
 
 /** The project's empty state: dashed, roomy, one line of what to do about it. */
+/**
+ * Hidden on a single page, exactly like the Mailouts log's.
+ *
+ * A control that cannot do anything is not neutral — it reads as "there is more", and a client
+ * with four letters would have somebody clicking Next to find out there was not.
+ */
+function HistoryPager({
+  page,
+  pages,
+  onChange,
+}: {
+  page: number;
+  pages: number;
+  onChange: (p: number) => void;
+}) {
+  if (pages <= 1) return null;
+  return (
+    <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-2.5 text-[12px]">
+      <Button
+        size="sm"
+        variant="secondary"
+        disabled={page === 1}
+        onClick={() => onChange(page - 1)}
+      >
+        Previous
+      </Button>
+      <span className="text-muted">
+        {page} / {pages}
+      </span>
+      <Button
+        size="sm"
+        variant="secondary"
+        disabled={page >= pages}
+        onClick={() => onChange(page + 1)}
+      >
+        Next
+      </Button>
+    </div>
+  );
+}
+
 function Empty({ title, hint }: { title: string; hint: string }) {
   return (
     <div className="rounded-(--radius-panel) border border-dashed border-[#cfd4db] bg-surface p-12 text-center">

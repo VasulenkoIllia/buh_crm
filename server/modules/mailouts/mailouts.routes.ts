@@ -182,8 +182,11 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   app.get(
     "/clients/:clientId",
-    { preHandler: requireAuth, schema: { params: clientParams } },
-    async (request) => service.clientState(request.params.clientId),
+    {
+      preHandler: requireAuth,
+      schema: { params: clientParams, querystring: mailoutListQuery },
+    },
+    async (request) => service.clientState(request.params.clientId, request.query),
   );
 
   /**

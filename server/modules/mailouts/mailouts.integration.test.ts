@@ -31,11 +31,23 @@ async function settled(mailoutId: string) {
 
 beforeAll(async () => {
   app = await buildApp();
+  // The same order `api-contract.test.ts` proves out. This suite used to start at the mail tables,
+  // so anything that had left an Invoice or a Task behind made `client.deleteMany()` fail on a
+  // RESTRICT key — and vitest reports a throwing `beforeAll` as 68 SKIPPED, not as a failure. A
+  // suite that silently declines to run is worse than one that breaks loudly.
+  await prisma.invoiceLine.deleteMany();
+  await prisma.paymentAuditLog.deleteMany();
+  await prisma.payment.deleteMany();
   await prisma.mailoutRecipient.deleteMany();
   await prisma.mailout.deleteMany();
-  await prisma.mailSenderAccount.deleteMany();
+  await prisma.campaignRecipient.deleteMany();
+  await prisma.campaign.deleteMany();
   await prisma.clientMailPreference.deleteMany();
   await prisma.emailTemplate.deleteMany();
+  await prisma.mailSenderAccount.deleteMany();
+  await prisma.invoice.deleteMany();
+  await prisma.task.deleteMany();
+  await prisma.subscription.deleteMany();
   await prisma.company.deleteMany();
   await prisma.client.deleteMany();
   await prisma.session.deleteMany();
@@ -261,7 +273,12 @@ describe("CAN-SPAM", () => {
   it("lets transactional mail through without one — an invoice is exempt", async () => {
     await prisma.firmProfile.update({ where: { id: 1 }, data: { postalAddress: null } });
     const res = await send({
-      letter: letter({ kind: "transactional", subject: "Invoice", heading: null, body: "Attached." }),
+      letter: letter({
+        kind: "transactional",
+        subject: "Invoice",
+        heading: null,
+        body: "Attached.",
+      }),
       recipients: to(clientA),
     });
     expect(res.statusCode).toBe(201);
@@ -284,7 +301,12 @@ describe("CAN-SPAM", () => {
 
     testOutbox.length = 0;
     const transactional = await send({
-      letter: letter({ kind: "transactional", subject: "Invoice", heading: null, body: "Attached." }),
+      letter: letter({
+        kind: "transactional",
+        subject: "Invoice",
+        heading: null,
+        body: "Attached.",
+      }),
       recipients: to(clientA),
     });
     await settled(transactional.json().id);
@@ -304,7 +326,10 @@ describe("unsubscribe", () => {
   });
 
   it("does not unsubscribe on GET — a mail scanner following the link must change nothing", async () => {
-    await send({ letter: letter({ subject: "N", heading: null, body: "Hi." }), recipients: to(clientA) });
+    await send({
+      letter: letter({ subject: "N", heading: null, body: "Hi." }),
+      recipients: to(clientA),
+    });
     const token = await tokenFor(clientA);
 
     const res = await app.inject({ method: "GET", url: `/api/mailouts/unsubscribe/${token}` });
@@ -389,7 +414,12 @@ describe("unsubscribe", () => {
     testOutbox.length = 0;
 
     const transactional = await send({
-      letter: letter({ kind: "transactional", subject: "Invoice 42", heading: null, body: "Due." }),
+      letter: letter({
+        kind: "transactional",
+        subject: "Invoice 42",
+        heading: null,
+        body: "Due.",
+      }),
       recipients: to(clientA),
     });
     expect(transactional.statusCode).toBe(201);
@@ -417,7 +447,10 @@ describe("unsubscribe", () => {
   });
 
   it("answers an unknown token with a page, not a stack trace", async () => {
-    const res = await app.inject({ method: "GET", url: "/api/mailouts/unsubscribe/nope-nope-nope" });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/mailouts/unsubscribe/nope-nope-nope",
+    });
     expect(res.statusCode).toBe(200);
     expect(res.body).toContain("no longer valid");
     expect(res.body).not.toContain("<form");
@@ -440,12 +473,22 @@ describe("unsubscribe", () => {
 
 describe("sender mailboxes", () => {
   const state = async () =>
-    (await app.inject({ method: "GET", url: "/api/mailouts/settings/senders", headers: { cookie } })).json();
+    (
+      await app.inject({
+        method: "GET",
+        url: "/api/mailouts/settings/senders",
+        headers: { cookie },
+      })
+    ).json();
 
-  const main = async () => (await state()).accounts.find((a: { name: string }) => a.name === "Main");
+  const main = async () =>
+    (await state()).accounts.find((a: { name: string }) => a.name === "Main");
 
   const messages = (checks: { level: string; message: string }[], level?: string) =>
-    checks.filter((c) => !level || c.level === level).map((c) => c.message).join(" | ");
+    checks
+      .filter((c) => !level || c.level === level)
+      .map((c) => c.message)
+      .join(" | ");
 
   const patchMain = async (data: Record<string, unknown>) => {
     const account = await main();
@@ -472,7 +515,11 @@ describe("sender mailboxes", () => {
       method: "POST",
       url: "/api/mailouts/settings/senders",
       headers: { cookie },
-      payload: { name: "Invoices", fromName: "ILLION Billing", fromEmail: "billing@illion.tax" },
+      payload: {
+        name: "Invoices",
+        fromName: "ILLION Billing",
+        fromEmail: "billing@illion.tax",
+      },
     });
     expect(res.statusCode).toBe(201);
 
@@ -543,7 +590,12 @@ describe("sender mailboxes", () => {
     const invoices = accounts.find((a: { name: string }) => a.name === "Invoices");
 
     const res = await send({
-      letter: letter({ kind: "transactional", subject: "Invoice", heading: null, body: "Due." }),
+      letter: letter({
+        kind: "transactional",
+        subject: "Invoice",
+        heading: null,
+        body: "Due.",
+      }),
       recipients: to(clientA),
       senderAccountId: invoices.id,
     });
@@ -556,7 +608,9 @@ describe("sender mailboxes", () => {
   });
 
   it("falls back to the template's mailbox, then to the default", async () => {
-    const invoices = (await state()).accounts.find((a: { name: string }) => a.name === "Invoices");
+    const invoices = (await state()).accounts.find(
+      (a: { name: string }) => a.name === "Invoices",
+    );
     const created = await app.inject({
       method: "POST",
       url: "/api/mailouts/templates",
@@ -578,7 +632,9 @@ describe("sender mailboxes", () => {
   });
 
   it("will not delete a mailbox that history points at", async () => {
-    const invoices = (await state()).accounts.find((a: { name: string }) => a.name === "Invoices");
+    const invoices = (await state()).accounts.find(
+      (a: { name: string }) => a.name === "Invoices",
+    );
     const res = await app.inject({
       method: "DELETE",
       url: `/api/mailouts/settings/senders/${invoices.id}`,
@@ -843,8 +899,9 @@ describe("preview", () => {
     const body = res.json();
     expect(body.sendable).toBe(1);
     expect(body.blocked).toBe(2);
-    expect(body.rows.find((r: { clientId: string }) => r.clientId === clientB).blockedReason)
-      .toContain("{{company}}");
+    expect(
+      body.rows.find((r: { clientId: string }) => r.clientId === clientB).blockedReason,
+    ).toContain("{{company}}");
     expect(testOutbox).toHaveLength(0);
   });
 
@@ -934,7 +991,11 @@ describe("preview", () => {
       headers: { cookie },
       payload: {
         letter: letter(),
-        recipients: [{ clientId: clientA }, { clientId: clientA, companyId: kvitka }, ...to(clientC)],
+        recipients: [
+          { clientId: clientA },
+          { clientId: clientA, companyId: kvitka },
+          ...to(clientC),
+        ],
       },
     });
     const body = res.json();
@@ -946,11 +1007,13 @@ describe("preview", () => {
     expect(body.sendable).toBe(2);
     expect(body.blocked).toBe(1);
     expect(
-      body.rows.map((r: { companyName: string | null; email: string | null; blockedReason: string | null }) => [
-        r.companyName,
-        r.email,
-        r.blockedReason,
-      ]),
+      body.rows.map(
+        (r: {
+          companyName: string | null;
+          email: string | null;
+          blockedReason: string | null;
+        }) => [r.companyName, r.email, r.blockedReason],
+      ),
     ).toEqual([
       [null, "olena@example.com", null],
       ["Kvitka Payroll LLC", "office@kvitka.example", null],
@@ -964,7 +1027,11 @@ describe("preview", () => {
       url: "/api/mailouts/preview",
       headers: { cookie },
       payload: {
-        letter: letter({ subject: "Due {{deadline}}", heading: null, body: "Hi {{first_name}}." }),
+        letter: letter({
+          subject: "Due {{deadline}}",
+          heading: null,
+          body: "Hi {{first_name}}.",
+        }),
         recipients: to(clientA),
       },
     });
@@ -1183,9 +1250,11 @@ describe("the whole unsubscribe journey, as a client lives it", () => {
     expect(afterSend.history[0].status).toBe("sent");
 
     // 3. the client clicks the link in the letter — no login, form-encoded, exactly as a browser
-    const token = (await prisma.clientMailPreference.findUniqueOrThrow({
-      where: { clientId: fresh.id },
-    })).token;
+    const token = (
+      await prisma.clientMailPreference.findUniqueOrThrow({
+        where: { clientId: fresh.id },
+      })
+    ).token;
     const click = await app.inject({
       method: "POST",
       url: `/api/mailouts/unsubscribe/${token}`,
@@ -1211,7 +1280,12 @@ describe("the whole unsubscribe journey, as a client lives it", () => {
 
     // …6. while an invoice still reaches them. This is the whole reason `kind` is stored.
     const invoice = await send({
-      letter: letter({ kind: "transactional", subject: "Invoice", heading: null, body: "Due." }),
+      letter: letter({
+        kind: "transactional",
+        subject: "Invoice",
+        heading: null,
+        body: "Due.",
+      }),
       recipients: to(fresh.id),
     });
     expect(invoice.statusCode).toBe(201);
@@ -1235,7 +1309,11 @@ describe("the whole unsubscribe journey, as a client lives it", () => {
  * The card lists RECIPIENT rows, so a letter is addressed by row id, not by mailout — one mailout
  * can reach the same client at their own address and at each of their companies.
  */
-async function letterIdFor(clientId: string, mailoutId: string, companyId: string | null = null) {
+async function letterIdFor(
+  clientId: string,
+  mailoutId: string,
+  companyId: string | null = null,
+) {
   const state = await app.inject({
     method: "GET",
     url: `/api/mailouts/clients/${clientId}`,
@@ -1320,7 +1398,9 @@ describe("the client card", () => {
     });
     const body = state.json();
     expect(body.hasEmail).toBe(true);
-    expect(body.history.some((h: { subject: string }) => h.subject === "Card history")).toBe(true);
+    expect(body.history.some((h: { subject: string }) => h.subject === "Card history")).toBe(
+      true,
+    );
   });
 
   /**
@@ -1340,6 +1420,96 @@ describe("the client card", () => {
     const subjects = state.json().history.map((h: { subject: string }) => h.subject);
     expect(subjects).toContain("Your Kvitka Trade LLC filing");
     expect(subjects.some((s: string) => s.includes("{{"))).toBe(false);
+  });
+
+  /**
+   * The card used to stop at a hard cap of 50 with nothing on screen saying so — a client on a
+   * monthly campaign would silently lose their older letters, and the tab would read as though
+   * they had never been sent. Paged now, which only helps if the page really is a WINDOW: the
+   * count has to be of everything, and page 2 has to hold different letters from page 1.
+   */
+  it("pages the history, and counts every letter rather than the page", async () => {
+    const state = (page: number, pageSize: number) =>
+      app
+        .inject({
+          method: "GET",
+          url: `/api/mailouts/clients/${clientB}?page=${page}&pageSize=${pageSize}`,
+          headers: { cookie },
+        })
+        .then((r) => r.json());
+
+    for (let i = 1; i <= 3; i++) {
+      const res = await send({
+        letter: letter({ subject: `Paged ${i}`, heading: null, body: "Hi." }),
+        recipients: to(clientB),
+      });
+      await settled(res.json().id);
+    }
+
+    const all = await state(1, 25);
+    expect(all.historyTotal).toBeGreaterThanOrEqual(3);
+
+    const first = await state(1, 2);
+    expect(first.history).toHaveLength(2);
+    // The count must survive being asked for a small page — this is the assertion that fails if
+    // `historyTotal` is ever computed from the rows in hand instead of from the table.
+    expect(first.historyTotal).toBe(all.historyTotal);
+
+    const second = await state(2, 2);
+    const ids = (s: { history: { id: string }[] }) => s.history.map((h) => h.id);
+    expect(second.history.length).toBeGreaterThan(0);
+    expect(ids(second).some((id) => ids(first).includes(id))).toBe(false);
+
+    // A count that forgot its `where` still satisfies everything above — and would put another
+    // client's letters in this one's "Sent" chip. Writing to somebody else must not move it.
+    const other = await send({
+      letter: letter({ subject: "For a different client", heading: null, body: "Hi." }),
+      recipients: to(clientA),
+    });
+    await settled(other.json().id);
+    expect((await state(1, 25)).historyTotal).toBe(all.historyTotal);
+  });
+
+  /**
+   * The bug paging introduced, and which sequential fixtures cannot show.
+   *
+   * One mailout to a client with two companies writes THREE rows in the same instant, so
+   * `createdAt` alone is not a total order — and `OFFSET` over a tie is free to hand back a letter
+   * already seen on the previous page while never showing another one at all. Proven on the dev
+   * database before the fix: one row came back at both `OFFSET 0` and `OFFSET 2`.
+   *
+   * Asserted as a set rather than page by page, because the failure has two faces — a duplicate
+   * and a disappearance — and counting distinct ids over the whole walk catches both.
+   */
+  it("walks every letter exactly once when several share an instant", async () => {
+    const companies = await prisma.company.findMany({ where: { clientId: clientA } });
+    expect(companies.length).toBeGreaterThan(1);
+
+    const res = await send({
+      letter: letter({ subject: "Same instant", heading: null, body: "Hi." }),
+      recipients: [
+        { clientId: clientA },
+        ...companies.map((co) => ({ clientId: clientA, companyId: co.id })),
+      ],
+    });
+    await settled(res.json().id);
+
+    const page = (n: number) =>
+      app
+        .inject({
+          method: "GET",
+          url: `/api/mailouts/clients/${clientA}?page=${n}&pageSize=2`,
+          headers: { cookie },
+        })
+        .then((r) => r.json());
+
+    const total = (await page(1)).historyTotal;
+    const seen: string[] = [];
+    for (let n = 1; n <= Math.ceil(total / 2); n++) {
+      seen.push(...(await page(n)).history.map((h: { id: string }) => h.id));
+    }
+    expect(seen).toHaveLength(total);
+    expect(new Set(seen).size).toBe(total);
   });
 });
 

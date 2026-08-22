@@ -222,7 +222,8 @@ export function listMailouts(where: Prisma.MailoutWhereInput, skip: number, take
     prisma.mailout.findMany({
       where,
       include: mailoutInclude,
-      orderBy: { createdAt: "desc" },
+      /** Same reason as the client card's: `OFFSET` over a tie is not a stable window. */
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       skip,
       take,
     }),
@@ -231,23 +232,35 @@ export function listMailouts(where: Prisma.MailoutWhereInput, skip: number, take
 }
 
 /** One client's letters, for the card's Mailouts tab — their own inbox and their companies'. */
-export function listClientMailouts(clientId: string, take: number) {
-  return prisma.mailoutRecipient.findMany({
-    where: { clientId },
-    include: {
-      company: { select: { name: true } },
-      mailout: {
-        include: {
-          template: { select: { name: true } },
-          // each letter may have gone from a different mailbox, and the subject is re-rendered
-          // per row — so the row needs the mailbox that actually sent it, not an approximation
-          senderAccount: { select: { fromName: true, fromEmail: true } },
+export function listClientMailouts(clientId: string, skip: number, take: number) {
+  return prisma.$transaction([
+    prisma.mailoutRecipient.findMany({
+      where: { clientId },
+      include: {
+        company: { select: { name: true } },
+        mailout: {
+          include: {
+            template: { select: { name: true } },
+            // each letter may have gone from a different mailbox, and the subject is re-rendered
+            // per row — so the row needs the mailbox that actually sent it, not an approximation
+            senderAccount: { select: { fromName: true, fromEmail: true } },
+          },
         },
       },
-    },
-    orderBy: { createdAt: "desc" },
-    take,
-  });
+      /**
+       * `id` is not decoration: `createdAt` alone is not a total order.
+       *
+       * One mailout to a client with three companies writes three rows in the same instant, and a
+       * tie leaves Postgres free to return them in any order per query — so `OFFSET` slid over an
+       * unstable list, repeating a letter on page 2 and dropping another one entirely. Unnoticeable
+       * while the card returned every row at once; a paging bug the moment it did not.
+       */
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      skip,
+      take,
+    }),
+    prisma.mailoutRecipient.count({ where: { clientId } }),
+  ]);
 }
 
 /**
@@ -353,7 +366,10 @@ export function updateSenderAccount(id: string, data: Prisma.MailSenderAccountUp
  */
 export function makeSenderAccountDefault(id: string) {
   return prisma.$transaction([
-    prisma.mailSenderAccount.updateMany({ where: { isDefault: true }, data: { isDefault: false } }),
+    prisma.mailSenderAccount.updateMany({
+      where: { isDefault: true },
+      data: { isDefault: false },
+    }),
     prisma.mailSenderAccount.update({ where: { id }, data: { isDefault: true } }),
   ]);
 }

@@ -139,21 +139,20 @@ export function ClientCardPage() {
 
       {/* company view (multi-company clients) */}
       {tab === "profile" && <ProfileTab client={client} />}
-      {tab === "companies" && (
-        <CompaniesTab client={client} />
-      )}
+      {tab === "companies" && <CompaniesTab client={client} />}
       {tab === "people" && <PeopleTab client={client} onManage={() => setPeopleOpen(true)} />}
       {tab === "secrets" && <SecretsTab clientId={client.id} />}
       {tab === "tasks" && (
         <EntityTasks target={{ kind: "client", id: client.id, label: client.displayName }} />
       )}
       {tab === "invoices" && <EntityInvoices client={client} />}
-      {tab === "meetings" && (
-        <EntityMeetings target={{ kind: "client", id: client.id }} />
-      )}
+      {tab === "meetings" && <EntityMeetings target={{ kind: "client", id: client.id }} />}
       {tab === "services" && <ServicesTab client={client} />}
+      {/* Keyed by client: the route reuses this page when moving between two cards, so without it
+          the Mailouts tab would carry its page number across — landing on page 3 of a client who
+          has five letters, which renders a blank panel that explains nothing. */}
       {tab === "mailouts" && (
-        <ClientMailouts clientId={client.id} clientName={client.displayName} />
+        <ClientMailouts key={client.id} clientId={client.id} clientName={client.displayName} />
       )}
       {tab === "files" && <FilesTab clientId={client.id} />}
       {TAB_STAGE[tab] && (
@@ -166,12 +165,15 @@ export function ClientCardPage() {
         <ClientFormModal open={editOpen} onClose={() => setEditOpen(false)} client={client} />
       )}
       {peopleOpen && (
-        <ClientPeopleModal open={peopleOpen} onClose={() => setPeopleOpen(false)} client={client} />
+        <ClientPeopleModal
+          open={peopleOpen}
+          onClose={() => setPeopleOpen(false)}
+          client={client}
+        />
       )}
     </div>
   );
 }
-
 
 function ServicesTab({ client }: { client: Client }) {
   const [addOpen, setAddOpen] = useState(false);
@@ -311,9 +313,7 @@ function ProfileTab({ client }: { client: Client }) {
         </div>
         <div>
           <FieldLabel>Created</FieldLabel>
-          <div className="text-[14px]">
-            {fmtDate(client.createdAt)}
-          </div>
+          <div className="text-[14px]">{fmtDate(client.createdAt)}</div>
         </div>
         {/* "Reminders — arrive with the Mailouts stage (S10)" stood here until 2026-08-11. S10
             shipped without scheduled reminders (the stub model was dropped), and the Mailouts tab
@@ -329,7 +329,6 @@ function ProfileTab({ client }: { client: Client }) {
       <p className="mb-4 text-[12px] text-faint">
         📎 Client files are in the “Files” tab (up to 25 MB per file).
       </p>
-
     </>
   );
 }

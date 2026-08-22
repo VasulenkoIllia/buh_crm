@@ -1,9 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type {
-  CampaignDetail,
-  CampaignInput,
-  CampaignList,
-} from "@shared/schema/campaigns";
+import type { CampaignDetail, CampaignInput, CampaignList } from "@shared/schema/campaigns";
 import type {
   ClientMailoutDetail,
   ClientMailState,
@@ -71,7 +67,8 @@ export function useUpdateTemplate() {
 export function useDeleteTemplate() {
   const invalidate = useInvalidateTemplates();
   return useMutation({
-    mutationFn: (id: string) => api<void>(`/api/mailouts/templates/${id}`, { method: "DELETE" }),
+    mutationFn: (id: string) =>
+      api<void>(`/api/mailouts/templates/${id}`, { method: "DELETE" }),
     onSuccess: invalidate,
   });
 }
@@ -142,13 +139,16 @@ export function useMailoutDetail(id: string | null) {
  * nobody in the CRM has touched anything. Showing a cached "Subscribed" after they opted out is
  * how a firm mails someone who asked them not to.
  */
-export function useClientMailState(clientId: string) {
+export function useClientMailState(clientId: string, page: number, pageSize: number) {
+  const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
   return useQuery({
-    queryKey: [...MAILOUTS_KEY, "client", clientId],
-    queryFn: () => api<ClientMailState>(`/api/mailouts/clients/${clientId}`),
+    queryKey: [...MAILOUTS_KEY, "client", clientId, page, pageSize],
+    queryFn: () => api<ClientMailState>(`/api/mailouts/clients/${clientId}?${query}`),
     staleTime: 0,
     refetchOnWindowFocus: true,
     refetchOnMount: "always",
+    /** Page 2 keeps page 1 on screen while it loads, so the tab does not blink back to "Loading…". */
+    placeholderData: (prev) => prev,
   });
 }
 
@@ -175,7 +175,13 @@ export function useSetSubscription(clientId: string) {
         method: "PATCH",
         body: { subscribed },
       }),
-    onSuccess: (data) => qc.setQueryData([...MAILOUTS_KEY, "client", clientId], data),
+    /**
+     * Invalidate rather than write the response in. The endpoint answers with the FIRST page, and
+     * the query is now keyed by page — writing it back would either miss the live key entirely or
+     * shove page 1 under somebody sitting on page 3. Refetching costs one round trip on a rare
+     * action and always lands on the page the reader is actually looking at.
+     */
+    onSuccess: () => qc.invalidateQueries({ queryKey: [...MAILOUTS_KEY, "client", clientId] }),
   });
 }
 
@@ -211,7 +217,10 @@ export function useCreateSender() {
 
 export function useUpdateSender() {
   return useSenderMutation(({ id, input }: { id: string; input: SenderAccountInput }) =>
-    api<MailSenderState>(`/api/mailouts/settings/senders/${id}`, { method: "PATCH", body: input }),
+    api<MailSenderState>(`/api/mailouts/settings/senders/${id}`, {
+      method: "PATCH",
+      body: input,
+    }),
   );
 }
 
@@ -223,7 +232,9 @@ export function useMakeSenderDefault() {
 
 export function useMakeInvoiceSender() {
   return useSenderMutation((id: string) =>
-    api<MailSenderState>(`/api/mailouts/settings/senders/${id}/invoice-sender`, { method: "POST" }),
+    api<MailSenderState>(`/api/mailouts/settings/senders/${id}/invoice-sender`, {
+      method: "POST",
+    }),
   );
 }
 

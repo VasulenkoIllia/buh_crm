@@ -47,6 +47,7 @@ import type {
   UpdateFirmMailInput,
   UpdateTemplateInput,
 } from "@shared/schema/mailouts.js";
+import { mailoutListQuery } from "@shared/schema/mailouts.js";
 import {
   renderMailText,
   sampleVars,
@@ -88,7 +89,6 @@ const isoDay = (d: Date | null) =>
     : null;
 
 /** How many of a client's letters the card tab shows. */
-const CLIENT_HISTORY_LIMIT = 50;
 
 type FirmProfile = Awaited<ReturnType<typeof repo.getFirmProfile>>;
 type SendableClient = Awaited<ReturnType<typeof repo.findSendableClients>>[number];
@@ -1602,11 +1602,14 @@ export async function clientCampaigns(clientId: string): Promise<ClientCampaign[
   }));
 }
 
-export async function clientState(clientId: string): Promise<ClientMailState> {
-  const [clients, pref, rows, firm, campaigns] = await Promise.all([
+export async function clientState(
+  clientId: string,
+  query: MailoutListQuery,
+): Promise<ClientMailState> {
+  const [clients, pref, [rows, historyTotal], firm, campaigns] = await Promise.all([
     repo.findSendableClients([clientId]),
     repo.getMailPreference(clientId),
-    repo.listClientMailouts(clientId, CLIENT_HISTORY_LIMIT),
+    repo.listClientMailouts(clientId, (query.page - 1) * query.pageSize, query.pageSize),
     repo.getFirmProfile(),
     // what is queued up for them, alongside what has already gone — see the schema comment
     clientCampaigns(clientId),
@@ -1674,6 +1677,7 @@ export async function clientState(clientId: string): Promise<ClientMailState> {
       sentAt: r.sentAt?.toISOString() ?? null,
       createdAt: r.createdAt.toISOString(),
     })),
+    historyTotal,
   };
 }
 
@@ -1733,9 +1737,16 @@ export async function clientLetter(
   };
 }
 
+/**
+ * Defaults straight off the query schema, so "the first page" is defined in exactly one place.
+ * Writing `{ page: 1, pageSize: 25 }` here would be a second copy of a number that already exists,
+ * and the two would drift the first time the page size changed.
+ */
+const FIRST_PAGE = mailoutListQuery.parse({});
+
 export async function setSubscription(actor: User, clientId: string, subscribed: boolean) {
   await repo.setUnsubscribed(clientId, subscribed ? null : new Date(), actor.id);
-  return clientState(clientId);
+  return clientState(clientId, FIRST_PAGE);
 }
 
 // ── the public unsubscribe page ──────────────────────────────────────────────

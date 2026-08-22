@@ -84,7 +84,10 @@ export const sendMailoutInput = z
     /** use a saved template… */
     templateId: uuid.nullable().optional(),
     /** …or write a one-off letter. Ignored when `templateId` is set. */
-    letter: letterFields.extend({ kind: mailoutKind.default("commercial") }).nullable().optional(),
+    letter: letterFields
+      .extend({ kind: mailoutKind.default("commercial") })
+      .nullable()
+      .optional(),
     recipients: z.array(mailoutTarget).min(1, "Pick at least one recipient").max(500),
     /** which mailbox to send from; omitted = the template's, else the firm's default */
     senderAccountId: uuid.nullable().optional(),
@@ -294,6 +297,15 @@ export const clientMailStateSchema = z.object({
   ),
   history: z.array(clientMailoutRow),
   /**
+   * How many letters this client has had IN ALL, not how many this page holds.
+   *
+   * The tab's "Sent" chip counts with this. Counting `history.length` was right only while the
+   * card showed every letter it had; the moment it showed a page, that number would have frozen
+   * at the page size and quietly told the firm a client on a long-running campaign had received
+   * exactly 25 letters, forever.
+   */
+  historyTotal: z.number().int(),
+  /**
    * The campaigns this client is signed up for — "what are we about to send them", where the
    * history answers "what have we sent them". Both belong on the same tab: a firm looking at a
    * client who just complained needs to see the queued letter, not only the ones already gone.
@@ -386,7 +398,6 @@ export const senderTestResult = z.object({
 });
 export type SenderTestResult = z.infer<typeof senderTestResult>;
 
-
 /**
  * A mailbox the firm sends from.
  *
@@ -462,7 +473,10 @@ export const senderAccountInput = z.object({
   name: z.string().trim().min(1, "Required").max(60).optional(),
   fromName: z.string().trim().max(80).optional(),
   fromEmail: z.union([z.email(), z.literal("")]).optional(),
-  replyTo: z.union([z.email(), z.literal("")]).nullable().optional(),
+  replyTo: z
+    .union([z.email(), z.literal("")])
+    .nullable()
+    .optional(),
   signature: senderText(2000),
   smtpHost: senderText(200),
   smtpPort: z.number().int().min(1).max(65535).nullable().optional(),
@@ -473,7 +487,10 @@ export const senderAccountInput = z.object({
   active: z.boolean().optional(),
 
   // the tap-to-contact buttons — explicit fields, never parsed out of the signature
-  contactEmail: z.union([z.email(), z.literal("")]).nullable().optional(),
+  contactEmail: z
+    .union([z.email(), z.literal("")])
+    .nullable()
+    .optional(),
   contactPhone: senderText(60),
   contactTelegram: senderText(60),
   contactWhatsapp: senderText(60),
