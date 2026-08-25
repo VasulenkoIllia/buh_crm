@@ -43,13 +43,33 @@ export interface SendErrorContext {
   protocol?: "smtp" | "imap";
 }
 
-/** Nodemailer hangs its structured detail off the Error; none of it is guaranteed present. */
+/**
+ * Structured detail hung off an Error by the two libraries that talk mail here.
+ *
+ * Nodemailer and ImapFlow disagree about almost everything: nodemailer reports `code: "EAUTH"` with
+ * a numeric `responseCode`, while ImapFlow throws `message: "Command failed"` — the same four words
+ * for a refused password, a missing mailbox and a syntax error — and puts the truth in
+ * `responseText` with an `authenticationFailed` flag beside it. Reading only the first shape meant
+ * the single most common mailbox mistake came out as "Command failed", which is exactly the
+ * protocol jargon this module exists to remove.
+ */
 interface SmtpishError {
   message?: unknown;
   code?: unknown;
   command?: unknown;
   responseCode?: unknown;
   response?: unknown;
+  /** ImapFlow: the server's own words, where nodemailer would have used `response` */
+  responseText?: unknown;
+  /** ImapFlow: set on a refused LOGIN, which carries no numeric code at all */
+  authenticationFailed?: unknown;
+}
+
+/** True when ImapFlow says the sign-in itself was refused. */
+function authRefused(err: unknown): boolean {
+  return (
+    !!err && typeof err === "object" && (err as SmtpishError).authenticationFailed === true
+  );
 }
 
 function field(err: unknown, key: keyof SmtpishError): string {
@@ -64,7 +84,16 @@ function responseCode(err: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
+/**
+ * The most informative text the error carries.
+ *
+ * ImapFlow's `message` is the constant "Command failed"; what actually happened is in
+ * `responseText`. Preferring it means an unrecognised IMAP failure still shows the server's own
+ * sentence rather than four words that fit every failure equally.
+ */
 function rawMessage(err: unknown): string {
+  const detail = field(err, "responseText").trim();
+  if (detail && (!(err instanceof Error) || err.message === "Command failed")) return detail;
   if (err instanceof Error) return err.message;
   if (typeof err === "string") return err;
   return "";
@@ -112,7 +141,13 @@ export function explainSendError(err: unknown, ctx: SendErrorContext = {}): Send
   }
 
   // ── the firm's own mailbox ────────────────────────────────────────────────
-  if (code === "EAUTH" || status === 535 || status === 534 || status === 530) {
+  if (
+    authRefused(err) ||
+    code === "EAUTH" ||
+    status === 535 ||
+    status === 534 ||
+    status === 530
+  ) {
     return {
       message:
         ctx.protocol === "imap"

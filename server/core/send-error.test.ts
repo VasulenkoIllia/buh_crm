@@ -148,6 +148,36 @@ describe("explaining a failed send", () => {
   });
 
   /**
+   * ImapFlow throws a different shape from nodemailer, and its `message` is the constant "Command
+   * failed" for a refused password, a missing mailbox and a syntax error alike. Captured from a
+   * real GreenMail server: the truth is in `responseText`, flagged by `authenticationFailed`.
+   *
+   * Before this, the single most common mailbox mistake reached the screen as "Command failed" —
+   * the exact protocol jargon this module exists to remove.
+   */
+  it("reads ImapFlow's refused sign-in, which carries no numeric code", () => {
+    const refused = Object.assign(new Error("Command failed"), {
+      response: "2 NO LOGIN failed. Invalid login/password for user id probe",
+      responseStatus: "NO",
+      responseText: "LOGIN failed. Invalid login/password for user id probe",
+      authenticationFailed: true,
+    });
+    const out = explainSendError(refused, { protocol: "imap" });
+    expect(out.fault).toBe("settings");
+    expect(out.message).toContain("IMAP credentials");
+    expect(out.message).not.toContain("Command failed");
+    expect(out.retryable).toBe(false);
+  });
+
+  /** An unrecognised IMAP failure must still show the server's words, not the constant. */
+  it("prefers responseText over ImapFlow's constant message", () => {
+    const odd = Object.assign(new Error("Command failed"), {
+      responseText: "Mailbox does not exist",
+    });
+    expect(explainSendError(odd).message).toBe("Mailbox does not exist");
+  });
+
+  /**
    * Found by running the real button, not by reading the code: an unreachable IMAP host was
    * answered with "check the SMTP host", which is a different field on the same screen.
    */
