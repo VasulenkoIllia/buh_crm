@@ -9,3 +9,4 @@ export async function mailoutsModule(app: FastifyInstance) {
 
 /** The scheduler's entry point — S10.1, one sweep for every campaign whose date has come. */
 export { runDueCampaigns } from "./campaigns.service.js";
+export { sweepBounces } from "./mailouts.service.js";

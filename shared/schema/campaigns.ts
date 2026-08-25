@@ -100,10 +100,12 @@ export const campaignRunSchema = z.object({
   /** which occurrence it was for, `YYYY-MM-DD` */
   periodKey: z.string().nullable(),
   createdAt: z.iso.datetime(),
+  sending: z.number().int(),
   sent: z.number().int(),
-  failed: z.number().int(),
+  delivered: z.number().int(),
+  notDelivered: z.number().int(),
+  notSent: z.number().int(),
   skipped: z.number().int(),
-  queued: z.number().int(),
 });
 export type CampaignRun = z.infer<typeof campaignRunSchema>;
 
@@ -164,4 +166,3 @@ export type CampaignList = z.infer<typeof campaignListSchema>;
 /** Stop a running campaign, or start a stopped one again. `finished` cannot be resumed. */
 export const setCampaignActiveInput = z.object({ active: z.boolean() });
 export type SetCampaignActiveInput = z.infer<typeof setCampaignActiveInput>;
-

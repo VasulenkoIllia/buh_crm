@@ -2,6 +2,8 @@ import { Link } from "react-router-dom";
 import { fmtDateTime } from "@/shared/lib/format";
 import { Modal } from "@/shared/ui/modal";
 import { cn } from "@/shared/lib/cn";
+import type { DeliveryState } from "@shared/delivery";
+import type { MailoutDetail } from "@shared/schema/mailouts";
 import { StatusPill, reasonTone } from "./status-pill";
 import { useMailoutDetail } from "./mailouts.api";
 
@@ -34,18 +36,7 @@ export function MailoutDetailModal({
             <span>{fmtDateTime(data.createdAt)}</span>
           </div>
 
-          <div className="mb-4 flex gap-1.5">
-            {data.counts.sent > 0 && <StatusPill status="sent" count={data.counts.sent} />}
-            {data.counts.queued > 0 && (
-              <StatusPill status="queued" count={data.counts.queued} />
-            )}
-            {data.counts.failed > 0 && (
-              <StatusPill status="failed" count={data.counts.failed} />
-            )}
-            {data.counts.skipped > 0 && (
-              <StatusPill status="skipped" count={data.counts.skipped} />
-            )}
-          </div>
+          <DeliveryCounts counts={data.counts} className="mb-4" />
 
           <div className="mb-4 rounded-(--radius-field) border border-border bg-surface p-3">
             <p className="mb-1 text-[12px] uppercase tracking-wide text-muted">
@@ -79,13 +70,15 @@ export function MailoutDetailModal({
                   )}
                   <p className="truncate text-[12px] text-muted">{r.email || "no address"}</p>
                   {r.reason && (
-                    <p className={cn("mt-0.5 text-[12px] leading-snug", reasonTone(r.status))}>
+                    <p
+                      className={cn("mt-0.5 text-[12px] leading-snug", reasonTone(r.delivery))}
+                    >
                       {r.reason}
                     </p>
                   )}
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-0.5">
-                  <StatusPill status={r.status} />
+                  <StatusPill state={r.delivery} />
                   {r.sentAt && (
                     <span className="text-[12px] text-muted">{fmtDateTime(r.sentAt)}</span>
                   )}
@@ -96,5 +89,35 @@ export function MailoutDetailModal({
         </>
       )}
     </Modal>
+  );
+}
+
+/**
+ * The tally, in the order a reader cares about: what arrived, what did not, what is unresolved.
+ *
+ * Zeroes are left out rather than shown as "0 not delivered", which reads as a warning about
+ * nothing. A run where everything worked shows one green chip and no clutter.
+ */
+export function DeliveryCounts({
+  counts,
+  className,
+}: {
+  counts: MailoutDetail["counts"];
+  className?: string;
+}) {
+  const order: [DeliveryState, number][] = [
+    ["delivered", counts.delivered],
+    ["not_delivered", counts.notDelivered],
+    ["sent", counts.sent],
+    ["sending", counts.sending],
+    ["not_sent", counts.notSent],
+    ["skipped", counts.skipped],
+  ];
+  return (
+    <div className={cn("flex flex-wrap gap-1.5", className)}>
+      {order.map(([state, n]) =>
+        n > 0 ? <StatusPill key={state} state={state} count={n} /> : null,
+      )}
+    </div>
   );
 }

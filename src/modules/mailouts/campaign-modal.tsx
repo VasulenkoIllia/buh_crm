@@ -62,7 +62,6 @@ export function CampaignModal({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
-
   /**
    * The loaded campaign, held in a ref so the reset effect can read it WITHOUT depending on it.
    *
@@ -114,7 +113,6 @@ export function CampaignModal({
     () => (templates.data ?? []).filter((t) => t.active),
     [templates.data],
   );
-
 
   async function save() {
     setError(null);
@@ -228,7 +226,10 @@ export function CampaignModal({
             </Select>
           </FormField>
           <FormField label="Mailbox">
-            <Select value={senderAccountId} onChange={(e) => setSenderAccountId(e.target.value)}>
+            <Select
+              value={senderAccountId}
+              onChange={(e) => setSenderAccountId(e.target.value)}
+            >
               <option value="">As the template says</option>
               {(senders.data?.accounts ?? [])
                 .filter((a) => a.active)
@@ -254,18 +255,20 @@ export function CampaignModal({
             <p className="flex gap-1.5 rounded-(--radius-field) bg-warning/15 px-3 py-2 text-[12px] leading-relaxed text-[#8a5a12]">
               <AlertTriangle size={13} className="mt-0.5 shrink-0" />
               <span>
-                This will reach clients who unsubscribed, and carries no unsubscribe link. Lawful
-                for a bill or a document request — not for news or offers.
+                This will reach clients who unsubscribed, and carries no unsubscribe link.
+                Lawful for a bill or a document request — not for news or offers.
               </span>
             </p>
           ) : (
             <p className="text-[12px] leading-relaxed text-muted">
-              Carries an unsubscribe link and the firm&apos;s postal address, and skips anyone who
-              has opted out.
+              Carries an unsubscribe link and the firm&apos;s postal address, and skips anyone
+              who has opted out.
             </p>
           )}
 
-          <p className="pt-1 text-[12px] font-medium uppercase tracking-wide text-muted">When</p>
+          <p className="pt-1 text-[12px] font-medium uppercase tracking-wide text-muted">
+            When
+          </p>
           <FormField label="Schedule">
             <Select
               value={rhythm}
@@ -302,7 +305,11 @@ export function CampaignModal({
                   Add
                 </Button>
                 <FormField label="Time">
-                  <Input type="time" value={sendAt} onChange={(e) => setSendAt(e.target.value)} />
+                  <Input
+                    type="time"
+                    value={sendAt}
+                    onChange={(e) => setSendAt(e.target.value)}
+                  />
                 </FormField>
               </div>
               {dates.length === 0 ? (
@@ -341,12 +348,20 @@ export function CampaignModal({
                   />
                 </FormField>
                 <FormField label="Time">
-                  <Input type="time" value={sendAt} onChange={(e) => setSendAt(e.target.value)} />
+                  <Input
+                    type="time"
+                    value={sendAt}
+                    onChange={(e) => setSendAt(e.target.value)}
+                  />
                 </FormField>
               </div>
               {rhythm !== "once" && (
                 <FormField label="Stop after (optional)">
-                  <Input type="date" value={endsOn} onChange={(e) => setEndsOn(e.target.value)} />
+                  <Input
+                    type="date"
+                    value={endsOn}
+                    onChange={(e) => setEndsOn(e.target.value)}
+                  />
                 </FormField>
               )}
             </>

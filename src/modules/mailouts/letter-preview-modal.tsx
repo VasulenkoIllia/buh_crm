@@ -50,9 +50,16 @@ export function LetterPreviewModal({
     let cancelled = false;
     setError(null);
     preview
-      .mutateAsync({ subject: subject.trim(), heading: heading.trim() || null, body: body.trim(), kind })
+      .mutateAsync({
+        subject: subject.trim(),
+        heading: heading.trim() || null,
+        body: body.trim(),
+        kind,
+      })
       .then((r) => !cancelled && setResult(r))
-      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "Could not render"));
+      .catch(
+        (e) => !cancelled && setError(e instanceof Error ? e.message : "Could not render"),
+      );
     return () => {
       cancelled = true;
     };
@@ -118,8 +125,8 @@ export function LetterPreviewModal({
             <span className="mr-1.5 inline-block rounded-(--radius-chip) bg-[#fff3bf] px-1.5 py-0.5 text-[12px] text-ink">
               highlighted
             </span>
-            comes from the client card and differs per recipient. Everything else is identical in
-            every letter.
+            comes from the client card and differs per recipient. Everything else is identical
+            in every letter.
           </p>
           {used.length > 0 && (
             <p className="mt-2 flex flex-wrap gap-1">
@@ -137,14 +144,17 @@ export function LetterPreviewModal({
       )}
 
       {result ? (
-        <LetterFrame html={view === "changes" ? result.highlightedHtml : result.html} min={520} />
+        <LetterFrame
+          html={view === "changes" ? result.highlightedHtml : result.html}
+          min={520}
+        />
       ) : (
         <p className="text-[13px] text-muted">Rendering…</p>
       )}
 
       <p className="mt-2 text-[12px] text-muted-400">
-        Sample values. The frame — logo, signature, contact buttons, footer — is the same on every
-        letter and is not editable per template.
+        Sample values. The frame — logo, signature, contact buttons, footer — is the same on
+        every letter and is not editable per template.
       </p>
     </Modal>
   );

@@ -45,7 +45,6 @@ export function SenderSettings() {
 
   if (isLoading || !data) return <p className="text-[13px] text-muted">Loading…</p>;
 
-
   return (
     <div className="space-y-4">
       {error && (
@@ -60,8 +59,8 @@ export function SenderSettings() {
         <div>
           <h2 className="text-[15px] font-semibold">Mailboxes</h2>
           <p className="text-[12px] text-muted-400">
-            One is the default for letters; one is where invoices will go from when Payments starts
-            emailing them.
+            One is the default for letters; one is where invoices will go from when Payments
+            starts emailing them.
           </p>
         </div>
         {isAdmin && (
@@ -186,8 +185,12 @@ function AccountCard({
               </span>
             )}
           </div>
-          <p className="mt-1 truncate font-mono text-[12px] text-ink-700">{account.effectiveFrom}</p>
-          <p className="truncate font-mono text-[12px] text-muted">{account.effectiveAccount}</p>
+          <p className="mt-1 truncate font-mono text-[12px] text-ink-700">
+            {account.effectiveFrom}
+          </p>
+          <p className="truncate font-mono text-[12px] text-muted">
+            {account.effectiveAccount}
+          </p>
         </div>
 
         {/* Six text buttons stood here — "Edit · Make default · Use for invoices · Test · Send me
@@ -219,7 +222,9 @@ function AccountCard({
                   : "Send invoices from this mailbox"
               }
               disabled={makeInvoice.isPending || account.isInvoiceSender || !account.active}
-              className={cn(account.isInvoiceSender && "text-primary-link hover:text-primary-link")}
+              className={cn(
+                account.isInvoiceSender && "text-primary-link hover:text-primary-link",
+              )}
               onClick={() => act(() => makeInvoice.mutateAsync(account.id))}
             >
               <Receipt size={15} />
@@ -366,12 +371,16 @@ function FirmMailBlock({
       ) : (
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
-            <p className="text-[12px] text-muted">Firm postal address · in every commercial letter</p>
+            <p className="text-[12px] text-muted">
+              Firm postal address · in every commercial letter
+            </p>
             <p className="truncate text-[13px] text-ink">{postalAddress}</p>
-
           </div>
           {isAdmin && (
-            <IconButton label="Change the firm's postal address" onClick={() => setEditing(true)}>
+            <IconButton
+              label="Change the firm's postal address"
+              onClick={() => setEditing(true)}
+            >
               <Pencil size={15} />
             </IconButton>
           )}
@@ -448,7 +457,9 @@ function LetterheadRow({
                   remove
                     .mutateAsync(undefined as never)
                     .catch((e) =>
-                      setError(e instanceof Error ? e.message : "Could not remove the letterhead"),
+                      setError(
+                        e instanceof Error ? e.message : "Could not remove the letterhead",
+                      ),
                     );
                 }}
               >
@@ -459,8 +470,8 @@ function LetterheadRow({
         )}
       </div>
       <p className="mt-1.5 text-[12px] text-muted">
-        PNG, JPEG, WebP or GIF — not SVG, which mail clients do not render. Drawn 168px wide, so a
-        tight crop of the lockup reads best.
+        PNG, JPEG, WebP or GIF — not SVG, which mail clients do not render. Drawn 168px wide, so
+        a tight crop of the lockup reads best.
       </p>
       {error && <p className="mt-1.5 text-[11px] text-danger-text">{error}</p>}
     </div>

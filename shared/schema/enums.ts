@@ -14,7 +14,12 @@ export type UserStatus = z.infer<typeof userStatus>;
 export const serviceType = z.enum(["subscription", "one_time", "internal"]);
 export type ServiceType = z.infer<typeof serviceType>;
 
-export const invoiceTrigger = z.enum(["on_create", "on_complete", "on_period_start", "on_period_end"]);
+export const invoiceTrigger = z.enum([
+  "on_create",
+  "on_complete",
+  "on_period_start",
+  "on_period_end",
+]);
 export type InvoiceTrigger = z.infer<typeof invoiceTrigger>;
 
 export const billingPeriod = z.enum(["month", "quarter", "year"]);
@@ -63,8 +68,20 @@ export const mailoutKind = z.enum(["commercial", "transactional"]);
 export type MailoutKind = z.infer<typeof mailoutKind>;
 
 /** What became of one recipient of one send. `skipped` is recorded, never a silent drop. */
-export const mailoutStatus = z.enum(["queued", "sent", "failed", "skipped"]);
+/**
+ * What happened to one letter, in the database's terms.
+ *
+ * `bounced` is not a flavour of `failed`: a letter handed over and then refused is a different
+ * fact from one that never left, and the two are acted on differently. What a READER is told is a
+ * separate question — see `deliveryState()` in `shared/delivery.ts`, which is the only place these
+ * become words like "Delivered".
+ */
+export const mailoutStatus = z.enum(["queued", "sent", "failed", "skipped", "bounced"]);
 export type MailoutStatus = z.infer<typeof mailoutStatus>;
+
+/** What a delivery report was about, which decides whether an address may be retired. */
+export const bounceKind = z.enum(["address", "system", "letter", "transient"]);
+export type BounceKind = z.infer<typeof bounceKind>;
 
 /**
  * How often a planned mailout goes out. `once` is a scheduled one-off, not a special case.
@@ -81,3 +98,17 @@ export type CampaignRhythm = z.infer<typeof campaignRhythm>;
  */
 export const campaignStatus = z.enum(["scheduled", "stopped", "finished"]);
 export type CampaignStatus = z.infer<typeof campaignStatus>;
+
+/**
+ * What a reader is told about one letter. The values are defined and explained in
+ * `shared/delivery.ts`, which owns the rule that turns facts into one of them; this is the wire
+ * shape, kept here beside the other enums so the API schema can reach it.
+ */
+export const deliveryStateSchema = z.enum([
+  "sending",
+  "skipped",
+  "not_sent",
+  "sent",
+  "delivered",
+  "not_delivered",
+]);

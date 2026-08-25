@@ -270,12 +270,11 @@ export function TemplateModal({
             </p>
             {previewBody.unknown.length > 0 && (
               <p className="mt-3 rounded-(--radius-field) bg-danger/10 px-2 py-1.5 text-[11px] text-danger-text">
-                Not a real variable: {previewBody.unknown.map((u) => `{{${u}}}`).join(", ")} — it
-                will appear in the letter exactly as written.
+                Not a real variable: {previewBody.unknown.map((u) => `{{${u}}}`).join(", ")} —
+                it will appear in the letter exactly as written.
               </p>
             )}
           </div>
-
         </div>
       </div>
       <LetterPreviewModal

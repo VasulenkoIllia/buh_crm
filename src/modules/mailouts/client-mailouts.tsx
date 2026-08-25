@@ -9,7 +9,7 @@ import { CampaignModal } from "./campaign-modal";
 import { ComposeModal } from "./compose-modal";
 import { ClientMailoutModal } from "./client-mailout-modal";
 import { StatusPill, reasonTone } from "./status-pill";
-import { useClientMailState, useSetSubscription } from "./mailouts.api";
+import { useClientMailState, useReviveAddress, useSetSubscription } from "./mailouts.api";
 
 /**
  * The client card's Mailouts tab — three questions, and now only one of them on screen at a time.
@@ -47,6 +47,7 @@ export function ClientMailouts({
   const [page, setPage] = useState(1);
   const { data, isLoading } = useClientMailState(clientId, page, HISTORY_PAGE_SIZE);
   const setSubscription = useSetSubscription(clientId);
+  const revive = useReviveAddress(clientId);
   const [composing, setComposing] = useState(false);
   const [scheduling, setScheduling] = useState(false);
   const [openLetter, setOpenLetter] = useState<string | null>(null);
@@ -149,6 +150,46 @@ export function ClientMailouts({
         </div>
       </div>
 
+      {data.deadAddresses.length > 0 && (
+        <div className="rounded-(--radius-panel) border border-danger/30 bg-danger/6 px-4 py-3">
+          <p className="text-[13px] font-medium text-danger-text">
+            {data.deadAddresses.length === 1
+              ? "One address is not accepting mail"
+              : `${data.deadAddresses.length} addresses are not accepting mail`}
+          </p>
+          {/* Said here rather than only in the log: this is a fact about the CLIENT, and the
+              person who can fix it — ring them, get the right address — is reading their card. */}
+          {data.deadAddresses.map((d) => (
+            <div key={d.email} className="mt-2 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate font-mono text-[12px] text-ink">{d.email}</p>
+                <p className="text-[12px] leading-relaxed text-muted">
+                  {d.reason} · since {fmtDateTime(d.since)}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() =>
+                  revive
+                    .mutateAsync(d.email)
+                    .catch((e) =>
+                      setError(e instanceof Error ? e.message : "Could not unblock"),
+                    )
+                }
+                disabled={revive.isPending}
+              >
+                Use it again
+              </Button>
+            </div>
+          ))}
+          <p className="mt-2 text-[11px] leading-relaxed text-muted-400">
+            Letters to these are skipped before they leave. Unblock one once the client confirms
+            it works — a later refusal will simply block it again.
+          </p>
+        </div>
+      )}
+
       <FilterChips
         value={view}
         onChange={setView}
@@ -194,7 +235,7 @@ export function ClientMailouts({
                   <div className="truncate">{h.subject}</div>
                   {/* the reason a letter was skipped belongs beside it, not in a detail nobody opens */}
                   {h.reason && (
-                    <p className={cn("truncate text-[12px]", reasonTone(h.status))}>
+                    <p className={cn("truncate text-[12px]", reasonTone(h.delivery))}>
                       {h.reason}
                     </p>
                   )}
@@ -207,7 +248,7 @@ export function ClientMailouts({
                   {fmtDateTime(h.sentAt ?? h.createdAt)}
                 </div>
                 <div className="text-right">
-                  <StatusPill status={h.status} />
+                  <StatusPill state={h.delivery} />
                 </div>
               </div>
             ))}

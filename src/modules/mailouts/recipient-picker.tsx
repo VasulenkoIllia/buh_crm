@@ -194,7 +194,8 @@ export function RecipientPicker({
 
       {clients.data && clients.data.total > visible.length && (
         <p className="text-[12px] text-muted">
-          Showing {visible.length} of {clients.data.total} — narrow the search to reach the rest.
+          Showing {visible.length} of {clients.data.total} — narrow the search to reach the
+          rest.
         </p>
       )}
     </div>
@@ -239,7 +240,9 @@ function Addressee({
           {nested && <Building2 size={11} className="mr-1 inline text-faint" />}
           {name}
         </span>
-        <span className="block truncate text-[12px] text-muted">{email ?? "no email address"}</span>
+        <span className="block truncate text-[12px] text-muted">
+          {email ?? "no email address"}
+        </span>
       </span>
     </label>
   );

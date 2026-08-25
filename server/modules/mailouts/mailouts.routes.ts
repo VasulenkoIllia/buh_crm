@@ -80,17 +80,19 @@ export async function registerRoutes(instance: FastifyInstance) {
       );
     };
 
-    pub.withTypeProvider<ZodTypeProvider>().get(
-      "/unsubscribe/:token",
-      { schema: { params: tokenParams, querystring: unsubscribeQuery } },
-      async (request, reply) => {
-        const [known, firmName] = await Promise.all([
-          service.unsubscribeTokenExists(request.params.token),
-          service.senderDisplayName(),
-        ]);
-        return page(request, reply, known ? "confirm" : "invalid", firmName);
-      },
-    );
+    pub
+      .withTypeProvider<ZodTypeProvider>()
+      .get(
+        "/unsubscribe/:token",
+        { schema: { params: tokenParams, querystring: unsubscribeQuery } },
+        async (request, reply) => {
+          const [known, firmName] = await Promise.all([
+            service.unsubscribeTokenExists(request.params.token),
+            service.senderDisplayName(),
+          ]);
+          return page(request, reply, known ? "confirm" : "invalid", firmName);
+        },
+      );
 
     pub.withTypeProvider<ZodTypeProvider>().post(
       "/unsubscribe/:token",
@@ -124,7 +126,8 @@ export async function registerRoutes(instance: FastifyInstance) {
   app.post(
     "/templates",
     { preHandler: requireAuth, schema: { body: createTemplateInput } },
-    async (request, reply) => reply.status(201).send(await service.createTemplate(request.body)),
+    async (request, reply) =>
+      reply.status(201).send(await service.createTemplate(request.body)),
   );
 
   app.patch(
@@ -217,6 +220,20 @@ export async function registerRoutes(instance: FastifyInstance) {
       ),
   );
 
+  /**
+   * Un-block an address. Kept beside the subscription toggle because both answer the same
+   * question — may we write to this client — and both belong to whoever is reading their card.
+   */
+  app.post(
+    "/clients/:clientId/addresses/revive",
+    {
+      preHandler: requireAuth,
+      schema: { params: clientParams, body: z.object({ email: z.string() }) },
+    },
+    async (request) =>
+      service.reviveAddress(request.currentUser!, request.params.clientId, request.body.email),
+  );
+
   // ── sender mailboxes ──────────────────────────────────────────────────────
   //
   // Reading is open to any signed-in user (the composer must show which mailbox a send will go
@@ -229,7 +246,8 @@ export async function registerRoutes(instance: FastifyInstance) {
   app.post(
     "/settings/senders",
     { preHandler: requireAdmin, schema: { body: senderAccountInput } },
-    async (request, reply) => reply.status(201).send(await service.createSenderAccount(request.body)),
+    async (request, reply) =>
+      reply.status(201).send(await service.createSenderAccount(request.body)),
   );
 
   app.patch(
@@ -261,7 +279,8 @@ export async function registerRoutes(instance: FastifyInstance) {
   app.post(
     "/settings/senders/:id/test",
     { preHandler: requireAdmin, schema: { params: idParams, body: senderTestInput } },
-    async (request) => service.testSenderAccount(request.currentUser!, request.params.id, request.body),
+    async (request) =>
+      service.testSenderAccount(request.currentUser!, request.params.id, request.body),
   );
 
   /**

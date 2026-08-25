@@ -13,7 +13,13 @@ import { useCampaign } from "./mailouts.api";
  * commercial mail — so without naming what prompted it, a firm can see that people are leaving and
  * never learn which letter is costing them.
  */
-export function CampaignDetailModal({ id, onClose }: { id: string | null; onClose: () => void }) {
+export function CampaignDetailModal({
+  id,
+  onClose,
+}: {
+  id: string | null;
+  onClose: () => void;
+}) {
   const { data, isLoading } = useCampaign(id);
 
   return (
@@ -62,7 +68,10 @@ export function CampaignDetailModal({ id, onClose }: { id: string | null; onClos
                 className="border-b border-divider px-3 py-2 last:border-0"
               >
                 <p className="truncate text-[13px] text-ink">
-                  <Link to={`/clients/${r.clientId}`} className="text-primary-link hover:underline">
+                  <Link
+                    to={`/clients/${r.clientId}`}
+                    className="text-primary-link hover:underline"
+                  >
                     {r.companyName ?? r.clientName}
                   </Link>
                   {r.companyName && <span className="text-muted"> · {r.clientName}</span>}
@@ -79,13 +88,18 @@ export function CampaignDetailModal({ id, onClose }: { id: string | null; onClos
           {data.runs.length > 0 && (
             <Section title={`Sent so far (${data.runs.length})`}>
               {data.runs.map((run) => (
-                <div key={run.mailoutId} className="flex items-center justify-between border-b border-divider px-3 py-2 last:border-0">
+                <div
+                  key={run.mailoutId}
+                  className="flex items-center justify-between border-b border-divider px-3 py-2 last:border-0"
+                >
                   <span className="text-[13px] text-ink">{fmtDateTime(run.createdAt)}</span>
                   <span className="text-[12px] text-muted">
-                    {run.sent} sent
+                    {run.delivered > 0 && `${run.delivered} delivered`}
+                    {run.sent > 0 && `${run.delivered > 0 ? " · " : ""}${run.sent} sent`}
+                    {run.notDelivered > 0 && ` · ${run.notDelivered} not delivered`}
+                    {run.notSent > 0 && ` · ${run.notSent} not sent`}
                     {run.skipped > 0 && ` · ${run.skipped} skipped`}
-                    {run.failed > 0 && ` · ${run.failed} failed`}
-                    {run.queued > 0 && ` · ${run.queued} sending`}
+                    {run.sending > 0 && ` · ${run.sending} sending`}
                   </span>
                 </div>
               ))}
@@ -97,10 +111,15 @@ export function CampaignDetailModal({ id, onClose }: { id: string | null; onClos
             hint="Unsubscribing stops all commercial mail, whichever letter prompted it. This is which letter did."
           >
             {data.optOuts.length === 0 ? (
-              <p className="px-3 py-3 text-[12px] text-muted">Nobody has left because of this.</p>
+              <p className="px-3 py-3 text-[12px] text-muted">
+                Nobody has left because of this.
+              </p>
             ) : (
               data.optOuts.map((o) => (
-                <div key={o.clientId} className="flex items-center gap-2 border-b border-divider px-3 py-2 last:border-0">
+                <div
+                  key={o.clientId}
+                  className="flex items-center gap-2 border-b border-divider px-3 py-2 last:border-0"
+                >
                   <BellOff size={13} className="shrink-0 text-faint" />
                   <Link
                     to={`/clients/${o.clientId}`}

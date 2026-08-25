@@ -11,7 +11,12 @@ import { FormField, Input, Select, Textarea } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
 import { Segmented } from "@/shared/ui/segmented";
 import { RecipientPicker, toTarget } from "./recipient-picker";
-import { useMailSenders, usePreviewMailout, useSendMailout, useTemplates } from "./mailouts.api";
+import {
+  useMailSenders,
+  usePreviewMailout,
+  useSendMailout,
+  useTemplates,
+} from "./mailouts.api";
 
 type Step = "who" | "check";
 
@@ -114,13 +119,16 @@ export function ComposeModal({
     }
     if (!subject.trim() || !body.trim()) return null;
     return {
-      letter: { subject: subject.trim(), heading: heading.trim() || null, body: body.trim(), kind },
+      letter: {
+        subject: subject.trim(),
+        heading: heading.trim() || null,
+        body: body.trim(),
+        kind,
+      },
       recipients,
       senderAccountId: from,
     };
   }, [mode, templateId, subject, heading, body, kind, selected, senderAccountId]);
-
-
 
   async function goToCheck() {
     if (!payload) return;
@@ -145,7 +153,9 @@ export function ComposeModal({
     }
   }
 
-  const chosenTemplate: EmailTemplate | undefined = activeTemplates.find((t) => t.id === templateId);
+  const chosenTemplate: EmailTemplate | undefined = activeTemplates.find(
+    (t) => t.id === templateId,
+  );
 
   return (
     <Modal
@@ -173,7 +183,11 @@ export function ComposeModal({
           <div className="flex gap-2">
             {step === "check" ? (
               <>
-                <Button variant="secondary" onClick={() => setStep("who")} disabled={send.isPending}>
+                <Button
+                  variant="secondary"
+                  onClick={() => setStep("who")}
+                  disabled={send.isPending}
+                >
                   Back
                 </Button>
                 <Button
@@ -234,7 +248,9 @@ export function ComposeModal({
                 {chosenTemplate && (
                   <div className="rounded-(--radius-field) border border-border bg-surface p-3">
                     <p className="text-[12px] uppercase tracking-wide text-muted">Subject</p>
-                    <p className="mb-2 text-[13px] font-medium text-ink">{chosenTemplate.subject}</p>
+                    <p className="mb-2 text-[13px] font-medium text-ink">
+                      {chosenTemplate.subject}
+                    </p>
                     <p className="line-clamp-4 whitespace-pre-wrap text-[12px] leading-relaxed text-ink-700">
                       {chosenTemplate.body}
                     </p>
@@ -281,28 +297,28 @@ export function ComposeModal({
               </>
             )}
 
-          {/* who it comes from — left on "as the template says" unless someone chooses */}
-          <p className="pt-1 text-[12px] font-medium uppercase tracking-wide text-muted">
-            From where
-          </p>
-          <FormField label="Mailbox">
-            <Select
-              value={senderAccountId}
-              onChange={(e) => setSenderAccountId(e.target.value)}
-            >
-              <option value="">
-                {mode === "template" ? "As the template says" : "The default mailbox"}
-              </option>
-              {(senders.data?.accounts ?? [])
-                .filter((a) => a.active)
-                .map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name} — {a.fromEmail ?? "no address"}
-                    {a.isDefault ? " (default)" : ""}
-                  </option>
-                ))}
-            </Select>
-          </FormField>
+            {/* who it comes from — left on "as the template says" unless someone chooses */}
+            <p className="pt-1 text-[12px] font-medium uppercase tracking-wide text-muted">
+              From where
+            </p>
+            <FormField label="Mailbox">
+              <Select
+                value={senderAccountId}
+                onChange={(e) => setSenderAccountId(e.target.value)}
+              >
+                <option value="">
+                  {mode === "template" ? "As the template says" : "The default mailbox"}
+                </option>
+                {(senders.data?.accounts ?? [])
+                  .filter((a) => a.active)
+                  .map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name} — {a.fromEmail ?? "no address"}
+                      {a.isDefault ? " (default)" : ""}
+                    </option>
+                  ))}
+              </Select>
+            </FormField>
           </div>
 
           {/* who gets it — the same picker the campaign editor uses */}
@@ -344,8 +360,8 @@ function CheckStep({ preview }: { preview: MailoutPreview }) {
       {preview.unknownVariables.length > 0 && (
         <div className="rounded-(--radius-field) bg-danger/10 px-3 py-2 text-[12px] text-danger-text">
           <AlertTriangle size={13} className="mr-1 inline" />
-          Not real variables: {preview.unknownVariables.map((u) => `{{${u}}}`).join(", ")} — they
-          will appear in the letter exactly as written.
+          Not real variables: {preview.unknownVariables.map((u) => `{{${u}}}`).join(", ")} —
+          they will appear in the letter exactly as written.
         </div>
       )}
 
@@ -404,13 +420,7 @@ function CheckStep({ preview }: { preview: MailoutPreview }) {
 }
 
 /** One name in either column — the company when there is one, always with the person behind it. */
-function RecipientRow({
-  row,
-  reason,
-}: {
-  row: MailoutPreviewRow;
-  reason?: string | null;
-}) {
+function RecipientRow({ row, reason }: { row: MailoutPreviewRow; reason?: string | null }) {
   return (
     <div className="border-b border-divider px-3 py-2 last:border-0">
       <p className="truncate text-[13px] text-ink">

@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type { Prisma } from "../../generated/prisma/client.js";
+import type { BounceKind, Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../core/db.js";
 
 // ── templates ────────────────────────────────────────────────────────────────
@@ -175,6 +175,10 @@ export function getMailPreference(clientId: string) {
 const mailoutInclude = {
   template: { select: { name: true } },
   createdBy: { select: { firstName: true, lastName: true } },
+  // When the mailbox this went from was last read for bounces. A letter may only be called
+  // delivered once somebody has looked since it was sent — silence is evidence only if a mailbox
+  // was actually being listened to.
+  senderAccount: { select: { bounceCheckedAt: true } },
 } satisfies Prisma.MailoutInclude;
 
 export function createMailout(
@@ -211,11 +215,25 @@ export function listRecipients(mailoutId: string) {
   });
 }
 
-export function countByStatus(mailoutIds: string[]) {
-  return prisma.mailoutRecipient.groupBy({
-    by: ["mailoutId", "status"],
+/**
+ * The facts each row needs to be turned into something a reader is told.
+ *
+ * Rows, not a `groupBy`: whether a letter may be called delivered depends on its own `sentAt` and
+ * on when the mailbox it would have bounced into was last read, and no aggregate can express that.
+ * Counting in SQL would mean writing the rule a second time, in a second language — and a rule
+ * written twice is the one that drifts.
+ *
+ * Three small columns per recipient, and none of it reaches the browser: only the tallies do.
+ */
+export function deliveryFacts(mailoutIds: string[]) {
+  return prisma.mailoutRecipient.findMany({
     where: { mailoutId: { in: mailoutIds } },
-    _count: { _all: true },
+    select: {
+      mailoutId: true,
+      status: true,
+      sentAt: true,
+      mailout: { select: { senderAccount: { select: { bounceCheckedAt: true } } } },
+    },
   });
 }
 
@@ -249,7 +267,9 @@ export function listClientMailouts(clientId: string, skip: number, take: number)
             template: { select: { name: true } },
             // each letter may have gone from a different mailbox, and the subject is re-rendered
             // per row — so the row needs the mailbox that actually sent it, not an approximation
-            senderAccount: { select: { fromName: true, fromEmail: true } },
+            senderAccount: {
+              select: { fromName: true, fromEmail: true, bounceCheckedAt: true },
+            },
           },
         },
       },
@@ -297,7 +317,9 @@ export function findClientLetter(recipientId: string, clientId: string) {
         include: {
           template: { select: { name: true } },
           createdBy: { select: { firstName: true, lastName: true } },
-          senderAccount: { select: { name: true, fromName: true, fromEmail: true } },
+          senderAccount: {
+            select: { name: true, fromName: true, fromEmail: true, bounceCheckedAt: true },
+          },
         },
       },
     },
@@ -408,4 +430,85 @@ export function deleteSenderAccount(id: string) {
 
 export function countSenderAccounts() {
   return prisma.mailSenderAccount.count();
+}
+
+// ── reading bounces back ─────────────────────────────────────────────────────
+
+/** Every mailbox configured to be read. A host without a port is not configured. */
+export function listBounceMailboxes() {
+  return prisma.mailSenderAccount.findMany({
+    where: { active: true, imapHost: { not: null }, imapPort: { not: null } },
+    orderBy: { name: "asc" },
+  });
+}
+
+/** The exact match: the `Message-ID` the letter went out with, quoted back by the report. */
+export function findRecipientByMessageId(messageId: string) {
+  return prisma.mailoutRecipient.findFirst({
+    where: { messageId, status: { in: ["sent", "bounced"] } },
+    orderBy: { sentAt: "desc" },
+  });
+}
+
+/**
+ * The fallback: the most recent letter to this address before the report arrived.
+ *
+ * Needed because a bounce cannot be matched by key unless the letter carried one, and the reports
+ * already sitting in the firm's mailbox predate that. Bounded by time in the one direction that is
+ * certain — a report never precedes its cause — and taken most-recent-first, which is the letter a
+ * report almost always concerns.
+ */
+export function findRecipientByAddressBefore(email: string, before: Date) {
+  return prisma.mailoutRecipient.findFirst({
+    where: {
+      email: { equals: email, mode: "insensitive" },
+      status: { in: ["sent", "bounced"] },
+      sentAt: { not: null, lte: before },
+    },
+    orderBy: [{ sentAt: "desc" }, { id: "desc" }],
+  });
+}
+
+export function markBounced(
+  id: string,
+  data: { reason: string; bounceCode: string; bounceKind: BounceKind },
+) {
+  return prisma.mailoutRecipient.update({
+    where: { id },
+    data: { status: "bounced", bouncedAt: new Date(), ...data },
+  });
+}
+
+/**
+ * Retire an address, or refresh what is known about one already retired.
+ *
+ * `clearedAt: null` on update is deliberate: a report arriving after somebody vouched for the
+ * address means the vouching was wrong, and the address is dead again.
+ */
+export function retireAddress(email: string, code: string, reason: string) {
+  const key = email.toLowerCase();
+  return prisma.deadEmailAddress.upsert({
+    where: { email: key },
+    create: { email: key, code, reason },
+    update: { code, reason, clearedAt: null, clearedById: null },
+  });
+}
+
+/** Addresses currently considered dead, for the send path to skip. */
+export function listDeadAddresses(emails: string[]) {
+  return prisma.deadEmailAddress.findMany({
+    where: { email: { in: emails.map((e) => e.toLowerCase()) }, clearedAt: null },
+  });
+}
+
+export function reviveAddress(email: string, byId: string) {
+  return prisma.deadEmailAddress.update({
+    where: { email: email.toLowerCase() },
+    data: { clearedAt: new Date(), clearedById: byId },
+  });
+}
+
+/** Move a mailbox's bookmark, or record why it could not be read. */
+export function recordSweep(id: string, data: Prisma.MailSenderAccountUpdateInput) {
+  return prisma.mailSenderAccount.update({ where: { id }, data });
 }

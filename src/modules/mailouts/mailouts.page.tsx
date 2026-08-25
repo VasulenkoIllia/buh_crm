@@ -9,9 +9,14 @@ import { Campaigns } from "./campaigns";
 import { ComposeModal } from "./compose-modal";
 import { MailoutDetailModal } from "./mailout-detail";
 import { SenderSettings } from "./sender-settings";
-import { StatusPill } from "./status-pill";
+import { DeliveryCounts } from "./mailout-detail";
 import { TemplateModal } from "./template-modal";
-import { useDeleteTemplate, useMailouts, useTemplates, useUpdateTemplate } from "./mailouts.api";
+import {
+  useDeleteTemplate,
+  useMailouts,
+  useTemplates,
+  useUpdateTemplate,
+} from "./mailouts.api";
 
 /**
  * Written in the project's own visual language rather than a private one: `mx-auto max-w-[…]` with
@@ -41,7 +46,8 @@ type Tab = (typeof TABS)[number]["value"];
 const BLURB: Record<Tab, string> = {
   log: "Every letter that went out, and what happened to each recipient — skipped ones included.",
   campaigns: "Letters planned for a date rather than sent by hand — once, or on a rhythm.",
-  templates: "A letter you send more than once, personalised per client. Only the words change.",
+  templates:
+    "A letter you send more than once, personalised per client. Only the words change.",
   sender: "Which mailboxes letters go from, and the firm's details that appear in every one.",
 };
 
@@ -175,12 +181,7 @@ function SentLog({ onOpen }: { onOpen: (id: string) => void }) {
             <div className="truncate text-muted">{m.templateName ?? "One-off letter"}</div>
             <div className="truncate text-muted">{m.createdByName ?? "—"}</div>
             <div className="whitespace-nowrap text-muted">{fmtDateTime(m.createdAt)}</div>
-            <div className="flex justify-end gap-1.5">
-              {m.counts.sent > 0 && <StatusPill status="sent" count={m.counts.sent} />}
-              {m.counts.queued > 0 && <StatusPill status="queued" count={m.counts.queued} />}
-              {m.counts.failed > 0 && <StatusPill status="failed" count={m.counts.failed} />}
-              {m.counts.skipped > 0 && <StatusPill status="skipped" count={m.counts.skipped} />}
-            </div>
+            <DeliveryCounts counts={m.counts} className="justify-end" />
           </div>
         ))}
       </div>
@@ -311,7 +312,9 @@ function TemplateList({ newSignal }: { newSignal: number }) {
                     update
                       .mutateAsync({ id: t.id, input: { active: !t.active } })
                       .catch((e) =>
-                        setError(e instanceof Error ? e.message : "Could not change the template"),
+                        setError(
+                          e instanceof Error ? e.message : "Could not change the template",
+                        ),
                       );
                   }}
                 >

@@ -240,8 +240,13 @@ describe("planning", () => {
   });
 
   it("refuses an end date before the start, and one on a campaign with no rhythm", async () => {
-    expect((await makeCampaign({ startsOn: "2099-02-01", endsOn: "2099-01-01", rhythm: "monthly" })).statusCode).toBe(400);
-    expect((await makeCampaign({ startsOn: "2099-01-01", endsOn: "2099-02-01" })).statusCode).toBe(400);
+    expect(
+      (await makeCampaign({ startsOn: "2099-02-01", endsOn: "2099-01-01", rhythm: "monthly" }))
+        .statusCode,
+    ).toBe(400);
+    expect(
+      (await makeCampaign({ startsOn: "2099-01-01", endsOn: "2099-02-01" })).statusCode,
+    ).toBe(400);
   });
 });
 
@@ -564,7 +569,9 @@ describe("campaigns on set dates", () => {
   });
 
   it("fires once per day however many times the sweep runs", async () => {
-    const c = (await makeCampaign({ rhythm: "dates", dates: [PAST], recipients: to(clientA) })).json();
+    const c = (
+      await makeCampaign({ rhythm: "dates", dates: [PAST], recipients: to(clientA) })
+    ).json();
     await runDueCampaigns();
     await settled((await runOf(c.id, PAST)).id);
     await runDueCampaigns();
@@ -743,9 +750,11 @@ describe("where an unsubscribe came from", () => {
     await settled(mine.id);
     await settled(notMine.id);
 
-    const token = (await prisma.clientMailPreference.findUniqueOrThrow({
-      where: { clientId: clientA },
-    })).token;
+    const token = (
+      await prisma.clientMailPreference.findUniqueOrThrow({
+        where: { clientId: clientA },
+      })
+    ).token;
 
     const done = await app.inject({
       method: "POST",
@@ -775,9 +784,11 @@ describe("where an unsubscribe came from", () => {
     await runDueCampaigns();
     const run = await runOf(c.id, PAST);
     await settled(run.id);
-    const token = (await prisma.clientMailPreference.findUniqueOrThrow({
-      where: { clientId: clientA },
-    })).token;
+    const token = (
+      await prisma.clientMailPreference.findUniqueOrThrow({
+        where: { clientId: clientA },
+      })
+    ).token;
     await app.inject({
       method: "POST",
       url: `/api/mailouts/unsubscribe/${token}?m=${run.id}`,
@@ -800,7 +811,9 @@ describe("where an unsubscribe came from", () => {
 
 describe("the client card", () => {
   it("shows what is about to be sent to them, not only what already was", async () => {
-    const c = (await makeCampaign({ startsOn: FUTURE, rhythm: "monthly", recipients: to(clientA) })).json();
+    const c = (
+      await makeCampaign({ startsOn: FUTURE, rhythm: "monthly", recipients: to(clientA) })
+    ).json();
 
     const card = await app.inject({
       method: "GET",

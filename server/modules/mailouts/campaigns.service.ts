@@ -36,7 +36,13 @@ import type {
 } from "@shared/schema/campaigns.js";
 import type { MailoutTarget } from "@shared/schema/mailouts.js";
 import type { CampaignRhythm, CampaignStatus, MailoutKind } from "@shared/schema/enums.js";
-import { firstDateOf, firstRunOn, nextDateAfter, nextRunAfter, periodKeyOf } from "@shared/campaigns.js";
+import {
+  firstDateOf,
+  firstRunOn,
+  nextDateAfter,
+  nextRunAfter,
+  periodKeyOf,
+} from "@shared/campaigns.js";
 import { config } from "../../core/config.js";
 import { fromDate } from "../../core/dates.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
@@ -44,7 +50,12 @@ import { clientLabel, personName } from "../../core/names.js";
 import type { User } from "../../generated/prisma/client.js";
 import * as repo from "./campaigns.repository.js";
 import * as mailRepo from "./mailouts.repository.js";
-import { assessTargets, countsFor, runCampaign } from "./mailouts.service.js";
+import {
+  EMPTY_DELIVERY_COUNTS,
+  assessTargets,
+  countsFor,
+  runCampaign,
+} from "./mailouts.service.js";
 
 /** Today as a business date — the firm's calendar day, read explicitly, never the process's. */
 function todayMs(now: Date = new Date()): number {
@@ -114,7 +125,7 @@ export async function detail(id: string): Promise<CampaignDetail> {
     mailoutId: r.id,
     periodKey: r.periodKey,
     createdAt: r.createdAt.toISOString(),
-    ...(counts.get(r.id) ?? { sent: 0, failed: 0, skipped: 0, queued: 0 }),
+    ...(counts.get(r.id) ?? EMPTY_DELIVERY_COUNTS),
   }));
 
   const recipients: CampaignRecipientRow[] = decisions.map((d) => ({
@@ -153,7 +164,12 @@ export async function detail(id: string): Promise<CampaignDetail> {
  * its anchor; a hand-picked list is simply looked up.
  */
 function nextDue(
-  campaign: { rhythm: CampaignRhythm; startsOnMs: number; endsOnMs: number | null; dateMs: number[] },
+  campaign: {
+    rhythm: CampaignRhythm;
+    startsOnMs: number;
+    endsOnMs: number | null;
+    dateMs: number[];
+  },
   fromMs: number,
 ): number | null {
   return campaign.rhythm === "dates"
@@ -206,13 +222,19 @@ export async function create(actor: User, input: CampaignInput): Promise<Campaig
   // For a `dates` campaign the list is the only source of truth: `startsOn` is set from its
   // earliest day and whatever the client sent is ignored, because two fields that can disagree
   // about the same thing eventually will.
-  const dateMs = input.rhythm === "dates" ? [...new Set((input.dates ?? []).map(parseDay))] : [];
+  const dateMs =
+    input.rhythm === "dates" ? [...new Set((input.dates ?? []).map(parseDay))] : [];
   const endsOn = input.endsOn ? parseDay(input.endsOn) : null;
   // non-null is safe: `campaignInput` refuses `rhythm: "dates"` with an empty list, so by here
   // there is always at least one day to take the earliest of
   const startsOn = input.rhythm === "dates" ? firstDateOf(dateMs)! : parseDay(input.startsOn);
 
-  const nextRun = firstDue({ rhythm: input.rhythm, startsOnMs: startsOn, endsOnMs: endsOn, dateMs });
+  const nextRun = firstDue({
+    rhythm: input.rhythm,
+    startsOnMs: startsOn,
+    endsOnMs: endsOn,
+    dateMs,
+  });
   if (nextRun === null) {
     throw new ValidationError("This campaign would never run — check the dates");
   }
@@ -221,7 +243,9 @@ export async function create(actor: User, input: CampaignInput): Promise<Campaig
     {
       name: input.name,
       template: { connect: { id: input.templateId } },
-      senderAccount: input.senderAccountId ? { connect: { id: input.senderAccountId } } : undefined,
+      senderAccount: input.senderAccountId
+        ? { connect: { id: input.senderAccountId } }
+        : undefined,
       kind: input.kind,
       rhythm: input.rhythm,
       startsOn: new Date(startsOn),
@@ -254,7 +278,8 @@ export async function update(id: string, input: CampaignInput): Promise<Campaign
   await assertNameFree(input.name, id);
   await assertTemplateUsable(input.templateId);
 
-  const dateMs = input.rhythm === "dates" ? [...new Set((input.dates ?? []).map(parseDay))] : [];
+  const dateMs =
+    input.rhythm === "dates" ? [...new Set((input.dates ?? []).map(parseDay))] : [];
   const endsOn = input.endsOn ? parseDay(input.endsOn) : null;
   const startsOn = input.rhythm === "dates" ? firstDateOf(dateMs)! : parseDay(input.startsOn);
   const schedule = { rhythm: input.rhythm, startsOnMs: startsOn, endsOnMs: endsOn, dateMs };
@@ -288,7 +313,8 @@ export async function update(id: string, input: CampaignInput): Promise<Campaign
       nextRunOn: next === null ? null : new Date(next),
       // "no date left" only finishes a campaign that was RUNNING — a stopped one stays stopped,
       // and can still be started again once its schedule makes sense
-      status: existing.status === "stopped" ? "stopped" : next === null ? "finished" : "scheduled",
+      status:
+        existing.status === "stopped" ? "stopped" : next === null ? "finished" : "scheduled",
     },
     dedupe(input.recipients),
     dateMs.map((ms) => new Date(ms)),
@@ -322,9 +348,13 @@ export async function setActive(id: string, active: boolean): Promise<CampaignDe
     dateMs: existing.dates.map((d) => dayMs(d.on)),
   };
   const next =
-    existing.lastRunAt === null ? firstDue(schedule) : nextDue(schedule, todayMs() - 86_400_000);
+    existing.lastRunAt === null
+      ? firstDue(schedule)
+      : nextDue(schedule, todayMs() - 86_400_000);
   if (next === null) {
-    throw new ValidationError("There are no dates left — change the schedule before starting it");
+    throw new ValidationError(
+      "There are no dates left — change the schedule before starting it",
+    );
   }
   await repo.updateCampaign(id, { status: "scheduled", nextRunOn: new Date(next) }, null);
   return detail(id);

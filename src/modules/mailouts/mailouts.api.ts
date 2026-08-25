@@ -125,7 +125,7 @@ export function useMailoutDetail(id: string | null) {
     queryKey: [...MAILOUTS_KEY, "detail", id],
     queryFn: () => api<MailoutDetail>(`/api/mailouts/${id}`),
     enabled: !!id,
-    refetchInterval: (query) => (query.state.data?.counts.queued ? 1500 : false),
+    refetchInterval: (query) => (query.state.data?.counts.sending ? 1500 : false),
   });
 }
 
@@ -164,6 +164,18 @@ export function useClientLetter(letterId: string | null, clientId: string) {
     queryFn: () =>
       api<ClientMailoutDetail>(`/api/mailouts/clients/${clientId}/letters/${letterId}`),
     enabled: !!letterId,
+  });
+}
+
+export function useReviveAddress(clientId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (email: string) =>
+      api<ClientMailState>(`/api/mailouts/clients/${clientId}/addresses/revive`, {
+        method: "POST",
+        body: { email },
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [...MAILOUTS_KEY, "client", clientId] }),
   });
 }
 

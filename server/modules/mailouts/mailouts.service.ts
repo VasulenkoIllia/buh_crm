@@ -67,6 +67,8 @@ import {
 } from "../../core/email.js";
 import { explainSendError } from "../../core/send-error.js";
 import { imapAuth, verifyImap, type ImapAccount } from "../../core/imap.js";
+import { deliveryState, type DeliveryState } from "@shared/delivery.js";
+import { readBounces } from "./bounce-reader.js";
 import {
   applyHighlight,
   LOGO_CID,
@@ -1064,6 +1066,8 @@ function judge(
   client: SendableClient,
   companyId: string | null,
   account: SenderAccount,
+  /** addresses a receiving server has told us are gone, lower-cased; empty when unknown */
+  dead: Map<string, string> = new Map(),
 ): { decision: Decision; unknown: string[] } {
   const company = companyOf(client, companyId);
   if (companyId && !company) {
@@ -1098,6 +1102,11 @@ function judge(
     blockedReason = company
       ? `No email address on ${company.name}`
       : "No email address on the client card";
+  } else if (dead.has(email.toLowerCase())) {
+    // The payoff of reading bounces: a letter that would fail is not sent at all, and the composer
+    // says so BEFORE the send rather than the log saying it afterwards. Only an address a server
+    // said does not exist reaches here — never one refused over our own greeting.
+    blockedReason = dead.get(email.toLowerCase())!;
   } else if (letter.kind === "commercial" && client.mailPreference?.unsubscribedAt) {
     blockedReason = "Unsubscribed from commercial mail";
   } else if (missing.length) {
@@ -1119,6 +1128,27 @@ function judge(
   };
 }
 
+/**
+ * Which of these addresses a receiving server has told us are gone, as ready-made sentences.
+ *
+ * Loaded once per decision rather than per addressee: a mailout to two hundred clients would
+ * otherwise ask the same question two hundred times. Only uncleared rows count — somebody who
+ * vouches for a corrected address expects it to be writable again.
+ */
+async function deadAddresses(emails: (string | null)[]): Promise<Map<string, string>> {
+  const wanted = [
+    ...new Set(emails.filter((e): e is string => !!e).map((e) => e.toLowerCase())),
+  ];
+  if (!wanted.length) return new Map();
+  const rows = await repo.listDeadAddresses(wanted);
+  return new Map(
+    rows.map((r) => [
+      r.email,
+      `Address rejected on ${r.lastSeenAt.toISOString().slice(0, 10)} — ${r.reason}`,
+    ]),
+  );
+}
+
 async function decide(
   letter: Letter,
   targets: MailoutTarget[],
@@ -1134,6 +1164,9 @@ async function decide(
   const byId = new Map(loaded.map((c) => [c.id, c]));
   const unknown = new Set<string>();
   const decisions: Decision[] = [];
+  const dead = await deadAddresses(
+    loaded.flatMap((c) => [c.email, ...c.companies.map((co) => co.email)]),
+  );
 
   for (const { clientId, companyId } of wanted) {
     const client = byId.get(clientId);
@@ -1150,7 +1183,7 @@ async function decide(
       });
       continue;
     }
-    const { decision, unknown: u } = judge(letter, client, companyId, account);
+    const { decision, unknown: u } = judge(letter, client, companyId, account, dead);
     for (const v of u) unknown.add(v);
     decisions.push(decision);
   }
@@ -1415,6 +1448,10 @@ export async function assessClientPlans(
     return account;
   };
 
+  // The client card assesses many plans against ONE client, so their addresses are asked about
+  // once for the whole screen rather than once per campaign row.
+  const dead = await deadAddresses([client.email, ...client.companies.map((c) => c.email)]);
+
   const out: (string | null)[] = [];
   for (const plan of plans) {
     const template = byTemplate.get(plan.templateId);
@@ -1431,7 +1468,7 @@ export async function assessClientPlans(
       templateId: template.id,
       senderAccountId: template.senderAccountId,
     };
-    out.push(judge(letter, client, plan.companyId, account).decision.blockedReason);
+    out.push(judge(letter, client, plan.companyId, account, dead).decision.blockedReason);
   }
   return out;
 }
@@ -1641,22 +1678,49 @@ async function deliver(
 
 // ── the log ──────────────────────────────────────────────────────────────────
 
-const EMPTY_COUNTS = { sent: 0, failed: 0, skipped: 0, queued: 0 };
+export const EMPTY_DELIVERY_COUNTS = {
+  sending: 0,
+  sent: 0,
+  delivered: 0,
+  notDelivered: 0,
+  notSent: 0,
+  skipped: 0,
+};
+
+/** `DeliveryState` is snake_case on the wire; the tally reads better in the object's own idiom. */
+const COUNT_KEY: Record<DeliveryState, keyof typeof EMPTY_DELIVERY_COUNTS> = {
+  sending: "sending",
+  sent: "sent",
+  delivered: "delivered",
+  not_delivered: "notDelivered",
+  not_sent: "notSent",
+  skipped: "skipped",
+};
 
 export async function countsFor(ids: string[]) {
-  const rows = await repo.countByStatus(ids);
-  const map = new Map<string, typeof EMPTY_COUNTS>();
-  for (const id of ids) map.set(id, { ...EMPTY_COUNTS });
+  const rows = await repo.deliveryFacts(ids);
+  const map = new Map<string, typeof EMPTY_DELIVERY_COUNTS>();
+  for (const id of ids) map.set(id, { ...EMPTY_DELIVERY_COUNTS });
+  const now = Date.now();
   for (const r of rows) {
     const entry = map.get(r.mailoutId);
-    if (entry) entry[r.status as keyof typeof EMPTY_COUNTS] = r._count._all;
+    if (!entry) continue;
+    const state = deliveryState(
+      {
+        status: r.status,
+        sentAt: r.sentAt?.toISOString() ?? null,
+        mailboxCheckedAt: r.mailout.senderAccount?.bounceCheckedAt?.toISOString() ?? null,
+      },
+      now,
+    );
+    entry[COUNT_KEY[state]] += 1;
   }
   return map;
 }
 
 type MailoutRow = NonNullable<Awaited<ReturnType<typeof repo.findMailout>>>;
 
-function toMailout(m: MailoutRow, counts: typeof EMPTY_COUNTS) {
+function toMailout(m: MailoutRow, counts: typeof EMPTY_DELIVERY_COUNTS) {
   return {
     id: m.id,
     templateId: m.templateId,
@@ -1677,6 +1741,7 @@ export async function detail(id: string): Promise<MailoutDetail> {
   if (!m) throw new NotFoundError("Mailout not found");
   const counts = (await countsFor([id])).get(id)!;
   const recipients = await repo.listRecipients(id);
+  const checkedAt = m.senderAccount?.bounceCheckedAt?.toISOString() ?? null;
 
   return {
     ...toMailout(m, counts),
@@ -1688,8 +1753,16 @@ export async function detail(id: string): Promise<MailoutDetail> {
       companyName: r.company?.name ?? null,
       email: r.email,
       status: r.status,
+      // Worked out here rather than on the screen, so the log, the client card and the counts
+      // above can never disagree about whether one letter arrived.
+      delivery: deliveryState({
+        status: r.status,
+        sentAt: r.sentAt?.toISOString() ?? null,
+        mailboxCheckedAt: checkedAt,
+      }),
       reason: r.reason,
       sentAt: r.sentAt?.toISOString() ?? null,
+      bouncedAt: r.bouncedAt?.toISOString() ?? null,
     })),
   };
 }
@@ -1706,7 +1779,10 @@ export async function list(query: MailoutListQuery): Promise<MailoutList> {
     query.pageSize,
   );
   const counts = await countsFor(rows.map((r) => r.id));
-  return { items: rows.map((m) => toMailout(m, counts.get(m.id) ?? EMPTY_COUNTS)), total };
+  return {
+    items: rows.map((m) => toMailout(m, counts.get(m.id) ?? EMPTY_DELIVERY_COUNTS)),
+    total,
+  };
 }
 
 // ── the client card ──────────────────────────────────────────────────────────
@@ -1781,7 +1857,18 @@ export async function clientState(
       }
     : {};
 
+  const retired = await repo.listDeadAddresses(
+    [client?.email ?? null, ...(client?.companies ?? []).map((c) => c.email)].filter(
+      (e): e is string => !!e,
+    ),
+  );
+
   return {
+    deadAddresses: retired.map((d) => ({
+      email: d.email,
+      reason: d.reason,
+      since: d.lastSeenAt.toISOString(),
+    })),
     subscribed: !pref?.unsubscribedAt,
     unsubscribedAt: pref?.unsubscribedAt?.toISOString() ?? null,
     unsubscribedByName: pref?.unsubscribedBy ? personName(pref.unsubscribedBy) : null,
@@ -1819,6 +1906,12 @@ export async function clientState(
       templateName: r.mailout.template?.name ?? null,
       kind: r.mailout.kind as MailoutKind,
       status: r.status,
+      delivery: deliveryState({
+        status: r.status,
+        sentAt: r.sentAt?.toISOString() ?? null,
+        mailboxCheckedAt: r.mailout.senderAccount?.bounceCheckedAt?.toISOString() ?? null,
+      }),
+      bouncedAt: r.bouncedAt?.toISOString() ?? null,
       reason: r.reason,
       sentAt: r.sentAt?.toISOString() ?? null,
       createdAt: r.createdAt.toISOString(),
@@ -1877,6 +1970,12 @@ export async function clientLetter(
     senderName: account?.name ?? null,
     createdAt: row.mailout.createdAt.toISOString(),
     status: row.status,
+    delivery: deliveryState({
+      status: row.status,
+      sentAt: row.sentAt?.toISOString() ?? null,
+      mailboxCheckedAt: row.mailout.senderAccount?.bounceCheckedAt?.toISOString() ?? null,
+    }),
+    bouncedAt: row.bouncedAt?.toISOString() ?? null,
     reason: row.reason,
     email: row.email,
     sentAt: row.sentAt?.toISOString() ?? null,
@@ -1889,6 +1988,23 @@ export async function clientLetter(
  * and the two would drift the first time the page size changed.
  */
 const FIRST_PAGE = mailoutListQuery.parse({});
+
+/**
+ * Let a firm write to an address a server previously said was gone.
+ *
+ * Needed because the block is inferred, and inference can be wrong: a classification may misread a
+ * server's wording, and a mailbox that was deleted can be recreated. A blocklist with no way out
+ * would eventually cost the firm a client it could perfectly well have reached.
+ *
+ * The row is kept rather than deleted — `clearedAt` records that somebody vouched for it, and a
+ * later report simply retires it again.
+ */
+export async function reviveAddress(actor: User, clientId: string, email: string) {
+  const rows = await repo.listDeadAddresses([email]);
+  if (!rows.length) throw new NotFoundError("That address is not blocked");
+  await repo.reviveAddress(email, actor.id);
+  return clientState(clientId, FIRST_PAGE);
+}
 
 export async function setSubscription(actor: User, clientId: string, subscribed: boolean) {
   await repo.setUnsubscribed(clientId, subscribed ? null : new Date(), actor.id);
@@ -1987,4 +2103,18 @@ export function unsubscribePage(opts: {
   <div style="font-size:15px;line-height:1.6;color:#1f2a28;">${body}</div>
 </div>
 </body></html>`;
+}
+
+/**
+ * Read every configured mailbox for delivery reports.
+ *
+ * Credentials are resolved here rather than in the reader, so the reader never touches
+ * `SECRETS_KEY` and can be tested against a fake mailbox with no crypto in the way.
+ */
+export async function sweepBounces(read?: Parameters<typeof readBounces>[1]) {
+  return readBounces(async (id) => {
+    const account = await repo.findSenderAccount(id);
+    if (!account) throw new Error("Mailbox disappeared mid-sweep");
+    return imapFor(account);
+  }, read);
 }

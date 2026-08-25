@@ -68,8 +68,8 @@ export function Campaigns({ newSignal }: { newSignal: number }) {
         <div className="rounded-(--radius-panel) border border-dashed border-[#cfd4db] bg-surface p-12 text-center">
           <div className="text-[15px] font-semibold">Nothing scheduled</div>
           <p className="mt-1 text-[13px] text-muted">
-            A campaign is a saved template, a list of clients and a date — it goes out on its own,
-            once or on a rhythm.
+            A campaign is a saved template, a list of clients and a date — it goes out on its
+            own, once or on a rhythm.
           </p>
         </div>
       ) : (
@@ -184,8 +184,14 @@ export function CampaignStatus({ campaign }: { campaign: { status: string } }) {
         ? "bg-warning/20 text-[#8a5a12]"
         : "bg-divider text-muted";
   const label =
-    campaign.status === "scheduled" ? "Scheduled" : campaign.status === "stopped" ? "Stopped" : "Finished";
+    campaign.status === "scheduled"
+      ? "Scheduled"
+      : campaign.status === "stopped"
+        ? "Stopped"
+        : "Finished";
   return (
-    <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", tone)}>{label}</span>
+    <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", tone)}>
+      {label}
+    </span>
   );
 }

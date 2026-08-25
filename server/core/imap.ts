@@ -84,3 +84,68 @@ export async function verifyImap(
     await client.logout().catch(() => client.close());
   }
 }
+
+/** One message as the reader sees it: enough to parse, and the bookmark to move past it. */
+export interface RawMessage {
+  uid: number;
+  source: string;
+}
+
+/**
+ * Read the messages that arrived since last time, oldest first.
+ *
+ * READ-ONLY throughout, and that is the whole design constraint: this mailbox belongs to a person.
+ * Marking a message seen would hide a bounce from them; their reading it must not hide one from
+ * us. So nothing is flagged, moved or deleted, and progress is tracked by UID on our side instead.
+ *
+ * `uidValidity` is the mailbox's own generation counter. When it changes the server has reissued
+ * every UID, so the caller's bookmark means nothing any more and the scan must start over — which
+ * is why it comes back with the messages rather than being assumed.
+ */
+export async function fetchSince(
+  account: ImapAccount,
+  sinceUid: number | null,
+  limit = 200,
+): Promise<{ uidValidity: string; messages: RawMessage[] }> {
+  const client = new ImapFlow({
+    host: account.host,
+    port: account.port,
+    secure: account.secure,
+    auth: account.user ? { user: account.user, pass: account.pass ?? "" } : undefined,
+    logger: false,
+    socketTimeout: 30_000,
+    greetingTimeout: 10_000,
+    connectionTimeout: 10_000,
+  });
+
+  try {
+    await client.connect();
+    const box = await client.mailboxOpen("INBOX", { readOnly: true });
+    const uidValidity = String(box.uidValidity);
+    // A reissued mailbox invalidates the bookmark completely; anything else resumes past it.
+    const from = sinceUid && uidValidity === String(box.uidValidity) ? sinceUid + 1 : 1;
+
+    const messages: RawMessage[] = [];
+    if (box.exists > 0) {
+      for await (const msg of client.fetch(
+        `${from}:*`,
+        { uid: true, source: true },
+        { uid: true },
+      )) {
+        // `${n}:*` never returns fewer than one message: a server with nothing newer answers with
+        // the last one instead of an empty set. Filtering by UID is what makes the range honest.
+        if (sinceUid !== null && msg.uid <= sinceUid) continue;
+        // A message can come back without its body if it was deleted between the search and the
+        // fetch. Skipping it rather than throwing keeps one vanished message from stalling a sweep
+        // — the bookmark still moves past it, so it is not retried forever.
+        if (!msg.source) continue;
+        messages.push({ uid: msg.uid, source: msg.source.toString("utf8") });
+        if (messages.length >= limit) break;
+      }
+    }
+    messages.sort((a, b) => a.uid - b.uid);
+    return { uidValidity, messages };
+  } finally {
+    await client.logout().catch(() => client.close());
+  }
+}

@@ -4,7 +4,7 @@ import { config } from "./core/config.js";
 import { disconnectDb } from "./core/db.js";
 import { ensureUploadsDir } from "./core/files.js";
 import { registerJob, startScheduler, stopScheduler } from "./core/scheduler.js";
-import { runDueCampaigns } from "./modules/mailouts/index.js";
+import { runDueCampaigns, sweepBounces } from "./modules/mailouts/index.js";
 import { generatePeriodInvoices } from "./modules/payments/index.js";
 import { generateInternalTasks, generateSubscriptionTasks } from "./modules/tasks/index.js";
 
@@ -27,7 +27,8 @@ async function main() {
         app.log.error({ err, sweep: gen.name }, "task generation sweep failed");
       }
     }
-    if (label === "catch-up" && created > 0) app.log.info({ created }, "scheduled tasks caught up");
+    if (label === "catch-up" && created > 0)
+      app.log.info({ created }, "scheduled tasks caught up");
   };
   registerJob({
     name: "subscription-task-generation",
@@ -44,7 +45,8 @@ async function main() {
       if (created > 0) app.log.info({ created, label }, "period invoices issued");
       // per-subscription failures are isolated inside the sweep; surface them so a client
       // that silently stops being billed is visible in the logs
-      if (failed > 0) app.log.error({ failed, label }, "period invoice sweep skipped subscriptions");
+      if (failed > 0)
+        app.log.error({ failed, label }, "period invoice sweep skipped subscriptions");
     } catch (err) {
       app.log.error({ err }, "period invoice sweep failed");
     }
@@ -83,6 +85,28 @@ async function main() {
     cronExpr: "0 * * * *",
     run: () => runCampaigns("run"),
     catchUp: () => runCampaigns("catch-up"),
+  });
+
+  /**
+   * Reading every mailbox back for delivery reports.
+   *
+   * Every fifteen minutes rather than hourly: a refusal comes back in seconds, and the sooner a
+   * dead address is known the fewer letters are sent into it. Cheap when there is nothing new —
+   * one IMAP connection per configured mailbox, fetching only UIDs above the last bookmark — and
+   * a mailbox with no IMAP configured is not visited at all.
+   *
+   * No catch-up on boot: a sweep IS its own catch-up, because the bookmark is where it left off.
+   */
+  registerJob({
+    name: "read-bounces",
+    cronExpr: "*/15 * * * *",
+    run: async () => {
+      const results = await sweepBounces();
+      for (const r of results) {
+        if (r.error) app.log.error({ mailbox: r.mailbox, err: r.error }, "mailbox unreadable");
+        else if (r.matched || r.retired) app.log.info({ ...r }, "delivery reports applied");
+      }
+    },
   });
 
   await app.listen({ port: config.PORT, host: "0.0.0.0" });

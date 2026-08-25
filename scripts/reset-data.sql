@@ -24,6 +24,9 @@ DELETE FROM "MailoutRecipient";
 DELETE FROM "CampaignRecipient";
 DELETE FROM "CampaignDate";
 DELETE FROM "ClientMailPreference";
+-- Addresses a receiving server said were gone. They name client addresses, so they go with the
+-- clients: keeping them would blocklist an address a fresh import might legitimately reuse.
+DELETE FROM "DeadEmailAddress";
 DELETE FROM "Mailout";
 DELETE FROM "Campaign";
 DELETE FROM "EmailTemplate";

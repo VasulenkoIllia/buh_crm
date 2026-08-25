@@ -182,7 +182,5 @@ export function listClientCampaigns(clientId: string) {
  * campaign that never wrote to them.
  */
 export async function mailoutIncludesClient(mailoutId: string, clientId: string) {
-  return (
-    (await prisma.mailoutRecipient.count({ where: { mailoutId, clientId } })) > 0
-  );
+  return (await prisma.mailoutRecipient.count({ where: { mailoutId, clientId } })) > 0;
 }

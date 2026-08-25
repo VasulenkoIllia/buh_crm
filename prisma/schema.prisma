@@ -144,6 +144,32 @@ enum MailoutStatus {
   sent
   failed
   skipped
+  /**
+   * a delivery report came back — the letter was handed over and then refused
+   */
+  bounced
+}
+
+/**
+ * What a delivery report was ABOUT, which decides what may be done in response.
+ */
+enum BounceKind {
+  /**
+   * the recipient's mailbox is gone — the only kind that may retire an address
+   */
+  address
+  /**
+   * a mail system between us and them, quite possibly our own — blame no address for it
+   */
+  system
+  /**
+   * the message itself was unacceptable, usually its size
+   */
+  letter
+  /**
+   * 4.x.x, still being retried — recorded, but nothing acts on it
+   */
+  transient
 }
 
 // ── Users & auth ─────────────────────────────────────────────────────────────
@@ -188,6 +214,7 @@ model User {
   mailoutsSent             Mailout[]              @relation("MailoutCreatedBy")
   campaignsCreated         Campaign[]             @relation("CampaignCreatedBy")
   clientsUnsubscribed      ClientMailPreference[] @relation("MailPreferenceUnsubscribedBy")
+  deadEmailAddresses       DeadEmailAddress[]
 }
 
 model AuthToken {
@@ -259,6 +286,8 @@ model FirmProfile {
   // fields could only ever describe one of them.
   //
   /**
+   * /**
+   * /**
    * /** CAN-SPAM: the firm's physical address. One firm, one legal address — never per mailbox.
    */
   postalAddress  String?
@@ -346,6 +375,8 @@ model MailSenderAccount {
   // The reader matches on a key carried inside the bounce, so it does not matter which mailbox a
   // given bounce lands in: every configured mailbox is polled, and whatever turns up is matched.
   /**
+   * /**
+   * /**
    * /** null = this mailbox is not read for bounces
    */
   imapHost       String?
@@ -360,6 +391,30 @@ model MailSenderAccount {
   imapPassIv     Bytes?
   imapPassTag    Bytes?
   imapKeyVersion Int?
+
+  // ── the reader's own bookmark ─────────────────────────────────────────────
+  //
+  // Never `\Seen`, never a moved message: this mailbox belongs to a person, and flagging their
+  // mail to track our own progress would hide a bounce from them — or theirs from us.
+  /**
+   * /**
+   * /** the mailbox's UIDVALIDITY when last read; a change means the UIDs were reissued
+   */
+  bounceUidValidity String?
+  /**
+   * the highest UID already read, so a restart resumes rather than rescans
+   */
+  bounceLastUid     Int?
+  /**
+   * When the mailbox was last read successfully.
+   * Load-bearing beyond bookkeeping: a letter is only called DELIVERED once this proves we looked
+   * after it was sent and found no complaint. Silence is evidence only when somebody was listening.
+   */
+  bounceCheckedAt   DateTime?
+  /**
+   * the last failure, shown beside the mailbox so a broken reader is visible rather than silent
+   */
+  bounceError       String?
 
   /**
    * exactly one account is the default; moved atomically, like Priority.isDefault
@@ -1221,7 +1276,17 @@ model MailoutRecipient {
    */
   messageId String?
   sentAt    DateTime?
-  createdAt DateTime      @default(now())
+
+  /**
+   * when a delivery report came back for this letter
+   */
+  bouncedAt  DateTime?
+  /**
+   * the enhanced code where the server gave one, else the bare three-digit reply
+   */
+  bounceCode String?
+  bounceKind BounceKind?
+  createdAt  DateTime    @default(now())
 
   mailout Mailout  @relation(fields: [mailoutId], references: [id], onDelete: Cascade)
   client  Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -1243,6 +1308,34 @@ model MailoutRecipient {
  * `token` is the unguessable secret in the one-click unsubscribe link — the route it opens is the
  * only unauthenticated write in the app, so it can afford nothing weaker.
  */
+/**
+ * An address that a receiving server said does not exist.
+ * Keyed by the ADDRESS, not hung off a client: a client has several — their own and one per
+ * company — and a bounce kills exactly one of them. The same address may also sit on more than one
+ * card, and it is dead for all of them or none.
+ * Only `BounceKind.address` ever writes here. A refused greeting or a full mailbox must not, or one
+ * misconfiguration of our own would spread into a self-inflicted blocklist of real clients.
+ */
+model DeadEmailAddress {
+  /**
+   * lower-cased, because a mailbox is not case-sensitive in any way that matters here
+   */
+  email       String   @id
+  code        String
+  reason      String
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @updatedAt
+
+  /**
+   * set when somebody vouches for the address again; the row is kept as history
+   */
+  clearedAt   DateTime?
+  clearedById String?   @db.Uuid
+  clearedBy   User?     @relation(fields: [clearedById], references: [id], onDelete: SetNull)
+
+  @@index([clearedAt])
+}
+
 model ClientMailPreference {
   clientId                  String    @id @db.Uuid
   unsubscribedAt            DateTime?

@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { uuid } from "./common.js";
-import { campaignRhythm, campaignStatus, mailoutKind, mailoutStatus } from "./enums.js";
+import {
+  campaignRhythm,
+  campaignStatus,
+  deliveryStateSchema,
+  mailoutKind,
+  mailoutStatus,
+} from "./enums.js";
 
 /**
  * Client mailouts (S10).
@@ -184,9 +190,18 @@ export const mailoutRecipientSchema = z.object({
   /** null = it went to the client's own address */
   companyName: z.string().nullable(),
   email: z.string(),
+  /** what happened, in the database's terms — kept for the log and for tests */
   status: mailoutStatus,
+  /**
+   * What to TELL somebody, worked out on the server so no two screens can disagree.
+   * This is what the interface shows; `status` is not.
+   */
+  delivery: deliveryStateSchema,
+  /** why it was skipped, could not be sent, or did not arrive — already a sentence */
   reason: z.string().nullable(),
   sentAt: z.iso.datetime().nullable(),
+  /** when the report came back, for the rows that did not arrive */
+  bouncedAt: z.iso.datetime().nullable(),
 });
 export type MailoutRecipientRow = z.infer<typeof mailoutRecipientSchema>;
 
@@ -201,11 +216,20 @@ export const mailoutSchema = z.object({
   createdById: uuid.nullable(),
   createdByName: z.string().nullable(),
   createdAt: z.iso.datetime(),
+  /**
+   * The tally in the reader's terms, not the database's.
+   *
+   * A bookkeeper opening this screen is asking "did they get it", so the counts answer that:
+   * how many arrived, how many did not, how many are still unknown. `delivered` is only ever
+   * counted for a mailbox somebody actually reads — see `deliveryState()` in `shared/delivery.ts`.
+   */
   counts: z.object({
+    sending: z.number().int(),
     sent: z.number().int(),
-    failed: z.number().int(),
+    delivered: z.number().int(),
+    notDelivered: z.number().int(),
+    notSent: z.number().int(),
     skipped: z.number().int(),
-    queued: z.number().int(),
   }),
 });
 export type Mailout = z.infer<typeof mailoutSchema>;
@@ -246,6 +270,9 @@ export const clientMailoutRow = z.object({
   templateName: z.string().nullable(),
   kind: mailoutKind,
   status: mailoutStatus,
+  /** what to TELL somebody — worked out on the server, so no two screens disagree */
+  delivery: deliveryStateSchema,
+  bouncedAt: z.iso.datetime().nullable(),
   reason: z.string().nullable(),
   sentAt: z.iso.datetime().nullable(),
   createdAt: z.iso.datetime(),
@@ -293,6 +320,21 @@ export const clientMailStateSchema = z.object({
       companyId: uuid.nullable(),
       name: z.string(),
       email: z.string().nullable(),
+    }),
+  ),
+  /**
+   * This client's addresses that a receiving server said do not exist.
+   *
+   * On the card rather than in a settings screen somewhere, because it is a fact ABOUT THEM and
+   * the person who can fix it is looking at their record. Every one carries a way back: a
+   * classification can be wrong, and a mailbox that was deleted can be recreated — a block with no
+   * way out would eventually cost the firm a client it could have written to.
+   */
+  deadAddresses: z.array(
+    z.object({
+      email: z.string(),
+      reason: z.string(),
+      since: z.iso.datetime(),
     }),
   ),
   history: z.array(clientMailoutRow),
@@ -353,6 +395,9 @@ export const clientMailoutDetailSchema = z.object({
   senderName: z.string().nullable(),
   createdAt: z.iso.datetime(),
   status: mailoutStatus,
+  /** what to TELL somebody — worked out on the server, so no two screens disagree */
+  delivery: deliveryStateSchema,
+  bouncedAt: z.iso.datetime().nullable(),
   reason: z.string().nullable(),
   email: z.string(),
   sentAt: z.iso.datetime().nullable(),

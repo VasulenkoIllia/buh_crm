@@ -28,12 +28,7 @@ export function ClientMailoutModal({
   const { data, isLoading } = useClientLetter(letterId, clientId);
 
   return (
-    <Modal
-      open={!!letterId}
-      onClose={onClose}
-      size="lg"
-      title={data?.subject ?? "Letter"}
-    >
+    <Modal open={!!letterId} onClose={onClose} size="lg" title={data?.subject ?? "Letter"}>
       {isLoading || !data ? (
         <p className="text-[13px] text-muted">Loading…</p>
       ) : (
@@ -47,7 +42,7 @@ export function ClientMailoutModal({
           </div>
 
           <div className="mb-4 flex items-center gap-2">
-            <StatusPill status={data.status} />
+            <StatusPill state={data.delivery} />
             <span className="text-[12px] text-muted">
               to {data.email || "no address"}
               {data.companyName && <> · {data.companyName}</>}
