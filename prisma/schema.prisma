@@ -60,7 +60,7 @@ enum Periodicity {
 
 enum TaskKind {
   once // one-off billable
-  sub  // generated from subscription
+  sub // generated from subscription
   free // internal, non-billable
 }
 
@@ -104,7 +104,6 @@ enum NotificationKind {
 
 /**
  * The line the CAN-SPAM Act draws, and the reason it is stored rather than inferred.
- *
  * `commercial` mail (news, offers, seasonal reminders) must carry a working unsubscribe and the
  * firm's postal address, and must honour an unsubscribe. `transactional` mail (an invoice, a
  * password reset, a document request) is exempt from all three — and MUST stay exempt, because a
@@ -115,7 +114,9 @@ enum MailoutKind {
   transactional
 }
 
-/** What happened to one recipient of one send. `skipped` is a record, never a silent drop. */
+/**
+ * What happened to one recipient of one send. `skipped` is a record, never a silent drop.
+ */
 /// How often a campaign fires. `once` is a scheduled one-off — same entity, no special case.
 ///
 /// `dates` is a hand-picked list rather than a rule: an accounting firm's calendar is 15 March,
@@ -161,32 +162,32 @@ model User {
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
 
-  avatarFile          File?                @relation("UserAvatar", fields: [avatarFileId], references: [id])
-  authTokens          AuthToken[]
-  sessions            Session[]
-  taskAssignments     TaskAssignee[]
-  tasksCreated        Task[]               @relation("TaskCreatedBy")
-  tasksCancelled      Task[]               @relation("TaskCancelledBy")
-  secretsCreated      ClientSecret[]       @relation("SecretCreatedBy")
-  secretAudit         SecretAuditLog[]     @relation("SecretAuditBy")
-  taskComments        TaskComment[]        @relation("TaskCommentAuthor")
-  timeEntries         TimeEntry[]
-  timeEntriesCreated  TimeEntry[]          @relation("TimeEntryCreatedBy")
-  meetingParticipants MeetingParticipant[]
-  meetingsOrganised   Meeting[]            @relation("MeetingCreatedBy")
-  notifications       Notification[]
-  paymentsCreated     Payment[]            @relation("PaymentCreatedBy")
-  paymentAuditLogs    PaymentAuditLog[]
-  invoicesCreated     Invoice[]            @relation("InvoiceCreatedBy")
-  invoicesSent        Invoice[]            @relation("InvoiceSentBy")
-  invoicesCancelled   Invoice[]            @relation("InvoiceCancelledBy")
-  invoicesArchived    Invoice[]            @relation("InvoiceTidiedBy")
-  uploadedFiles       File[]               @relation("FileUploadedBy")
-  subscriptionPeriods SubscriptionPeriod[] @relation("SubscriptionPeriodCreatedBy")
-  subscriptionPeriodsEnded SubscriptionPeriod[] @relation("SubscriptionPeriodEndedBy")
-  mailoutsSent        Mailout[]            @relation("MailoutCreatedBy")
-  campaignsCreated    Campaign[]           @relation("CampaignCreatedBy")
-  clientsUnsubscribed ClientMailPreference[] @relation("MailPreferenceUnsubscribedBy")
+  avatarFile               File?                  @relation("UserAvatar", fields: [avatarFileId], references: [id])
+  authTokens               AuthToken[]
+  sessions                 Session[]
+  taskAssignments          TaskAssignee[]
+  tasksCreated             Task[]                 @relation("TaskCreatedBy")
+  tasksCancelled           Task[]                 @relation("TaskCancelledBy")
+  secretsCreated           ClientSecret[]         @relation("SecretCreatedBy")
+  secretAudit              SecretAuditLog[]       @relation("SecretAuditBy")
+  taskComments             TaskComment[]          @relation("TaskCommentAuthor")
+  timeEntries              TimeEntry[]
+  timeEntriesCreated       TimeEntry[]            @relation("TimeEntryCreatedBy")
+  meetingParticipants      MeetingParticipant[]
+  meetingsOrganised        Meeting[]              @relation("MeetingCreatedBy")
+  notifications            Notification[]
+  paymentsCreated          Payment[]              @relation("PaymentCreatedBy")
+  paymentAuditLogs         PaymentAuditLog[]
+  invoicesCreated          Invoice[]              @relation("InvoiceCreatedBy")
+  invoicesSent             Invoice[]              @relation("InvoiceSentBy")
+  invoicesCancelled        Invoice[]              @relation("InvoiceCancelledBy")
+  invoicesArchived         Invoice[]              @relation("InvoiceTidiedBy")
+  uploadedFiles            File[]                 @relation("FileUploadedBy")
+  subscriptionPeriods      SubscriptionPeriod[]   @relation("SubscriptionPeriodCreatedBy")
+  subscriptionPeriodsEnded SubscriptionPeriod[]   @relation("SubscriptionPeriodEndedBy")
+  mailoutsSent             Mailout[]              @relation("MailoutCreatedBy")
+  campaignsCreated         Campaign[]             @relation("CampaignCreatedBy")
+  clientsUnsubscribed      ClientMailPreference[] @relation("MailPreferenceUnsubscribedBy")
 }
 
 model AuthToken {
@@ -257,11 +258,12 @@ model FirmProfile {
   // of letter from different mailboxes (news from info@, bills from billing@) and one set of
   // fields could only ever describe one of them.
   //
-  /** CAN-SPAM: the firm's physical address. One firm, one legal address — never per mailbox. */
-  postalAddress String?
+  /**
+   * /** CAN-SPAM: the firm's physical address. One firm, one legal address — never per mailbox.
+   */
+  postalAddress  String?
   /**
    * The mark that goes in LETTERS — deliberately its own file, not `logoFileId`.
-   *
    * The sidebar logo and the letterhead have different jobs: the sidebar is small, sits on a dark
    * panel and can be any shape; the letterhead is 168px wide on white and needs a tight raster
    * crop at the lockup's own aspect. One file could serve both only by being wrong for one of them.
@@ -274,28 +276,31 @@ model FirmProfile {
 
 /**
  * A mailbox the firm sends client letters from.
- *
  * Several, because the letters are not all of a kind: seasonal news from `info@`, invoices from
  * `billing@`, document requests from a particular accountant. Each carries its own `From`, its own
  * signature — the block at the foot of the letter names a *person*, and that person differs by
  * mailbox — and its own SMTP credentials.
- *
  * `smtpHost` null means "send over the `.env` account", so a firm can name a sender and start
  * using it before its DNS and credentials are ready.
- *
  * Never hard-deleted: a `Mailout` records which account it went from, and history that points at a
  * missing row stops being able to answer "where did this come from". Deactivate instead.
  */
 model MailSenderAccount {
   id   String @id @default(uuid()) @db.Uuid
-  /** what the firm calls it — "Newsletters", "Invoices". Unique, case-insensitively. */
+  /**
+   * what the firm calls it — "Newsletters", "Invoices". Unique, case-insensitively.
+   */
   name String
 
-  /** the From: header — the address must be one the SMTP account below may send AS */
+  /**
+   * the From: header — the address must be one the SMTP account below may send AS
+   */
   fromName  String
   fromEmail String
   replyTo   String?
-  /** the contact block at the foot of every letter sent from here — a NAME and title, not data */
+  /**
+   * the contact block at the foot of every letter sent from here — a NAME and title, not data
+   */
   signature String?
 
   // ── the tap-to-contact buttons ────────────────────────────────────────────
@@ -312,14 +317,15 @@ model MailSenderAccount {
 
   /**
    * The mailbox invoices go out from, once Payments starts sending them.
-   *
    * A named purpose rather than a second "default": the firm decides once that bills come from
    * billing@ and news from info@, and the invoice code then has somewhere to read instead of
    * inventing its own setting later.
    */
   isInvoiceSender Boolean @default(false)
 
-  /** null = borrow the `.env` account that sends invites and password resets */
+  /**
+   * null = borrow the `.env` account that sends invites and password resets
+   */
   smtpHost       String?
   smtpPort       Int?
   smtpSecure     Boolean?
@@ -330,7 +336,34 @@ model MailSenderAccount {
   smtpPassTag    Bytes?
   smtpKeyVersion Int?
 
-  /** exactly one account is the default; moved atomically, like Priority.isDefault */
+  // ── reading the mailbox back ──────────────────────────────────────────────
+  //
+  // A mailbox that only sends is half a mailbox. Bounces come back to the envelope sender, and the
+  // hosting decides which mailbox that is — so this is CONFIGURED, never inferred from `fromEmail`.
+  // Null host means "not read", which is a state the screen says out loud rather than implying
+  // coverage that does not exist.
+  //
+  // The reader matches on a key carried inside the bounce, so it does not matter which mailbox a
+  // given bounce lands in: every configured mailbox is polled, and whatever turns up is matched.
+  /**
+   * /** null = this mailbox is not read for bounces
+   */
+  imapHost       String?
+  imapPort       Int?
+  imapSecure     Boolean?
+  /**
+   * null = reuse smtpUser / smtpPass, which is the usual case and what the form offers first
+   */
+  imapUser       String?
+  /// sealed with SECRETS_KEY, exactly like smtpPass — never returned by the API
+  imapPass       Bytes?
+  imapPassIv     Bytes?
+  imapPassTag    Bytes?
+  imapKeyVersion Int?
+
+  /**
+   * exactly one account is the default; moved atomically, like Priority.isDefault
+   */
   isDefault Boolean  @default(false)
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -346,28 +379,28 @@ model MailSenderAccount {
 // ── Catalog ──────────────────────────────────────────────────────────────────
 
 model Service {
-  id             String         @id @default(uuid()) @db.Uuid
-  name           String         @unique // is the category label
-  color          String
-  type           ServiceType
-  defaultAmount  Int? // minor units — expected price; per-client override on Subscription.amount
-  invoiceTrigger InvoiceTrigger @default(on_create)
-  invoiceDay     Int? // "on day N of the period" (design: billing rule sub-panel)
-  dueDays        Int? // invoice counts as overdue N days after issue; null = never
-  active         Boolean        @default(true)
+  id                  String         @id @default(uuid()) @db.Uuid
+  name                String         @unique // is the category label
+  color               String
+  type                ServiceType
+  defaultAmount       Int? // minor units — expected price; per-client override on Subscription.amount
+  invoiceTrigger      InvoiceTrigger @default(on_create)
+  invoiceDay          Int? // "on day N of the period" (design: billing rule sub-panel)
+  dueDays             Int? // invoice counts as overdue N days after issue; null = never
+  active              Boolean        @default(true)
   // at most ONE service (one-time only) is auto-added to every new client — enforced by the
   // partial unique index `Service_single_default_for_new_clients` (raw SQL, not expressible here)
-  autoAddToNewClients Boolean   @default(false)
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  autoAddToNewClients Boolean        @default(false)
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
 
-  taskTemplates    TaskTemplate[]
-  subscriptions    Subscription[]
-  tasks            Task[]
-  leads            Lead[]
-  invoices         Invoice[]
-  meetings         Meeting[]
-  people           ClientPerson[]
+  taskTemplates TaskTemplate[]
+  subscriptions Subscription[]
+  tasks         Task[]
+  leads         Lead[]
+  invoices      Invoice[]
+  meetings      Meeting[]
+  people        ClientPerson[]
 }
 
 model TaskTemplate {
@@ -398,34 +431,34 @@ model TaskTemplate {
 // a client is just a client — no individual/company discriminator. `companyName` survives as a
 // plain informational label; the COMPANIES a client holds are real rows below.
 model Client {
-  id              String    @id @default(uuid()) @db.Uuid
-  firstName       String // the client's identity — required; lastName is optional
-  lastName        String?
-  companyName     String? // informational only ("works at / trades as"), never an identity
-  phone           String?
-  email           String?
-  address         String?
-  sourceId        String?   @db.Uuid
-  description     String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  archivedAt      DateTime?
-  archivedById    String?   @db.Uuid
+  id           String    @id @default(uuid()) @db.Uuid
+  firstName    String // the client's identity — required; lastName is optional
+  lastName     String?
+  companyName  String? // informational only ("works at / trades as"), never an identity
+  phone        String?
+  email        String?
+  address      String?
+  sourceId     String?   @db.Uuid
+  description  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  archivedAt   DateTime?
+  archivedById String?   @db.Uuid
 
-  source        SourceOption?           @relation(fields: [sourceId], references: [id])
-  companies     Company[] // 1:N — the client's companies (see below)
-  people        ClientPerson[] // the "People" tab
-  secrets       ClientSecret[] // the "Secrets" tab — encrypted, admin-only reveal
-  secretAudit   SecretAuditLog[]
-  subscriptions Subscription[]
-  tasks         Task[]
-  invoices      Invoice[]
-  meetings      Meeting[]
-  mailouts      MailoutRecipient[]
-  campaigns     CampaignRecipient[]
+  source         SourceOption?         @relation(fields: [sourceId], references: [id])
+  companies      Company[] // 1:N — the client's companies (see below)
+  people         ClientPerson[] // the "People" tab
+  secrets        ClientSecret[] // the "Secrets" tab — encrypted, admin-only reveal
+  secretAudit    SecretAuditLog[]
+  subscriptions  Subscription[]
+  tasks          Task[]
+  invoices       Invoice[]
+  meetings       Meeting[]
+  mailouts       MailoutRecipient[]
+  campaigns      CampaignRecipient[]
   mailPreference ClientMailPreference?
-  files         File[]                  @relation("ClientFiles")
-  convertedLead Lead?                   @relation("LeadConvertedClient")
+  files          File[]                @relation("ClientFiles")
+  convertedLead  Lead?                 @relation("LeadConvertedClient")
 
   @@index([archivedAt])
 }
@@ -438,9 +471,9 @@ model Client {
 /// SQL (`Company_name_key_ci` on lower(name)) because Prisma can't express a functional index —
 /// see server/schema-invariants.test.ts, which guards it.
 model Company {
-  id       String  @id @default(uuid()) @db.Uuid
-  clientId String  @db.Uuid
-  name     String
+  id          String   @id @default(uuid()) @db.Uuid
+  clientId    String   @db.Uuid
+  name        String
   // optional contact details — `email` is where this company's invoices will be sent (S10);
   // with none set the client's own email is the fallback
   phone       String?
@@ -450,7 +483,7 @@ model Company {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  client        Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  client        Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
   subscriptions Subscription[]
   invoices      Invoice[]
   tasks         Task[]
@@ -485,8 +518,8 @@ model ClientSecret {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  client    Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  createdBy User?             @relation("SecretCreatedBy", fields: [createdById], references: [id])
+  client    Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  createdBy User?            @relation("SecretCreatedBy", fields: [createdById], references: [id])
   auditLog  SecretAuditLog[]
 
   @@index([clientId])
@@ -535,10 +568,10 @@ model ClientPerson {
 }
 
 model Subscription {
-  id              String        @id @default(uuid()) @db.Uuid
-  clientId        String        @db.Uuid
-  companyId       String?       @db.Uuid
-  serviceId       String        @db.Uuid
+  id              String          @id @default(uuid()) @db.Uuid
+  clientId        String          @db.Uuid
+  companyId       String?         @db.Uuid
+  serviceId       String          @db.Uuid
   amount          Int // minor units, per period
   period          BillingPeriod
   // per-client billing timing; null = inherit the service preset (legacy rows)
@@ -549,9 +582,9 @@ model Subscription {
   /// the client's usual service — prefills every service picker for them. At most one per client
   /// (partial unique index `Subscription_one_default_per_client`, raw SQL); a default can't be
   /// stopped until the flag is cleared.
-  isDefault       Boolean       @default(false)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  isDefault       Boolean         @default(false)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
   client         Client               @relation(fields: [clientId], references: [id], onDelete: Cascade)
   company        Company?             @relation(fields: [companyId], references: [id], onDelete: Restrict)
@@ -593,10 +626,10 @@ model SubscriptionPeriod {
   subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
   createdBy    User?        @relation("SubscriptionPeriodCreatedBy", fields: [createdById], references: [id])
   endedBy      User?        @relation("SubscriptionPeriodEndedBy", fields: [endedById], references: [id])
-
-  @@index([subscriptionId, startsOn])
   // partial unique index `Subscription_one_open_period` (raw SQL — Prisma can't express a WHERE
   // on an index) keeps at most ONE open period per subscription. Asserted in schema-invariants.
+
+  @@index([subscriptionId, startsOn])
 }
 
 // ── Leads ────────────────────────────────────────────────────────────────────
@@ -675,21 +708,21 @@ model Task {
   cancelledAt    DateTime?
   cancelledById  String?   @db.Uuid
 
-  createdBy    User?         @relation("TaskCreatedBy", fields: [createdById], references: [id])
-  cancelledBy  User?         @relation("TaskCancelledBy", fields: [cancelledById], references: [id])
-  client       Client?       @relation(fields: [clientId], references: [id])
+  createdBy    User?          @relation("TaskCreatedBy", fields: [createdById], references: [id])
+  cancelledBy  User?          @relation("TaskCancelledBy", fields: [cancelledById], references: [id])
+  client       Client?        @relation(fields: [clientId], references: [id])
   // Restrict: a task's company/service is its provenance — deleting either must be refused,
   // not silently blanked (the catalog + company guards say so in the app; this is the backstop)
-  company      Company?      @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  lead         Lead?         @relation(fields: [leadId], references: [id])
-  service      Service?      @relation(fields: [serviceId], references: [id], onDelete: Restrict)
-  priority     Priority      @relation(fields: [priorityId], references: [id])
-  statusColumn TaskColumn    @relation(fields: [statusColumnId], references: [id])
-  invoice      Invoice?      @relation(fields: [invoiceId], references: [id])
+  company      Company?       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  lead         Lead?          @relation(fields: [leadId], references: [id])
+  service      Service?       @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  priority     Priority       @relation(fields: [priorityId], references: [id])
+  statusColumn TaskColumn     @relation(fields: [statusColumnId], references: [id])
+  invoice      Invoice?       @relation(fields: [invoiceId], references: [id])
   /// the meeting this task was opened from, if any (S8)
   meeting      Meeting?
-  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
-  taskTemplate TaskTemplate? @relation(fields: [taskTemplateId], references: [id])
+  subscription Subscription?  @relation(fields: [subscriptionId], references: [id])
+  taskTemplate TaskTemplate?  @relation(fields: [taskTemplateId], references: [id])
   assignees    TaskAssignee[]
   timeEntries  TimeEntry[]
   subtasks     Subtask[]
@@ -699,7 +732,7 @@ model Task {
   /// ordinary ones people and templates create. Behind it sits the partial unique index
   /// `Task_system_period` on (subscriptionId, periodKey) — the sweeps run daily and would
   /// otherwise post the same reminder every morning.
-  systemKind     String?
+  systemKind String?
 
   @@unique([subscriptionId, taskTemplateId, periodKey])
   // partial unique index `Task_internal_template_period` (raw SQL, not expressible here) — dedups
@@ -792,7 +825,7 @@ model Invoice {
   amount         Int // minor units; balance/status/overdue are derived from amount vs paidTotal
   // Σ payments, kept in step INSIDE every payment transaction. Denormalized on purpose: it lets
   // the list filter/sort/total by settlement in SQL instead of scanning invoices in memory.
-  paidTotal      Int      @default(0)
+  paidTotal      Int       @default(0)
   description    String? // free text on a manually issued invoice
   dueDate        DateTime?
   issuedAt       DateTime  @default(now())
@@ -970,24 +1003,27 @@ model Notification {
  * A reusable letter. `subject` and `body` carry `{{merge_vars}}` resolved per recipient by
  * shared/mailouts.ts — the SAME renderer the browser preview calls, so what the firm proofreads is
  * character-for-character what leaves the building.
- *
  * Only the subject, the heading and the body vary. The surrounding brand shell (logo, contact
  * block, footer) lives in server/core/email-layout.ts and is not editable here — that is the whole
  * point of "однаково з вигляду, змінюємо лише заголовок".
  */
 model EmailTemplate {
-  id        String      @id @default(uuid()) @db.Uuid
-  name      String      @unique
-  subject   String
-  /** the heading drawn above the body, `{{vars}}` allowed; falls back to the subject when null */
-  heading   String?
-  body      String
-  kind      MailoutKind @default(commercial)
-  active    Boolean     @default(true)
-  /** which mailbox this template usually goes from; null = the default account */
-  senderAccountId String? @db.Uuid
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  id              String      @id @default(uuid()) @db.Uuid
+  name            String      @unique
+  subject         String
+  /**
+   * the heading drawn above the body, `{{vars}}` allowed; falls back to the subject when null
+   */
+  heading         String?
+  body            String
+  kind            MailoutKind @default(commercial)
+  active          Boolean     @default(true)
+  /**
+   * which mailbox this template usually goes from; null = the default account
+   */
+  senderAccountId String?     @db.Uuid
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
 
   senderAccount MailSenderAccount? @relation(fields: [senderAccountId], references: [id])
   mailouts      Mailout[]
@@ -996,42 +1032,50 @@ model EmailTemplate {
 
 /**
  * One act of sending — to a single client or to a hundred.
- *
  * `subject`/`heading`/`body` are a SNAPSHOT taken at send time, still holding their `{{vars}}`.
  * Editing the template afterwards must not rewrite history, and re-rendering per recipient is what
  * lets the log show each person the exact letter they got.
  */
 model Mailout {
-  id          String      @id @default(uuid()) @db.Uuid
-  /** null = a one-off personal letter, written straight into the composer */
-  templateId  String?     @db.Uuid
-  subject     String
-  heading     String?
-  body        String
-  kind        MailoutKind
-  /** the mailbox it actually went from — a record, so the log can answer "sent from where" */
-  senderAccountId String? @db.Uuid
-  /** null = somebody pressed Send. Otherwise the campaign whose date came round. */
-  campaignId  String?     @db.Uuid
+  id              String      @id @default(uuid()) @db.Uuid
+  /**
+   * null = a one-off personal letter, written straight into the composer
+   */
+  templateId      String?     @db.Uuid
+  subject         String
+  heading         String?
+  body            String
+  kind            MailoutKind
+  /**
+   * the mailbox it actually went from — a record, so the log can answer "sent from where"
+   */
+  senderAccountId String?     @db.Uuid
+  /**
+   * null = somebody pressed Send. Otherwise the campaign whose date came round.
+   */
+  campaignId      String?     @db.Uuid
   /**
    * Which of that campaign's dates this run is for — "2026-09-01".
-   *
    * The whole reason a missed date is safe: the sweep runs daily AND on every boot, so without a
    * key naming the occurrence, a server that was down over the weekend would re-send on Monday and
    * again on Tuesday. Null for a hand-pressed send, which has no occurrence.
    */
-  periodKey   String?
-  /** null for a campaign run — nobody pressed anything */
-  createdById String?     @db.Uuid
-  createdAt   DateTime    @default(now())
+  periodKey       String?
+  /**
+   * null for a campaign run — nobody pressed anything
+   */
+  createdById     String?     @db.Uuid
+  createdAt       DateTime    @default(now())
 
-  senderAccount MailSenderAccount? @relation(fields: [senderAccountId], references: [id])
-  template   EmailTemplate?     @relation(fields: [templateId], references: [id])
-  campaign   Campaign?          @relation(fields: [campaignId], references: [id])
-  createdBy  User?              @relation("MailoutCreatedBy", fields: [createdById], references: [id])
-  recipients MailoutRecipient[]
-  /** clients whose opt-out was traced back to this letter — see ClientMailPreference */
-  unsubscribes ClientMailPreference[] @relation("UnsubscribedFrom")
+  senderAccount MailSenderAccount?     @relation(fields: [senderAccountId], references: [id])
+  template      EmailTemplate?         @relation(fields: [templateId], references: [id])
+  campaign      Campaign?              @relation(fields: [campaignId], references: [id])
+  createdBy     User?                  @relation("MailoutCreatedBy", fields: [createdById], references: [id])
+  recipients    MailoutRecipient[]
+  /**
+   * clients whose opt-out was traced back to this letter — see ClientMailPreference
+   */
+  unsubscribes  ClientMailPreference[] @relation("UnsubscribedFrom")
 
   // One run per occurrence, enforced by the database rather than by the sweep being careful.
   // Hand-pressed sends are all (null, null) — and Postgres treats every NULL as distinct, so they
@@ -1048,14 +1092,17 @@ model Mailout {
 /// came round.
 model Campaign {
   id              String         @id @default(uuid()) @db.Uuid
-  /** what the firm calls it — "Tax season reminder", not the letter's subject */
+  /**
+   * what the firm calls it — "Tax season reminder", not the letter's subject
+   */
   name            String
-  /** a campaign always sends a saved template; a one-off letter is what the composer is for */
+  /**
+   * a campaign always sends a saved template; a one-off letter is what the composer is for
+   */
   templateId      String         @db.Uuid
   senderAccountId String?        @db.Uuid
   /**
    * Copied from the template when the campaign is made, then owned here.
-   *
    * `commercial` is the default and carries unsubscribe + the firm's postal address, and honours
    * an opt-out. `transactional` is a deliberate choice: it reaches clients who unsubscribed and
    * carries no unsubscribe link, which is lawful for a bill or a document request and unlawful
@@ -1063,23 +1110,31 @@ model Campaign {
    */
   kind            MailoutKind    @default(commercial)
   rhythm          CampaignRhythm @default(once)
-  /** the first date it fires; for a rhythm, also the anchor day of the month */
+  /**
+   * the first date it fires; for a rhythm, also the anchor day of the month
+   */
   startsOn        DateTime       @db.Date
-  /** firm-local time of day, "HH:MM" — the sweep runs daily, this decides which side of it */
+  /**
+   * firm-local time of day, "HH:MM" — the sweep runs daily, this decides which side of it
+   */
   sendAt          String         @default("09:00")
-  /** a rhythm's last allowed date; null = until somebody stops it */
+  /**
+   * a rhythm's last allowed date; null = until somebody stops it
+   */
   endsOn          DateTime?      @db.Date
   status          CampaignStatus @default(scheduled)
-  /** the next date due. Null once nothing is due — finished, or stopped by hand. */
+  /**
+   * the next date due. Null once nothing is due — finished, or stopped by hand.
+   */
   nextRunOn       DateTime?      @db.Date
   lastRunAt       DateTime?
   createdById     String?        @db.Uuid
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
-  template      EmailTemplate      @relation(fields: [templateId], references: [id])
-  senderAccount MailSenderAccount? @relation(fields: [senderAccountId], references: [id])
-  createdBy     User?              @relation("CampaignCreatedBy", fields: [createdById], references: [id])
+  template      EmailTemplate       @relation(fields: [templateId], references: [id])
+  senderAccount MailSenderAccount?  @relation(fields: [senderAccountId], references: [id])
+  createdBy     User?               @relation("CampaignCreatedBy", fields: [createdById], references: [id])
   recipients    CampaignRecipient[]
   dates         CampaignDate[]
   runs          Mailout[]
@@ -1111,7 +1166,9 @@ model CampaignRecipient {
   id         String   @id @default(uuid()) @db.Uuid
   campaignId String   @db.Uuid
   clientId   String   @db.Uuid
-  /** null = the client's own address; otherwise one of that client's companies */
+  /**
+   * null = the client's own address; otherwise one of that client's companies
+   */
   companyId  String?  @db.Uuid
   createdAt  DateTime @default(now())
 
@@ -1135,11 +1192,9 @@ model CampaignRecipient {
  */
 /**
  * One address this letter went to.
- *
  * A recipient is a client OR one of that client's companies — `companyId` null means the client
  * themselves. A firm's client can hold several companies, each with its own inbox, and "send to
  * the client" and "send to Kvitka Trade LLC" are different acts with different addresses.
- *
  * Consent stays on the CLIENT, deliberately: unsubscribing is a person saying "stop marketing to
  * me", and honouring it for their personal address while still mailing their company's would be
  * obeying the letter of the request and not the request.
@@ -1148,12 +1203,23 @@ model MailoutRecipient {
   id        String        @id @default(uuid()) @db.Uuid
   mailoutId String        @db.Uuid
   clientId  String        @db.Uuid
-  /** null = the client's own address; otherwise the company whose inbox this went to */
+  /**
+   * null = the client's own address; otherwise the company whose inbox this went to
+   */
   companyId String?       @db.Uuid
   email     String
   status    MailoutStatus @default(queued)
-  /** why it was skipped or how it failed — "no email address", "missing {{company}}", SMTP error */
+  /**
+   * why it was skipped or how it failed — "no email address", "missing {{company}}", SMTP error
+   */
   reason    String?
+  /**
+   * The `Message-ID` this letter went out with, as nodemailer reports it.
+   * A bounce quotes it back in `References:`, so it is how a returned letter is matched to the row
+   * that sent it — exactly, without guessing from the address. It was being discarded; storing it
+   * costs one column and is what makes reading bounces possible at all.
+   */
+  messageId String?
   sentAt    DateTime?
   createdAt DateTime      @default(now())
 
@@ -1174,30 +1240,29 @@ model MailoutRecipient {
 /**
  * Whether a client accepts COMMERCIAL mail. Absent row = subscribed; the firm never has to
  * back-fill one to start sending.
- *
  * `token` is the unguessable secret in the one-click unsubscribe link — the route it opens is the
  * only unauthenticated write in the app, so it can afford nothing weaker.
  */
 model ClientMailPreference {
-  clientId       String    @id @db.Uuid
-  unsubscribedAt DateTime?
-  /** set when the firm unsubscribed them from the card rather than the client clicking the link */
-  unsubscribedById String? @db.Uuid
+  clientId                  String    @id @db.Uuid
+  unsubscribedAt            DateTime?
+  /**
+   * set when the firm unsubscribed them from the card rather than the client clicking the link
+   */
+  unsubscribedById          String?   @db.Uuid
   /**
    * WHICH letter's link they clicked — so "unsubscribed from the March newsletter" is answerable.
-   *
    * The token belongs to the client, not to a letter, so the click alone cannot say where it came
    * from; the letter puts its own id in the link. That makes the id a claim rather than proof, and
    * it is stored only after checking that the mailout really did have a row for this client.
-   *
    * SetNull rather than Cascade: losing the provenance is better than losing the opt-out.
    */
-  unsubscribedFromMailoutId String? @db.Uuid
-  token          String    @unique
-  updatedAt      DateTime  @updatedAt
+  unsubscribedFromMailoutId String?   @db.Uuid
+  token                     String    @unique
+  updatedAt                 DateTime  @updatedAt
 
-  client         Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  unsubscribedBy User?  @relation("MailPreferenceUnsubscribedBy", fields: [unsubscribedById], references: [id])
+  client           Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  unsubscribedBy   User?    @relation("MailPreferenceUnsubscribedBy", fields: [unsubscribedById], references: [id])
   unsubscribedFrom Mailout? @relation("UnsubscribedFrom", fields: [unsubscribedFromMailoutId], references: [id], onDelete: SetNull)
 }
 
@@ -1213,9 +1278,9 @@ model File {
   uploadedById String   @db.Uuid
   createdAt    DateTime @default(now())
 
-  client        Client?      @relation("ClientFiles", fields: [clientId], references: [id], onDelete: Cascade)
-  uploadedBy    User         @relation("FileUploadedBy", fields: [uploadedById], references: [id])
-  avatarOfUser  User?        @relation("UserAvatar")
+  client            Client?      @relation("ClientFiles", fields: [clientId], references: [id], onDelete: Cascade)
+  uploadedBy        User         @relation("FileUploadedBy", fields: [uploadedById], references: [id])
+  avatarOfUser      User?        @relation("UserAvatar")
   logoOfProfile     FirmProfile? @relation("FirmLogo")
   mailLogoOfProfile FirmProfile? @relation("FirmMailLogo")
 

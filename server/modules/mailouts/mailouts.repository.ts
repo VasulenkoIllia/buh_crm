@@ -189,7 +189,13 @@ export function createMailout(
 
 export function markRecipient(
   id: string,
-  data: { status: "sent" | "failed"; reason?: string | null; sentAt?: Date | null },
+  data: {
+    status: "sent" | "failed";
+    reason?: string | null;
+    sentAt?: Date | null;
+    /** the `Message-ID` the letter carried, so a bounce quoting it can find this row */
+    messageId?: string | null;
+  },
 ) {
   return prisma.mailoutRecipient.update({ where: { id }, data });
 }

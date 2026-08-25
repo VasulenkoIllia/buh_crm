@@ -1,0 +1,83 @@
+Return-Path: <>
+Delivered-To: sender@firm.example
+Received: from relay-host
+	by relay-host with LMTP
+	id etQQAYa4jWoKwysAtTQYrA
+	(envelope-from <>)
+	for <sender@firm.example>; Tue, 25 Aug 2026 15:45:10 +0000
+Return-path: <>
+Envelope-to: sender@firm.example
+Delivery-date: Tue, 25 Aug 2026 15:45:10 +0000
+Received: from Debian-exim by relay-host with local (Exim 4.96)
+	id 1wytKn-00C25f-3B
+	for sender@firm.example;
+	Tue, 25 Aug 2026 15:45:09 +0000
+X-Failed-Recipients: Nosuchuser@giga.example
+Auto-Submitted: auto-replied
+From: Mail Delivery System <Mailer-Daemon@relay-host>
+To: sender@firm.example
+References: <f5259c2d-8510-8d92-2b81-641b0b6dd32c@firm.example>
+Content-Type: multipart/report; report-type=delivery-status; boundary=1787672709-eximdsn-1746581396
+MIME-Version: 1.0
+Subject: Mail delivery failed: returning message to sender
+Message-Id: <E1wytKn-00C25f-3B@relay-host>
+Date: Tue, 25 Aug 2026 15:45:09 +0000
+
+--1787672709-eximdsn-1746581396
+Content-type: text/plain; charset=us-ascii
+
+This message was created automatically by mail delivery software.
+
+A message that you sent could not be delivered to one or more of its
+recipients. This is a permanent error. The following address(es) failed:
+
+  Nosuchuser@giga.example
+    host smtp.google.com [192.178.163.26]
+    SMTP error from remote mail server after RCPT TO:<Nosuchuser@giga.example>:
+    550-5.1.1 The email account that you tried to reach does not exist. Please try
+    550-5.1.1 double-checking the recipient's email address for typos or
+    550-5.1.1 unnecessary spaces. For more information, go to
+    550 5.1.1  https://support.google.com/mail/?p=NoSuchUser d2e1a72fcca58-8535d72a8efsi129548b3a.173 - gsmtp
+
+--1787672709-eximdsn-1746581396
+Content-type: message/delivery-status
+
+Reporting-MTA: dns; relay-host
+
+Action: failed
+Final-Recipient: rfc822;Nosuchuser@giga.example
+Status: 5.0.0
+Remote-MTA: dns; smtp.google.com
+Diagnostic-Code: smtp; 550-5.1.1 The email account that you tried to reach does not exist. Please try
+ 550-5.1.1 double-checking the recipient's email address for typos or
+ 550-5.1.1 unnecessary spaces. For more information, go to
+ 550 5.1.1  https://support.google.com/mail/?p=NoSuchUser d2e1a72fcca58-8535d72a8efsi129548b3a.173 - gsmtp
+
+--1787672709-eximdsn-1746581396
+Content-type: message/rfc822
+
+Return-path: <sender@firm.example>
+Received: from crm.example ([203.0.113.10] helo=[127.0.0.1])
+	by relay-host with esmtpsa  (TLS1.3) tls TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+	(Exim 4.96)
+	(envelope-from <sender@firm.example>)
+	id 1wytKn-00C25b-0v
+	for Nosuchuser@giga.example;
+	Tue, 25 Aug 2026 15:45:09 +0000
+List-Unsubscribe:
+ <https://crm.example/api/mailouts/unsubscribe/TOKEN-REMOVED?m=MAILOUT-ID>
+List-Unsubscribe-Post: List-Unsubscribe=One-Click
+From: "ILLION Tax & Accounting" <sender@firm.example>
+To: Nosuchuser@giga.example
+Reply-To: sender@firm.example
+Subject: test template
+Message-ID: <f5259c2d-8510-8d92-2b81-641b0b6dd32c@firm.example>
+Date: Tue, 25 Aug 2026 15:45:07 +0000
+MIME-Version: 1.0
+Content-Type: multipart/alternative;
+ boundary="--_NmP-7efd5c0e063d4fe2-Part_1"
+X-SPF-Fail: YES
+
+[the returned letter's body is not part of the fixture]
+
+--1787672709-eximdsn-1746581396--

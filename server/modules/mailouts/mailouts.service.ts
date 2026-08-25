@@ -66,6 +66,7 @@ import {
   type SmtpAccount,
 } from "../../core/email.js";
 import { explainSendError } from "../../core/send-error.js";
+import { imapAuth, verifyImap, type ImapAccount } from "../../core/imap.js";
 import {
   applyHighlight,
   LOGO_CID,
@@ -200,13 +201,34 @@ export async function deleteTemplate(id: string) {
 
 type SenderAccount = NonNullable<Awaited<ReturnType<typeof repo.findSenderAccount>>>;
 
-function openSmtpPass(account: SenderAccount): string | null {
-  if (!account.smtpPass || !account.smtpPassIv || !account.smtpPassTag) return null;
+/**
+ * One sealed password out of the four columns that hold it.
+ *
+ * The moment a mailbox learned to be read there were two copies of this — the same five lines with
+ * `smtp` swapped for `imap`. "These four columns are one secret" is a rule, and a rule written
+ * twice drifts the first time the crypto changes.
+ */
+function openSealed(parts: {
+  ciphertext: Uint8Array | null;
+  iv: Uint8Array | null;
+  authTag: Uint8Array | null;
+  keyVersion: number | null;
+}): string | null {
+  if (!parts.ciphertext || !parts.iv || !parts.authTag) return null;
   return open({
+    ciphertext: parts.ciphertext,
+    iv: parts.iv,
+    authTag: parts.authTag,
+    keyVersion: parts.keyVersion ?? 1,
+  });
+}
+
+function openSmtpPass(account: SenderAccount): string | null {
+  return openSealed({
     ciphertext: account.smtpPass,
     iv: account.smtpPassIv,
     authTag: account.smtpPassTag,
-    keyVersion: account.smtpKeyVersion ?? 1,
+    keyVersion: account.smtpKeyVersion,
   });
 }
 
@@ -223,6 +245,42 @@ function smtpFor(account: SenderAccount): SmtpAccount {
     secure: account.smtpSecure ?? false,
     user: account.smtpUser,
     pass: openSmtpPass(account),
+  };
+}
+
+function openImapPass(account: SenderAccount): string | null {
+  return openSealed({
+    ciphertext: account.imapPass,
+    iv: account.imapPassIv,
+    authTag: account.imapPassTag,
+    keyVersion: account.imapKeyVersion,
+  });
+}
+
+/**
+ * Whether bounces from this mailbox are read at all.
+ *
+ * A host with no port is not a configured mailbox — the same rule the SMTP side learned, and for
+ * the same reason: a half-filled block looked configured while behaving as though it were empty.
+ */
+function readsBounces(account: SenderAccount): boolean {
+  return !!account.imapHost && !!account.imapPort;
+}
+
+/**
+ * The credentials to read this mailbox with.
+ *
+ * `imapUser` empty means reuse the SMTP ones, which is what almost every host expects: one mailbox,
+ * one password, two protocols. Asking for them twice would invite a typo in the copy nobody tests.
+ */
+function imapFor(account: SenderAccount): ImapAccount {
+  const auth = imapAuth(account);
+  return {
+    host: account.imapHost!,
+    port: account.imapPort!,
+    secure: account.imapSecure ?? true,
+    user: auth.user,
+    pass: auth.ownPassword ? openImapPass(account) : openSmtpPass(account),
   };
 }
 
@@ -294,6 +352,37 @@ function accountChecks(account: SenderAccount, firm: FirmProfile): SenderCheck[]
     });
   }
 
+  // Reading the mailbox back. A half-filled block is the failure worth naming: it looks configured
+  // on the screen and is silently skipped by the reader, so a firm believes bounces are being
+  // watched while nothing is watching them.
+  if (account.imapHost && !account.imapPort) {
+    checks.push({ level: "error", field: "imapPort", message: "An IMAP host but no port." });
+  }
+  if (account.imapPort && !account.imapHost) {
+    checks.push({ level: "error", field: "imapHost", message: "An IMAP port but no host." });
+  }
+  if (account.imapHost && account.imapUser && !account.imapPass) {
+    checks.push({
+      level: "error",
+      field: "imapPass",
+      message: "An IMAP username of its own, but no password stored. Enter it and save.",
+    });
+  }
+  if (readsBounces(account) && !account.imapUser && !account.smtpUser) {
+    checks.push({
+      level: "error",
+      field: "imapUser",
+      message: "Nothing to sign in with — this mailbox has no SMTP username to reuse.",
+    });
+  }
+  if (!account.imapHost) {
+    checks.push({
+      level: "warning",
+      field: "imapHost",
+      message: "Bounces are not read. Letters that fail after sending will still read as sent.",
+    });
+  }
+
   if (authUser && from && authUser.toLowerCase() !== from.toLowerCase()) {
     const sameDomain = domainOf(authUser) === domainOf(from);
     checks.push({
@@ -357,6 +446,12 @@ function toSenderAccount(account: SenderAccount, firm: FirmProfile): MailSenderA
     smtpUser: account.smtpUser,
     smtpPassSet: !!account.smtpPass,
     ownSmtp: hasOwnSmtp(account),
+    imapHost: account.imapHost,
+    imapPort: account.imapPort,
+    imapSecure: account.imapSecure,
+    imapUser: account.imapUser,
+    imapPassSet: !!account.imapPass,
+    readsBounces: readsBounces(account),
     contactEmail: account.contactEmail,
     contactPhone: account.contactPhone,
     contactTelegram: account.contactTelegram,
@@ -456,13 +551,27 @@ export async function removeMailLogo(): Promise<MailSenderState> {
   return listSenderAccounts();
 }
 
-function sealPassword(password: string) {
+function sealFor(kind: "SMTP" | "IMAP", password: string) {
   if (!secretsConfigured()) {
     throw new ValidationError(
-      "SECRETS_KEY is not configured — an SMTP password cannot be stored safely without it",
+      `SECRETS_KEY is not configured — an ${kind} password cannot be stored safely without it`,
     );
   }
-  const sealed = seal(password);
+  return seal(password);
+}
+
+function sealImapPassword(password: string) {
+  const sealed = sealFor("IMAP", password);
+  return {
+    imapPass: sealed.ciphertext,
+    imapPassIv: sealed.iv,
+    imapPassTag: sealed.authTag,
+    imapKeyVersion: sealed.keyVersion,
+  };
+}
+
+function sealPassword(password: string) {
+  const sealed = sealFor("SMTP", password);
   return {
     smtpPass: sealed.ciphertext,
     smtpPassIv: sealed.iv,
@@ -485,6 +594,10 @@ function accountWrite(input: SenderAccountInput) {
   if (input.smtpPort !== undefined) data.smtpPort = input.smtpPort ?? null;
   if (input.smtpSecure !== undefined) data.smtpSecure = input.smtpSecure ?? null;
   if (input.smtpUser !== undefined) data.smtpUser = blank(input.smtpUser);
+  if (input.imapHost !== undefined) data.imapHost = blank(input.imapHost);
+  if (input.imapPort !== undefined) data.imapPort = input.imapPort ?? null;
+  if (input.imapSecure !== undefined) data.imapSecure = input.imapSecure ?? null;
+  if (input.imapUser !== undefined) data.imapUser = blank(input.imapUser);
   if (input.active !== undefined) data.active = input.active;
   for (const key of ["Email", "Phone", "Telegram", "Whatsapp", "Viber", "Website"] as const) {
     const field = `contact${key}` as const;
@@ -498,6 +611,14 @@ function accountWrite(input: SenderAccountInput) {
       input.smtpPass
         ? sealPassword(input.smtpPass)
         : { smtpPass: null, smtpPassIv: null, smtpPassTag: null, smtpKeyVersion: null },
+    );
+  }
+  if (input.imapPass !== undefined) {
+    Object.assign(
+      data,
+      input.imapPass
+        ? sealImapPassword(input.imapPass)
+        : { imapPass: null, imapPassIv: null, imapPassTag: null, imapKeyVersion: null },
     );
   }
   return data;
@@ -654,11 +775,31 @@ export async function testSenderAccount(
     };
   }
 
+  // Proving the mailbox can be READ is part of proving the mailbox, and it happens here rather
+  // than behind its own button: a firm that fills the IMAP block and never presses a second
+  // control would believe bounces were being watched on the strength of an untested guess.
+  let inbox = "";
+  if (readsBounces(account)) {
+    try {
+      const imap = imapFor(account);
+      const box = await verifyImap(imap);
+      inbox = ` Bounces will be read from ${imap.host}:${imap.port} — ${box.messages} message${box.messages === 1 ? "" : "s"} in ${box.mailbox}.`;
+    } catch (err) {
+      console.error(`[mailouts] IMAP check failed for account=${id}:`, err);
+      return {
+        ok: false,
+        step: "connect",
+        message: `Sending works, but the mailbox could not be read. ${explainSendError(err, { host: account.imapHost, port: account.imapPort, protocol: "imap" }).message}`,
+        sentTo: null,
+      };
+    }
+  }
+
   if (!input.sendTestLetter) {
     return {
       ok: true,
       step: "connect",
-      message: `Connected and signed in to ${smtp.host}:${smtp.port}.`,
+      message: `Connected and signed in to ${smtp.host}:${smtp.port}.${inbox}`,
       sentTo: null,
     };
   }
@@ -711,7 +852,7 @@ export async function testSenderAccount(
   return {
     ok: true,
     step: "send",
-    message: `Sent. Check ${actor.email} — including the spam folder, which is where a From the server dislikes will land it.`,
+    message: `Sent. Check ${actor.email} — including the spam folder, which is where a From the server dislikes will land it.${inbox}`,
     sentTo: actor.email,
   };
 }
@@ -1466,8 +1607,13 @@ async function deliver(
       headers: built.headers,
     };
     try {
-      await sendRawEmail(message);
-      await repo.markRecipient(row.id, { status: "sent", sentAt: new Date(), reason: null });
+      const messageId = await sendRawEmail(message);
+      await repo.markRecipient(row.id, {
+        status: "sent",
+        sentAt: new Date(),
+        reason: null,
+        messageId,
+      });
     } catch (err) {
       // The reason is what the person reading the log will see, so it is the SENTENCE, not the
       // protocol text — `getaddrinfo ENOTFOUND` told them nothing except that something broke,

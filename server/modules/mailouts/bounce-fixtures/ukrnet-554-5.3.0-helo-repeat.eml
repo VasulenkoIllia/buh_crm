@@ -1,0 +1,77 @@
+Return-Path: <>
+Delivered-To: sender@firm.example
+Received: from relay-host
+	by relay-host with LMTP
+	id T6ZsIQm4jWrcwisAtTQYrA
+	(envelope-from <>)
+	for <sender@firm.example>; Tue, 25 Aug 2026 15:43:05 +0000
+Return-path: <>
+Envelope-to: sender@firm.example
+Delivery-date: Tue, 25 Aug 2026 15:43:05 +0000
+Received: from Debian-exim by relay-host with local (Exim 4.96)
+	id 1wytIn-00C24v-1i
+	for sender@firm.example;
+	Tue, 25 Aug 2026 15:43:05 +0000
+X-Failed-Recipients: o.ooooo@ukr.example
+Auto-Submitted: auto-replied
+From: Mail Delivery System <Mailer-Daemon@relay-host>
+To: sender@firm.example
+References: <e3deb925-0a3c-295e-545a-ebbda1280359@firm.example>
+Content-Type: multipart/report; report-type=delivery-status; boundary=1787672585-eximdsn-367286208
+MIME-Version: 1.0
+Subject: Mail delivery failed: returning message to sender
+Message-Id: <E1wytIn-00C24v-1i@relay-host>
+Date: Tue, 25 Aug 2026 15:43:05 +0000
+
+--1787672585-eximdsn-367286208
+Content-type: text/plain; charset=us-ascii
+
+This message was created automatically by mail delivery software.
+
+A message that you sent could not be delivered to one or more of its
+recipients. This is a permanent error. The following address(es) failed:
+
+  o.ooooo@ukr.example
+    host mxs.ukr.net [212.42.75.251]
+    SMTP error from remote mail server after HELO relay-host:
+    554 5.3.0 Invalid parameters of HELO, see RFC5321 [un.20260825.Kkwv9oiJPy]ters of HELO, see RFC5321 [un.20260825.Kkwv9oiJPy]
+
+--1787672585-eximdsn-367286208
+Content-type: message/delivery-status
+
+Reporting-MTA: dns; relay-host
+
+Action: failed
+Final-Recipient: rfc822;o.ooooo@ukr.example
+Status: 5.0.0
+Remote-MTA: dns; mxs.ukr.net
+Diagnostic-Code: smtp; 554 5.3.0 Invalid parameters of HELO, see RFC5321 [un.20260825.Kkwv9oiJPy]ters of HELO, see RFC5321 [un.20260825.Kkwv9oiJPy]
+
+--1787672585-eximdsn-367286208
+Content-type: message/rfc822
+
+Return-path: <sender@firm.example>
+Received: from crm.example ([203.0.113.10] helo=[127.0.0.1])
+	by relay-host with esmtpsa  (TLS1.3) tls TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+	(Exim 4.96)
+	(envelope-from <sender@firm.example>)
+	id 1wytIm-00C24r-1W
+	for o.ooooo@ukr.example;
+	Tue, 25 Aug 2026 15:43:04 +0000
+List-Unsubscribe:
+ <https://crm.example/api/mailouts/unsubscribe/TOKEN-REMOVED?m=MAILOUT-ID>
+List-Unsubscribe-Post: List-Unsubscribe=One-Click
+From: "ILLION Tax & Accounting" <sender@firm.example>
+To: o.ooooo@ukr.example
+Reply-To: sender@firm.example
+Subject: test 2
+Message-ID: <e3deb925-0a3c-295e-545a-ebbda1280359@firm.example>
+Date: Tue, 25 Aug 2026 15:43:02 +0000
+MIME-Version: 1.0
+Content-Type: multipart/alternative;
+ boundary="--_NmP-146ad3f79003b10e-Part_1"
+X-SPF-Fail: YES
+
+[the returned letter's body is not part of the fixture]
+
+--1787672585-eximdsn-367286208--

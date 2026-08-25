@@ -422,6 +422,20 @@ export const mailSenderAccountSchema = z.object({
   smtpPassSet: z.boolean(),
   /** false = borrows the `.env` account that also sends password resets */
   ownSmtp: z.boolean(),
+
+  imapHost: z.string().nullable(),
+  imapPort: z.number().int().nullable(),
+  imapSecure: z.boolean().nullable(),
+  /** null = the SMTP username is reused */
+  imapUser: z.string().nullable(),
+  imapPassSet: z.boolean(),
+  /**
+   * Whether bounces from this mailbox are read at all.
+   *
+   * Said plainly rather than left for the reader to infer from an empty host, because a mailbox
+   * that is not polled looks identical to one that is until a letter goes missing.
+   */
+  readsBounces: z.boolean(),
   /** one button each, in this order — empty means no button, never a guess */
   contactEmail: z.string().nullable(),
   contactPhone: z.string().nullable(),
@@ -484,6 +498,18 @@ export const senderAccountInput = z.object({
   smtpUser: senderText(200),
   /** "" clears the stored password; omit to leave it untouched */
   smtpPass: z.string().max(200).optional(),
+
+  // Reading the mailbox back. Configured, never inferred: bounces go to the envelope sender, and
+  // the hosting decides which mailbox that is — production shows them arriving somewhere other
+  // than the configured `fromEmail`.
+  imapHost: senderText(200),
+  imapPort: z.number().int().min(1).max(65535).nullable().optional(),
+  imapSecure: z.boolean().nullable().optional(),
+  /** "" means "reuse the SMTP username", which is the usual case */
+  imapUser: senderText(200),
+  /** "" clears the stored password; omit to leave it untouched */
+  imapPass: z.string().max(200).optional(),
+
   active: z.boolean().optional(),
 
   // the tap-to-contact buttons — explicit fields, never parsed out of the signature

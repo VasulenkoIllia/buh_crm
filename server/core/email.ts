@@ -246,7 +246,14 @@ export function refusalOf(info: {
   return `The mail server refused ${who || "the recipient"}${said ? ` — ${said}` : ""}`;
 }
 
-export async function sendRawEmail(email: RawEmail): Promise<void> {
+/**
+ * Returns the `Message-ID` the letter went out with, when the transport reports one.
+ *
+ * A bounce quotes it back in `References:`, so it is the key that ties a returned letter to the
+ * row that sent it — exactly, rather than guessed at from the address and a timestamp. It was
+ * being thrown away; keeping it costs nothing and is what makes reading bounces possible.
+ */
+export async function sendRawEmail(email: RawEmail): Promise<string | null> {
   if (config.NODE_ENV === "test") {
     testOutbox.push({
       to: email.to,
@@ -256,7 +263,10 @@ export async function sendRawEmail(email: RawEmail): Promise<void> {
       from: email.from ?? config.MAIL_FROM,
       replyTo: email.replyTo ?? undefined,
     });
-    return;
+    // A stand-in id rather than null, so the path that stores the key is exercised by the suite.
+    // Returning null here left the one line that threads it through untested — and an untested
+    // wire between two tested ends is exactly where this kind of thing goes wrong.
+    return `<outbox-${testOutbox.length}@test.local>`;
   }
 
   const account = email.account ?? envAccount();
@@ -276,7 +286,7 @@ export async function sendRawEmail(email: RawEmail): Promise<void> {
 
       const refusal = refusalOf(info);
       if (refusal) throw new Error(refusal);
-      return;
+      return typeof info.messageId === "string" ? info.messageId : null;
     } catch (err) {
       lastError = err;
       // A permanent refusal is permanent by definition: a second `550 no such user` costs wall

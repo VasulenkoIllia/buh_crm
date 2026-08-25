@@ -46,6 +46,10 @@ export function SenderAccountModal({
     smtpPort: "",
     smtpUser: "",
     smtpPass: "",
+    imapHost: "",
+    imapPort: "",
+    imapUser: "",
+    imapPass: "",
     contactEmail: "",
     contactPhone: "",
     contactTelegram: "",
@@ -54,6 +58,16 @@ export function SenderAccountModal({
     contactWebsite: "",
   });
   const [secure, setSecure] = useState(false);
+  const [imapSecure, setImapSecure] = useState(true);
+  /**
+   * Whether bounces from this mailbox are read at all.
+   *
+   * A switch rather than "leave the host empty", for the reason the transport choice above already
+   * learned: a half-filled block reads as configured and behaves as though it were not.
+   */
+  const [reads, setReads] = useState(false);
+  /** Almost every host wants the same credentials for both protocols; asking twice invites a typo. */
+  const [imapOwnAuth, setImapOwnAuth] = useState(false);
   const [active, setActive] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -69,6 +83,10 @@ export function SenderAccountModal({
       smtpPort: account?.smtpPort ? String(account.smtpPort) : "",
       smtpUser: account?.smtpUser ?? "",
       smtpPass: "",
+      imapHost: account?.imapHost ?? "",
+      imapPort: account?.imapPort ? String(account.imapPort) : "",
+      imapUser: account?.imapUser ?? "",
+      imapPass: "",
       contactEmail: account?.contactEmail ?? "",
       contactPhone: account?.contactPhone ?? "",
       contactTelegram: account?.contactTelegram ?? "",
@@ -77,6 +95,9 @@ export function SenderAccountModal({
       contactWebsite: account?.contactWebsite ?? "",
     });
     setSecure(account?.smtpSecure ?? false);
+    setImapSecure(account?.imapSecure ?? true);
+    setReads(!!account?.imapHost);
+    setImapOwnAuth(!!account?.imapUser);
     setActive(account?.active ?? true);
     setTransport(account?.ownSmtp ? "own" : "server");
     setError(null);
@@ -100,6 +121,11 @@ export function SenderAccountModal({
       smtpPort: transport === "own" && form.smtpPort ? Number(form.smtpPort) : null,
       smtpSecure: transport === "own" ? secure : null,
       smtpUser: transport === "own" ? form.smtpUser : "",
+      // Off clears the whole block, so a mailbox that is not read carries no stale half of one.
+      imapHost: reads ? form.imapHost : "",
+      imapPort: reads && form.imapPort ? Number(form.imapPort) : null,
+      imapSecure: reads ? imapSecure : null,
+      imapUser: reads && imapOwnAuth ? form.imapUser : "",
       active,
       contactEmail: form.contactEmail,
       contactPhone: form.contactPhone,
@@ -113,6 +139,13 @@ export function SenderAccountModal({
         ? { smtpPass: "" }
         : form.smtpPass
           ? { smtpPass: form.smtpPass }
+          : {}),
+      // Same rule for the IMAP one, plus: reusing the SMTP credentials clears any password of its
+      // own, so the reader cannot silently keep signing in with a copy nobody remembers setting.
+      ...(!reads || !imapOwnAuth
+        ? { imapPass: "" }
+        : form.imapPass
+          ? { imapPass: form.imapPass }
           : {}),
     };
     try {
@@ -189,14 +222,16 @@ export function SenderAccountModal({
             value={form.signature}
             onChange={(e) => set("signature")(e.target.value)}
             className="h-[110px] font-mono text-[12px]"
-            placeholder={"Maryna Onyshchenko, EA, MBA\nAccountant | Tax & Accounting Services\n…"}
+            placeholder={
+              "Maryna Onyshchenko, EA, MBA\nAccountant | Tax & Accounting Services\n…"
+            }
           />
         </FormField>
         <div className="border-t border-divider pt-3">
           <p className="text-[13px] font-semibold">Contact buttons</p>
           <p className="mt-1 text-[12px] leading-relaxed text-muted">
-            One button per filled field, in this order. Leave a field empty and its button does not
-            appear — nothing is guessed from the signature above.
+            One button per filled field, in this order. Leave a field empty and its button does
+            not appear — nothing is guessed from the signature above.
           </p>
         </div>
 
@@ -246,8 +281,8 @@ export function SenderAccountModal({
         </div>
         <p className="flex gap-1.5 text-[11px] leading-relaxed text-muted-400">
           <Info size={13} className="mt-0.5 shrink-0" />
-          Four fit across a letter; the rest are dropped, website first — it is already a link in
-          the signature above.
+          Four fit across a letter; the rest are dropped, website first — it is already a link
+          in the signature above.
         </p>
 
         <div className="border-t border-divider pt-3">
@@ -267,14 +302,14 @@ export function SenderAccountModal({
           <div className="rounded-(--radius-field) border border-border bg-surface px-3 py-2.5">
             <p className="font-mono text-[12px] text-ink-700">{server.label}</p>
             <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
-              The account that already sends invites and password resets. Nothing to configure, and
-              it works today — which is why a new firm starts here.
+              The account that already sends invites and password resets. Nothing to configure,
+              and it works today — which is why a new firm starts here.
             </p>
             <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
-              It can normally only send as <span className="font-mono">{server.fromEmail}</span>. A
-              different From is worth testing before the first real mailout, and once the firm sends
-              in volume its own SMTP is safer: a spam complaint here damages the address the team
-              needs to sign in.
+              It can normally only send as <span className="font-mono">{server.fromEmail}</span>
+              . A different From is worth testing before the first real mailout, and once the
+              firm sends in volume its own SMTP is safer: a spam complaint here damages the
+              address the team needs to sign in.
             </p>
           </div>
         ) : (
@@ -317,7 +352,9 @@ export function SenderAccountModal({
                 />
               </FormField>
               <FormField
-                label={account?.smtpPassSet ? "Password (stored — type to replace)" : "Password"}
+                label={
+                  account?.smtpPassSet ? "Password (stored — type to replace)" : "Password"
+                }
               >
                 <Input
                   type="password"
@@ -328,6 +365,98 @@ export function SenderAccountModal({
                 />
               </FormField>
             </div>
+          </>
+        )}
+
+        <div className="border-t border-divider pt-3">
+          <p className="text-[13px] font-semibold">Reading bounces</p>
+          <p className="mt-1 text-[12px] leading-relaxed text-muted">
+            A server that refuses a letter after taking it says so by email, to this mailbox.
+            Left off, those replies are never read and a failed letter goes on reading as sent.
+          </p>
+        </div>
+
+        <label className="flex items-center gap-2 text-[13px]">
+          <input
+            type="checkbox"
+            checked={reads}
+            onChange={(e) => setReads(e.target.checked)}
+            className="size-3.5 accent-[var(--color-primary)]"
+          />
+          Read this mailbox for bounces
+        </label>
+
+        {reads && (
+          <>
+            <div className="grid gap-3 sm:grid-cols-[1fr_100px]">
+              <FormField label="IMAP host">
+                <Input
+                  value={form.imapHost}
+                  onChange={(e) => set("imapHost")(e.target.value)}
+                  placeholder="mail.illion.tax"
+                />
+              </FormField>
+              <FormField label="Port">
+                <Input
+                  value={form.imapPort}
+                  onChange={(e) => set("imapPort")(e.target.value.replace(/\D/g, ""))}
+                  placeholder="993"
+                  inputMode="numeric"
+                />
+              </FormField>
+            </div>
+
+            <label className="flex items-center gap-2 text-[13px]">
+              <input
+                type="checkbox"
+                checked={imapSecure}
+                onChange={(e) => setImapSecure(e.target.checked)}
+                className="size-3.5 accent-[var(--color-primary)]"
+              />
+              Implicit TLS (port 993). Leave off for 143, which upgrades via STARTTLS.
+            </label>
+
+            <label className="flex items-center gap-2 text-[13px]">
+              <input
+                type="checkbox"
+                checked={imapOwnAuth}
+                onChange={(e) => setImapOwnAuth(e.target.checked)}
+                className="size-3.5 accent-[var(--color-primary)]"
+              />
+              Sign in with different credentials
+            </label>
+
+            {imapOwnAuth ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <FormField label="Username">
+                  <Input
+                    value={form.imapUser}
+                    onChange={(e) => set("imapUser")(e.target.value)}
+                    placeholder="reminder@illion.tax"
+                    autoComplete="off"
+                  />
+                </FormField>
+                <FormField
+                  label={
+                    account?.imapPassSet ? "Password (stored — type to replace)" : "Password"
+                  }
+                >
+                  <Input
+                    type="password"
+                    value={form.imapPass}
+                    onChange={(e) => set("imapPass")(e.target.value)}
+                    placeholder={account?.imapPassSet ? "••••••••" : ""}
+                    autoComplete="new-password"
+                  />
+                </FormField>
+              </div>
+            ) : (
+              <p className="flex gap-1.5 text-[11px] leading-relaxed text-muted-400">
+                <Info size={13} className="mt-0.5 shrink-0" />
+                The SMTP username and password above are reused — one mailbox, two protocols,
+                which is what nearly every host expects. Test connection proves it either way.
+              </p>
+            )}
           </>
         )}
 

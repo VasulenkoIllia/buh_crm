@@ -529,6 +529,68 @@ describe("sender mailboxes", () => {
     expect(accounts.find((a: { isDefault: boolean }) => a.isDefault).name).toBe("Main");
   });
 
+  /**
+   * A mailbox that only sends is half a mailbox: bounces come back as ordinary mail, and reading
+   * them needs its own host, port and — usually not — its own credentials.
+   */
+  it("stores an IMAP block, seals its password, and never returns it", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/mailouts/settings/senders",
+      headers: { cookie },
+      payload: {
+        name: "Reminders",
+        fromEmail: "reminder@illion.tax",
+        imapHost: "mail.illion.tax",
+        imapPort: 993,
+        imapSecure: true,
+        imapUser: "reminder@illion.tax",
+        imapPass: "not-a-real-password",
+      },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const account = created
+      .json()
+      .accounts.find((a: { name: string }) => a.name === "Reminders");
+    expect(account.imapHost).toBe("mail.illion.tax");
+    expect(account.imapPort).toBe(993);
+    expect(account.readsBounces).toBe(true);
+    expect(account.imapPassSet).toBe(true);
+    // The password itself must never cross the wire, exactly like the SMTP one.
+    expect(JSON.stringify(account)).not.toContain("not-a-real-password");
+
+    // Prisma 7 hands `Bytes` back as a Uint8Array, so decode rather than assume a Buffer.
+    const row = await prisma.mailSenderAccount.findUnique({ where: { id: account.id } });
+    expect(row?.imapPass?.byteLength).toBeGreaterThan(0);
+    expect(row?.imapPassIv?.byteLength).toBeGreaterThan(0);
+    expect(row?.imapPassTag?.byteLength).toBeGreaterThan(0);
+    expect(Buffer.from(row!.imapPass!).toString("utf8")).not.toContain("not-a-real-password");
+  });
+
+  /**
+   * The failure worth naming: a half-filled block reads as configured on the screen and is skipped
+   * by the reader, so a firm believes bounces are watched while nothing is watching them.
+   */
+  it("calls a half-filled IMAP block an error, and a missing one a warning", async () => {
+    const half = await app.inject({
+      method: "POST",
+      url: "/api/mailouts/settings/senders",
+      headers: { cookie },
+      payload: { name: "Half", fromEmail: "half@illion.tax", imapHost: "mail.illion.tax" },
+    });
+    const account = half.json().accounts.find((a: { name: string }) => a.name === "Half");
+    expect(account.readsBounces).toBe(false);
+    const port = account.checks.find((c: { field: string }) => c.field === "imapPort");
+    expect(port.level).toBe("error");
+
+    // A mailbox with no IMAP at all is not broken — it is unwatched, and the screen says so.
+    const main = half.json().accounts.find((a: { name: string }) => a.name === "Main");
+    const unread = main.checks.find((c: { field: string }) => c.field === "imapHost");
+    expect(unread.level).toBe("warning");
+    expect(unread.message).toContain("still read as sent");
+  });
+
   it("refuses a duplicate name, case-insensitively", async () => {
     const res = await app.inject({
       method: "POST",
@@ -1401,6 +1463,29 @@ describe("the client card", () => {
     expect(body.history.some((h: { subject: string }) => h.subject === "Card history")).toBe(
       true,
     );
+  });
+
+  /**
+   * The key that makes a bounce matchable at all.
+   *
+   * A DSN quotes the original `Message-ID` back in `References:`, so storing what nodemailer
+   * reports is what ties a returned letter to the row that sent it — rather than guessing from the
+   * address and a timestamp. It was being discarded.
+   */
+  it("keeps the Message-ID the letter went out with", async () => {
+    const res = await send({
+      letter: letter({ subject: "Keyed", heading: null, body: "Hi." }),
+      recipients: to(clientA),
+    });
+    await settled(res.json().id);
+
+    const rows = await prisma.mailoutRecipient.findMany({
+      where: { mailoutId: res.json().id, status: "sent" },
+    });
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.messageId).toMatch(/^<outbox-\d+@test\.local>$/);
+    }
   });
 
   /**

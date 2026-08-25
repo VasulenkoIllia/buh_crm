@@ -135,6 +135,35 @@ describe("explaining a failed send", () => {
     expect(out.message).not.toMatch(/username or password/);
   });
 
+  /**
+   * The regression: the SSL hint named 465/587 for every protocol. Somebody configuring the
+   * mailbox READER would be sent to check a submission port that is not on the screen they are
+   * looking at — worse than saying nothing, because it reads as a specific instruction.
+   */
+  it("names IMAP ports when the failure was an IMAP one", () => {
+    const tls = smtpError("wrong version number, SSL routines");
+    expect(explainSendError(tls, { protocol: "imap" }).message).toContain("993");
+    expect(explainSendError(tls, { protocol: "imap" }).message).not.toContain("587");
+    expect(explainSendError(tls).message).toContain("587");
+  });
+
+  /**
+   * Found by running the real button, not by reading the code: an unreachable IMAP host was
+   * answered with "check the SMTP host", which is a different field on the same screen.
+   */
+  it("names the IMAP host field when an IMAP host cannot be found", () => {
+    const gone = smtpError("getaddrinfo ENOTFOUND imap.dev.invalid", { code: "ENOTFOUND" });
+    expect(explainSendError(gone, { protocol: "imap" }).message).toContain("IMAP host");
+    expect(explainSendError(gone, { protocol: "imap" }).message).not.toContain("SMTP");
+    expect(explainSendError(gone).message).toContain("SMTP host");
+  });
+
+  it("says which credentials were refused when the mailbox is being read", () => {
+    const auth = smtpError("Invalid login", { code: "EAUTH", responseCode: 535 });
+    expect(explainSendError(auth, { protocol: "imap" }).message).toContain("IMAP credentials");
+    expect(explainSendError(auth).message).not.toContain("IMAP");
+  });
+
   it("never opens a sentence in lower case when no host is known", () => {
     const out = explainSendError(smtpError("connect ECONNREFUSED", { code: "ECONNREFUSED" }));
     expect(out.message[0]).toBe(out.message[0].toUpperCase());

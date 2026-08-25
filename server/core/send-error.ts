@@ -33,6 +33,14 @@ export interface SendFailure {
 export interface SendErrorContext {
   host?: string | null;
   port?: number | null;
+  /**
+   * Which conversation failed. It changes the advice, not the classification.
+   *
+   * The SSL-on-the-wrong-port hint has to name the RIGHT ports: 465/587 for submission, 993/143
+   * for IMAP. Telling somebody configuring a mailbox reader to check port 587 sends them to the
+   * wrong field on the same screen, which is worse than saying nothing.
+   */
+  protocol?: "smtp" | "imap";
 }
 
 /** Nodemailer hangs its structured detail off the Error; none of it is guaranteed present. */
@@ -107,7 +115,9 @@ export function explainSendError(err: unknown, ctx: SendErrorContext = {}): Send
   if (code === "EAUTH" || status === 535 || status === 534 || status === 530) {
     return {
       message:
-        "The mailbox rejected our username or password — check the credentials under Mailouts → Sender.",
+        ctx.protocol === "imap"
+          ? "The mailbox rejected our username or password for reading — check the IMAP credentials under Mailouts → Sender."
+          : "The mailbox rejected our username or password — check the credentials under Mailouts → Sender.",
       fault: "settings",
       retryable: false,
     };
@@ -115,7 +125,7 @@ export function explainSendError(err: unknown, ctx: SendErrorContext = {}): Send
   if (code === "ENOTFOUND" || code === "EDNS" || /ENOTFOUND|EAI_AGAIN/i.test(raw)) {
     const host = ctx.host || hostFrom(raw);
     return {
-      message: `Cannot find the mail server${host ? ` “${host}”` : ""} — check the SMTP host under Mailouts → Sender.`,
+      message: `Cannot find the mail server${host ? ` “${host}”` : ""} — check the ${ctx.protocol === "imap" ? "IMAP" : "SMTP"} host under Mailouts → Sender.`,
       fault: "settings",
       retryable: false,
     };
@@ -137,7 +147,9 @@ export function explainSendError(err: unknown, ctx: SendErrorContext = {}): Send
     return {
       message: /certificate/i.test(raw)
         ? `The mail server's security certificate was not accepted — check the host and SSL setting under Mailouts → Sender.`
-        : `The SSL setting does not match the port — port 465 needs SSL on, port 587 needs it off.`,
+        : ctx.protocol === "imap"
+          ? `The SSL setting does not match the port — port 993 needs SSL on, port 143 needs it off.`
+          : `The SSL setting does not match the port — port 465 needs SSL on, port 587 needs it off.`,
       fault: "settings",
       retryable: false,
     };

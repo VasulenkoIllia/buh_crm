@@ -1,0 +1,78 @@
+Return-Path: <>
+Delivered-To: sender@firm.example
+Received: from relay-host
+	by relay-host with LMTP
+	id L/WYKsrChWqymSgAtTQYrA
+	(envelope-from <>)
+	for <sender@firm.example>; Wed, 19 Aug 2026 14:50:50 +0000
+Return-path: <>
+Envelope-to: sender@firm.example
+Delivery-date: Wed, 19 Aug 2026 14:50:50 +0000
+Received: from Debian-exim by relay-host with local (Exim 4.96)
+	id 1wwhcw-00BABr-2D
+	for sender@firm.example;
+	Wed, 19 Aug 2026 14:50:50 +0000
+X-Failed-Recipients: bondarenko@yahoo.example
+Auto-Submitted: auto-replied
+From: Mail Delivery System <Mailer-Daemon@relay-host>
+To: sender@firm.example
+References: <4c6b1188-3d15-e656-3992-30c5ffda99c9@firm.example>
+Content-Type: multipart/report; report-type=delivery-status; boundary=1787151050-eximdsn-1198182407
+MIME-Version: 1.0
+Subject: Mail delivery failed: returning message to sender
+Message-Id: <E1wwhcw-00BABr-2D@relay-host>
+Date: Wed, 19 Aug 2026 14:50:50 +0000
+
+--1787151050-eximdsn-1198182407
+Content-type: text/plain; charset=us-ascii
+
+This message was created automatically by mail delivery software.
+
+A message that you sent could not be delivered to one or more of its
+recipients. This is a permanent error. The following address(es) failed:
+
+  bondarenko@yahoo.example
+    host mta5.am0.yahoodns.net [67.195.204.79]
+    SMTP error from remote mail server after end of data:
+    552 1 Requested mail action aborted, mailbox not found
+
+--1787151050-eximdsn-1198182407
+Content-type: message/delivery-status
+
+Reporting-MTA: dns; relay-host
+
+Action: failed
+Final-Recipient: rfc822;bondarenko@yahoo.example
+Status: 5.0.0
+Remote-MTA: dns; mta5.am0.yahoodns.net
+Diagnostic-Code: smtp; 552 1 Requested mail action aborted, mailbox not found
+
+--1787151050-eximdsn-1198182407
+Content-type: message/rfc822
+
+Return-path: <sender@firm.example>
+Received: from crm.example ([203.0.113.10] helo=[127.0.0.1])
+	by relay-host with esmtpsa  (TLS1.3) tls TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+	(Exim 4.96)
+	(envelope-from <sender@firm.example>)
+	id 1wwhcu-00BABm-3B
+	for bondarenko@yahoo.example;
+	Wed, 19 Aug 2026 14:50:49 +0000
+List-Unsubscribe:
+ <https://crm.example/api/mailouts/unsubscribe/TOKEN-REMOVED?m=MAILOUT-ID>
+List-Unsubscribe-Post: List-Unsubscribe=One-Click
+From: "ILLION Tax & Accounting" <sender@firm.example>
+To: bondarenko@yahoo.example
+Reply-To: sender@firm.example
+Subject: =?UTF-8?B?0L3QsNC/0L7QvNC40L3QsNC70LrQsCDQv9GA0L4g?=
+ =?UTF-8?B?YW5udWFsIHJlcG9ydA==?=
+Message-ID: <4c6b1188-3d15-e656-3992-30c5ffda99c9@firm.example>
+Date: Wed, 19 Aug 2026 14:50:47 +0000
+MIME-Version: 1.0
+Content-Type: multipart/alternative;
+ boundary="--_NmP-52b46b249bd223d9-Part_1"
+X-SPF-Fail: YES
+
+[the returned letter's body is not part of the fixture]
+
+--1787151050-eximdsn-1198182407--
