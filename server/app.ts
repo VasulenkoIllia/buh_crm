@@ -31,8 +31,15 @@ const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 // Cross-origin state-changing requests are blocked. Same-origin (Origin host === the
 // Host we're serving on) is always allowed — covers prod (SPA + API on one domain) and
-// local prod-mode testing over http. Dev additionally allows the Vite dev server (:5173).
-const DEV_ORIGINS = new Set(["http://localhost:5173", "http://localhost:3000"]);
+// local prod-mode testing over http.
+//
+// In DEV the API also accepts any loopback origin, because the front end is a separate server on
+// its own port and that port is not fixed: Vite takes the next free one when 5173 is busy — a
+// second checkout, a second session — and an allowlist of two exact ports then rejects every
+// write with a 403 while GETs keep working, so the screen looks fine and only buttons are dead
+// (hit on 2026-08-26, and it cost a debugging round to see). Prod is unaffected: `isDev` gates
+// this entirely, and there the SPA and the API share one origin anyway.
+const DEV_ORIGIN_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
 export async function buildApp() {
   const app = Fastify({
@@ -68,14 +75,15 @@ export async function buildApp() {
     if (!origin) return; // no Origin header — SameSite=Lax already covers this
     const deny = () =>
       reply.status(403).send({ error: { code: "forbidden", message: "Origin not allowed" } });
-    let originHost: string;
+    let originUrl: URL;
     try {
-      originHost = new URL(origin).host;
+      originUrl = new URL(origin);
     } catch {
       return deny();
     }
-    if (originHost === request.host) return; // same-origin
-    if (isDev && DEV_ORIGINS.has(origin)) return; // Vite dev server → API
+    if (originUrl.host === request.host) return; // same-origin
+    // dev: the front end is its own server on whatever port it could get
+    if (isDev && DEV_ORIGIN_HOSTNAMES.has(originUrl.hostname)) return;
     return deny();
   });
 

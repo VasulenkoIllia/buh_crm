@@ -1,4 +1,5 @@
 import type {
+  Client,
   ClientListQuery,
   CreateClientInput,
   CreateSubscriptionInput,
@@ -74,13 +75,11 @@ function servedWindow(periods: InForcePeriod[], today: Day) {
   };
 }
 
-/** What is still live behind each of the client card's tabs; omitted on the list read. */
-export interface ClientPanelCounts {
-  tasks: number;
-  meetings: number;
-  invoices: number;
-  files: number;
-}
+/**
+ * What is still live behind each of the client card's tabs; omitted on the list read.
+ * Taken from the DTO schema rather than restated, so the two cannot describe different shapes.
+ */
+export type ClientPanelCounts = NonNullable<Client["counts"]>;
 
 export function toClientDto(
   client: repo.ClientRecord,
@@ -236,14 +235,32 @@ export async function listClients(query: ClientListQuery, userId?: string) {
 }
 
 /**
+ * A ceiling on the pinned block, because the block is fetched WHOLE on every list request so it
+ * can be ranked by pin time (see the repository). Fifty is far past any real working set and well
+ * under the 100-row page cap, so the query stays the size the screen already pays for. Without it
+ * a reader who pinned the whole book would load every client on every page.
+ */
+const MAX_PINS_PER_USER = 50;
+
+/**
  * Pin / un-pin for ONE reader. Returns nothing but `ok`: the clients list is refetched anyway, and
  * a pin changes where a client sits, not what it is.
  */
 export async function setClientPinned(userId: string, clientId: string, pinned: boolean) {
   const client = await repo.findClient(clientId);
   if (!client || client.archivedAt) throw new NotFoundError("Client not found");
-  if (pinned) await repo.pinClient(userId, clientId);
-  else await repo.unpinClient(userId, clientId);
+  if (pinned) {
+    // counted before the upsert, which is idempotent — re-pinning at the limit must still succeed
+    const already = await repo.listPinnedClientIds(userId);
+    if (!already.includes(clientId) && already.length >= MAX_PINS_PER_USER) {
+      throw new ValidationError(
+        `You can keep at most ${MAX_PINS_PER_USER} clients pinned. Unpin one first.`,
+      );
+    }
+    await repo.pinClient(userId, clientId);
+  } else {
+    await repo.unpinClient(userId, clientId);
+  }
 }
 
 /**
@@ -260,20 +277,15 @@ export async function getClient(id: string, userId?: string) {
   const client = await repo.findClient(id);
   if (!client || client.archivedAt) throw new NotFoundError("Client not found");
   // one round of parallel aggregates rather than four extra requests from the card
-  const [debts, tasks, meetings, invoices, files, pinnedIds] = await Promise.all([
+  const [debts, tasks, meetings, invoices, files, pinned] = await Promise.all([
     debtByClient([id]),
     countOpenTasksForClient(id),
     countUpcomingMeetingsForClient(id, new Date()),
     countOwedInvoicesForClient(id),
     repo.countClientFiles(id),
-    userId ? repo.listPinnedClientIds(userId) : Promise.resolve<string[]>([]),
+    userId ? repo.isClientPinned(userId, id) : Promise.resolve(false),
   ]);
-  return toClientDto(
-    client,
-    debts[id] ?? 0,
-    { tasks, meetings, invoices, files },
-    pinnedIds.includes(id),
-  );
+  return toClientDto(client, debts[id] ?? 0, { tasks, meetings, invoices, files }, pinned);
 }
 
 function toClientFields(input: CreateClientInput | UpdateClientInput, isCreate: boolean) {
@@ -696,6 +708,10 @@ export async function archiveClient(id: string, actor: User) {
   // exclusive end: the last day served is today, so the period ends before tomorrow
   const endsBefore = toUtc(addDays(todayInTz(config.TZ), 1));
   await repo.closeLivePeriodsForClient(id, endsBefore, actor.id);
+  // and out of everyone's pinned block: an archived client is in nobody's working set, and a pin
+  // left behind would float them to the top of the Archive screen, which reads as a mistake.
+  // Deliberately not restored on un-archive — like the services, which also stay stopped.
+  await repo.unpinForAllUsers(id);
   await repo.updateClient(id, { archivedAt: new Date(), archivedById: actor.id });
   return { ok: true as const };
 }

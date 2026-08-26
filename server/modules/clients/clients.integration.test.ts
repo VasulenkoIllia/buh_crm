@@ -993,6 +993,49 @@ describe("clients", () => {
       expect((await list()).map((c) => c.firstName)).toEqual(["Mike", "Alpha", "Zulu"]);
     });
 
+    it("orders the pinned block by WHEN it was pinned, not by the list's sort", async () => {
+      // Zulu first, then Alpha — the reverse of name order and of creation order, so only pin
+      // time can produce it. This is the whole point: an existing pin must not move when the
+      // reader changes the sort (user, 2026-08-26).
+      await app.inject({ method: "PUT", url: `/api/clients/${ids.Zulu}/pin`, headers: { cookie } });
+      await app.inject({ method: "PUT", url: `/api/clients/${ids.Alpha}/pin`, headers: { cookie } });
+
+      for (const sort of ["", "&sort=name", "&sort=updated"]) {
+        const items = await list(sort);
+        expect(items.slice(0, 2).map((c) => c.firstName), `sort=${sort || "recent"}`).toEqual([
+          "Zulu",
+          "Alpha",
+        ]);
+      }
+
+      // a THIRD pin lands underneath the other two and moves neither
+      await app.inject({ method: "PUT", url: `/api/clients/${ids.Mike}/pin`, headers: { cookie } });
+      expect((await list("&sort=name")).slice(0, 3).map((c) => c.firstName)).toEqual([
+        "Zulu",
+        "Alpha",
+        "Mike",
+      ]);
+
+      for (const id of Object.values(ids)) {
+        await app.inject({ method: "DELETE", url: `/api/clients/${id}/pin`, headers: { cookie } });
+      }
+    });
+
+    it("re-pinning sends the client to the BOTTOM of the block, where a new pin belongs", async () => {
+      await app.inject({ method: "PUT", url: `/api/clients/${ids.Zulu}/pin`, headers: { cookie } });
+      await app.inject({ method: "PUT", url: `/api/clients/${ids.Alpha}/pin`, headers: { cookie } });
+      expect((await list()).slice(0, 2).map((c) => c.firstName)).toEqual(["Zulu", "Alpha"]);
+
+      // unpin then pin again — it is a new pin, so it goes last
+      await app.inject({ method: "DELETE", url: `/api/clients/${ids.Zulu}/pin`, headers: { cookie } });
+      await app.inject({ method: "PUT", url: `/api/clients/${ids.Zulu}/pin`, headers: { cookie } });
+      expect((await list()).slice(0, 2).map((c) => c.firstName)).toEqual(["Alpha", "Zulu"]);
+
+      for (const id of Object.values(ids)) {
+        await app.inject({ method: "DELETE", url: `/api/clients/${id}/pin`, headers: { cookie } });
+      }
+    });
+
     it("floats a pinned client to the top of every sort, and says so on the row", async () => {
       const pinned = await app.inject({
         method: "PUT",
@@ -1106,6 +1149,89 @@ describe("clients", () => {
       await app.inject({ method: "DELETE", url: `/api/clients/${ids.Zulu}/pin`, headers: { cookie } });
       await prisma.session.deleteMany({ where: { user: { email: "other@clients.local" } } });
       await prisma.user.deleteMany({ where: { email: "other@clients.local" } });
+    });
+
+    it("caps the pinned block, because the whole block is read on every list request", async () => {
+      const me = await prisma.user.findFirstOrThrow({ where: { email: "user@clients.local" } });
+      const bulk = Array.from({ length: 50 }, (_, i) => ({
+        firstName: `Bulk${String(i).padStart(2, "0")}`,
+        lastName: "Capped",
+      }));
+      await prisma.client.createMany({ data: bulk });
+      const created = await prisma.client.findMany({
+        where: { lastName: "Capped" },
+        select: { id: true },
+      });
+      expect(created).toHaveLength(50);
+      await prisma.clientPin.createMany({
+        data: created.map((c) => ({ userId: me.id, clientId: c.id })),
+      });
+
+      const over = await app.inject({
+        method: "PUT",
+        url: `/api/clients/${ids.Zulu}/pin`,
+        headers: { cookie },
+      });
+      expect(over.statusCode).toBe(400);
+      expect(over.json().error.message).toMatch(/at most 50/);
+
+      // re-pinning one that is ALREADY pinned still works at the limit — the upsert is a no-op,
+      // and refusing it would make the cap punish something that changes nothing
+      const again = await app.inject({
+        method: "PUT",
+        url: `/api/clients/${created[0].id}/pin`,
+        headers: { cookie },
+      });
+      expect(again.statusCode).toBe(200);
+
+      await prisma.clientPin.deleteMany({ where: { userId: me.id } });
+      await prisma.client.deleteMany({ where: { lastName: "Capped" } });
+    });
+
+    it("archiving takes the client out of the pinned block, and un-archiving does not restore it", async () => {
+      await app.inject({ method: "PUT", url: `/api/clients/${ids.Mike}/pin`, headers: { cookie } });
+      expect((await list())[0].firstName).toBe("Mike");
+
+      await app.inject({ method: "POST", url: `/api/clients/${ids.Mike}/archive`, headers: { cookie } });
+      expect(await prisma.clientPin.count({ where: { clientId: ids.Mike } })).toBe(0);
+
+      // a stale pin would otherwise float them to the top of the Archive screen, which reads as a
+      // mistake — and like the stopped services, the pin is not brought back on restore
+      await app.inject({ method: "POST", url: `/api/clients/${ids.Mike}/restore`, headers: { cookie } });
+      const back = await list();
+      expect(back.find((c) => c.firstName === "Mike")?.pinned).toBe(false);
+    });
+
+    it("refuses to pin an archived client", async () => {
+      await app.inject({ method: "POST", url: `/api/clients/${ids.Alpha}/archive`, headers: { cookie } });
+      const res = await app.inject({
+        method: "PUT",
+        url: `/api/clients/${ids.Alpha}/pin`,
+        headers: { cookie },
+      });
+      expect(res.statusCode).toBe(404);
+      await app.inject({ method: "POST", url: `/api/clients/${ids.Alpha}/restore`, headers: { cookie } });
+    });
+
+    it("a page past the pinned block still lands on the right rows", async () => {
+      // the repository takes a cheaper branch once `skip` is past the block — it must produce
+      // exactly the same sequence as walking through it
+      for (const n of ["Zulu", "Alpha"]) {
+        await app.inject({ method: "PUT", url: `/api/clients/${ids[n]}/pin`, headers: { cookie } });
+      }
+      const pages: string[] = [];
+      for (const page of [1, 2, 3]) {
+        const res = await app.inject({
+          method: "GET",
+          url: `/api/clients?tab=all&pageSize=1&page=${page}&sort=name&search=Order`,
+          headers: { cookie },
+        });
+        pages.push(...res.json().items.map((c: { firstName: string }) => c.firstName));
+      }
+      expect(pages).toEqual(["Zulu", "Alpha", "Mike"]);
+      for (const id of Object.values(ids)) {
+        await app.inject({ method: "DELETE", url: `/api/clients/${id}/pin`, headers: { cookie } });
+      }
     });
 
     it("rejects an unknown sort rather than silently ignoring it", async () => {

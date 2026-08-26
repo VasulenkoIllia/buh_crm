@@ -44,8 +44,6 @@ const TABS = [
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 
-const TAB_STAGE: Partial<Record<TabKey, string>> = {};
-
 /** Which tabs carry a badge, and which count feeds each. */
 const TAB_COUNT: Partial<Record<TabKey, keyof NonNullable<Client["counts"]>>> = {
   tasks: "tasks",
@@ -170,12 +168,6 @@ export function ClientCardPage() {
         <ClientMailouts key={client.id} clientId={client.id} clientName={client.displayName} />
       )}
       {tab === "files" && <FilesTab clientId={client.id} />}
-      {TAB_STAGE[tab] && (
-        <div className="rounded-(--radius-panel) border border-border bg-surface px-5 py-10 text-center text-[13px] text-muted">
-          {TABS.find((t) => t.key === tab)?.label} will appear here in stage {TAB_STAGE[tab]}.
-        </div>
-      )}
-
       {editOpen && (
         <ClientFormModal open={editOpen} onClose={() => setEditOpen(false)} client={client} />
       )}

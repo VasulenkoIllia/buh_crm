@@ -1,3 +1,4 @@
+import type { ClientListQuery } from "@shared/schema/client.js";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { notEndedWhere } from "../../core/coverage.js";
 import { prisma } from "../../core/db.js";
@@ -19,8 +20,11 @@ const clientInclude = {
 
 export type ClientRecord = Prisma.ClientGetPayload<{ include: typeof clientInclude }>;
 
-/** Row order within a block. `recent` is what the screen has always done, so it stays the default. */
-export type ClientSort = "recent" | "updated" | "name";
+/**
+ * Row order within a block. Derived from the query schema rather than restated: the accepted
+ * values are validated there, and a second list would let the two drift apart silently.
+ */
+export type ClientSort = ClientListQuery["sort"];
 
 const ORDER_BY: Record<ClientSort, Prisma.ClientOrderByWithRelationInput[]> = {
   recent: [{ createdAt: "desc" }],
@@ -69,20 +73,33 @@ export async function listClients(args: {
     AND: [args.where, { id: { notIn: args.pinnedIds } }],
   };
 
-  // how many pins survive the filters — a pinned client the service filter excludes is not shown
-  const pinnedTotal = await prisma.client.count({ where: pinnedWhere });
-
-  const fromPinned = Math.max(0, Math.min(args.take, pinnedTotal - args.skip));
-  const pinned =
-    fromPinned > 0
-      ? await prisma.client.findMany({
-          where: pinnedWhere,
-          include: clientInclude,
-          orderBy,
-          skip: args.skip,
-          take: fromPinned,
-        })
-      : [];
+  /**
+   * The pinned block is ordered by WHEN EACH WAS PINNED, oldest first — never by the list's sort
+   * (user, 2026-08-26). Following the sort meant the reader's own rows changed places every time
+   * they switched it, which read as "my pins disappeared"; oldest-first is the one order in which
+   * an existing pin never moves, because a new one lands underneath it.
+   *
+   * That order cannot be expressed in SQL here: it lives on `ClientPin`, and Prisma cannot order a
+   * client by a relation row filtered to one user. So the block is fetched whole and ranked by the
+   * position `listPinnedClientIds` already put the ids in. Fetching it whole is what makes that
+   * safe — and what `MAX_PINS_PER_USER` in the service keeps bounded.
+   */
+  // Past the block there is nothing to rank, and the rest-offset only needs its SIZE — so a later
+  // page counts instead of loading every pinned client with its whole include. `pinnedIds.length`
+  // is the upper bound on the block, which is what makes the cheap branch safe to take.
+  let pinnedTotal: number;
+  let pinned: ClientRecord[];
+  if (args.skip >= args.pinnedIds.length) {
+    pinnedTotal = await prisma.client.count({ where: pinnedWhere });
+    pinned = [];
+  } else {
+    const rank = new Map(args.pinnedIds.map((id, i) => [id, i]));
+    const pinnedAll = await prisma.client.findMany({ where: pinnedWhere, include: clientInclude });
+    pinnedAll.sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
+    // pins that survive the filters — a pinned client the service filter excludes is not shown
+    pinnedTotal = pinnedAll.length;
+    pinned = pinnedAll.slice(args.skip, args.skip + args.take);
+  }
 
   const restTake = args.take - pinned.length;
   const rest =
@@ -100,13 +117,31 @@ export async function listClients(args: {
   return { items: [...pinned, ...rest], total };
 }
 
-/** The client ids this user keeps at the top of their list. */
+/**
+ * The client ids this user keeps at the top of their list, IN THE ORDER THEY PINNED THEM.
+ * Oldest first, which is the order the block is drawn in — see `listClients`.
+ */
 export async function listPinnedClientIds(userId: string) {
   const rows = await prisma.clientPin.findMany({
     where: { userId },
     select: { clientId: true },
+    orderBy: { createdAt: "asc" },
   });
   return rows.map((r) => r.clientId);
+}
+
+/** Does this reader keep this one client pinned? The card asks about one row, not the whole set. */
+export async function isClientPinned(userId: string, clientId: string) {
+  const row = await prisma.clientPin.findUnique({
+    where: { userId_clientId: { userId, clientId } },
+    select: { clientId: true },
+  });
+  return row !== null;
+}
+
+/** Every pin this reader holds — archiving a client takes it out of everyone's working set. */
+export function unpinForAllUsers(clientId: string) {
+  return prisma.clientPin.deleteMany({ where: { clientId } });
 }
 
 /** Idempotent on purpose: pinning something already pinned is not an error, it is a no-op. */

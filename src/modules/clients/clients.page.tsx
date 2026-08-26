@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Pin, Users } from "lucide-react";
-import type { Client } from "@shared/schema/client";
+import type { Client, ClientListQuery } from "@shared/schema/client";
 import type { Service } from "@shared/schema/catalog";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { cn } from "@/shared/lib/cn";
@@ -19,12 +19,18 @@ const TABS = [
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 
-const SORTS = [
-  { value: "recent", label: "Newest first" },
-  { value: "updated", label: "Recently edited" },
-  { value: "name", label: "Name A–Z" },
-] as const;
-type SortKey = (typeof SORTS)[number]["value"];
+/**
+ * The labels, keyed by the sort the SERVER accepts — one definition of the values, in the zod enum,
+ * and this map is a compile error until a new one is given a name here. Key order is the order of
+ * the dropdown.
+ */
+type SortKey = ClientListQuery["sort"];
+const SORT_LABELS: Record<SortKey, string> = {
+  recent: "Newest first",
+  updated: "Recently edited",
+  name: "Name A–Z",
+};
+const SORTS = Object.keys(SORT_LABELS) as SortKey[];
 
 const PAGE_SIZES = [25, 50, 100] as const;
 
@@ -43,6 +49,14 @@ function storedPageSize(): number {
     return (PAGE_SIZES as readonly number[]).includes(n) ? n : 25;
   } catch {
     return 25;
+  }
+}
+
+function rememberPageSize(n: number): void {
+  try {
+    localStorage.setItem(PAGE_SIZE_KEY, String(n));
+  } catch {
+    // a private window or blocked site data — the choice just will not stick
   }
 }
 
@@ -75,6 +89,10 @@ export function ClientsPage() {
   const { data: services } = useCatalog();
   const serviceById = new Map((services ?? []).map((s) => [s.id, s]));
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
+  // pinned rows always lead the sequence, so the block is the run of them at the top of this page
+  const rows = data?.items ?? [];
+  const firstUnpinned = rows.findIndex((c) => !c.pinned);
+  const pinnedOnPage = firstUnpinned === -1 ? rows.length : firstUnpinned;
 
   return (
     <div className="mx-auto max-w-[1320px]">
@@ -116,9 +134,9 @@ export function ClientsPage() {
             setPage(1);
           }}
         >
-          {SORTS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
+          {SORTS.map((key) => (
+            <option key={key} value={key}>
+              {SORT_LABELS[key]}
             </option>
           ))}
         </Select>
@@ -151,15 +169,40 @@ export function ClientsPage() {
           ) : (
             <div className="overflow-x-auto rounded-(--radius-panel) border border-border bg-surface">
               <ListHeader tab={tab} />
-              {data.items.map((client) => (
+              {/* Pinned rows always lead, so the block is however many of them the page opens
+                  with. Labelling it is what stops "my pins changed" — they never do; they simply
+                  sit above a list that reorders (user, 2026-08-26). */}
+              {data.items[0]?.pinned && (
+                <div className="flex items-center gap-2 border-b border-divider bg-primary/[0.04] px-4 py-1.5 text-[11px] font-medium uppercase tracking-[.4px] text-primary-link">
+                  <Pin size={11} strokeWidth={2.5} fill="currentColor" />
+                  {/* the number is only the whole block when the block closes on this page;
+                      a page made entirely of pinned rows continues onto the next one */}
+                  Pinned{pinnedOnPage < rows.length ? ` (${pinnedOnPage})` : ""}
+                </div>
+              )}
+              {data.items.map((client, i) => (
                 <ClientRow
                   key={client.id}
                   client={client}
                   tab={tab}
                   serviceById={serviceById}
+                  // the line that closes the block — drawn only when ordinary rows follow it
+                  lastPinned={i === pinnedOnPage - 1 && data.items.length > pinnedOnPage}
                   onOpen={() => navigate(`/clients/${client.id}`)}
                   onTogglePin={() =>
-                    pin.mutate({ id: client.id, pinned: !client.pinned })
+                    pin.mutate(
+                      { id: client.id, pinned: !client.pinned },
+                      {
+                        // a click that does nothing and says nothing is the worst outcome here:
+                        // the row simply stays where it was, which reads as "the feature is
+                        // broken" whatever the actual cause was (a 403 from a dev origin, once)
+                        onError: (err) =>
+                          window.alert(
+                            `Could not ${client.pinned ? "unpin" : "pin"} ${client.displayName}.\n\n` +
+                              (err instanceof Error ? err.message : "Please try again."),
+                          ),
+                      },
+                    )
                   }
                 />
               ))}
@@ -184,11 +227,7 @@ export function ClientsPage() {
                   const next = Number(e.target.value);
                   setPageSize(next);
                   setPage(1); // page 7 of 25 is off the end at 100 per page
-                  try {
-                    localStorage.setItem(PAGE_SIZE_KEY, String(next));
-                  } catch {
-                    // a private window or blocked site data — the choice just will not stick
-                  }
+                  rememberPageSize(next);
                 }}
               >
                 {PAGE_SIZES.map((n) => (
@@ -309,12 +348,15 @@ function ClientRow({
   serviceById,
   onOpen,
   onTogglePin,
+  lastPinned = false,
 }: {
   client: Client;
   tab: TabKey;
   serviceById: Map<string, Service>;
   onOpen: () => void;
   onTogglePin: () => void;
+  /** the final pinned row — carries the rule that closes the block */
+  lastPinned?: boolean;
 }) {
   // the companies they actually hold; the plain `companyName` label stands in when there are none
   const companies =
@@ -361,6 +403,7 @@ function ClientRow({
         // pinned wins over the regular tint: it is the reader's own mark, and the two never
         // stack into a third colour nobody can read
         client.pinned && "bg-primary/[0.055]",
+        lastPinned && "border-b-2 border-b-[#c3cdf3]",
       )}
     >
       <PinButton pinned={client.pinned} onToggle={onTogglePin} />
