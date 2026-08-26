@@ -11,6 +11,7 @@ import { Select } from "@/shared/ui/field";
 import { SearchSelect } from "@/shared/ui/search-select";
 import { FilterChips } from "@/shared/ui/tabs";
 import { ClientFormModal } from "./client-form";
+import { recurringByPeriod } from "./recurring";
 import { useClients, usePinClient } from "./clients.api";
 
 const TABS = [
@@ -341,6 +342,9 @@ function Initials({ name }: { name: string }) {
 }
 
 const PERIOD_SHORT: Record<string, string> = { month: "monthly", quarter: "quarterly", year: "yearly" };
+/** for the several-periods case, where the long words do not fit beside a figure */
+const PERIOD_TINY: Record<string, string> = { month: "mo", quarter: "qtr", year: "yr" };
+
 
 function ClientRow({
   client,
@@ -388,10 +392,7 @@ function ClientRow({
     ) : (
       <span className="text-muted">—</span>
     );
-  const activeSubs = client.subscriptions.filter((s) => s.active);
-  const subsTotal = activeSubs.reduce((sum, s) => sum + s.amount, 0);
-  const subsPeriods =
-    [...new Set(activeSubs.map((s) => PERIOD_SHORT[s.period]))].join(", ") || "—";
+  const recurring = recurringByPeriod(client, serviceById);
 
   return (
     <div
@@ -411,10 +412,26 @@ function ClientRow({
         <>
           {nameCell}
           <div className="truncate text-ink-700">{companies}</div>
+          {/* one period reads as a figure and a word; several stay separate, never added up */}
           <div className="tabular-nums">
-            {activeSubs.length > 0 ? fmtMoney(subsTotal) : "—"}
+            {recurring.length === 0 ? (
+              <span className="text-muted">—</span>
+            ) : recurring.length === 1 ? (
+              fmtMoney(recurring[0][1])
+            ) : (
+              <div className="flex flex-col leading-tight">
+                {recurring.map(([period, amount]) => (
+                  <span key={period} className="text-[12px]">
+                    {fmtMoney(amount)}
+                    <span className="text-muted">/{PERIOD_TINY[period]}</span>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
-          <div className="truncate text-muted">{subsPeriods}</div>
+          <div className="truncate text-muted">
+            {recurring.length === 1 ? PERIOD_SHORT[recurring[0][0]] : "—"}
+          </div>
           {category}
           <div className="text-right tabular-nums">{debt}</div>
         </>

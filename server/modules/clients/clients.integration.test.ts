@@ -930,6 +930,77 @@ describe("clients", () => {
     expect(invoices.json().items[0].clientArchived).toBe(true);
   });
 
+  // ── a one-time service has no billing period (2026-08-26) ─────────────────
+
+  describe("period belongs to a subscription, not to a job", () => {
+    let clientId: string;
+
+    beforeAll(async () => {
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/clients",
+        headers: { cookie },
+        payload: { firstName: "Period", lastName: "Rules", companies: [], people: [] },
+      });
+      clientId = created.json().id;
+    });
+
+    afterAll(async () => {
+      await prisma.subscription.deleteMany({ where: { clientId } });
+      await prisma.client.deleteMany({ where: { id: clientId } });
+      await prisma.service.deleteMany({ where: { name: { startsWith: "PeriodRule" } } });
+    });
+
+    const addService = async (type: "one_time" | "subscription", period?: string) => {
+      const service = await prisma.service.create({
+        data: { name: `PeriodRule ${type} ${period ?? "none"}`, color: "#1f8f3a", type },
+      });
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/clients/${clientId}/subscriptions`,
+        headers: { cookie },
+        payload: { serviceId: service.id, amount: 50_000, ...(period ? { period } : {}) },
+      });
+      expect(res.statusCode).toBe(201);
+      return res.json().subscriptions.find(
+        (x: { serviceId: string }) => x.serviceId === service.id,
+      );
+    };
+
+    it("stores NO period for a one-time service, even when one is sent", async () => {
+      // the caller may send anything; the server derives this from the service's type, because a
+      // placeholder that means nothing is one some screen will eventually believe
+      const sub = await addService("one_time", "quarter");
+      expect(sub.period).toBeNull();
+      const row = await prisma.subscription.findUniqueOrThrow({ where: { id: sub.id } });
+      expect(row.period).toBeNull();
+    });
+
+    it("keeps the period a subscription service was given", async () => {
+      const sub = await addService("subscription", "quarter");
+      expect(sub.period).toBe("quarter");
+    });
+
+    it("defaults a subscription service to monthly when none is asked for", async () => {
+      const sub = await addService("subscription");
+      expect(sub.period).toBe("month");
+    });
+
+    it("the client's auto-added default service carries no period either", async () => {
+      const fresh = await app.inject({
+        method: "POST",
+        url: "/api/clients",
+        headers: { cookie },
+        payload: { firstName: "Auto", lastName: "Default", companies: [], people: [] },
+      });
+      const subs = fresh.json().subscriptions as { period: string | null }[];
+      // there may be no catalog default in this suite; when there is, it is one-time by definition
+      for (const s of subs) expect(s.period).toBeNull();
+      await prisma.subscription.deleteMany({ where: { clientId: fresh.json().id } });
+      await prisma.client.deleteMany({ where: { id: fresh.json().id } });
+    });
+  });
+
   // ── list order: sort + the reader's own pins (2026-08-26) ──────────────────
 
   describe("ordering the clients list", () => {

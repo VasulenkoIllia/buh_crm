@@ -290,6 +290,7 @@ model FirmProfile {
    * /**
    * /**
    * /**
+   * /**
    * /** CAN-SPAM: the firm's physical address. One firm, one legal address — never per mailbox.
    */
   postalAddress  String?
@@ -380,6 +381,7 @@ model MailSenderAccount {
    * /**
    * /**
    * /**
+   * /**
    * /** null = this mailbox is not read for bounces
    */
   imapHost       String?
@@ -400,6 +402,7 @@ model MailSenderAccount {
   // Never `\Seen`, never a moved message: this mailbox belongs to a person, and flagging their
   // mail to track our own progress would hide a bounce from them — or theirs from us.
   /**
+   * /**
    * /**
    * /**
    * /** the mailbox's UIDVALIDITY when last read; a change means the UIDs were reissued
@@ -654,8 +657,15 @@ model Subscription {
   clientId        String          @db.Uuid
   companyId       String?         @db.Uuid
   serviceId       String          @db.Uuid
-  amount          Int // minor units, per period
-  period          BillingPeriod
+  amount          Int // minor units, per period for a subscription; per JOB for a one-time service
+  /// NULL for a one-time service, which has no period at all (2026-08-26).
+  ///
+  /// It used to store `month` there with a comment saying the value was unused — and the clients
+  /// list picked it up and printed "monthly" beside a total that had one-time job prices added
+  /// into it. A field that means nothing is one any reader may believe; the only fix that holds is
+  /// for it not to exist. The service layer derives this from the service's type and never trusts
+  /// a caller with it.
+  period          BillingPeriod?
   // per-client billing timing; null = inherit the service preset (legacy rows)
   invoiceTrigger  InvoiceTrigger?
   invoiceDay      Int?

@@ -399,7 +399,7 @@ export async function applyDefaultClientService(clientId: string) {
       serviceId: svc.id,
       companyId: null,
       amount: svc.defaultAmount ?? 0,
-      period: "month", // stored but unused for one-time
+      period: null, // a one-time service has no period at all
       invoiceTrigger: null,
       invoiceDay: null,
       dueDays: null,
@@ -466,6 +466,18 @@ export async function updateClient(id: string, input: UpdateClientInput) {
 
 // ── subscriptions & categories (S3) ─────────────────────────────────────────
 
+/**
+ * A billing period belongs to a SUBSCRIPTION. A one-time service bills per job and has none, so it
+ * stores none — derived here rather than taken from the caller, because a placeholder that means
+ * nothing is one some reader will eventually believe (see `Subscription.period`).
+ */
+function periodFor(
+  serviceType: "subscription" | "one_time" | "internal",
+  requested: "month" | "quarter" | "year" | undefined,
+): "month" | "quarter" | "year" | null {
+  return serviceType === "one_time" ? null : (requested ?? "month");
+}
+
 export async function addSubscription(clientId: string, input: CreateSubscriptionInput) {
   await getClient(clientId);
   const service = await repo.findServiceById(input.serviceId);
@@ -496,7 +508,7 @@ export async function addSubscription(clientId: string, input: CreateSubscriptio
       serviceId: input.serviceId,
       companyId: input.companyId ?? null,
       amount: input.amount,
-      period: input.period,
+      period: periodFor(service.type, input.period),
       invoiceTrigger: input.invoiceTrigger ?? null,
       invoiceDay: input.invoiceDay ?? null,
       dueDays: input.dueDays ?? null,

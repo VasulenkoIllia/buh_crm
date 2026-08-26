@@ -133,6 +133,11 @@ function dueInvoices(sub: BillableSubscription, today: Day, issued: Set<string>)
   const dueDays = sub.dueDays ?? sub.service.dueDays;
   const from = firstDayInForce(sub.periods);
   if (!from) return [];
+  // Only a SUBSCRIPTION service reaches here — `billableSubscription()` filters on the type — so a
+  // null period would mean that filter had changed underneath this function rather than that a
+  // one-time job needs billing. Returning nothing is the safe answer either way: a one-time job is
+  // invoiced when the job is done, never by the period sweep.
+  if (!sub.period) return [];
   const horizon = addDays(today, -AUTO_ISSUE_HORIZON_DAYS);
 
   return periodsInWindow(sub.period, from, today).flatMap((period): DuePeriod[] => {

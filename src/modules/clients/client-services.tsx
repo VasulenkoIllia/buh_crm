@@ -256,7 +256,8 @@ export function SubscriptionList({ client }: { client: Client }) {
               )}
               <span className="ml-auto tabular-nums">{fmtMoney(sub.amount)}</span>
               <span className="text-[12px] text-muted">
-                {service?.type === "one_time"
+                {/* a one-time service has no period at all — `sub.period` is null there */}
+                {sub.period === null
                   ? "per job" // container for manual jobs — period/billing don't apply
                   : `${PERIOD_LABEL[sub.period]} · ${timingLabel(effectiveTiming(sub, service))}`}
               </span>
@@ -701,7 +702,9 @@ function EditSubscriptionModal({
 }) {
   const update = useUpdateSubscription();
   const [amount, setAmount] = useState<number | null>(sub.amount);
-  const [period, setPeriod] = useState<BillingPeriod>(sub.period);
+  // one-time subscriptions carry no period; the control is hidden for them, and what it holds is
+  // never sent — the server derives the stored value from the service's type either way
+  const [period, setPeriod] = useState<BillingPeriod>(sub.period ?? "month");
   const [companyId, setCompanyId] = useState(sub.companyId ?? "");
   const [timing, setTiming] = useState<BillingTiming>(() => effectiveTiming(sub, service));
   const [dueDays, setDueDays] = useState<number | null>(
@@ -843,7 +846,9 @@ export function AddServiceModal({
         input: {
           serviceId,
           amount,
-          period: isOneTime ? "month" : period, // stored but unused for one-time
+          // omitted for a one-time service, which has no period; the server derives it from the
+          // service's type regardless of what is sent
+          period: isOneTime ? undefined : period,
           companyId: companyId || null,
           invoiceTrigger: isOneTime ? null : timing.trigger,
           invoiceDay: isOneTime ? null : timing.day,

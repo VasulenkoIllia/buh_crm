@@ -37,8 +37,10 @@ export const subscriptionSchema = z.object({
   clientId: uuid,
   companyId: uuid.nullable(),
   serviceId: uuid,
+  /** per period for a subscription; per JOB for a one-time service */
   amount: money,
-  period: billingPeriod,
+  /** null for a one-time service — it has no period at all. Never a placeholder. */
+  period: billingPeriod.nullable(),
   /** per-client billing timing; null = inherit the service preset */
   invoiceTrigger: invoiceTrigger.nullable(),
   invoiceDay: z.number().int().nullable(),
@@ -201,7 +203,12 @@ export const createSubscriptionInput = z
     serviceId: uuid,
     companyId: uuid.nullable().optional(),
     amount: money,
-    period: billingPeriod.default("month"),
+    /**
+     * Ignored for a one-time service, which has none — the server derives this from the service's
+     * type rather than trusting the caller, so no screen can store a period that means nothing.
+     * Omitted on a subscription service = monthly.
+     */
+    period: billingPeriod.optional(),
     /** first day of service; defaults to today. There is no end — see pause/resume below. */
     startsOn: z.iso.date().optional(),
     ...subscriptionBilling,

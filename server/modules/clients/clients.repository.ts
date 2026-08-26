@@ -404,7 +404,7 @@ export function createSubscription(
     serviceId: string;
     companyId: string | null;
     amount: number;
-    period: "month" | "quarter" | "year";
+    period: "month" | "quarter" | "year" | null; // null = one-time service, which has no period
     invoiceTrigger: "on_period_start" | "on_period_end" | null;
     invoiceDay: number | null;
     dueDays: number | null;
