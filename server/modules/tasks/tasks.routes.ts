@@ -9,6 +9,7 @@ import {
   createTaskCommentInput,
   createTaskInput,
   setSubtasksInput,
+  moveTaskInput,
   startTimerInput,
   stopTimerInput,
   taskListQuery,
@@ -108,6 +109,17 @@ export async function registerRoutes(instance: FastifyInstance) {
     "/:id",
     { preHandler: requireAuth, schema: { params: idParams, body: updateTaskInput } },
     async (request) => service.updateTask(request.params.id, request.body, request.currentUser!),
+  );
+
+  /**
+   * Dropping a card. Its own route rather than a field on the PATCH above: the body carries an
+   * ANCHOR ("place me after this card"), which describes a position on a board and not a property
+   * of the task.
+   */
+  app.patch(
+    "/:id/position",
+    { preHandler: requireAuth, schema: { params: idParams, body: moveTaskInput } },
+    async (request) => service.moveTask(request.params.id, request.body),
   );
 
   app.put(

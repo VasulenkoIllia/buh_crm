@@ -1618,4 +1618,131 @@ describe("tasks", () => {
     expect(removed.statusCode).toBe(200);
     expect(removed.json().trackedSeconds).toBe(1800);
   });
+
+  // ── dragging a card up and down inside its column (2026-08-26) ────────────
+
+  describe("board order", () => {
+    let columnId: string;
+    let ids: string[] = [];
+
+    const board = async (query = "") => {
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/tasks?view=board${query}`,
+        headers: { cookie: adminCookie },
+      });
+      expect(res.statusCode).toBe(200);
+      return (res.json().items as { id: string; statusColumnId: string; title: string }[])
+        .filter((t) => t.statusColumnId === columnId)
+        .map((t) => t.title);
+    };
+
+    const move = (id: string, afterTaskId: string | null, into = columnId) =>
+      app.inject({
+        method: "PATCH",
+        url: `/api/tasks/${id}/position`,
+        headers: { cookie: adminCookie },
+        payload: { statusColumnId: into, afterTaskId },
+      });
+
+    beforeAll(async () => {
+      const col = await app.inject({
+        method: "POST",
+        url: "/api/tasks/columns",
+        headers: { cookie: adminCookie },
+        payload: { name: "Ordering" },
+      });
+      columnId = col.json().id;
+      ids = [];
+      // created A, B, C — each lands on TOP, so the board reads C, B, A
+      for (const title of ["A", "B", "C"]) {
+        const res = await app.inject({
+          method: "POST",
+          url: "/api/tasks",
+          headers: { cookie: adminCookie },
+          payload: { title, statusColumnId: columnId, assignees: [adminId] },
+        });
+        expect(res.statusCode).toBe(201);
+        ids.push(res.json().id);
+      }
+    });
+
+    afterAll(async () => {
+      await prisma.taskAssignee.deleteMany({ where: { taskId: { in: ids } } });
+      await prisma.task.deleteMany({ where: { statusColumnId: columnId } });
+      await prisma.taskColumn.deleteMany({ where: { id: columnId } });
+    });
+
+    const [A, B, C] = [0, 1, 2];
+
+    it("new work lands on top, which is where the old ordering put it", async () => {
+      expect(await board()).toEqual(["C", "B", "A"]);
+    });
+
+    it("moves a card DOWN inside its column", async () => {
+      // C, B, A → put C after B
+      expect((await move(ids[C], ids[B])).statusCode).toBe(200);
+      expect(await board()).toEqual(["B", "C", "A"]);
+    });
+
+    it("moves a card UP inside its column", async () => {
+      // B, C, A → put A after B
+      expect((await move(ids[A], ids[B])).statusCode).toBe(200);
+      expect(await board()).toEqual(["B", "A", "C"]);
+    });
+
+    it("a null anchor means the very top", async () => {
+      expect((await move(ids[C], null)).statusCode).toBe(200);
+      expect(await board()).toEqual(["C", "B", "A"]);
+    });
+
+    it("refuses to drop a card after itself", async () => {
+      const res = await move(ids[C], ids[C]);
+      expect(res.statusCode).toBe(400);
+    });
+
+    it("keeps the order when the card comes from ANOTHER column", async () => {
+      const other = await app.inject({
+        method: "POST",
+        url: "/api/tasks/columns",
+        headers: { cookie: adminCookie },
+        payload: { name: "Elsewhere" },
+      });
+      const otherId = other.json().id;
+      const made = await app.inject({
+        method: "POST",
+        url: "/api/tasks",
+        headers: { cookie: adminCookie },
+        payload: { title: "D", statusColumnId: otherId, assignees: [adminId] },
+      });
+      const d = made.json().id;
+      ids.push(d);
+
+      // C, B, A  →  drop D between C and B
+      expect((await move(d, ids[C])).statusCode).toBe(200);
+      expect(await board()).toEqual(["C", "D", "B", "A"]);
+
+      await prisma.taskAssignee.deleteMany({ where: { taskId: d } });
+      await prisma.task.deleteMany({ where: { id: d } });
+      await prisma.taskColumn.deleteMany({ where: { id: otherId } });
+    });
+
+    it("a move on a FILTERED board leaves the hidden cards where they were", async () => {
+      // This is the case a naive "renumber what you can see" implementation gets wrong. B is
+      // reassigned to the other user, so an assignee-filtered board shows only C and A — and
+      // dragging A above C there must not move B out of the middle of the real column.
+      await prisma.taskAssignee.deleteMany({ where: { taskId: ids[B] } });
+      await prisma.taskAssignee.create({ data: { taskId: ids[B], userId: userId } });
+
+      const filtered = await board(`&assigneeId=${adminId}`);
+      expect(filtered).toEqual(["C", "A"]); // B is hidden
+
+      // on that filtered board, drag A to the top — the anchor is "nothing above me"
+      expect((await move(ids[A], null)).statusCode).toBe(200);
+
+      expect(await board(`&assigneeId=${adminId}`)).toEqual(["A", "C"]);
+      // and the full board still holds B between them, exactly where it was
+      expect(await board()).toEqual(["A", "C", "B"]);
+    });
+  });
 });

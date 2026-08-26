@@ -1,4 +1,5 @@
 import type {
+  MoveTaskInput,
   AddTimeEntryInput,
   BulkArchiveTasksInput,
   CreateColumnInput,
@@ -317,6 +318,26 @@ async function resolvePriorityColumn(priorityId?: string, statusColumnId?: strin
  *  - Neither → internal free task (e.g. a standup).
  * kind, serviceId and companyId are DERIVED here — the client never sends them.
  */
+/**
+ * Drag a card: to another column, or up and down inside its own.
+ *
+ * Its own action rather than a field on the task PATCH, because moving a card is not editing the
+ * work — it carries an ANCHOR ("after this card") that has no place on the task itself, and the
+ * board fires it on every drop.
+ */
+export async function moveTask(taskId: string, input: MoveTaskInput) {
+  const task = await repo.findTask(taskId);
+  if (!task || task.archivedAt) throw new NotFoundError("Task not found");
+  const column = await repo.findColumn(input.statusColumnId);
+  if (!column) throw new ValidationError("Unknown column");
+  if (input.afterTaskId === taskId) {
+    throw new ValidationError("A task cannot be dropped after itself");
+  }
+  await repo.moveTaskInBoard(taskId, input.statusColumnId, input.afterTaskId);
+  const moved = await repo.findTask(taskId);
+  return toTaskDto(moved!, todayBusinessMs(config.TZ));
+}
+
 export async function createTask(input: CreateTaskInput, actor: User) {
   await assertAssignable(input.assignees);
   const { priorityId, columnId } = await resolvePriorityColumn(input.priorityId, input.statusColumnId);
@@ -383,6 +404,8 @@ export async function createTask(input: CreateTaskInput, actor: User) {
     kind,
     priorityId,
     statusColumnId: columnId,
+    // new work lands on TOP of its column, which is where `createdAt desc` used to put it
+    boardOrder: await repo.topOfColumn(columnId),
     deadline: input.deadline ? dateToUtc(input.deadline) : null,
     plannedMinutes: input.plannedMinutes ?? null,
     amount,

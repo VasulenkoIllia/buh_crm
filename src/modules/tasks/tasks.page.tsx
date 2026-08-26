@@ -3,12 +3,19 @@ import { useSearchParams } from "react-router-dom";
 import {
   DndContext,
   PointerSensor,
-  useDraggable,
+  closestCenter,
   useDroppable,
   useSensor,
   useSensors,
   type DragEndEvent,
 } from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import type { Task, TaskColumn } from "@shared/schema/task";
 import { useAuth } from "@/app/auth";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
@@ -37,7 +44,7 @@ import {
   useTaskColumns,
   useTasks,
   useUpdateColumn,
-  useUpdateTask,
+  useMoveTask,
   type AssigneeInfo,
 } from "./tasks.api";
 
@@ -410,7 +417,7 @@ function Board({
   onAddInColumn: (columnId: string) => void;
 }) {
   const { user } = useAuth();
-  const update = useUpdateTask(); // moving a card is just a task PATCH
+  const move = useMoveTask(); // dropping a card is its own action — it carries a position
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   const byColumn = useMemo(() => {
@@ -419,16 +426,47 @@ function Board({
     return map;
   }, [columns, tasks]);
 
+  /**
+   * Where the card was dropped, as a NEIGHBOUR rather than an index.
+   *
+   * `over` is a card when the pointer is on one and the column when it is on the empty space
+   * below, which is why both are droppable. The new arrangement is worked out here on the ids the
+   * reader can actually see, and only the resulting anchor is sent — the server re-numbers the
+   * whole column against it, so cards a filter is hiding keep their places.
+   */
   const onDragEnd = (event: DragEndEvent) => {
     const taskId = String(event.active.id);
-    const columnId = event.over?.id as string | undefined;
+    const overId = event.over ? String(event.over.id) : null;
     const task = tasks.find((t) => t.id === taskId);
-    if (!columnId || !task || task.statusColumnId === columnId) return;
-    update.mutate({ id: taskId, input: { statusColumnId: columnId } });
+    if (!overId || !task) return;
+
+    const overTask = tasks.find((t) => t.id === overId);
+    const columnId = overTask ? overTask.statusColumnId : overId;
+    if (!columns.some((c) => c.id === columnId)) return;
+
+    const ids = (byColumn.get(columnId) ?? []).map((t) => t.id);
+    const sameColumn = task.statusColumnId === columnId;
+    const ordered = sameColumn
+      ? arrayMove(ids, ids.indexOf(taskId), ids.indexOf(overId))
+      : // dropped ON a card → take its place; on the column's empty space → the end
+        (() => {
+          const at = overTask ? ids.indexOf(overId) : ids.length;
+          return [...ids.slice(0, at), taskId, ...ids.slice(at)];
+        })();
+
+    const at = ordered.indexOf(taskId);
+    const afterTaskId = at === 0 ? null : (ordered[at - 1] ?? null);
+
+    // dropped back where it started — a drag that changes nothing must not write anything
+    if (sameColumn) {
+      const wasAt = ids.indexOf(taskId);
+      if ((wasAt === 0 ? null : ids[wasAt - 1]) === afterTaskId) return;
+    }
+    move.mutate({ id: taskId, input: { statusColumnId: columnId, afterTaskId } });
   };
 
   return (
-    <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
       <div className="flex flex-1 items-start gap-3 overflow-auto p-3.5">
         {columns.map((column) => (
           <BoardColumn
@@ -543,14 +581,19 @@ function BoardColumn({
           <span className="text-[16px] leading-none">+</span> New task
         </button>
       </div>
-      <div className="flex flex-col gap-2">
-        {tasks.map((task) => (
-          <BoardCard key={task.id} task={task} team={team} onOpen={() => onOpen(task)} />
-        ))}
-        {tasks.length === 0 && (
-          <p className="py-6 text-center text-[12px] text-[#9aa1ab]">No tasks here yet</p>
-        )}
-      </div>
+      {/* the column's cards, in the firm's own order — dragging one within this list is what
+          `SortableContext` makes possible; the column itself stays droppable so a card can be
+          dropped on the empty space below, and into a column that has none */}
+      <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+        <div className="flex min-h-[8px] flex-col gap-2">
+          {tasks.map((task) => (
+            <BoardCard key={task.id} task={task} team={team} onOpen={() => onOpen(task)} />
+          ))}
+          {tasks.length === 0 && (
+            <p className="py-6 text-center text-[12px] text-[#9aa1ab]">No tasks here yet</p>
+          )}
+        </div>
+      </SortableContext>
     </div>
   );
 }
@@ -622,7 +665,11 @@ function BoardCard({
   const { data: services } = useCatalog();
   const priority = usePriority(task.priorityId);
   const overdue = isOverdue(task);
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: task.id });
+  // sortable, not merely draggable: the card is also a DROP TARGET, which is what lets another
+  // card be placed above or below it rather than only somewhere in the column
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: task.id,
+  });
 
   const service = services?.find((s) => s.id === task.serviceId);
   const doneSubtasks = task.subtasks.filter((s) => s.done).length;
@@ -634,7 +681,10 @@ function BoardCard({
       {...listeners}
       onClick={() => !isDragging && onOpen()}
       style={{
-        ...(transform ? { transform: `translate(${transform.x}px, ${transform.y}px)` } : {}),
+        // CSS.Translate, not the raw transform: sortable also animates the cards that move ASIDE,
+        // and `transition` is what makes that readable instead of a jump
+        transform: CSS.Translate.toString(transform),
+        transition,
         ...(!overdue && priority ? { borderLeft: `3px solid ${priority.color}` } : {}),
       }}
       className={cn(

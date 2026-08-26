@@ -291,6 +291,7 @@ model FirmProfile {
    * /**
    * /**
    * /**
+   * /**
    * /** CAN-SPAM: the firm's physical address. One firm, one legal address — never per mailbox.
    */
   postalAddress  String?
@@ -382,6 +383,7 @@ model MailSenderAccount {
    * /**
    * /**
    * /**
+   * /**
    * /** null = this mailbox is not read for bounces
    */
   imapHost       String?
@@ -402,6 +404,7 @@ model MailSenderAccount {
   // Never `\Seen`, never a moved message: this mailbox belongs to a person, and flagging their
   // mail to track our own progress would hide a bounce from them — or theirs from us.
   /**
+   * /**
    * /**
    * /**
    * /**
@@ -777,6 +780,16 @@ model Task {
   kind           TaskKind  @default(once)
   priorityId     String    @db.Uuid
   statusColumnId String    @db.Uuid
+  /// Where the card sits IN its column, ascending — the firm's own order, dragged by hand.
+  ///
+  /// Board order used to be `createdAt desc` and nothing else, so a card could not be moved up or
+  /// down (user, 2026-08-26). Shared, not per-user: a kanban column is a shared queue, and two
+  /// people seeing different orders would be arguing about different boards.
+  ///
+  /// Renumbered 0..n-1 across the WHOLE column on every move, which is what keeps a filtered board
+  /// honest: dropping a card below the one above it must not disturb the cards a filter is hiding.
+  /// New work takes `min - 1` so it lands on top, which is where the old ordering put it.
+  boardOrder     Int       @default(0)
   done           Boolean   @default(false)
   // when `done` was set — the Done view filters by it ("last 7 days") and S12 reports on it.
   // Cleared on reopen, so it always describes the CURRENT completion, not an old one.
@@ -836,6 +849,8 @@ model Task {
   @@index([deadline])
   @@index([archivedAt])
   @@index([cancelledAt])
+  // the board reads one column at a time, in order
+  @@index([statusColumnId, boardOrder])
 }
 
 model TaskAssignee {

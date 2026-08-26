@@ -40,6 +40,53 @@ export function listColumns() {
   return prisma.taskColumn.findMany({ orderBy: { order: "asc" } });
 }
 
+/**
+ * Put `taskId` in `columnId`, immediately after `afterTaskId` — or at the top when that is null.
+ *
+ * Renumbers the WHOLE column 0..n-1 rather than nudging one row, which is what makes the move
+ * correct on a FILTERED board: the anchor is a card the reader can see, but cards a filter is
+ * hiding keep their relative places instead of being renumbered out of the way. It is also why
+ * there is no gap arithmetic to exhaust and no drift to reconcile.
+ *
+ * One transaction: a half-applied order is a board nobody can trust.
+ */
+export async function moveTaskInBoard(
+  taskId: string,
+  columnId: string,
+  afterTaskId: string | null,
+) {
+  return prisma.$transaction(async (tx) => {
+    const inColumn = await tx.task.findMany({
+      where: { statusColumnId: columnId, id: { not: taskId } },
+      orderBy: [{ boardOrder: "asc" }, { createdAt: "desc" }],
+      select: { id: true },
+    });
+    const ids = inColumn.map((t) => t.id);
+
+    // an anchor that is not in this column (a stale board, a card moved by someone else) means the
+    // caller's picture is out of date — put the card on top rather than guess a position
+    const at = afterTaskId ? ids.indexOf(afterTaskId) : -1;
+    ids.splice(at + 1, 0, taskId);
+
+    await tx.task.update({
+      where: { id: taskId },
+      data: { statusColumnId: columnId },
+    });
+    for (const [order, id] of ids.entries()) {
+      await tx.task.update({ where: { id }, data: { boardOrder: order } });
+    }
+  });
+}
+
+/** New work lands on TOP of its column, which is where `createdAt desc` used to put it. */
+export async function topOfColumn(columnId: string): Promise<number> {
+  const first = await prisma.task.aggregate({
+    where: { statusColumnId: columnId },
+    _min: { boardOrder: true },
+  });
+  return (first._min.boardOrder ?? 0) - 1;
+}
+
 export function findColumn(id: string) {
   return prisma.taskColumn.findUnique({ where: { id } });
 }
@@ -166,7 +213,9 @@ export async function listTasks(args: {
     prisma.task.findMany({
       where: args.where,
       include: taskInclude,
-      orderBy: args.orderBy ?? [{ createdAt: "desc" }],
+      // the board's own hand-dragged order; `createdAt desc` breaks ties, which is what the whole
+      // board used to be sorted by and what the back-fill reproduced
+      orderBy: args.orderBy ?? [{ boardOrder: "asc" }, { createdAt: "desc" }],
       skip: args.skip,
       take: args.take,
     }),

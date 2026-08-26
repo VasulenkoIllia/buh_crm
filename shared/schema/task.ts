@@ -186,6 +186,19 @@ export const updateTaskInput = workflowFields.partial().extend({
 });
 export type UpdateTaskInput = z.infer<typeof updateTaskInput>;
 
+/**
+ * Where to drop a card: into `statusColumnId`, immediately after `afterTaskId`.
+ *
+ * An ANCHOR, not an index. An index would be read against whatever the dragger's board showed, and
+ * a filtered board shows a subset — so "position 3" means different things to two people looking
+ * at the same column. A neighbouring card means the same thing to everyone. `null` = the top.
+ */
+export const moveTaskInput = z.object({
+  statusColumnId: uuid,
+  afterTaskId: uuid.nullable(),
+});
+export type MoveTaskInput = z.infer<typeof moveTaskInput>;
+
 /** Full replace of the checklist (order = array index). */
 export const setSubtasksInput = z.object({
   subtasks: z

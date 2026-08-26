@@ -6,6 +6,7 @@ import type {
   Task,
   TaskColumn,
   UpdateColumnInput,
+  MoveTaskInput,
   UpdateTaskInput,
   UpdateTimeEntryInput,
 } from "@shared/schema/task";
@@ -191,6 +192,59 @@ export function useUpdateTask() {
     mutationFn: ({ id, input }: { id: string; input: UpdateTaskInput }) =>
       api<Task>(`/api/tasks/${id}`, { method: "PATCH", body: input }),
     onSuccess: invalidate,
+  });
+}
+
+/**
+ * Dropping a card — across columns or up and down inside one.
+ *
+ * Optimistic, and it has to be: without it the card springs back to where it was and only lands
+ * once the server answers, which reads as "the drag did not take". The board is rewritten in the
+ * cache exactly as the server will rewrite it, and any failure rolls the whole snapshot back.
+ */
+export function useMoveTask() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: MoveTaskInput }) =>
+      api<Task>(`/api/tasks/${id}/position`, { method: "PATCH", body: input }),
+
+    onMutate: async ({ id, input }) => {
+      await queryClient.cancelQueries({ queryKey: TASKS_KEY });
+
+      // ONLY the board's own caches: `["tasks","list",…]` also covers the table, which has its own
+      // sort, and the entity rollups, which have their own. Reordering those would be a lie that
+      // corrects itself a moment later — the worst kind of flicker.
+      const isBoard = (key: readonly unknown[]) =>
+        key[0] === "tasks" && key[1] === "list" && String(key[2] ?? "").includes("view=board");
+
+      const snapshot = queryClient.getQueriesData({ predicate: (q) => isBoard(q.queryKey) });
+      queryClient.setQueriesData<{ items: Task[] }>(
+        { predicate: (q) => isBoard(q.queryKey) },
+        (old) => {
+          if (!old?.items) return old;
+          const moving = old.items.find((t) => t.id === id);
+          if (!moving) return old;
+          // rebuild the target column in the order the server will store, then splice the board back
+          // together — the list is flat and its order IS the board's order
+          const rest = old.items.filter((t) => t.id !== id);
+          const target = rest.filter((t) => t.statusColumnId === input.statusColumnId);
+          const at = input.afterTaskId
+            ? target.findIndex((t) => t.id === input.afterTaskId)
+            : -1;
+          target.splice(at + 1, 0, { ...moving, statusColumnId: input.statusColumnId });
+          const others = rest.filter((t) => t.statusColumnId !== input.statusColumnId);
+          return { ...old, items: [...target, ...others] };
+        },
+      );
+      return { snapshot };
+    },
+
+    onError: (_err, _vars, context) => {
+      for (const [key, data] of context?.snapshot ?? []) queryClient.setQueryData(key, data);
+    },
+
+    // the server owns the numbering; settle on its answer either way
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: TASKS_KEY }),
   });
 }
 
