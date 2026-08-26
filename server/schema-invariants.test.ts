@@ -128,8 +128,23 @@ describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
       SELECT tablename FROM pg_tables WHERE schemaname = 'public'
     `;
 
-    /** Kept on purpose: the team stays signed in, and Prisma owns its own ledger. */
-    const KEPT = new Set(["User", "Session", "AuthToken", "_prisma_migrations"]);
+    /**
+     * Kept on purpose:
+     *   • User / Session / AuthToken — the team stays signed in.
+     *   • FirmProfile, MailSenderAccount — the firm's OWN configuration (requisites, invoice
+     *     counter, the mailbox it sends from). They are not client data, and rebuilding them by
+     *     hand after every reset lost real setup (user, 2026-08-26). The letters that WERE sent
+     *     from the mailbox are still wiped — see the DELETEs above them in the script.
+     *   • _prisma_migrations — Prisma owns its own ledger.
+     */
+    const KEPT = new Set([
+      "User",
+      "Session",
+      "AuthToken",
+      "FirmProfile",
+      "MailSenderAccount",
+      "_prisma_migrations",
+    ]);
 
     const missed = rows
       .map((r) => r.tablename)

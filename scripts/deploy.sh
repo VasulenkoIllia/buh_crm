@@ -71,20 +71,9 @@ if $RESET; then
   fi
   docker compose exec -T db psql -v ON_ERROR_STOP=1 -q -U "$PG_USER" -d "$PG_DB" < scripts/reset-data.sql
   echo "   database cleared"
-
-  # The rows are gone; drop the files they pointed at. The APP wrote those files, so they belong to
-  # the container's user and a host-side `rm` gets Permission denied — let the container delete its
-  # own. Never fatal: by this point the database is already empty, and aborting here would leave the
-  # server wiped but NOT deployed, which is the worst of both (hit on the live server, 2026-08-01).
-  if docker compose ps --services --filter status=running 2>/dev/null | grep -qx app; then
-    docker compose exec -T app sh -c 'rm -rf /app/uploads/* /app/uploads/.[!.]* 2>/dev/null || true'
-    echo "   uploads cleared"
-  elif rm -rf ./data/uploads/* 2>/dev/null; then
-    echo "   uploads cleared (from the host)"
-  else
-    echo "   ⚠ could not clear data/uploads — files are owned by the container user."
-    echo "     Run after the deploy:  docker compose exec -T app sh -c 'rm -rf /app/uploads/*'"
-  fi
+  # The files the deleted rows pointed at are pruned AFTER the rebuild — see step 5. Not here:
+  # the reset keeps the team's avatars and the firm's logos now, so the old blanket
+  # `rm -rf /app/uploads/*` would delete the bytes those surviving rows point at.
 fi
 
 # ── 3. deploy ────────────────────────────────────────────────────────────────
@@ -111,6 +100,7 @@ say "Row counts"
 docker compose exec -T db psql -U "$PG_USER" -d "$PG_DB" -c \
   'select (select count(*) from "User") users, (select count(*) from "Client") clients,
           (select count(*) from "Task") tasks, (select count(*) from "Invoice") invoices,
+          (select count(*) from "Service") services, (select count(*) from "SourceOption") sources,
           (select count(*) from "Priority") priorities, (select count(*) from "TaskColumn") columns;'
 
 # Mailouts (S10/S10.1). Worth its own line: `mailboxes 0` after a deploy means no letter can go
@@ -121,6 +111,19 @@ docker compose exec -T db psql -U "$PG_USER" -d "$PG_DB" -c \
           (select count(*) from "Campaign" where status = '"'"'scheduled'"'"') scheduled_campaigns,
           (select count(*) from "Mailout") mailouts,
           (select count(*) from "ClientMailPreference" where "unsubscribedAt" is not null) unsubscribed;'
+
+# ── 5. prune orphaned uploads (reset only) ───────────────────────────────────
+# After the rebuild, so the container is running the image that HAS the script. The APP wrote
+# those files, so they belong to the container's user and a host-side `rm` gets Permission denied
+# — let the container delete its own. Never fatal: the deploy has already succeeded by here, and
+# aborting would report failure for a server that is up and correct.
+if $RESET; then
+  say "Pruning uploads nothing references any more"
+  docker compose exec -T app npx tsx scripts/prune-uploads.ts || {
+    echo "   ⚠ prune failed — harmless, only stale bytes remain. Retry:"
+    echo "     docker compose exec -T app npx tsx scripts/prune-uploads.ts"
+  }
+fi
 
 say "Done — $(git log -1 --format='%h %s')"
 echo "   rollback, if needed:"

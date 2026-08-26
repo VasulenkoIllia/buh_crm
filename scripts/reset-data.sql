@@ -1,15 +1,24 @@
--- Wipe every domain record; keep the team, their sessions and their reset tokens.
+-- Wipe every CLIENT record; keep the team and the firm's own configuration.
+--
+-- What survives, and why:
+--   • User / Session / AuthToken  — the team stays signed in.
+--   • FirmProfile                 — the firm's requisites, postal address and invoice counter are
+--                                   settings, not client data. Recreating them by hand after every
+--                                   reset lost real setup (user, 2026-08-26).
+--   • MailSenderAccount           — the configured mailbox (From, signature, SMTP/IMAP) for the
+--                                   same reason. The letters it SENT still go.
+--   • the ONE default Service     — the one flagged `autoAddToNewClients`, which every new client
+--                                   is given on create. Without it a fresh client has no paid
+--                                   container at all. Every OTHER service goes.
+--   • avatar and logo files       — the File rows the kept rows point at. A kept FirmProfile whose
+--                                   logo had vanished is exactly the surprise this file avoids.
 --
 -- DELETE, not TRUNCATE: `TRUNCATE ... CASCADE` reaches through User.avatarFileId -> File and takes
--- the USERS with it. DELETE only ever touches the rows named here, and the two UPDATEs above the
--- list break the only links that point from kept rows into files.
+-- the USERS with it. DELETE only ever touches the rows named here.
 --
--- The base data at the bottom (priorities, columns, sources, firm profile) is recreated by
--- `ensureBaseData()` the next time the app boots — which is why this runs BEFORE the deploy.
+-- The base data at the bottom (priorities, columns, sources) is recreated by `ensureBaseData()`
+-- the next time the app boots — which is why this runs BEFORE the deploy.
 BEGIN;
-
-UPDATE "User" SET "avatarFileId" = NULL;
-UPDATE "FirmProfile" SET "logoFileId" = NULL;
 
 -- ── mailouts (S10/S10.1) ─────────────────────────────────────────────────────
 -- Before "Company", not after: MailoutRecipient.companyId is ON DELETE RESTRICT, so a company
@@ -17,9 +26,8 @@ UPDATE "FirmProfile" SET "logoFileId" = NULL;
 -- dump, leaving the server neither reset nor updated.
 --
 -- Campaign before EmailTemplate for the same reason (Campaign.templateId is RESTRICT).
--- MailSenderAccount goes too: it is firm configuration like the rest of the block at the bottom,
--- and `ensureDefaultMailbox()` recreates the .env one on the next boot. Its sealed SMTP password
--- would otherwise outlive the FirmProfile it belongs to.
+-- MailSenderAccount is NOT here (see the header): the mailbox is configuration, and the three
+-- tables that point at it — EmailTemplate, Mailout, Campaign — are all emptied just above it.
 DELETE FROM "MailoutRecipient";
 DELETE FROM "CampaignRecipient";
 DELETE FROM "CampaignDate";
@@ -30,7 +38,6 @@ DELETE FROM "DeadEmailAddress";
 DELETE FROM "Mailout";
 DELETE FROM "Campaign";
 DELETE FROM "EmailTemplate";
-DELETE FROM "MailSenderAccount";
 
 -- Children first, parents after.
 --
@@ -59,17 +66,28 @@ DELETE FROM "ClientPerson";
 DELETE FROM "SecretAuditLog";
 DELETE FROM "ClientSecret";
 DELETE FROM "Company";
-DELETE FROM "File";
+
+-- Every file EXCEPT the ones a kept row points at. Client documents go; the team's avatars and the
+-- firm's two logos stay, because the rows that own them stay. `scripts/prune-uploads.ts` deletes
+-- the bytes of everything dropped here — run it after the deploy, when the new image is up.
+DELETE FROM "File" f
+WHERE NOT EXISTS (SELECT 1 FROM "User" u WHERE u."avatarFileId" = f.id)
+  AND NOT EXISTS (SELECT 1 FROM "FirmProfile" p WHERE p."logoFileId" = f.id)
+  AND NOT EXISTS (SELECT 1 FROM "FirmProfile" p WHERE p."mailLogoFileId" = f.id);
+
 DELETE FROM "Client";
 DELETE FROM "Lead";
 DELETE FROM "Notification";
-DELETE FROM "TaskTemplate";
-DELETE FROM "Service";
 
--- base data — recreated on the next boot
+-- The catalog, minus the one service every new client is given. Templates first: TaskTemplate
+-- would CASCADE from the service anyway, but naming it keeps this file readable and keeps the
+-- invariant test's "every table is accounted for" check honest.
+DELETE FROM "TaskTemplate" WHERE "serviceId" NOT IN (SELECT id FROM "Service" WHERE "autoAddToNewClients");
+DELETE FROM "Service" WHERE NOT "autoAddToNewClients";
+
+-- base data — recreated on the next boot by ensureBaseData()
 DELETE FROM "TaskColumn";
 DELETE FROM "Priority";
 DELETE FROM "SourceOption";
-DELETE FROM "FirmProfile";
 
 COMMIT;
