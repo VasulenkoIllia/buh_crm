@@ -8,7 +8,7 @@ import type {
   PauseSubscriptionInput,
   ResumeSubscriptionInput,
 } from "@shared/schema/client.js";
-import { rhythmOverridesSchema } from "@shared/schema/catalog.js";
+import { billsPerJob, rhythmOverridesSchema } from "@shared/schema/catalog.js";
 import type { Prisma, User } from "../../generated/prisma/client.js";
 import { config } from "../../core/config.js";
 import { inForceOn, inForceTodayWhere, notEnded, type InForcePeriod } from "../../core/coverage.js";
@@ -472,10 +472,10 @@ export async function updateClient(id: string, input: UpdateClientInput) {
  * nothing is one some reader will eventually believe (see `Subscription.period`).
  */
 function periodFor(
-  serviceType: "subscription" | "one_time" | "internal",
+  service: { type: "subscription" | "one_time" | "internal" },
   requested: "month" | "quarter" | "year" | undefined,
 ): "month" | "quarter" | "year" | null {
-  return serviceType === "one_time" ? null : (requested ?? "month");
+  return billsPerJob(service) ? null : (requested ?? "month");
 }
 
 export async function addSubscription(clientId: string, input: CreateSubscriptionInput) {
@@ -508,7 +508,7 @@ export async function addSubscription(clientId: string, input: CreateSubscriptio
       serviceId: input.serviceId,
       companyId: input.companyId ?? null,
       amount: input.amount,
-      period: periodFor(service.type, input.period),
+      period: periodFor(service, input.period),
       invoiceTrigger: input.invoiceTrigger ?? null,
       invoiceDay: input.invoiceDay ?? null,
       dueDays: input.dueDays ?? null,
@@ -574,7 +574,13 @@ export async function updateSubscription(
     throw new ValidationError("A stopped service can't be the client's default");
   }
   const { isDefault, ...fields } = input;
-  await repo.updateSubscription(subscriptionId, fields);
+  // Derived here too, not only on create: `period` is an accepted PATCH field, so a one-time
+  // subscription could otherwise be handed one and store it again — re-creating by the back door
+  // exactly the placeholder migration 20260826200000 removed.
+  await repo.updateSubscription(subscriptionId, {
+    ...fields,
+    ...(fields.period !== undefined ? { period: periodFor(sub.service, fields.period) } : {}),
+  });
   // moving the flag clears the previous holder in the same transaction (one default per client)
   if (isDefault === true) {
     await repo.setDefaultSubscription(clientId, subscriptionId);

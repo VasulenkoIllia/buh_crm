@@ -512,8 +512,12 @@ export function deletePeriod(id: string) {
   return prisma.subscriptionPeriod.delete({ where: { id } });
 }
 
+/** The service's type rides along: the update path derives `period` from it (see `periodFor`). */
 export function findSubscription(clientId: string, id: string) {
-  return prisma.subscription.findFirst({ where: { id, clientId } });
+  return prisma.subscription.findFirst({
+    where: { id, clientId },
+    include: { service: { select: { type: true } } },
+  });
 }
 
 export function updateSubscription(id: string, data: Prisma.SubscriptionUncheckedUpdateInput) {

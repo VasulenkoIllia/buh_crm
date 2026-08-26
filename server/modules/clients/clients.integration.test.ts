@@ -976,6 +976,37 @@ describe("clients", () => {
       expect(row.period).toBeNull();
     });
 
+    it("refuses to take a period back through a PATCH", async () => {
+      // the create path was guarded first and the update path was not, which would have let the
+      // placeholder in by the back door on any edit of a one-time subscription
+      const sub = await addService("one_time");
+      expect(sub.period).toBeNull();
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/api/clients/${clientId}/subscriptions/${sub.id}`,
+        headers: { cookie },
+        payload: { period: "year", amount: 60_000 },
+      });
+      expect(res.statusCode).toBe(200);
+
+      const row = await prisma.subscription.findUniqueOrThrow({ where: { id: sub.id } });
+      expect(row.period).toBeNull();
+      expect(row.amount).toBe(60_000); // the rest of the patch still applied
+    });
+
+    it("lets a subscription service change its period through a PATCH", async () => {
+      const sub = await addService("subscription", "month");
+      await app.inject({
+        method: "PATCH",
+        url: `/api/clients/${clientId}/subscriptions/${sub.id}`,
+        headers: { cookie },
+        payload: { period: "year" },
+      });
+      const row = await prisma.subscription.findUniqueOrThrow({ where: { id: sub.id } });
+      expect(row.period).toBe("year");
+    });
+
     it("keeps the period a subscription service was given", async () => {
       const sub = await addService("subscription", "quarter");
       expect(sub.period).toBe("quarter");

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Pencil, RotateCcw, Star } from "lucide-react";
 import type { Client, Subscription } from "@shared/schema/client";
-import { isClientFacing } from "@shared/schema/catalog";
+import { isClientFacing, billsPerJob} from "@shared/schema/catalog";
 import type { Service, TaskOverride, TaskTemplate } from "@shared/schema/catalog";
 import type { BillingPeriod } from "@shared/schema/enums";
 import {
@@ -542,7 +542,7 @@ function SubscriptionTasks({
           template={editing}
           effective={effectiveTask(editing, overrides[editing.id])}
           override={overrides[editing.id]}
-          oneTime={service.type === "one_time"}
+          oneTime={billsPerJob(service)}
           onApply={(value) => setOverride(editing.id, value)}
           onClose={() => setEditing(undefined)}
         />
@@ -710,7 +710,7 @@ function EditSubscriptionModal({
   const [dueDays, setDueDays] = useState<number | null>(
     sub.dueDays ?? service?.dueDays ?? null,
   );
-  const isOneTime = service?.type === "one_time";
+  const isOneTime = service ? billsPerJob(service) : false;
 
   const save = async () => {
     if (amount == null) return;
@@ -828,7 +828,7 @@ export function AddServiceModal({
   const active = (services ?? []).filter((s) => s.active && isClientFacing(s));
   const selected = active.find((s) => s.id === serviceId);
   // one-time service = container for manual jobs: no billing period, bills per job
-  const isOneTime = selected?.type === "one_time";
+  const isOneTime = selected ? billsPerJob(selected) : false;
 
   const pick = (id: string) => {
     setServiceId(id);

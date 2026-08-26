@@ -42,6 +42,14 @@ export type Service = z.infer<typeof serviceSchema>;
  *  excluded from every client/lead service picker. Keep this the single source of that rule. */
 export const isClientFacing = (s: { type: z.infer<typeof serviceType> }) => s.type !== "internal";
 
+/**
+ * A one-time service is a CONTAINER for manual jobs: its `defaultAmount` is a price per job, and it
+ * has no billing period at all (`Subscription.period` is NULL for it). Keep this the single source
+ * of that rule — it was spelled out separately in the service layer, the client card and the
+ * clients list, and the list's copy was the one that got it wrong (2026-08-26).
+ */
+export const billsPerJob = (s: { type: z.infer<typeof serviceType> }) => s.type === "one_time";
+
 // ── DTOs ─────────────────────────────────────────────────────────────────────
 
 /**

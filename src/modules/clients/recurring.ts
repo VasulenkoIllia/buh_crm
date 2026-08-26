@@ -1,5 +1,5 @@
 import type { Client } from "@shared/schema/client";
-import type { Service } from "@shared/schema/catalog";
+import { billsPerJob, type Service } from "@shared/schema/catalog";
 
 /**
  * What the firm bills a client EVERY PERIOD, kept apart by period.
@@ -28,7 +28,8 @@ export function recurringByPeriod(
     // `period === null` already means one-time, but the service's type is the rule the rest of the
     // app derives from — checking both means neither alone can quietly let a job price through
     if (!sub.active || sub.period === null) continue;
-    if (serviceById.get(sub.serviceId)?.type !== "subscription") continue;
+    const service = serviceById.get(sub.serviceId);
+    if (!service || billsPerJob(service)) continue;
     totals.set(sub.period, (totals.get(sub.period) ?? 0) + sub.amount);
   }
   return [...totals.entries()].sort(
