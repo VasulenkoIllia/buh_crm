@@ -18,7 +18,7 @@ Specs, design and the dev plan are kept in internal docs, not in this repository
 | **Tasks** | board and table, generation on a rhythm, a timer, one-time billable jobs |
 | **Payments** | invoices with positions, partial payments, debt, an audited change log |
 | **Calendar** | meetings and deadlines on one firm clock |
-| **Mailouts** | letter templates, one-off sends, campaigns on a date or a rhythm, unsubscribe |
+| **Mailouts** | letter templates, one-off sends, campaigns on a date or a rhythm, unsubscribe, delivery tracking — every mailbox is read back for bounces, so the log says delivered or not rather than merely sent |
 | **Secrets** | a client's credentials, encrypted, behind a password prompt and an access log |
 | **Archive** | closed work and settled invoices tidied away — never deleted |
 
