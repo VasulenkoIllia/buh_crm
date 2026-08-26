@@ -13,3 +13,6 @@ export { generatePeriodInvoices, generateForSubscriptionInvoices } from "./payme
 
 // debt rollup (used by the clients module)
 export { debtByClient } from "./payments.service.js";
+
+// the client card's Invoices tab badge
+export { countOwedInvoicesForClient } from "./payments.repository.js";

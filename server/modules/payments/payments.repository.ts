@@ -53,6 +53,19 @@ export function countInvoices(where: Prisma.InvoiceWhereInput) {
   return prisma.invoice.count({ where });
 }
 
+/**
+ * Unsettled invoices on one client — the number on the card's Invoices tab.
+ *
+ * `OWED` is the same predicate Billing's chips and the debt rollup use, so the badge cannot
+ * disagree with the money shown elsewhere. Voided and tidied invoices are out: neither is
+ * something anyone still has to chase.
+ */
+export function countOwedInvoicesForClient(clientId: string) {
+  return prisma.invoice.count({
+    where: { clientId, cancelledAt: null, tidiedAt: null, ...OWED },
+  });
+}
+
 export function findInvoice(id: string) {
   return prisma.invoice.findUnique({ where: { id }, include: invoiceInclude });
 }

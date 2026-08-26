@@ -109,6 +109,18 @@ export function liveTargetWhere(): Prisma.TaskWhereInput {
 }
 
 /**
+ * Open work on one client — the number on the client card's Tasks tab.
+ *
+ * "Open" is the board's own rule, not a second one: not done, not cancelled, not archived. A badge
+ * that counted differently from the tab it sits on would be worse than no badge.
+ */
+export function countOpenTasksForClient(clientId: string) {
+  return prisma.task.count({
+    where: { clientId, archivedAt: null, cancelledAt: null, done: false },
+  });
+}
+
+/**
  * Open work whose deadline day falls inside `[from, to)` — what the Calendar projects.
  *
  * It lives here rather than in the calendar module because "which tasks are visible" is a rule

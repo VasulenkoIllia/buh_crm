@@ -19,22 +19,107 @@ const clientInclude = {
 
 export type ClientRecord = Prisma.ClientGetPayload<{ include: typeof clientInclude }>;
 
+/** Row order within a block. `recent` is what the screen has always done, so it stays the default. */
+export type ClientSort = "recent" | "updated" | "name";
+
+const ORDER_BY: Record<ClientSort, Prisma.ClientOrderByWithRelationInput[]> = {
+  recent: [{ createdAt: "desc" }],
+  updated: [{ updatedAt: "desc" }],
+  // lastName second so two Olenas sort by surname; nulls last is Postgres' default for ASC
+  name: [{ firstName: "asc" }, { lastName: "asc" }],
+};
+
+/**
+ * One page of clients, with the reader's PINNED ones leading the whole sequence.
+ *
+ * Two queries rather than one because the ordering cannot be expressed in a single `orderBy`:
+ * "is this pinned" is a fact about the CURRENT USER, and Prisma's relation ordering counts every
+ * user's pins. Sorting in memory was the other option and is wrong at 177 clients — it would mean
+ * reading the whole book to render 25 rows.
+ *
+ * So the sequence is built as two blocks, [pinned] ++ [rest], and the requested window is sliced
+ * across the join. `total` counts the filtered set once and is unaffected: pinning reorders the
+ * list, it never adds or hides a row.
+ */
 export async function listClients(args: {
   where: Prisma.ClientWhereInput;
+  pinnedIds: string[];
+  sort: ClientSort;
   skip: number;
   take: number;
 }) {
-  const [items, total] = await prisma.$transaction([
-    prisma.client.findMany({
+  const orderBy = ORDER_BY[args.sort];
+  const total = await prisma.client.count({ where: args.where });
+
+  if (args.pinnedIds.length === 0) {
+    const items = await prisma.client.findMany({
       where: args.where,
       include: clientInclude,
-      orderBy: { createdAt: "desc" },
+      orderBy,
       skip: args.skip,
       take: args.take,
-    }),
-    prisma.client.count({ where: args.where }),
-  ]);
-  return { items, total };
+    });
+    return { items, total };
+  }
+
+  const pinnedWhere: Prisma.ClientWhereInput = {
+    AND: [args.where, { id: { in: args.pinnedIds } }],
+  };
+  const restWhere: Prisma.ClientWhereInput = {
+    AND: [args.where, { id: { notIn: args.pinnedIds } }],
+  };
+
+  // how many pins survive the filters — a pinned client the service filter excludes is not shown
+  const pinnedTotal = await prisma.client.count({ where: pinnedWhere });
+
+  const fromPinned = Math.max(0, Math.min(args.take, pinnedTotal - args.skip));
+  const pinned =
+    fromPinned > 0
+      ? await prisma.client.findMany({
+          where: pinnedWhere,
+          include: clientInclude,
+          orderBy,
+          skip: args.skip,
+          take: fromPinned,
+        })
+      : [];
+
+  const restTake = args.take - pinned.length;
+  const rest =
+    restTake > 0
+      ? await prisma.client.findMany({
+          where: restWhere,
+          include: clientInclude,
+          orderBy,
+          // once the pinned block is behind us, the offset into the rest is what is left over
+          skip: Math.max(0, args.skip - pinnedTotal),
+          take: restTake,
+        })
+      : [];
+
+  return { items: [...pinned, ...rest], total };
+}
+
+/** The client ids this user keeps at the top of their list. */
+export async function listPinnedClientIds(userId: string) {
+  const rows = await prisma.clientPin.findMany({
+    where: { userId },
+    select: { clientId: true },
+  });
+  return rows.map((r) => r.clientId);
+}
+
+/** Idempotent on purpose: pinning something already pinned is not an error, it is a no-op. */
+export async function pinClient(userId: string, clientId: string) {
+  await prisma.clientPin.upsert({
+    where: { userId_clientId: { userId, clientId } },
+    update: {},
+    create: { userId, clientId },
+  });
+}
+
+export async function unpinClient(userId: string, clientId: string) {
+  await prisma.clientPin.deleteMany({ where: { userId, clientId } });
 }
 
 /**
@@ -406,6 +491,12 @@ export function updateSubscription(id: string, data: Prisma.SubscriptionUnchecke
 export function listClientFiles(clientId: string) {
   return prisma.file.findMany({ where: { clientId }, orderBy: { createdAt: "desc" } });
 }
+
+/** How many files the client's Files tab holds — the badge on that tab. */
+export function countClientFiles(clientId: string) {
+  return prisma.file.count({ where: { clientId } });
+}
+
 
 export function createClientFile(data: {
   clientId: string;

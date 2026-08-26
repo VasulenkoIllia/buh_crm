@@ -83,6 +83,28 @@ export const clientSchema = z.object({
   people: z.array(clientPersonSchema),
   /** derived in Payments (S7); 0 until invoices exist */
   debt: money,
+  /**
+   * THIS reader keeps them at the top of their own list — never a firm-wide flag.
+   * Authoritative on the list and the single-client read; a mutation response does not know who
+   * asked and reports `false`, so refetch rather than reading it from one.
+   */
+  pinned: z.boolean(),
+  /**
+   * How much is still LIVE behind each of the card's tabs — open tasks, meetings still to come,
+   * unsettled invoices, files held. Optional because only the single-client read computes it: the
+   * list would pay for four aggregates per page to show a number no row displays.
+   *
+   * Each count is the owning module's own rule, imported from it rather than restated here, so a
+   * badge can never disagree with the tab it sits on.
+   */
+  counts: z
+    .object({
+      tasks: z.number().int(),
+      meetings: z.number().int(),
+      invoices: z.number().int(),
+      files: z.number().int(),
+    })
+    .optional(),
   createdAt: z.iso.datetime(),
   archivedAt: z.iso.datetime().nullable(),
 });
@@ -245,7 +267,16 @@ export const clientListQuery = z.object({
    * or the two disagree about who has what (see `inForceTodayWhere`).
    */
   serviceId: uuid.optional(),
+  /**
+   * Row order WITHIN each block — pinned clients always lead, whatever this says.
+   *
+   * `recent` (newest first) is the default because it is what the screen has always done; naming
+   * it rather than leaving it implicit is what lets the other two exist. `updated` answers "what
+   * did we touch last", which is the question a 177-client book actually gets asked.
+   */
+  sort: z.enum(["recent", "updated", "name"]).default("recent"),
   page: z.coerce.number().int().min(1).default(1),
+  /** 100 is the ceiling everywhere in the app; the clients screen lets the reader pick */
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
 });
 export type ClientListQuery = z.infer<typeof clientListQuery>;

@@ -15,4 +15,4 @@ export {
 // used by the meetings module (S8): opening a task from a meeting goes through the SAME
 // createTask as a hand-made one, so a meeting's task bills and validates identically
 export { createTask } from "./tasks.service.js";
-export { listDeadlinesInRange } from "./tasks.repository.js";
+export { listDeadlinesInRange, countOpenTasksForClient } from "./tasks.repository.js";

@@ -7,3 +7,6 @@ export async function meetingsModule(app: FastifyInstance) {
 
 // the client card's and lead card's "Meetings" rollups
 export { listFor as listMeetingsFor } from "./meetings.service.js";
+
+// the client card's Meetings tab badge
+export { countUpcomingMeetingsForClient } from "./meetings.repository.js";

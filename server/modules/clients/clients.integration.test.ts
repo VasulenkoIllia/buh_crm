@@ -54,6 +54,7 @@ beforeAll(async () => {
   await prisma.subscription.deleteMany();
   await prisma.lead.deleteMany();
   await prisma.file.deleteMany();
+  await prisma.clientPin.deleteMany();
   await prisma.clientPerson.deleteMany();
   await prisma.company.deleteMany();
   await prisma.client.deleteMany();
@@ -927,5 +928,329 @@ describe("clients", () => {
     });
     expect(invoices.json().items).toHaveLength(1);
     expect(invoices.json().items[0].clientArchived).toBe(true);
+  });
+
+  // ── list order: sort + the reader's own pins (2026-08-26) ──────────────────
+
+  describe("ordering the clients list", () => {
+    const names = ["Zulu", "Alpha", "Mike"];
+    let ids: Record<string, string> = {};
+
+    const create = async (firstName: string) => {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/clients",
+        headers: { cookie },
+        payload: { firstName, lastName: "Order", companies: [], people: [] },
+      });
+      expect(res.statusCode).toBe(201);
+      return res.json().id as string;
+    };
+
+    const list = async (query = "") => {
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/clients?tab=all&pageSize=100&search=Order${query}`,
+        headers: { cookie },
+      });
+      expect(res.statusCode).toBe(200);
+      return res.json().items as { id: string; firstName: string; pinned: boolean }[];
+    };
+
+    beforeAll(async () => {
+      ids = {};
+      for (const n of names) {
+        ids[n] = await create(n); // created Zulu → Alpha → Mike, so "newest first" is the reverse
+      }
+    });
+
+    afterAll(async () => {
+      await prisma.clientPin.deleteMany();
+      await prisma.client.deleteMany({ where: { lastName: "Order" } });
+    });
+
+    it("defaults to newest first, which is what the screen always did", async () => {
+      const items = await list();
+      expect(items.map((c) => c.firstName)).toEqual(["Mike", "Alpha", "Zulu"]);
+    });
+
+    it("sorts by name when asked", async () => {
+      const items = await list("&sort=name");
+      expect(items.map((c) => c.firstName)).toEqual(["Alpha", "Mike", "Zulu"]);
+    });
+
+    it("sorts by last edited — an old client edited today comes first", async () => {
+      // Zulu is the OLDEST by creation; touching it must float it to the top of `updated`
+      await app.inject({
+        method: "PATCH",
+        url: `/api/clients/${ids.Zulu}`,
+        headers: { cookie },
+        payload: { description: "touched" },
+      });
+      const items = await list("&sort=updated");
+      expect(items[0].firstName).toBe("Zulu");
+      // and the default sort is untouched by the edit
+      expect((await list()).map((c) => c.firstName)).toEqual(["Mike", "Alpha", "Zulu"]);
+    });
+
+    it("floats a pinned client to the top of every sort, and says so on the row", async () => {
+      const pinned = await app.inject({
+        method: "PUT",
+        url: `/api/clients/${ids.Zulu}/pin`,
+        headers: { cookie },
+      });
+      expect(pinned.statusCode).toBe(200);
+
+      for (const sort of ["", "&sort=name", "&sort=updated"]) {
+        const items = await list(sort);
+        expect(items[0].firstName, `sort=${sort || "recent"}`).toBe("Zulu");
+        expect(items[0].pinned).toBe(true);
+        expect(items.slice(1).every((c) => !c.pinned)).toBe(true);
+      }
+
+      // the card agrees with the row
+      const card = await app.inject({
+        method: "GET",
+        url: `/api/clients/${ids.Zulu}`,
+        headers: { cookie },
+      });
+      expect(card.json().pinned).toBe(true);
+    });
+
+    it("un-pinning puts the client back where the sort says it belongs", async () => {
+      const res = await app.inject({
+        method: "DELETE",
+        url: `/api/clients/${ids.Zulu}/pin`,
+        headers: { cookie },
+      });
+      expect(res.statusCode).toBe(200);
+      const items = await list("&sort=name");
+      expect(items.map((c) => c.firstName)).toEqual(["Alpha", "Mike", "Zulu"]);
+      expect(items.every((c) => !c.pinned)).toBe(true);
+    });
+
+    it("pinning twice is a no-op, not a duplicate row", async () => {
+      await app.inject({ method: "PUT", url: `/api/clients/${ids.Mike}/pin`, headers: { cookie } });
+      await app.inject({ method: "PUT", url: `/api/clients/${ids.Mike}/pin`, headers: { cookie } });
+      expect(await prisma.clientPin.count({ where: { clientId: ids.Mike } })).toBe(1);
+      const items = await list("&sort=name");
+      expect(items.map((c) => c.firstName)).toEqual(["Mike", "Alpha", "Zulu"]);
+      await app.inject({ method: "DELETE", url: `/api/clients/${ids.Mike}/pin`, headers: { cookie } });
+    });
+
+    it("a pin reorders the page without changing what is on it", async () => {
+      // the count is the whole filtered set either way — pinning must never add or hide a row
+      const before = await app.inject({
+        method: "GET",
+        url: "/api/clients?tab=all&pageSize=2&search=Order",
+        headers: { cookie },
+      });
+      expect(before.json().total).toBe(3);
+
+      await app.inject({ method: "PUT", url: `/api/clients/${ids.Zulu}/pin`, headers: { cookie } });
+
+      const page1 = await app.inject({
+        method: "GET",
+        url: "/api/clients?tab=all&pageSize=2&sort=name&search=Order",
+        headers: { cookie },
+      });
+      const page2 = await app.inject({
+        method: "GET",
+        url: "/api/clients?tab=all&pageSize=2&page=2&sort=name&search=Order",
+        headers: { cookie },
+      });
+      expect(page1.json().total).toBe(3);
+      // pinned leads, then the rest in name order — and the two pages together are still everyone,
+      // each exactly once. Paging ACROSS the pinned block is where the arithmetic can go wrong.
+      const seen = [...page1.json().items, ...page2.json().items].map(
+        (c: { firstName: string }) => c.firstName,
+      );
+      expect(seen).toEqual(["Zulu", "Alpha", "Mike"]);
+
+      await app.inject({ method: "DELETE", url: `/api/clients/${ids.Zulu}/pin`, headers: { cookie } });
+    });
+
+    it("a pin is one reader's, not the firm's", async () => {
+      await app.inject({ method: "PUT", url: `/api/clients/${ids.Zulu}/pin`, headers: { cookie } });
+
+      await prisma.user.create({
+        data: {
+          firstName: "Other",
+          lastName: "Reader",
+          email: "other@clients.local",
+          passwordHash: await argon2.hash("password-123"),
+          role: "user",
+          status: "active",
+        },
+      });
+      const login = await app.inject({
+        method: "POST",
+        url: "/api/auth/login",
+        payload: { email: "other@clients.local", password: "password-123" },
+      });
+      const otherCookie = cookieOf(login);
+
+      const theirs = await app.inject({
+        method: "GET",
+        url: "/api/clients?tab=all&pageSize=100&sort=name&search=Order",
+        headers: { cookie: otherCookie },
+      });
+      // the other reader sees plain name order and no pin at all
+      expect(theirs.json().items.map((c: { firstName: string }) => c.firstName)).toEqual([
+        "Alpha",
+        "Mike",
+        "Zulu",
+      ]);
+      expect(theirs.json().items.every((c: { pinned: boolean }) => !c.pinned)).toBe(true);
+
+      await app.inject({ method: "DELETE", url: `/api/clients/${ids.Zulu}/pin`, headers: { cookie } });
+      await prisma.session.deleteMany({ where: { user: { email: "other@clients.local" } } });
+      await prisma.user.deleteMany({ where: { email: "other@clients.local" } });
+    });
+
+    it("rejects an unknown sort rather than silently ignoring it", async () => {
+      const res = await app.inject({
+        method: "GET",
+        url: "/api/clients?tab=all&sort=whatever",
+        headers: { cookie },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+  });
+
+  // ── the card's tab badges (2026-08-26) ─────────────────────────────────────
+
+  describe("what is still live behind each tab", () => {
+    let clientId: string;
+    let taskId: string;
+
+    const counts = async () => {
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/clients/${clientId}`,
+        headers: { cookie },
+      });
+      expect(res.statusCode).toBe(200);
+      return res.json().counts as {
+        tasks: number;
+        meetings: number;
+        invoices: number;
+        files: number;
+      };
+    };
+
+    beforeAll(async () => {
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/clients",
+        headers: { cookie },
+        payload: { firstName: "Badge", lastName: "Counts", companies: [], people: [] },
+      });
+      clientId = created.json().id;
+    });
+
+    afterAll(async () => {
+      await prisma.invoice.deleteMany({ where: { clientId } });
+      await prisma.task.deleteMany({ where: { clientId } });
+      await prisma.meeting.deleteMany({ where: { clientId } });
+      await prisma.client.deleteMany({ where: { id: clientId } });
+    });
+
+    it("is all zeroes on a client with nothing on them", async () => {
+      expect(await counts()).toEqual({ tasks: 0, meetings: 0, invoices: 0, files: 0 });
+    });
+
+    it("counts an open task, and stops counting it once it is done", async () => {
+      const task = await app.inject({
+        method: "POST",
+        url: "/api/tasks",
+        headers: { cookie },
+        // internal: firm-side work attributed to this client. It needs no subscription, and it is
+        // exactly what the card's Tasks tab shows — which is the rule the badge has to match.
+        payload: { title: "Something to do", clientId, internal: true, assignees: [] },
+      });
+      expect(task.statusCode).toBe(201);
+      taskId = task.json().id;
+      expect((await counts()).tasks).toBe(1);
+
+      await app.inject({
+        method: "PATCH",
+        url: `/api/tasks/${taskId}`,
+        headers: { cookie },
+        payload: { done: true },
+      });
+      // the badge asks the same question the tab does: what is still OPEN
+      expect((await counts()).tasks).toBe(0);
+    });
+
+    it("counts a meeting still to come, but not one already past", async () => {
+      const future = new Date(Date.now() + 3 * 86_400_000).toISOString();
+      const past = new Date(Date.now() - 3 * 86_400_000).toISOString();
+      await prisma.meeting.create({
+        data: { title: "Next week", clientId, startAt: new Date(future), durationMinutes: 15 },
+      });
+      await prisma.meeting.create({
+        data: { title: "Last week", clientId, startAt: new Date(past), durationMinutes: 15 },
+      });
+      expect((await counts()).meetings).toBe(1);
+    });
+
+    it("stops counting a cancelled meeting", async () => {
+      await prisma.meeting.updateMany({
+        where: { clientId, title: "Next week" },
+        data: { cancelledAt: new Date() },
+      });
+      expect((await counts()).meetings).toBe(0);
+    });
+
+    it("counts what is still owed, and drops it when the invoice is settled", async () => {
+      const invoice = await prisma.invoice.create({
+        data: { number: `BADGE-${Date.now()}`, clientId, amount: 5_000, paidTotal: 0 },
+      });
+      expect((await counts()).invoices).toBe(1);
+
+      await prisma.invoice.update({
+        where: { id: invoice.id },
+        data: { paidTotal: 5_000 },
+      });
+      expect((await counts()).invoices).toBe(0);
+    });
+
+    it("does not count a cancelled invoice as something to chase", async () => {
+      const invoice = await prisma.invoice.create({
+        data: { number: `BADGE-VOID-${Date.now()}`, clientId, amount: 7_000, paidTotal: 0 },
+      });
+      expect((await counts()).invoices).toBe(1);
+      await prisma.invoice.update({
+        where: { id: invoice.id },
+        data: { cancelledAt: new Date() },
+      });
+      expect((await counts()).invoices).toBe(0);
+    });
+
+    it("counts the files on the card", async () => {
+      const form =
+        `--X\r\nContent-Disposition: form-data; name="file"; filename="note.txt"\r\n` +
+        `Content-Type: text/plain\r\n\r\nhello\r\n--X--\r\n`;
+      const up = await app.inject({
+        method: "POST",
+        url: `/api/clients/${clientId}/files`,
+        headers: { cookie, "content-type": "multipart/form-data; boundary=X" },
+        payload: form,
+      });
+      expect(up.statusCode).toBe(201);
+      expect((await counts()).files).toBe(1);
+    });
+
+    it("the LIST does not pay for the counts — they are the card's read alone", async () => {
+      const res = await app.inject({
+        method: "GET",
+        url: "/api/clients?tab=all&pageSize=100&search=Badge",
+        headers: { cookie },
+      });
+      const row = res.json().items.find((c: { id: string }) => c.id === clientId);
+      expect(row).toBeTruthy();
+      expect(row.counts).toBeUndefined();
+    });
   });
 });

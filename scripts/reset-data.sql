@@ -62,6 +62,9 @@ DELETE FROM "Meeting";
 -- ("Reminder" was here. Migration 20260811090000_mailouts dropped that table — it was a
 -- design-phase stub nothing ever wrote to. Left in, this line failed with 42P01 and took the
 -- whole reset, and therefore the deploy, down with it.)
+-- personal pins on the clients list. Cascades from "Client" below, but named here like the rest:
+-- a cascade is invisible to the next migration, and this file is checked table by table.
+DELETE FROM "ClientPin";
 DELETE FROM "ClientPerson";
 DELETE FROM "SecretAuditLog";
 DELETE FROM "ClientSecret";

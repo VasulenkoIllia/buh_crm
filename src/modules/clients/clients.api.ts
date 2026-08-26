@@ -37,6 +37,7 @@ export function useClients(query: Partial<ClientListQuery>, opts?: { enabled?: b
   if (query.tab) params.set("tab", query.tab);
   if (query.search) params.set("search", query.search);
   if (query.serviceId) params.set("serviceId", query.serviceId);
+  if (query.sort) params.set("sort", query.sort);
   if (query.page) params.set("page", String(query.page));
   if (query.pageSize) params.set("pageSize", String(query.pageSize));
   return useQuery({
@@ -74,6 +75,22 @@ export function useUpdateClient() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateClientInput }) =>
       api<Client>(`/api/clients/${id}`, { method: "PATCH", body: input }),
+    onSuccess: invalidate,
+  });
+}
+
+/**
+ * Keep a client at the top of MY list.
+ *
+ * Invalidates the whole clients cache rather than patching the row: a pin changes the ORDER of the
+ * page, and which clients appear on it — the row that was last is now somewhere else entirely, so
+ * there is nothing local to patch.
+ */
+export function usePinClient() {
+  const invalidate = useInvalidateClients();
+  return useMutation({
+    mutationFn: ({ id, pinned }: { id: string; pinned: boolean }) =>
+      api<{ ok: true }>(`/api/clients/${id}/pin`, { method: pinned ? "PUT" : "DELETE" }),
     onSuccess: invalidate,
   });
 }

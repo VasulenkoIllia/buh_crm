@@ -27,12 +27,14 @@ export async function registerRoutes(instance: FastifyInstance) {
   const app = instance.withTypeProvider<ZodTypeProvider>();
   app.addHook("preHandler", requireAuth);
 
+  // the reader is passed in because PINS are per-user: the same list, ordered differently for
+  // each person who opens it
   app.get("/", { schema: { querystring: clientListQuery } }, async (request) => {
-    return service.listClients(request.query);
+    return service.listClients(request.query, request.currentUser!.id);
   });
 
   app.get("/:id", { schema: { params: idParams } }, async (request) => {
-    return service.getClient(request.params.id);
+    return service.getClient(request.params.id, request.currentUser!.id);
   });
 
   app.post("/", { schema: { body: createClientInput } }, async (request, reply) => {
@@ -47,6 +49,20 @@ export async function registerRoutes(instance: FastifyInstance) {
       return service.updateClient(request.params.id, request.body);
     },
   );
+
+  /**
+   * Keep a client at the top of MY list. PUT/DELETE rather than a PATCH on the client, because a
+   * pin is not a property OF the client — the same row is pinned for one reader and not another.
+   */
+  app.put("/:id/pin", { schema: { params: idParams } }, async (request) => {
+    await service.setClientPinned(request.currentUser!.id, request.params.id, true);
+    return { ok: true as const };
+  });
+
+  app.delete("/:id/pin", { schema: { params: idParams } }, async (request) => {
+    await service.setClientPinned(request.currentUser!.id, request.params.id, false);
+    return { ok: true as const };
+  });
 
   app.post("/:id/archive", { schema: { params: idParams } }, async (request) => {
     return service.archiveClient(request.params.id, request.currentUser!);

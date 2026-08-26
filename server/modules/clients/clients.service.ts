@@ -13,8 +13,13 @@ import { config } from "../../core/config.js";
 import { inForceOn, inForceTodayWhere, notEnded, type InForcePeriod } from "../../core/coverage.js";
 import { type Day, addDays, dateToUtc, todayInTz, toUtc } from "../../core/dates.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
-import { debtByClient, generateForSubscriptionInvoices } from "../payments/index.js";
-import { generateForSubscription } from "../tasks/index.js";
+import {
+  countOwedInvoicesForClient,
+  debtByClient,
+  generateForSubscriptionInvoices,
+} from "../payments/index.js";
+import { countUpcomingMeetingsForClient } from "../meetings/index.js";
+import { countOpenTasksForClient, generateForSubscription } from "../tasks/index.js";
 import { MAX_FILE_SIZE, deleteFileBytes, saveFileBytes } from "../../core/files.js";
 import { clientLabel } from "../../core/names.js";
 import * as repo from "./clients.repository.js";
@@ -69,7 +74,20 @@ function servedWindow(periods: InForcePeriod[], today: Day) {
   };
 }
 
-export function toClientDto(client: repo.ClientRecord, debt = 0) {
+/** What is still live behind each of the client card's tabs; omitted on the list read. */
+export interface ClientPanelCounts {
+  tasks: number;
+  meetings: number;
+  invoices: number;
+  files: number;
+}
+
+export function toClientDto(
+  client: repo.ClientRecord,
+  debt = 0,
+  counts?: ClientPanelCounts,
+  pinned = false,
+) {
   const today = todayInTz(config.TZ);
   return {
     id: client.id,
@@ -124,6 +142,8 @@ export function toClientDto(client: repo.ClientRecord, debt = 0) {
       email: p.email,
     })),
     debt, // Σ open invoice balance — derived in Payments (S7), passed in by the caller
+    counts, // undefined on the list read — see `clientSchema`
+    pinned, // THIS reader's pin, never a firm-wide flag
     createdAt: client.createdAt.toISOString(),
     archivedAt: client.archivedAt?.toISOString() ?? null,
   };
@@ -144,7 +164,7 @@ const ONE_TIME_FILTER = (): Prisma.ClientWhereInput => ({
   subscriptions: { none: ACTIVE_REGULAR_SUB() },
 });
 
-export async function listClients(query: ClientListQuery) {
+export async function listClients(query: ClientListQuery, userId?: string) {
   // "archived" is the Archive screen's read and the only tab that shows archived clients;
   // every other tab is live-only, which is what makes archiving mean "gone from the working views"
   const where: Prisma.ClientWhereInput =
@@ -190,9 +210,15 @@ export async function listClients(query: ClientListQuery) {
   }
   if (and.length > 0) where.AND = and;
 
+  // the reader's own pins — they lead the sequence, so they are needed before the page is fetched
+  const pinnedIds = userId ? await repo.listPinnedClientIds(userId) : [];
+  const pinnedSet = new Set(pinnedIds);
+
   const [{ items, total }, counts] = await Promise.all([
     repo.listClients({
       where,
+      pinnedIds,
+      sort: query.sort,
       skip: (query.page - 1) * query.pageSize,
       take: query.pageSize,
     }),
@@ -201,7 +227,7 @@ export async function listClients(query: ClientListQuery) {
   ]);
   const debts = await debtByClient(items.map((c) => c.id));
   return {
-    items: items.map((c) => toClientDto(c, debts[c.id] ?? 0)),
+    items: items.map((c) => toClientDto(c, debts[c.id] ?? 0, undefined, pinnedSet.has(c.id))),
     total,
     page: query.page,
     pageSize: query.pageSize,
@@ -209,11 +235,45 @@ export async function listClients(query: ClientListQuery) {
   };
 }
 
-export async function getClient(id: string) {
+/**
+ * Pin / un-pin for ONE reader. Returns nothing but `ok`: the clients list is refetched anyway, and
+ * a pin changes where a client sits, not what it is.
+ */
+export async function setClientPinned(userId: string, clientId: string, pinned: boolean) {
+  const client = await repo.findClient(clientId);
+  if (!client || client.archivedAt) throw new NotFoundError("Client not found");
+  if (pinned) await repo.pinClient(userId, clientId);
+  else await repo.unpinClient(userId, clientId);
+}
+
+/**
+ * The card's read.
+ *
+ * `userId` is the READER, and it is what decides `pinned` — the same client is pinned for one
+ * person and not another. Omitting it reports `pinned: false`, which is why the mutating functions
+ * below (which return a client but are not told who asked) are NOT a source of pin state: every
+ * one of their callers invalidates the clients cache and refetches through this route, which does
+ * know. If a mutation response is ever written straight into the query cache, thread the reader
+ * into that path first.
+ */
+export async function getClient(id: string, userId?: string) {
   const client = await repo.findClient(id);
   if (!client || client.archivedAt) throw new NotFoundError("Client not found");
-  const debts = await debtByClient([id]);
-  return toClientDto(client, debts[id] ?? 0);
+  // one round of parallel aggregates rather than four extra requests from the card
+  const [debts, tasks, meetings, invoices, files, pinnedIds] = await Promise.all([
+    debtByClient([id]),
+    countOpenTasksForClient(id),
+    countUpcomingMeetingsForClient(id, new Date()),
+    countOwedInvoicesForClient(id),
+    repo.countClientFiles(id),
+    userId ? repo.listPinnedClientIds(userId) : Promise.resolve<string[]>([]),
+  ]);
+  return toClientDto(
+    client,
+    debts[id] ?? 0,
+    { tasks, meetings, invoices, files },
+    pinnedIds.includes(id),
+  );
 }
 
 function toClientFields(input: CreateClientInput | UpdateClientInput, isCreate: boolean) {

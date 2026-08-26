@@ -41,8 +41,24 @@ const GRID_MINUTES = (DAY_END_HOUR - DAY_START_HOUR) * 60;
 /** where the scroll sits when the view opens — the working day, not midnight */
 export const OPENING_HOUR = 8;
 
-/** the smallest box that fits one readable line, expressed in grid minutes */
-const MIN_BOX_MINUTES = 34;
+/**
+ * The smallest box that fits one readable line, expressed in grid minutes.
+ *
+ * Exported because `columnsFor` MUST lay out on the same number. A 15-minute meeting is drawn 34
+ * minutes tall, so two of them back to back — 13:15 and 13:30, which is exactly what a 15-minute
+ * minimum consultation produces — occupy the same pixels even though their real times do not
+ * overlap. Laying out on the true duration put them in one lane at full width and the first box
+ * covered the second (user, 2026-08-26).
+ */
+export const MIN_BOX_MINUTES = 34;
+
+/**
+ * When a meeting's BOX ends, which is what decides whether two of them collide on screen.
+ * Never the real end time: see `MIN_BOX_MINUTES`.
+ */
+export const drawnEndMs = (startAt: string, durationMinutes: number): number =>
+  new Date(startAt).getTime() + Math.max(durationMinutes, MIN_BOX_MINUTES) * 60_000;
+
 /** below this, the card shows one line instead of three */
 const COMPACT_UNDER_MINUTES = 45;
 
@@ -130,11 +146,16 @@ export function placeInGrid(startAt: string, durationMinutes: number) {
 }
 
 /**
- * Lay overlapping meetings side by side.
+ * Lay meetings whose BOXES overlap side by side.
  *
  * Without this two meetings at the same hour sit exactly on top of each other and the one
  * underneath is invisible — which is precisely the case the conflict warning exists to surface,
  * so hiding it here would be the worst place to cut a corner.
+ *
+ * Boxes, not times. The two differ for anything shorter than `MIN_BOX_MINUTES`, and the difference
+ * is not cosmetic: measured on the true duration, 13:15–13:30 and 13:30–13:45 do not overlap, so
+ * both were given the full width and drawn on top of one another. What a reader can see is the
+ * only thing this function is for.
  */
 export function columnsFor<T extends { startAt: string; durationMinutes: number }>(
   items: T[],
@@ -142,7 +163,7 @@ export function columnsFor<T extends { startAt: string; durationMinutes: number 
   const sorted = [...items].sort(
     (a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime(),
   );
-  const endOf = (m: T) => new Date(m.startAt).getTime() + m.durationMinutes * 60_000;
+  const endOf = (m: T) => drawnEndMs(m.startAt, m.durationMinutes);
 
   const out: { item: T; column: number; columns: number }[] = [];
   let cluster: T[] = [];

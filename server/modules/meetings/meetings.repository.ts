@@ -66,6 +66,18 @@ export function listMeetingsFor(target: { clientId?: string; leadId?: string }) 
   });
 }
 
+/**
+ * Meetings on one client that have not happened yet — the number on the card's Meetings tab.
+ *
+ * Upcoming, not "all": a client seen twelve times last year would wear a permanent 12 that means
+ * nothing to act on. Cancelled ones are out for the same reason.
+ */
+export function countUpcomingMeetingsForClient(clientId: string, now: Date) {
+  return prisma.meeting.count({
+    where: { clientId, cancelledAt: null, startAt: { gte: now } },
+  });
+}
+
 export function findMeeting(id: string) {
   return prisma.meeting.findUnique({ where: { id }, include: meetingInclude });
 }

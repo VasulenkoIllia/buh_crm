@@ -46,6 +46,14 @@ type TabKey = (typeof TABS)[number]["key"];
 
 const TAB_STAGE: Partial<Record<TabKey, string>> = {};
 
+/** Which tabs carry a badge, and which count feeds each. */
+const TAB_COUNT: Partial<Record<TabKey, keyof NonNullable<Client["counts"]>>> = {
+  tasks: "tasks",
+  meetings: "meetings",
+  invoices: "invoices",
+  files: "files",
+};
+
 export function ClientCardPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -130,11 +138,18 @@ export function ClientCardPage() {
         </div>
       </div>
 
+      {/* The badge answers "is there anything waiting for me here" — so ZERO shows nothing at all.
+          A row of grey noughts would make the four tabs that never have work look identical to the
+          one that does, which is the opposite of what was asked for. */}
       <Tabs
         className="mb-[18px] mt-3.5"
         value={tab}
         onChange={setTab}
-        options={TABS.map((t) => ({ value: t.key, label: t.label }))}
+        options={TABS.map((t) => {
+          const key = TAB_COUNT[t.key];
+          const n = key ? client.counts?.[key] : undefined;
+          return { value: t.key, label: t.label, count: n ? n : undefined };
+        })}
       />
 
       {/* company view (multi-company clients) */}

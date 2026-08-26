@@ -215,6 +215,7 @@ model User {
   campaignsCreated         Campaign[]             @relation("CampaignCreatedBy")
   clientsUnsubscribed      ClientMailPreference[] @relation("MailPreferenceUnsubscribedBy")
   deadEmailAddresses       DeadEmailAddress[]
+  clientPins               ClientPin[]
 }
 
 model AuthToken {
@@ -286,6 +287,7 @@ model FirmProfile {
   // fields could only ever describe one of them.
   //
   /**
+   * /**
    * /**
    * /**
    * /** CAN-SPAM: the firm's physical address. One firm, one legal address — never per mailbox.
@@ -377,6 +379,7 @@ model MailSenderAccount {
   /**
    * /**
    * /**
+   * /**
    * /** null = this mailbox is not read for bounces
    */
   imapHost       String?
@@ -397,6 +400,7 @@ model MailSenderAccount {
   // Never `\Seen`, never a moved message: this mailbox belongs to a person, and flagging their
   // mail to track our own progress would hide a bounce from them — or theirs from us.
   /**
+   * /**
    * /**
    * /** the mailbox's UIDVALIDITY when last read; a change means the UIDs were reissued
    */
@@ -514,6 +518,7 @@ model Client {
   mailPreference ClientMailPreference?
   files          File[]                @relation("ClientFiles")
   convertedLead  Lead?                 @relation("LeadConvertedClient")
+  pins           ClientPin[]
 
   @@index([archivedAt])
 }
@@ -545,6 +550,28 @@ model Company {
   mailouts      MailoutRecipient[]
   campaigns     CampaignRecipient[]
 
+  @@index([clientId])
+}
+
+/// A client one USER keeps at the top of their list.
+///
+/// PER-USER, not per-firm (2026-08-26). "The clients I am working through this week" is a personal
+/// working set; a shared pin would let one accountant reorder everyone else's screen, and the
+/// second person to use it would have to undo the first. The composite primary key is the whole
+/// constraint — a user can pin a client once, and un-pinning is a delete.
+///
+/// Cascades from both sides: an archived-then-deleted client, or a removed user, must not leave a
+/// pin pointing at nothing. `createdAt` is kept so the pinned block can be ordered by when each was
+/// pinned if that is ever wanted; today it follows the list's own sort.
+model ClientPin {
+  userId    String   @db.Uuid
+  clientId  String   @db.Uuid
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@id([userId, clientId])
   @@index([clientId])
 }
 

@@ -7,6 +7,8 @@ import {
 } from "@/shared/lib/tz";
 import {
   columnsFor,
+  drawnEndMs,
+  MIN_BOX_MINUTES,
   dayOfMeeting,
   fmtRange,
   placeInGrid,
@@ -123,6 +125,12 @@ describe("calendar grid", () => {
     expect(hour.heightPct).toBeCloseTo((60 / 1440) * 100, 5);
   });
 
+  it("measures a box by the minimum when the meeting is shorter than it", () => {
+    const start = localAt(13, 15);
+    expect(drawnEndMs(start, 15) - new Date(start).getTime()).toBe(MIN_BOX_MINUTES * 60_000);
+    expect(drawnEndMs(start, 90) - new Date(start).getTime()).toBe(90 * 60_000);
+  });
+
   it("gives a lone meeting the full width", () => {
     const [only] = columnsFor([m(localAt(10), 60)]);
     expect(only).toMatchObject({ column: 0, columns: 1 });
@@ -138,6 +146,36 @@ describe("calendar grid", () => {
   });
 
   it("keeps back-to-back meetings full width — they never overlap", () => {
+    const laid = columnsFor([
+      m(localAt(10), 60, "a"),
+      m(localAt(11), 60, "b"),
+    ]);
+    expect(laid.every((l) => l.columns === 1)).toBe(true);
+  });
+
+  it("separates short back-to-back meetings — their BOXES overlap even though their times do not", () => {
+    // The bug this covers: a 15-minute minimum consultation at 13:15 and another at 13:30. The
+    // times are adjacent, but both are drawn MIN_BOX_MINUTES tall, so laying out on the true
+    // duration gave each the full width and the first box swallowed the second (user, 2026-08-26).
+    const laid = columnsFor([
+      m(localAt(13, 15), 15, "a"),
+      m(localAt(13, 30), 15, "b"),
+    ]);
+    expect(laid.map((l) => l.columns)).toEqual([2, 2]);
+    expect(laid.map((l) => l.column).sort()).toEqual([0, 1]);
+  });
+
+  it("still gives short meetings the full width once they are far enough apart", () => {
+    // 13:15 + 34 minutes of box ends at 13:49, so 14:00 is clear and nothing has to move aside
+    const laid = columnsFor([
+      m(localAt(13, 15), 15, "a"),
+      m(localAt(14), 15, "b"),
+    ]);
+    expect(laid.every((l) => l.columns === 1)).toBe(true);
+  });
+
+  it("lays out long meetings on their real length, not the minimum box", () => {
+    // the floor must not widen a cluster that genuinely has room: 10:00–11:00 then 11:00–12:00
     const laid = columnsFor([
       m(localAt(10), 60, "a"),
       m(localAt(11), 60, "b"),

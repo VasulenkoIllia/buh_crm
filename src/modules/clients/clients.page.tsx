@@ -1,22 +1,50 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Users } from "lucide-react";
+import { Pin, Users } from "lucide-react";
 import type { Client } from "@shared/schema/client";
 import type { Service } from "@shared/schema/catalog";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { cn } from "@/shared/lib/cn";
 import { fmtMoney } from "@/shared/lib/money";
 import { Button } from "@/shared/ui/button";
+import { Select } from "@/shared/ui/field";
 import { SearchSelect } from "@/shared/ui/search-select";
 import { FilterChips } from "@/shared/ui/tabs";
 import { ClientFormModal } from "./client-form";
-import { useClients } from "./clients.api";
+import { useClients, usePinClient } from "./clients.api";
 
 const TABS = [
   { key: "one_time", label: "One-time" },
   { key: "regular", label: "Regular" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
+
+const SORTS = [
+  { value: "recent", label: "Newest first" },
+  { value: "updated", label: "Recently edited" },
+  { value: "name", label: "Name A–Z" },
+] as const;
+type SortKey = (typeof SORTS)[number]["value"];
+
+const PAGE_SIZES = [25, 50, 100] as const;
+
+/**
+ * How many rows the reader wants, remembered between visits.
+ *
+ * `localStorage` and not the server: this is a property of the screen someone is looking at, not
+ * of the account — and the throw a private window or blocked site data produces must not take the
+ * clients page down with it, hence the try/catch on both sides.
+ */
+const PAGE_SIZE_KEY = "clients.pageSize";
+
+function storedPageSize(): number {
+  try {
+    const n = Number(localStorage.getItem(PAGE_SIZE_KEY));
+    return (PAGE_SIZES as readonly number[]).includes(n) ? n : 25;
+  } catch {
+    return 25;
+  }
+}
 
 const TAB_HINTS: Record<TabKey, string> = {
   one_time:
@@ -29,15 +57,20 @@ export function ClientsPage() {
   const [tab, setTab] = useState<TabKey>("one_time");
   const [search, setSearch] = useState("");
   const [serviceId, setServiceId] = useState("");
+  const [sort, setSort] = useState<SortKey>("recent");
+  const [pageSize, setPageSize] = useState(storedPageSize);
   const [page, setPage] = useState(1);
   const [formOpen, setFormOpen] = useState(false);
   const navigate = useNavigate();
+  const pin = usePinClient();
 
   const { data, isLoading, error } = useClients({
     tab,
     search: search || undefined,
     serviceId: serviceId || undefined,
+    sort,
     page,
+    pageSize,
   });
   const { data: services } = useCatalog();
   const serviceById = new Map((services ?? []).map((s) => [s.id, s]));
@@ -74,6 +107,21 @@ export function ClientsPage() {
             }}
           />
         </div>
+        <Select
+          className="w-[152px]"
+          aria-label="Sort clients"
+          value={sort}
+          onChange={(e) => {
+            setSort(e.target.value as SortKey);
+            setPage(1);
+          }}
+        >
+          {SORTS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </Select>
         <Button className="ml-auto" onClick={() => setFormOpen(true)}>
           + New client
         </Button>
@@ -110,6 +158,9 @@ export function ClientsPage() {
                   tab={tab}
                   serviceById={serviceById}
                   onOpen={() => navigate(`/clients/${client.id}`)}
+                  onTogglePin={() =>
+                    pin.mutate({ id: client.id, pinned: !client.pinned })
+                  }
                 />
               ))}
               {data.items.length === 0 && (
@@ -121,29 +172,56 @@ export function ClientsPage() {
           )}
           <p className="mt-2.5 text-[12px] text-faint">{TAB_HINTS[tab]}</p>
 
-          {totalPages > 1 && (
-            <div className="mt-3 flex items-center justify-end gap-2 text-[13px] text-muted">
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => p - 1)}
+          {/* The row-count picker stays even on a single page — it is how you GET to one page. */}
+          <div className="mt-3 flex flex-wrap items-center justify-end gap-2 text-[13px] text-muted">
+            <label className="mr-auto flex items-center gap-2">
+              <span className="text-faint">Rows</span>
+              <Select
+                className="w-[76px]"
+                aria-label="Clients per page"
+                value={String(pageSize)}
+                onChange={(e) => {
+                  const next = Number(e.target.value);
+                  setPageSize(next);
+                  setPage(1); // page 7 of 25 is off the end at 100 per page
+                  try {
+                    localStorage.setItem(PAGE_SIZE_KEY, String(next));
+                  } catch {
+                    // a private window or blocked site data — the choice just will not stick
+                  }
+                }}
               >
-                Prev
-              </Button>
-              <span>
-                {page} / {totalPages}
-              </span>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                Next
-              </Button>
-            </div>
-          )}
+                {PAGE_SIZES.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            {totalPages > 1 && (
+              <>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => p - 1)}
+                >
+                  Prev
+                </Button>
+                <span>
+                  {page} / {totalPages}
+                </span>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  Next
+                </Button>
+              </>
+            )}
+          </div>
         </>
       )}
 
@@ -158,13 +236,14 @@ export function ClientsPage() {
   );
 }
 
+// the leading 26px column is the pin — a column of its own so the names below still line up
 const GRID: Record<TabKey, string> = {
-  one_time: "grid-cols-[1.3fr_1fr_130px_160px_1.1fr_140px_80px]",
-  regular: "grid-cols-[1.3fr_1fr_110px_130px_150px_90px]",
+  one_time: "grid-cols-[26px_1.3fr_1fr_130px_160px_1.1fr_140px_80px]",
+  regular: "grid-cols-[26px_1.3fr_1fr_110px_130px_150px_90px]",
 };
 const HEADERS: Record<TabKey, string[]> = {
-  one_time: ["Client", "Company", "Phone", "Email", "Address", "Category", "Debt"],
-  regular: ["Name", "Company", "Amount", "Period", "Category", "Debt"],
+  one_time: ["", "Client", "Company", "Phone", "Email", "Address", "Category", "Debt"],
+  regular: ["", "Name", "Company", "Amount", "Period", "Category", "Debt"],
 };
 
 function ListHeader({ tab }: { tab: TabKey }) {
@@ -177,11 +256,40 @@ function ListHeader({ tab }: { tab: TabKey }) {
       )}
     >
       {headers.map((h, i) => (
-        <div key={h} className={cn(i === headers.length - 1 && "text-right")}>
+        <div key={i} className={cn(i === headers.length - 1 && "text-right")}>
           {h}
         </div>
       ))}
     </div>
+  );
+}
+
+/**
+ * The pin control. Always rendered, not revealed on hover: a hidden affordance on a 177-row list
+ * is one nobody finds. Un-pinned it is a faint outline that reads as "you could"; pinned it is the
+ * primary blue and filled.
+ */
+function PinButton({ pinned, onToggle }: { pinned: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label={pinned ? "Unpin from the top" : "Pin to the top"}
+      aria-pressed={pinned}
+      title={pinned ? "Unpin from the top" : "Pin to the top"}
+      // the whole row navigates; the pin must not
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      className={cn(
+        "flex h-[22px] w-[22px] items-center justify-center rounded-(--radius-chip) transition-colors",
+        pinned
+          ? "text-primary-link hover:bg-primary/10"
+          : "text-[#c7ccd3] hover:bg-divider hover:text-muted",
+      )}
+    >
+      <Pin size={14} strokeWidth={2} fill={pinned ? "currentColor" : "none"} />
+    </button>
   );
 }
 
@@ -200,11 +308,13 @@ function ClientRow({
   tab,
   serviceById,
   onOpen,
+  onTogglePin,
 }: {
   client: Client;
   tab: TabKey;
   serviceById: Map<string, Service>;
   onOpen: () => void;
+  onTogglePin: () => void;
 }) {
   // the companies they actually hold; the plain `companyName` label stands in when there are none
   const companies =
@@ -248,8 +358,12 @@ function ClientRow({
         "grid min-w-[980px] cursor-pointer items-center gap-x-3 border-b border-divider px-4 py-2.5 text-[13px] last:border-0 hover:bg-divider/40",
         GRID[tab],
         client.isRegular && "bg-[#f7f9ff]",
+        // pinned wins over the regular tint: it is the reader's own mark, and the two never
+        // stack into a third colour nobody can read
+        client.pinned && "bg-primary/[0.055]",
       )}
     >
+      <PinButton pinned={client.pinned} onToggle={onTogglePin} />
       {tab === "regular" ? (
         <>
           {nameCell}
