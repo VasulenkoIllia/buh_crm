@@ -41,7 +41,7 @@ the module's repository; Zod schemas in `shared/` validate the API and type the 
 - `src/` — React frontend (mirrors the backend module list).
 - `shared/` — Zod schemas + derived types, imported by both sides.
 - `prisma/` — schema + migrations.
-- `scripts/` — server operations (`deploy.sh`, `reset-data.sql`).
+- `scripts/` — server operations (`deploy.sh`, `reset-data.sql`, `prune-uploads.ts`, `import-clients.ts`).
 - `.env.example` — environment variables (identity: `APP_NAME=buh_crm`).
 
 ## Development
@@ -69,12 +69,27 @@ Both paths dump the database first and print the restore command at the end. Mig
 automatically when the container starts (`prisma migrate deploy && npm run start`), so there is no
 separate migration step.
 
-`--reset` asks you to type the database name before it deletes anything, then empties every domain
-table and the `data/uploads` directory. Users, their sessions and their reset tokens survive; base
-data (priorities, board columns, lead sources, firm profile) is recreated on the next boot, which
-means firm settings such as the invoice-number format return to their defaults. It runs BEFORE the
-pull on purpose: migrations then land on an empty database instead of migrating rows you are about
-to discard.
+`--reset` asks you to type the database name before it deletes anything, then empties every client
+table — clients, companies, leads, subscriptions, tasks, invoices, payments, meetings, files, and
+everything the mailouts module holds.
+
+What it keeps, deliberately: the team (users, sessions, reset tokens); the firm's own configuration
+(`FirmProfile` and the sender mailboxes) — requisites and the invoice-number format are settings,
+not client data; and the one service flagged "default for new clients", so a client created
+afterwards still has a paid container. Every other service goes. Priorities, the board's fixed
+column and the standard lead sources come back on the next boot. `server/schema-invariants.test.ts`
+holds the reset script to every table the database has, so a migration cannot silently make it
+stale.
+
+It runs BEFORE the pull on purpose: migrations then land on an empty database instead of migrating
+rows you are about to discard. Because avatars and logos now survive the wipe, the uploads
+directory is no longer emptied wholesale — `prune-uploads.ts` runs after the rebuild and removes
+only files no database row references.
+
+`scripts/import-clients.ts` loads a CSV of an existing client sheet into a freshly reset install.
+It reads stdin, so a file of personal data need never be committed or left on a server, and it
+creates each client through the ordinary service layer rather than SQL — same validation, same
+auto-added default service. `--dry-run` reports what it would do and writes nothing.
 
 > Internal documentation (module specs, design system, decisions, dev plan) is maintained
 > outside this repository.
