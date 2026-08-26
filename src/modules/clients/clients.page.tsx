@@ -11,7 +11,7 @@ import { Select } from "@/shared/ui/field";
 import { SearchSelect } from "@/shared/ui/search-select";
 import { FilterChips } from "@/shared/ui/tabs";
 import { ClientFormModal } from "./client-form";
-import { recurringByPeriod } from "./recurring";
+import { PERIOD_LABEL, PERIOD_SHORT, recurringByPeriod } from "./recurring";
 import { useClients, usePinClient } from "./clients.api";
 
 const TABS = [
@@ -341,9 +341,6 @@ function Initials({ name }: { name: string }) {
   );
 }
 
-const PERIOD_SHORT: Record<string, string> = { month: "monthly", quarter: "quarterly", year: "yearly" };
-/** for the several-periods case, where the long words do not fit beside a figure */
-const PERIOD_TINY: Record<string, string> = { month: "mo", quarter: "qtr", year: "yr" };
 
 
 function ClientRow({
@@ -423,14 +420,14 @@ function ClientRow({
                 {recurring.map(([period, amount]) => (
                   <span key={period} className="text-[12px]">
                     {fmtMoney(amount)}
-                    <span className="text-muted">/{PERIOD_TINY[period]}</span>
+                    <span className="text-muted">/{PERIOD_SHORT[period]}</span>
                   </span>
                 ))}
               </div>
             )}
           </div>
           <div className="truncate text-muted">
-            {recurring.length === 1 ? PERIOD_SHORT[recurring[0][0]] : "—"}
+            {recurring.length === 1 ? PERIOD_LABEL[recurring[0][0]] : "—"}
           </div>
           {category}
           <div className="text-right tabular-nums">{debt}</div>

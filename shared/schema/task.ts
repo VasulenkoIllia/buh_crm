@@ -213,7 +213,14 @@ export const createTaskCommentInput = z.object({
 export type CreateTaskCommentInput = z.infer<typeof createTaskCommentInput>;
 
 export const taskListQuery = z.object({
-  view: z.enum(["board", "table"]).default("board"),
+  /**
+   * `board` — the kanban, in the firm's dragged order. `table` — the paginated flat list.
+   * `entity` — a client's or lead's card rollup: unpaginated like the board, but ordered like a
+   * list, because it is one. It used to ask for `board` purely to escape pagination, and when the
+   * board gained a hand-dragged order that order came with it — ranking a client's finished work
+   * by its position in a kanban column (2026-08-26).
+   */
+  view: z.enum(["board", "table", "entity"]).default("board"),
   /** board + table: the board defaults to open work, "done" is its own view */
   status: z.enum(["all", "open", "done", "cancelled"]).default("all"),
   /**

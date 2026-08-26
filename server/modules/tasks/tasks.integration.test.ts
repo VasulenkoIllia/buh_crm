@@ -1623,6 +1623,7 @@ describe("tasks", () => {
 
   describe("board order", () => {
     let columnId: string;
+    let clientId: string;
     let ids: string[] = [];
 
     const board = async (query = "") => {
@@ -1646,6 +1647,13 @@ describe("tasks", () => {
       });
 
     beforeAll(async () => {
+      const client = await app.inject({
+        method: "POST",
+        url: "/api/clients",
+        headers: { cookie: adminCookie },
+        payload: { firstName: "Board", lastName: "Order", companies: [], people: [] },
+      });
+      clientId = client.json().id;
       const col = await app.inject({
         method: "POST",
         url: "/api/tasks/columns",
@@ -1660,7 +1668,13 @@ describe("tasks", () => {
           method: "POST",
           url: "/api/tasks",
           headers: { cookie: adminCookie },
-          payload: { title, statusColumnId: columnId, assignees: [adminId] },
+          payload: {
+            title,
+            statusColumnId: columnId,
+            clientId,
+            internal: true, // attribution only — no service, nothing to bill
+            assignees: [adminId],
+          },
         });
         expect(res.statusCode).toBe(201);
         ids.push(res.json().id);
@@ -1671,6 +1685,7 @@ describe("tasks", () => {
       await prisma.taskAssignee.deleteMany({ where: { taskId: { in: ids } } });
       await prisma.task.deleteMany({ where: { statusColumnId: columnId } });
       await prisma.taskColumn.deleteMany({ where: { id: columnId } });
+      await prisma.client.deleteMany({ where: { id: clientId } });
     });
 
     const [A, B, C] = [0, 1, 2];
@@ -1725,6 +1740,36 @@ describe("tasks", () => {
       await prisma.taskAssignee.deleteMany({ where: { taskId: d } });
       await prisma.task.deleteMany({ where: { id: d } });
       await prisma.taskColumn.deleteMany({ where: { id: otherId } });
+    });
+
+    it("the board's order stays on the BOARD — a card rollup and the table read newest-first", async () => {
+      // The regression this pins: making board order the repository's default silently re-sorted
+      // the table and every client/lead card rollup by a number that only means anything inside
+      // one column — including their FINISHED work (2026-08-26 audit).
+      const drag = await board();
+      expect(drag[0]).not.toBe("A"); // the board is in dragged order, not creation order
+
+      const rollup = await app.inject({
+        method: "GET",
+        url: `/api/tasks?view=entity&clientId=${clientId}`,
+        headers: { cookie: adminCookie },
+      });
+      expect(rollup.statusCode).toBe(200);
+      const mine = (rollup.json().items as { id: string; title: string }[]).filter((t) =>
+        ids.includes(t.id),
+      );
+      // newest first, whatever the board says — C was created last
+      expect(mine.map((t) => t.title)).toEqual(["C", "B", "A"]);
+
+      const table = await app.inject({
+        method: "GET",
+        url: `/api/tasks?view=table&clientId=${clientId}`,
+        headers: { cookie: adminCookie },
+      });
+      const rows = (table.json().items as { id: string; title: string }[]).filter((t) =>
+        ids.includes(t.id),
+      );
+      expect(rows.map((t) => t.title)).toEqual(["C", "B", "A"]);
     });
 
     it("a move on a FILTERED board leaves the hidden cards where they were", async () => {

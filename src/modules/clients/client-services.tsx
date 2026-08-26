@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Pencil, RotateCcw, Star } from "lucide-react";
 import type { Client, Subscription } from "@shared/schema/client";
-import { isClientFacing, billsPerJob} from "@shared/schema/catalog";
+import { billsPerJob, isClientFacing } from "@shared/schema/catalog";
 import type { Service, TaskOverride, TaskTemplate } from "@shared/schema/catalog";
 import type { BillingPeriod } from "@shared/schema/enums";
 import {
@@ -16,6 +16,7 @@ import { cn } from "@/shared/lib/cn";
 import { fmtBizDate, todayIso } from "@/shared/lib/format";
 import { fmtMoney } from "@/shared/lib/money";
 import { Button, IconButton } from "@/shared/ui/button";
+import { PERIOD_LABEL } from "./recurring";
 import { Chip } from "@/shared/ui/chip";
 import { ChecklistEditor } from "@/shared/ui/checklist-editor";
 import { FormField, Input, Label, Select } from "@/shared/ui/field";
@@ -52,12 +53,6 @@ const rhythmEdited = (o?: TaskOverride) =>
     o.deadlineOffsetDays !== undefined ||
     o.estimatedMinutes !== undefined ||
     o.checklist !== undefined);
-
-const PERIOD_LABEL: Record<BillingPeriod, string> = {
-  month: "monthly",
-  quarter: "quarterly",
-  year: "yearly",
-};
 
 type BillingTiming = { trigger: "on_period_start" | "on_period_end"; day: number | null };
 

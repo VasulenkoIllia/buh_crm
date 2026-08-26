@@ -137,7 +137,9 @@ export function useTasksFor(filter: { clientId?: string; leadId?: string }) {
   const key = filter.clientId ? `clientId=${filter.clientId}` : `leadId=${filter.leadId}`;
   return useQuery({
     queryKey: [...TASKS_KEY, "for", key],
-    queryFn: () => api<TaskListResponse>(`/api/tasks?view=board&${key}`),
+    // `entity`, not `board`: unpaginated like the board, but ordered like the list it is — asking
+    // for `board` here meant a client's finished work came back ranked by kanban position
+    queryFn: () => api<TaskListResponse>(`/api/tasks?view=entity&${key}`),
     enabled: !!(filter.clientId || filter.leadId),
   });
 }

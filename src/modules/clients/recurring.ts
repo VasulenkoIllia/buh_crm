@@ -1,5 +1,6 @@
 import type { Client } from "@shared/schema/client";
 import { billsPerJob, type Service } from "@shared/schema/catalog";
+import type { BillingPeriod } from "@shared/schema/enums";
 
 /**
  * What the firm bills a client EVERY PERIOD, kept apart by period.
@@ -15,15 +16,29 @@ import { billsPerJob, type Service } from "@shared/schema/catalog";
  * **Periods are never added together.** $600 a month and $300 a quarter have no common total that
  * anyone bills, so both are returned and the row shows both rather than inventing one number.
  */
-export const PERIOD_ORDER = ["month", "quarter", "year"] as const;
+export const PERIOD_ORDER: BillingPeriod[] = ["month", "quarter", "year"];
 
-export type RecurringTotal = [period: string, amount: number];
+/** How a period is written out. One map — the clients list had a second, identical copy. */
+export const PERIOD_LABEL: Record<BillingPeriod, string> = {
+  month: "monthly",
+  quarter: "quarterly",
+  year: "yearly",
+};
+
+/** …and the short form, for the cell that has to fit several of them beside figures. */
+export const PERIOD_SHORT: Record<BillingPeriod, string> = {
+  month: "mo",
+  quarter: "qtr",
+  year: "yr",
+};
+
+export type RecurringTotal = [period: BillingPeriod, amount: number];
 
 export function recurringByPeriod(
   client: Pick<Client, "subscriptions">,
   serviceById: Map<string, Pick<Service, "type">>,
 ): RecurringTotal[] {
-  const totals = new Map<string, number>();
+  const totals = new Map<BillingPeriod, number>();
   for (const sub of client.subscriptions) {
     // `period === null` already means one-time, but the service's type is the rule the rest of the
     // app derives from — checking both means neither alone can quietly let a job price through
@@ -33,8 +48,6 @@ export function recurringByPeriod(
     totals.set(sub.period, (totals.get(sub.period) ?? 0) + sub.amount);
   }
   return [...totals.entries()].sort(
-    (a, b) =>
-      PERIOD_ORDER.indexOf(a[0] as (typeof PERIOD_ORDER)[number]) -
-      PERIOD_ORDER.indexOf(b[0] as (typeof PERIOD_ORDER)[number]),
+    (a, b) => PERIOD_ORDER.indexOf(a[0]) - PERIOD_ORDER.indexOf(b[0]),
   );
 }

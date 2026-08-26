@@ -462,7 +462,18 @@ function Board({
       const wasAt = ids.indexOf(taskId);
       if ((wasAt === 0 ? null : ids[wasAt - 1]) === afterTaskId) return;
     }
-    move.mutate({ id: taskId, input: { statusColumnId: columnId, afterTaskId } });
+    move.mutate(
+      { id: taskId, input: { statusColumnId: columnId, afterTaskId } },
+      {
+        // the optimistic move rolls back on failure, and a card sliding back to where it came from
+        // with nothing said is indistinguishable from a drag that never took
+        onError: (err) =>
+          window.alert(
+            `Could not move “${task.title}”.\n\n` +
+              (err instanceof Error ? err.message : "Please try again."),
+          ),
+      },
+    );
   };
 
   return (
@@ -532,7 +543,18 @@ function BoardColumn({
             onBlur={() => {
               const trimmed = name.trim();
               if (trimmed && trimmed !== column.name) {
-                rename.mutate({ id: column.id, input: { name: trimmed } });
+                rename.mutate(
+                  { id: column.id, input: { name: trimmed } },
+                  {
+                    onError: (err) => {
+                      setName(column.name); // put the field back to what is actually stored
+                      window.alert(
+                        `Could not rename the column.\n\n` +
+                          (err instanceof Error ? err.message : "Please try again."),
+                      );
+                    },
+                  },
+                );
               } else setName(column.name);
             }}
           />
@@ -565,7 +587,20 @@ function BoardColumn({
               type="button"
               aria-label="Delete column"
               className="text-[15px] text-[#b6bcc5] hover:text-danger"
-              onClick={() => remove.mutate(column.id)}
+              // `tasks.length` is what the FILTERS left in this column, not what it holds: with a
+              // filter on, an empty-looking column can still have work in it and the server
+              // refuses the delete. Saying so beats a button that does nothing (2026-08-27 audit).
+              onClick={() =>
+                remove.mutate(column.id, {
+                  onError: (err) =>
+                    window.alert(
+                      `Could not delete “${column.name}”.\n\n` +
+                        (err instanceof Error
+                          ? err.message
+                          : "It may still hold tasks that the current filters hide."),
+                    ),
+                })
+              }
             >
               ×
             </button>

@@ -189,6 +189,26 @@ export async function removeColumn(id: string) {
 /** The board is a working surface, not an archive — cap it and SAY so when it's capped. */
 const BOARD_LIMIT = 500;
 
+/**
+ * Which order a read comes back in. Stated per view rather than left to a default, because the
+ * three want different things and one of them is a board.
+ *
+ * - finished work: newest-finished-first, whatever board column it ended in;
+ * - the BOARD: column by column, and inside each the order someone dragged it into;
+ * - everything else — the table, a card's rollup: newest first, the ordinary list order.
+ */
+function orderFor(query: TaskListQuery): Prisma.TaskOrderByWithRelationInput[] {
+  if (query.status === "done") {
+    return [{ completedAt: "desc" }, { createdAt: "desc" }]; // legacy rows have no stamp
+  }
+  if (query.view === "board") {
+    // the column key matters for readers that do NOT group by column themselves: without it the
+    // cards of every column interleave by a number that is only comparable within one
+    return [{ statusColumn: { order: "asc" } }, { boardOrder: "asc" }, { createdAt: "desc" }];
+  }
+  return [{ createdAt: "desc" }];
+}
+
 export async function listTasks(query: TaskListQuery) {
   const today = todayBusinessMs(config.TZ);
   // Every filter is ANDed rather than assigned onto one object: two filters that touch the same
@@ -252,11 +272,7 @@ export async function listTasks(query: TaskListQuery) {
     where,
     skip: paged ? (query.page - 1) * query.pageSize : 0,
     take,
-    // finished work reads newest-finished-first; open work newest-created-first
-    orderBy:
-      query.status === "done"
-        ? [{ completedAt: "desc" }, { createdAt: "desc" }] // legacy rows have no stamp
-        : undefined,
+    orderBy: orderFor(query),
   });
   return {
     // one "today" for the whole page — every row's invoice status is decided against the same day
@@ -326,16 +342,16 @@ async function resolvePriorityColumn(priorityId?: string, statusColumnId?: strin
  * board fires it on every drop.
  */
 export async function moveTask(taskId: string, input: MoveTaskInput) {
-  const task = await repo.findTask(taskId);
-  if (!task || task.archivedAt) throw new NotFoundError("Task not found");
+  // the module's own liveness rule, not a second one: it also refuses work whose CLIENT or LEAD is
+  // archived, which is off every board and must not be re-arranged on one
+  liveTaskOr404(await repo.findTask(taskId));
   const column = await repo.findColumn(input.statusColumnId);
   if (!column) throw new ValidationError("Unknown column");
   if (input.afterTaskId === taskId) {
     throw new ValidationError("A task cannot be dropped after itself");
   }
   await repo.moveTaskInBoard(taskId, input.statusColumnId, input.afterTaskId);
-  const moved = await repo.findTask(taskId);
-  return toTaskDto(moved!, todayBusinessMs(config.TZ));
+  return toTaskDto(liveTaskOr404(await repo.findTask(taskId)), todayBusinessMs(config.TZ));
 }
 
 export async function createTask(input: CreateTaskInput, actor: User) {

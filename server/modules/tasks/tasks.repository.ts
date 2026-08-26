@@ -59,8 +59,9 @@ export async function moveTaskInBoard(
     const inColumn = await tx.task.findMany({
       where: { statusColumnId: columnId, id: { not: taskId } },
       orderBy: [{ boardOrder: "asc" }, { createdAt: "desc" }],
-      select: { id: true },
+      select: { id: true, boardOrder: true },
     });
+    const was = new Map(inColumn.map((t) => [t.id, t.boardOrder]));
     const ids = inColumn.map((t) => t.id);
 
     // an anchor that is not in this column (a stale board, a card moved by someone else) means the
@@ -68,13 +69,17 @@ export async function moveTaskInBoard(
     const at = afterTaskId ? ids.indexOf(afterTaskId) : -1;
     ids.splice(at + 1, 0, taskId);
 
-    await tx.task.update({
-      where: { id: taskId },
-      data: { statusColumnId: columnId },
-    });
+    // Renumber in full, but WRITE only the rows whose number actually changes. A drop one place
+    // down touches two rows, not the whole column — which is what keeps this honest on a column
+    // that has grown past the board's own 500-card cap.
     for (const [order, id] of ids.entries()) {
+      if (id === taskId || was.get(id) === order) continue;
       await tx.task.update({ where: { id }, data: { boardOrder: order } });
     }
+    await tx.task.update({
+      where: { id: taskId },
+      data: { statusColumnId: columnId, boardOrder: ids.indexOf(taskId) },
+    });
   });
 }
 
@@ -213,9 +218,10 @@ export async function listTasks(args: {
     prisma.task.findMany({
       where: args.where,
       include: taskInclude,
-      // the board's own hand-dragged order; `createdAt desc` breaks ties, which is what the whole
-      // board used to be sorted by and what the back-fill reproduced
-      orderBy: args.orderBy ?? [{ boardOrder: "asc" }, { createdAt: "desc" }],
+      // newest first — the ordinary list order. The BOARD passes its own (see `listTasks` in the
+      // service): making the board's order the default here silently re-sorted the table and the
+      // card rollups by a number that only means anything inside one column.
+      orderBy: args.orderBy ?? [{ createdAt: "desc" }],
       skip: args.skip,
       take: args.take,
     }),
