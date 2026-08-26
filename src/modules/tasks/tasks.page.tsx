@@ -4,20 +4,18 @@ import {
   DndContext,
   PointerSensor,
   closestCenter,
+  pointerWithin,
   useDroppable,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import {
-  SortableContext,
-  arrayMove,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { Task, TaskColumn } from "@shared/schema/task";
 import { useAuth } from "@/app/auth";
+import { resolveDrop } from "./board-drop";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { useSettings } from "@/modules/settings";
 import { cn } from "@/shared/lib/cn";
@@ -427,57 +425,48 @@ function Board({
   }, [columns, tasks]);
 
   /**
-   * Where the card was dropped, as a NEIGHBOUR rather than an index.
-   *
-   * `over` is a card when the pointer is on one and the column when it is on the empty space
-   * below, which is why both are droppable. The new arrangement is worked out here on the ids the
-   * reader can actually see, and only the resulting anchor is sent — the server re-numbers the
-   * whole column against it, so cards a filter is hiding keep their places.
+   * A card is dropped ON another card, or on the empty space of a column — dnd-kit reports either.
+   * Working out what that means is `resolveDrop`, on its own and under test: the first version was
+   * inline here and silently mishandled the column case (2026-08-27).
    */
   const onDragEnd = (event: DragEndEvent) => {
     const taskId = String(event.active.id);
-    const overId = event.over ? String(event.over.id) : null;
     const task = tasks.find((t) => t.id === taskId);
-    if (!overId || !task) return;
+    const ids = new Map([...byColumn].map(([column, list]) => [column, list.map((t) => t.id)]));
+    const target = resolveDrop(ids, taskId, event.over ? String(event.over.id) : null);
+    if (!target || !task) return;
 
-    const overTask = tasks.find((t) => t.id === overId);
-    const columnId = overTask ? overTask.statusColumnId : overId;
-    if (!columns.some((c) => c.id === columnId)) return;
-
-    const ids = (byColumn.get(columnId) ?? []).map((t) => t.id);
-    const sameColumn = task.statusColumnId === columnId;
-    const ordered = sameColumn
-      ? arrayMove(ids, ids.indexOf(taskId), ids.indexOf(overId))
-      : // dropped ON a card → take its place; on the column's empty space → the end
-        (() => {
-          const at = overTask ? ids.indexOf(overId) : ids.length;
-          return [...ids.slice(0, at), taskId, ...ids.slice(at)];
-        })();
-
-    const at = ordered.indexOf(taskId);
-    const afterTaskId = at === 0 ? null : (ordered[at - 1] ?? null);
-
-    // dropped back where it started — a drag that changes nothing must not write anything
-    if (sameColumn) {
-      const wasAt = ids.indexOf(taskId);
-      if ((wasAt === 0 ? null : ids[wasAt - 1]) === afterTaskId) return;
-    }
     move.mutate(
-      { id: taskId, input: { statusColumnId: columnId, afterTaskId } },
+      { id: taskId, input: target },
       {
         // the optimistic move rolls back on failure, and a card sliding back to where it came from
         // with nothing said is indistinguishable from a drag that never took
         onError: (err) =>
           window.alert(
-            `Could not move “${task.title}”.\n\n` +
+            `Could not move \u201c${task.title}\u201d.\n\n` +
               (err instanceof Error ? err.message : "Please try again."),
           ),
       },
     );
   };
 
+  /**
+   * Cards win over the column they sit in.
+   *
+   * Both are droppable — the column so a card can land on the empty space below, and in a column
+   * that holds none. With `closestCenter` alone the column's centre can be nearer than a card's,
+   * and a SHORT column is mostly empty space: with two cards the column kept winning while the
+   * pointer was plainly on a card, which is what "it lags with two cards" was.
+   */
+  const collisionDetection: CollisionDetection = (args) => {
+    const within = pointerWithin(args);
+    const onCard = within.filter((c) => !byColumn.has(String(c.id)));
+    if (onCard.length > 0) return onCard;
+    return within.length > 0 ? within : closestCenter(args);
+  };
+
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+    <DndContext sensors={sensors} collisionDetection={collisionDetection} onDragEnd={onDragEnd}>
       <div className="flex flex-1 items-start gap-3 overflow-auto p-3.5">
         {columns.map((column) => (
           <BoardColumn
