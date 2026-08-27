@@ -4,6 +4,7 @@ import type { LetterPreview } from "@shared/schema/mailouts";
 import type { MailoutKind } from "@shared/schema/enums";
 import { MAIL_VARIABLES } from "@shared/mailouts";
 import { Modal } from "@/shared/ui/modal";
+import { InfoHint } from "@/shared/ui/info-hint";
 import { Segmented } from "@/shared/ui/segmented";
 import { LetterFrame } from "./letter-frame";
 import { usePreviewLetter } from "./mailouts.api";
@@ -152,9 +153,13 @@ export function LetterPreviewModal({
         <p className="text-[13px] text-muted">Rendering…</p>
       )}
 
-      <p className="mt-2 text-[12px] text-muted-400">
-        Sample values. The frame — logo, signature, contact buttons, footer — is the same on
-        every letter and is not editable per template.
+      {/* reference: true of every preview, and read once */}
+      <p className="mt-2 flex items-center gap-1.5 text-[12px] text-muted-400">
+        Sample values
+        <InfoHint label="What is a sample and what is fixed">
+          The frame — logo, signature, contact buttons, footer — is the same on every letter and is
+          not editable per template.
+        </InfoHint>
       </p>
     </Modal>
   );

@@ -4,6 +4,7 @@ import type { MailSenderAccountDto } from "@shared/schema/mailouts";
 import { Button } from "@/shared/ui/button";
 import { FormField, Input, Textarea } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
+import { InfoHint } from "@/shared/ui/info-hint";
 import { Segmented } from "@/shared/ui/segmented";
 import { useCreateSender, useUpdateSender } from "./mailouts.api";
 
@@ -301,9 +302,12 @@ export function SenderAccountModal({
         {transport === "server" ? (
           <div className="rounded-(--radius-field) border border-border bg-surface px-3 py-2.5">
             <p className="font-mono text-[12px] text-ink-700">{server.label}</p>
-            <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
-              The account that already sends invites and password resets. Nothing to configure,
-              and it works today — which is why a new firm starts here.
+            {/* reference: what the built-in mailbox IS — read once, then never again */}
+            <p className="mt-1.5 text-[12px] leading-relaxed text-muted flex items-center gap-1.5">
+              Server mailbox
+              <InfoHint label="What the server mailbox is">
+                The account that already sends invites and password resets. Nothing to configure, and it works today — which is why a new firm starts here.
+              </InfoHint>
             </p>
             <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
               It can normally only send as <span className="font-mono">{server.fromEmail}</span>

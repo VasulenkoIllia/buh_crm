@@ -17,6 +17,7 @@ import { ChecklistEditor } from "@/shared/ui/checklist-editor";
 import { FormField, Input, Label, Textarea } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
 import { pillCls } from "@/shared/ui/pill";
+import { InfoHint } from "@/shared/ui/info-hint";
 import { Segmented } from "@/shared/ui/segmented";
 import { Tabs } from "@/shared/ui/tabs";
 import {
@@ -700,13 +701,16 @@ function ServiceEditorModal({
               subscription — here you only set WHEN in that period the invoice is issued.
             </p>
           )}
-          <p className="mt-2 text-[12px] text-faint">
-            The expected price prefills the per-client form — the final price is set when the
-            service is added to a client.
-          </p>
-          <p className="mt-1 text-[12px] text-faint">
-            Work rhythm and planned time live on the item's task templates — expand the row and use
-            “+ Add task template”.
+          {/* Both are REFERENCE — true, worth knowing once, and not worth two paragraphs under
+              every visit to this form. The rule above them stays on the page: it corrects a
+              misreading at the moment of choosing, which an icon cannot do. */}
+          <p className="mt-2 flex items-center gap-1.5 text-[12px] text-faint">
+            Prices and rhythm
+            <InfoHint label="How the price and the rhythm are used">
+              The expected price prefills the per-client form — the final price is set when the
+              service is added to a client. Work rhythm and planned time live on the item&apos;s
+              task templates: expand the row and use “+ Add task template”.
+            </InfoHint>
           </p>
         </div>
         )}
