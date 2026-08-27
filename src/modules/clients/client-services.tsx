@@ -145,17 +145,22 @@ function DueDaysField({
 }) {
   // subscription-level: null inherits the service preset (the preset itself may be "never")
   return (
-    <div className="flex items-center gap-2 text-[13px]">
-      <span>Invoice overdue after</span>
+    /* One flex row with no wrap squeezed three items into a 500px modal: the label broke across
+       two lines around the input and the trailing text was cut off mid-word (user, 2026-08-27).
+       Wrapping, with each phrase kept whole, drops cleanly onto a second line instead. */
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]">
+      <span className="whitespace-nowrap">Invoice overdue after</span>
       <Input
-        className="w-14"
+        className="w-16"
         type="number"
         min={1}
         max={365}
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
       />
-      <span className="text-muted">days after it’s issued (empty = service default)</span>
+      {/* the "empty means" half is a RULE and stays on the surface — it is what the empty field
+          you are looking at actually does */}
+      <span className="whitespace-nowrap text-muted">days — empty = the service&apos;s own setting</span>
     </div>
   );
 }
