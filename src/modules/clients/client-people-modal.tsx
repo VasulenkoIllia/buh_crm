@@ -54,9 +54,10 @@ export function ClientPeopleModal({
       }
     >
       <div className="space-y-3">
+        {/* shortened, not hidden: the second half ("add, edit, remove, then Save") is what the
+            buttons in this modal already say out loud */}
         <p className="text-[12px] text-muted">
-          Contacts for this client and the service each of them handles. Add, edit, or remove
-          people, then Save.
+          Contacts for this client, and the service each of them handles.
         </p>
         <PeopleEditor value={rows} onChange={setRows} />
         {serverError && <p className="text-[12px] text-danger-text">{serverError}</p>}

@@ -455,10 +455,12 @@ export function SenderAccountModal({
                 </FormField>
               </div>
             ) : (
-              <p className="flex gap-1.5 text-[11px] leading-relaxed text-muted-400">
-                <Info size={13} className="mt-0.5 shrink-0" />
-                The SMTP username and password above are reused — one mailbox, two protocols,
-                which is what nearly every host expects. Test connection proves it either way.
+              // reference: it already wore an info icon AND a paragraph; now only the icon
+              <p className="flex items-center gap-1.5 text-[11px] text-muted-400">
+                Uses the SMTP credentials above
+                <InfoHint label="Which credentials IMAP uses">
+                  The SMTP username and password above are reused — one mailbox, two protocols, which is what nearly every host expects. Test connection proves it either way.
+                </InfoHint>
               </p>
             )}
           </>

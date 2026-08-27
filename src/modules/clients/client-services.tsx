@@ -21,6 +21,7 @@ import { Chip } from "@/shared/ui/chip";
 import { ChecklistEditor } from "@/shared/ui/checklist-editor";
 import { FormField, Input, Label, Select } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
+import { InfoHint } from "@/shared/ui/info-hint";
 import { ScrollBox } from "@/shared/ui/scroll-box";
 import { pillCls } from "@/shared/ui/pill";
 import {
@@ -483,8 +484,12 @@ function SubscriptionTasks({
 
   return (
     <div className="border-b border-divider bg-[#fafbfc] px-4 py-2 pl-9">
-      <div className="mb-1 text-[11px] font-medium uppercase tracking-[.4px] text-muted-400">
+      <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[.4px] text-muted-400">
         Tasks for this client
+        <InfoHint label="Where these tasks come from">
+          Defaults come from the service — tune rhythm, planned time or drop a task for this
+          client. Tasks are generated per rhythm with the Tasks stage (S6).
+        </InfoHint>
       </div>
       {service.taskTemplates.map((t) => {
         const ov = overrides[t.id];
@@ -528,10 +533,6 @@ function SubscriptionTasks({
           </div>
         );
       })}
-      <p className="mt-1 text-[12px] text-faint">
-        Defaults come from the service — tune rhythm, planned time or drop a task for this client.
-        Tasks are generated per rhythm with the Tasks stage (S6).
-      </p>
       {serverError && <p className="mt-1 text-[12px] text-danger-text">{serverError}</p>}
       {editing && (
         <TaskOverrideModal
@@ -970,7 +971,15 @@ export function AddServiceModal({
 
         {selected && (
           <div className="rounded-(--radius-field) bg-[#f7f8fa] p-2.5">
-            <Label>{isOneTime ? "Default job price for this client" : "Price for this client"}</Label>
+            <Label>
+              {isOneTime ? "Default job price for this client" : "Price for this client"}{" "}
+              {/* reference: what this price DOES. The rules above it stay on the page. */}
+              <InfoHint label="How this price is used">
+                {isOneTime
+                  ? "A one-time service is a container for manual jobs. This price only prefills each new task — the actual price is set on the task itself (Tasks, S6)."
+                  : "Prefilled from the catalog presets — adjust everything for this client."}
+              </InfoHint>
+            </Label>
             <div className="flex items-center gap-2">
               <span className="text-[13px] text-muted">$</span>
               <Input
@@ -1017,11 +1026,6 @@ export function AddServiceModal({
             <div className="mt-2.5">
               <DueDaysField value={dueDays} onChange={setDueDays} />
             </div>
-            <p className="mt-1.5 text-[11px] leading-snug text-faint">
-              {isOneTime
-                ? "One-time service = a container for manual jobs. This price only prefills each new task — the actual price is set on the task itself (Tasks, S6)."
-                : "Prefilled from the catalog presets — adjust everything for this client."}
-            </p>
           </div>
         )}
         {serverError && <p className="text-[12px] text-danger-text">{serverError}</p>}
