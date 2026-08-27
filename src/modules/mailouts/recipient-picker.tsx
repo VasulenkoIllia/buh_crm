@@ -5,6 +5,7 @@ import { useClients } from "@/modules/clients";
 import { useCatalog } from "@/modules/catalog";
 import { cn } from "@/shared/lib/cn";
 import { Input, Select } from "@/shared/ui/field";
+import { ScrollBox } from "@/shared/ui/scroll-box";
 
 /** The list is long; ask the server rather than filtering a page of 25 in the browser. */
 const PICKER_PAGE_SIZE = 100;
@@ -161,7 +162,9 @@ export function RecipientPicker({
         </div>
       )}
 
-      <div className="max-h-[330px] overflow-y-auto rounded-(--radius-field) border border-border">
+      {/* `stable`: the search above narrows this list on every keystroke, and a box that resized
+          with it moved the "showing N of M" line and the modal's buttons under the cursor */}
+      <ScrollBox height={330} stable>
         {clients.isLoading ? (
           <p className="p-3 text-[13px] text-muted">Loading…</p>
         ) : visible.length === 0 ? (
@@ -190,7 +193,7 @@ export function RecipientPicker({
             </div>
           ))
         )}
-      </div>
+      </ScrollBox>
 
       {clients.data && clients.data.total > visible.length && (
         <p className="text-[12px] text-muted">

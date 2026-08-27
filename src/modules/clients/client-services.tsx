@@ -21,6 +21,7 @@ import { Chip } from "@/shared/ui/chip";
 import { ChecklistEditor } from "@/shared/ui/checklist-editor";
 import { FormField, Input, Label, Select } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
+import { ScrollBox } from "@/shared/ui/scroll-box";
 import { pillCls } from "@/shared/ui/pill";
 import {
   useAddSubscription,
@@ -819,9 +820,27 @@ export function AddServiceModal({
   const [startsOn, setStartsOn] = useState(todayIso());
   const [dueDays, setDueDays] = useState<number | null>(null);
   const [companyId, setCompanyId] = useState("");
+  const [query, setQuery] = useState("");
 
   const active = (services ?? []).filter((s) => s.active && isClientFacing(s));
   const selected = active.find((s) => s.id === serviceId);
+
+  /**
+   * The filter appears exactly when the list stops fitting.
+   *
+   * The box is `max-h-56` and a row is about 37px, so beyond six the reader is scrolling to find
+   * something — which is the moment a search earns its row of space, and before which it is
+   * clutter over a list you can already see whole (the firm's catalog runs to twenty).
+   */
+  const VISIBLE_ROWS = 6;
+  const searchable = active.length > VISIBLE_ROWS;
+  const q = query.trim().toLowerCase();
+  const shown = active.filter(
+    // the PICKED service always stays on screen, however the query narrows: the panel below names
+    // a price but never the service, so filtering the selection away would leave nothing saying
+    // what is about to be added
+    (s) => !q || s.id === serviceId || s.name.toLowerCase().includes(q),
+  );
   // one-time service = container for manual jobs: no billing period, bills per job
   const isOneTime = selected ? billsPerJob(selected) : false;
 
@@ -879,37 +898,62 @@ export function AddServiceModal({
       }
     >
       <div className="space-y-3">
-        <FormField label="Service starts on" htmlFor="sub-starts">
-          {/* today or later — the server refuses a backdated start, so the picker shouldn't
-              offer one either (user, 2026-08-01) */}
-          <Input
-            id="sub-starts"
-            type="date"
-            className="w-44"
-            min={todayIso()}
-            value={startsOn}
-            onChange={(e) => setStartsOn(e.target.value)}
-          />
-        </FormField>
-        <p className="text-[12px] text-muted">
-          Today or a future date — a service is never agreed backwards. Work already done is billed
+        {/* The date and the service filter share a row: one is narrow by nature and left a hand's
+            width of nothing beside it, and the two together are simply "what, and from when". */}
+        <div className="flex items-end gap-3">
+          <FormField label="Service starts on" htmlFor="sub-starts">
+            {/* today or later — the server refuses a backdated start, so the picker shouldn't
+                offer one either (user, 2026-08-01) */}
+            <Input
+              id="sub-starts"
+              type="date"
+              className="w-40"
+              min={todayIso()}
+              value={startsOn}
+              onChange={(e) => setStartsOn(e.target.value)}
+            />
+          </FormField>
+          {searchable && (
+            <div className="min-w-0 flex-1">
+              <Label htmlFor="sub-search">Service</Label>
+              <Input
+                id="sub-search"
+                type="search"
+                placeholder="🔍 Search the catalog…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </div>
+          )}
+        </div>
+        {/* Three rules, and all three are worth knowing before you agree a service — but as a
+            four-line paragraph they were the biggest thing in the form. Same words, quieter. */}
+        <p className="-mt-1 text-[11px] leading-snug text-faint">
+          Today or a future date — a service is never agreed backwards; work already done is billed
           with a one-off invoice. No end date either: it runs until someone pauses it. A period
-          served only in part (a start mid-period) isn&apos;t invoiced automatically — you&apos;ll
-          get a reminder task to issue that one by hand.
+          served only in part isn&apos;t invoiced automatically — you&apos;ll get a reminder task to
+          issue that one by hand.
         </p>
-        <div className="max-h-56 overflow-y-auto rounded-(--radius-field) border border-border">
+        {/* `stable` exactly when the filter is there: without it every keystroke resized the box
+            and the price panel below jumped up and down while you were still typing */}
+        <ScrollBox height={224} stable={searchable}>
           {active.length === 0 && (
             <p className="px-3 py-4 text-[13px] text-muted">
               The catalog is empty — create services on the Services page first.
             </p>
           )}
-          {active.map((s) => (
+          {active.length > 0 && shown.length === 0 && (
+            <p className="px-3 py-4 text-[13px] text-muted">
+              No service matches “{query.trim()}”.
+            </p>
+          )}
+          {shown.map((s) => (
             <button
               key={s.id}
               type="button"
               onClick={() => pick(s.id)}
               className={cn(
-                "flex w-full items-center gap-2 border-b border-divider px-3 py-2 text-left text-[13px] last:border-0 hover:bg-divider/40",
+                "flex w-full items-center gap-2 border-b border-divider px-3 py-1.5 text-left text-[13px] last:border-0 hover:bg-divider/40",
                 serviceId === s.id && "bg-[#eef1fb]",
               )}
             >
@@ -922,10 +966,10 @@ export function AddServiceModal({
               </span>
             </button>
           ))}
-        </div>
+        </ScrollBox>
 
         {selected && (
-          <div className="rounded-(--radius-field) bg-[#f7f8fa] p-3">
+          <div className="rounded-(--radius-field) bg-[#f7f8fa] p-2.5">
             <Label>{isOneTime ? "Default job price for this client" : "Price for this client"}</Label>
             <div className="flex items-center gap-2">
               <span className="text-[13px] text-muted">$</span>
@@ -973,7 +1017,7 @@ export function AddServiceModal({
             <div className="mt-2.5">
               <DueDaysField value={dueDays} onChange={setDueDays} />
             </div>
-            <p className="mt-1.5 text-[12px] text-faint">
+            <p className="mt-1.5 text-[11px] leading-snug text-faint">
               {isOneTime
                 ? "One-time service = a container for manual jobs. This price only prefills each new task — the actual price is set on the task itself (Tasks, S6)."
                 : "Prefilled from the catalog presets — adjust everything for this client."}
