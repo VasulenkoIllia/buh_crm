@@ -5,6 +5,7 @@ import type {
   Service,
   UpdateServiceInput,
   UpdateTaskTemplateInput,
+  MoveServiceInput,
 } from "@shared/schema/catalog";
 import { api } from "@/shared/lib/api";
 import { CATALOG_KEY } from "@/shared/lib/query-keys";
@@ -38,6 +39,41 @@ export function useUpdateService() {
     mutationFn: ({ id, input }: { id: string; input: UpdateServiceInput }) =>
       api<Service>(`/api/catalog/${id}`, { method: "PATCH", body: input }),
     onSuccess: invalidate,
+  });
+}
+
+/**
+ * Dragging a service into place in the catalog.
+ *
+ * Optimistic, like the board's drop: without it the row springs back and only settles when the
+ * server answers, which reads as a drag that did not take. The whole catalog is one cached list,
+ * so the reorder is applied to it exactly as the server will apply it.
+ */
+export function useMoveService() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: MoveServiceInput }) =>
+      api<Service[]>(`/api/catalog/${id}/position`, { method: "PATCH", body: input }),
+
+    onMutate: async ({ id, input }) => {
+      await queryClient.cancelQueries({ queryKey: CATALOG_KEY });
+      const snapshot = queryClient.getQueryData<Service[]>(CATALOG_KEY);
+      queryClient.setQueryData<Service[]>(CATALOG_KEY, (old) => {
+        if (!old) return old;
+        const moving = old.find((s) => s.id === id);
+        if (!moving) return old;
+        const rest = old.filter((s) => s.id !== id);
+        const at = input.afterServiceId ? rest.findIndex((s) => s.id === input.afterServiceId) : -1;
+        rest.splice(at + 1, 0, moving);
+        return rest;
+      });
+      return { snapshot };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.snapshot) queryClient.setQueryData(CATALOG_KEY, ctx.snapshot);
+    },
+    // the server owns the numbering, and it answers with the whole catalog
+    onSuccess: (list) => queryClient.setQueryData(CATALOG_KEY, list),
   });
 }
 

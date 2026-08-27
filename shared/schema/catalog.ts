@@ -33,6 +33,8 @@ export const serviceSchema = z.object({
   active: z.boolean(),
   /** one-time only, ≤1 across the catalog — auto-added to every new client on create */
   autoAddToNewClients: z.boolean(),
+  /** where it sits in the catalog — the firm's own order, honoured by every picker */
+  order: z.number().int(),
   clientsCount: z.number().int(),
   taskTemplates: z.array(taskTemplateSchema),
 });
@@ -227,3 +229,13 @@ export const updateServiceInput = serviceFields
   // type may be absent on PATCH — the service layer re-checks against the merged row
   .refine((v) => v.type === undefined || defaultServiceValid(v), defaultServiceMsg);
 export type UpdateServiceInput = z.infer<typeof updateServiceInput>;
+
+/**
+ * Where to drop a service in the catalog: immediately after `afterServiceId`, `null` = first.
+ *
+ * An ANCHOR, not an index — the Services page shows External and Internal on separate tabs, so an
+ * index means a different place depending on which tab you are looking at. A neighbouring service
+ * means the same thing from either.
+ */
+export const moveServiceInput = z.object({ afterServiceId: uuid.nullable() });
+export type MoveServiceInput = z.infer<typeof moveServiceInput>;

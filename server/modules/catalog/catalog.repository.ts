@@ -18,7 +18,13 @@ export type ServiceRecord = Prisma.ServiceGetPayload<{
 }>;
 
 export function listServices() {
-  return prisma.service.findMany({ include: serviceInclude(), orderBy: { createdAt: "asc" } });
+  // the firm's own order — one read feeds every picker, chip and filter in the app, so this is
+  // where the Services page's drag-and-drop reaches all of them. `createdAt` breaks ties and is
+  // what the list was sorted by before the column existed.
+  return prisma.service.findMany({
+    include: serviceInclude(),
+    orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+  });
 }
 
 export function findService(id: string) {
@@ -125,4 +131,34 @@ export function updateTemplate(id: string, data: Prisma.TaskTemplateUpdateInput)
 
 export function deleteTemplate(id: string) {
   return prisma.taskTemplate.delete({ where: { id } });
+}
+
+/**
+ * Put `serviceId` immediately after `afterServiceId` in the catalog — or first when that is null.
+ *
+ * Renumbers the WHOLE catalog rather than the visible tab: the Services page splits External from
+ * Internal, and numbering only the rows on screen would shuffle the other tab out of the way. The
+ * anchor is a service the reader can see; everything else keeps its relative place. Same rule the
+ * board follows, and the same reason.
+ */
+export async function moveService(serviceId: string, afterServiceId: string | null) {
+  return prisma.$transaction(async (tx) => {
+    const rest = await tx.service.findMany({
+      where: { id: { not: serviceId } },
+      orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+      select: { id: true, order: true },
+    });
+    const was = new Map(rest.map((r) => [r.id, r.order]));
+    const ids = rest.map((r) => r.id);
+    // an anchor that is not in the catalog (a stale page, someone else deleted it) puts the
+    // service first rather than guessing a position from a list that has moved on
+    const at = afterServiceId ? ids.indexOf(afterServiceId) : -1;
+    ids.splice(at + 1, 0, serviceId);
+
+    // renumber in full, WRITE only what actually moves — a drop one place down touches two rows
+    for (const [order, id] of ids.entries()) {
+      if (id !== serviceId && was.get(id) === order) continue;
+      await tx.service.update({ where: { id }, data: { order } });
+    }
+  });
 }

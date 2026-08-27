@@ -1,5 +1,9 @@
 /**
- * Where a dropped card lands, worked out on ids alone — no React, no dnd-kit.
+ * Where a dropped item lands, worked out on ids alone — no React, no dnd-kit.
+ *
+ * Shared because the question is the same wherever something is dragged into an order: the kanban
+ * board, and the service catalog. Only the NAMES differ at the call sites, so they are neutral
+ * here — a "list" is a board column or a whole catalog, and the answer is always a neighbour.
  *
  * Its own module because the first version lived inside the board's `onDragEnd` and was wrong in a
  * way nothing could see: `over` is a CARD when the pointer is on one and the COLUMN when it is on
@@ -11,27 +15,28 @@
  */
 
 export interface DropTarget {
-  statusColumnId: string;
-  /** the card to land behind; `null` = the top of the column */
-  afterTaskId: string | null;
+  /** the list the item landed in — a kanban column, or the single list of a plain sortable */
+  listId: string;
+  /** the item to land behind; `null` = the top of the list */
+  afterId: string | null;
 }
 
 /**
- * `byColumn` is the board as drawn: column id → the ids in it, top to bottom. `overId` is whatever
+ * `lists` is the board as drawn: column id → the ids in it, top to bottom. `overId` is whatever
  * dnd-kit reported — a card id or a column id.
  *
  * Returns `null` for every drop that must NOT be written: nothing under the pointer, a card on
  * itself, an unknown target, or a move that leaves the order exactly as it was.
  */
 export function resolveDrop(
-  byColumn: Map<string, string[]>,
+  lists: Map<string, string[]>,
   activeId: string,
   overId: string | null,
 ): DropTarget | null {
   if (!overId || overId === activeId) return null;
 
   const columnOf = (id: string): string | null => {
-    for (const [column, ids] of byColumn) if (ids.includes(id)) return column;
+    for (const [column, ids] of lists) if (ids.includes(id)) return column;
     return null;
   };
 
@@ -39,12 +44,12 @@ export function resolveDrop(
   if (!from) return null;
 
   // a column id means the empty space below the cards; anything else must be a card on the board
-  const droppedOnColumn = byColumn.has(overId);
+  const droppedOnColumn = lists.has(overId);
   const to = droppedOnColumn ? overId : columnOf(overId);
   if (!to) return null;
 
-  const source = byColumn.get(from) ?? [];
-  const target = (byColumn.get(to) ?? []).filter((id) => id !== activeId);
+  const source = lists.get(from) ?? [];
+  const target = (lists.get(to) ?? []).filter((id) => id !== activeId);
 
   let at: number;
   if (droppedOnColumn) {
@@ -55,16 +60,16 @@ export function resolveDrop(
     // Within one column, a card dragged DOWN onto another lands after it, and one dragged UP lands
     // before it — which is what the eye expects and what the placeholder showed during the drag.
     // Coming from another column it simply takes the place of the card it was dropped on.
-    const movedDown = from === to && source.indexOf(activeId) < (byColumn.get(to) ?? []).indexOf(overId);
+    const movedDown = from === to && source.indexOf(activeId) < (lists.get(to) ?? []).indexOf(overId);
     at = movedDown ? overAt + 1 : overAt;
   }
 
-  const afterTaskId = at === 0 ? null : (target[at - 1] ?? null);
+  const afterId = at === 0 ? null : (target[at - 1] ?? null);
 
   // dropped back where it started — a drag that changes nothing must not write anything
   if (from === to) {
     const wasAt = source.indexOf(activeId);
-    if ((wasAt === 0 ? null : source[wasAt - 1]) === afterTaskId) return null;
+    if ((wasAt === 0 ? null : source[wasAt - 1]) === afterId) return null;
   }
-  return { statusColumnId: to, afterTaskId };
+  return { listId: to, afterId };
 }

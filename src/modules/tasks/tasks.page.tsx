@@ -15,7 +15,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-
 import { CSS } from "@dnd-kit/utilities";
 import type { Task, TaskColumn } from "@shared/schema/task";
 import { useAuth } from "@/app/auth";
-import { resolveDrop } from "./board-drop";
+import { resolveDrop } from "@/shared/lib/drop-target";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { useSettings } from "@/modules/settings";
 import { cn } from "@/shared/lib/cn";
@@ -437,7 +437,8 @@ function Board({
     if (!target || !task) return;
 
     move.mutate(
-      { id: taskId, input: target },
+      // the shared resolver speaks of lists and neighbours; a board calls them columns and cards
+      { id: taskId, input: { statusColumnId: target.listId, afterTaskId: target.afterId } },
       {
         // the optimistic move rolls back on failure, and a card sliding back to where it came from
         // with nothing said is indistinguishable from a drag that never took

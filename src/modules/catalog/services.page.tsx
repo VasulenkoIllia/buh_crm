@@ -21,10 +21,23 @@ import { InfoHint } from "@/shared/ui/info-hint";
 import { Segmented } from "@/shared/ui/segmented";
 import { Tabs } from "@/shared/ui/tabs";
 import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { GripVertical } from "lucide-react";
+import { resolveDrop } from "@/shared/lib/drop-target";
+import {
   useAddTemplate,
   useCatalog,
   useCreateService,
   useDeleteService,
+  useMoveService,
   useDeleteTemplate,
   useUpdateService,
   useUpdateTemplate,
@@ -71,6 +84,9 @@ export function ServicesPage() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [tab, setTab] = useState<"external" | "internal">("external");
 
+  const move = useMoveService();
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+
   // row actions (default flag / deactivate) can be refused by the server — show why
   const rowError = updateService.error instanceof ApiError ? updateService.error.message : null;
 
@@ -89,6 +105,31 @@ export function ServicesPage() {
   const internalCount = services.filter((s) => s.type === "internal").length;
   const externalCount = services.length - internalCount;
   const shown = tab === "internal" ? services.filter((s) => s.type === "internal") : services.filter((s) => s.type !== "internal");
+
+  /**
+   * The catalog is ONE order and the tabs are a filter over it, so the drop is resolved against
+   * the rows on screen and sent as an ANCHOR — "put me after that service". The server renumbers
+   * the whole catalog against it, which is what keeps the other tab's rows where they were.
+   */
+  const onDragEnd = (event: DragEndEvent) => {
+    const id = String(event.active.id);
+    const target = resolveDrop(
+      new Map([["catalog", shown.map((x) => x.id)]]),
+      id,
+      event.over ? String(event.over.id) : null,
+    );
+    if (!target) return;
+    move.mutate(
+      { id, input: { afterServiceId: target.afterId } },
+      {
+        onError: (err) =>
+          window.alert(
+            `Could not move the service.\n\n` +
+              (err instanceof Error ? err.message : "Please try again."),
+          ),
+      },
+    );
+  };
 
   const TABS = [
     { value: "external" as const, label: "External", icon: Users, count: externalCount },
@@ -138,8 +179,12 @@ export function ServicesPage() {
             <div className="text-right">Clients</div>
             <div className="text-right">Actions</div>
           </div>
+          {/* Only an admin can reorder — the catalog's order is the firm's, like every other change
+              to it — so only an admin gets a drag context around the rows. */}
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+            <SortableContext items={shown.map((x) => x.id)} strategy={verticalListSortingStrategy}>
           {shown.map((service) => (
-            <div key={service.id}>
+            <SortableServiceRow key={service.id} id={service.id} draggable={isAdmin}>
               <div
                 className="grid cursor-pointer grid-cols-[20px_1fr_120px_70px_190px] items-center gap-x-3 border-b border-divider px-4 py-[13px] text-[13px] hover:bg-divider/40"
                 onClick={() => toggle(service.id)}
@@ -282,8 +327,10 @@ export function ServicesPage() {
                   onEditTask={(template) => setTaskModal({ service, template })}
                 />
               )}
-            </div>
+            </SortableServiceRow>
           ))}
+            </SortableContext>
+          </DndContext>
         </div>
       )}
 
@@ -893,5 +940,47 @@ function TaskTemplateModal({
         {serverError && <p className="text-[12px] text-danger-text">{serverError}</p>}
       </form>
     </Modal>
+  );
+}
+
+/**
+ * One catalog row, draggable by its handle.
+ *
+ * The handle exists because the row is also a BUTTON — clicking it expands the service — and a
+ * whole-row drag would fight that: every attempt to expand would start a drag and every drag would
+ * end in an expand. Non-admins get the row and no handle at all.
+ */
+function SortableServiceRow({
+  id,
+  draggable,
+  children,
+}: {
+  id: string;
+  draggable: boolean;
+  children: React.ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id,
+    disabled: !draggable,
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      className={cn("relative", isDragging && "z-10 opacity-80")}
+    >
+      {draggable && (
+        <button
+          type="button"
+          aria-label="Drag to reorder"
+          {...attributes}
+          {...listeners}
+          className="absolute left-1 top-3.5 z-10 cursor-grab text-[#c7ccd3] hover:text-muted active:cursor-grabbing"
+        >
+          <GripVertical size={14} />
+        </button>
+      )}
+      {children}
+    </div>
   );
 }

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { uuid } from "@shared/schema/common.js";
 import {
   createServiceInput,
+  moveServiceInput,
   createTaskTemplateInput,
   updateServiceInput,
   updateTaskTemplateInput,
@@ -37,6 +38,17 @@ export async function registerRoutes(instance: FastifyInstance) {
     async (request) => {
       return service.updateService(request.params.id, request.body);
     },
+  );
+
+  /**
+   * Dragging a service into place. Its own route, and admin-only like the rest of the catalog:
+   * the body carries an ANCHOR ("put me after this one"), which describes a position in a list
+   * and not a property of the service.
+   */
+  app.patch(
+    "/:id/position",
+    { preHandler: requireAdmin, schema: { params: idParams, body: moveServiceInput } },
+    async (request) => service.moveService(request.params.id, request.body),
   );
 
   app.delete(

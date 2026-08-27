@@ -292,6 +292,7 @@ model FirmProfile {
    * /**
    * /**
    * /**
+   * /**
    * /** CAN-SPAM: the firm's physical address. One firm, one legal address — never per mailbox.
    */
   postalAddress  String?
@@ -384,6 +385,7 @@ model MailSenderAccount {
    * /**
    * /**
    * /**
+   * /**
    * /** null = this mailbox is not read for bounces
    */
   imapHost       String?
@@ -404,6 +406,7 @@ model MailSenderAccount {
   // Never `\Seen`, never a moved message: this mailbox belongs to a person, and flagging their
   // mail to track our own progress would hide a bounce from them — or theirs from us.
   /**
+   * /**
    * /**
    * /**
    * /**
@@ -453,6 +456,13 @@ model Service {
   invoiceDay          Int? // "on day N of the period" (design: billing rule sub-panel)
   dueDays             Int? // invoice counts as overdue N days after issue; null = never
   active              Boolean        @default(true)
+  /// Where the service sits in the catalog, ascending — the firm's own order, dragged by hand.
+  ///
+  /// One read feeds the whole app (`listServices`), so this order is what every service picker,
+  /// chip row and filter shows: setting it once on the Services page settles it everywhere
+  /// (user, 2026-08-27). Back-filled from `createdAt`, which is what the list was sorted by
+  /// before, so no screen changed the day it landed.
+  order               Int            @default(0)
   // at most ONE service (one-time only) is auto-added to every new client — enforced by the
   // partial unique index `Service_single_default_for_new_clients` (raw SQL, not expressible here)
   autoAddToNewClients Boolean        @default(false)

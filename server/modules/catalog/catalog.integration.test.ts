@@ -927,4 +927,92 @@ describe("catalog", () => {
     });
     expect(c2.json().subscriptions).toHaveLength(0);
   });
+
+  // ── the firm's own order for the catalog (2026-08-27) ─────────────────────
+
+  describe("catalog order", () => {
+    let ids: Record<string, string> = {};
+
+    const make = async (name: string, type: "subscription" | "one_time" | "internal") => {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/catalog",
+        headers: { cookie: adminCookie },
+        payload: { name, type, defaultAmount: 1000 },
+      });
+      expect(res.statusCode).toBe(201);
+      return res.json().id as string;
+    };
+
+    const order = async () => {
+      const res = await app.inject({ method: "GET", url: "/api/catalog", headers: { cookie: adminCookie } });
+      return (res.json() as { id: string; name: string }[])
+        .filter((s) => s.name.startsWith("Ord "))
+        .map((s) => s.name.replace("Ord ", ""));
+    };
+
+    const move = (id: string, afterServiceId: string | null, cookie = adminCookie) =>
+      app.inject({
+        method: "PATCH",
+        url: `/api/catalog/${id}/position`,
+        headers: { cookie },
+        payload: { afterServiceId },
+      });
+
+    beforeAll(async () => {
+      ids = {};
+      for (const [n, t] of [["A", "subscription"], ["B", "one_time"], ["C", "subscription"]] as const) {
+        ids[n] = await make(`Ord ${n}`, t);
+      }
+      ids.INT = await make("Ord INT", "internal");
+    });
+
+    afterAll(async () => {
+      await prisma.service.deleteMany({ where: { name: { startsWith: "Ord " } } });
+    });
+
+    it("starts in creation order, which is what the list showed before the column existed", async () => {
+      expect(await order()).toEqual(["A", "B", "C", "INT"]);
+    });
+
+    it("moves a service down, and up again", async () => {
+      expect((await move(ids.A, ids.C)).statusCode).toBe(200);
+      expect(await order()).toEqual(["B", "C", "A", "INT"]);
+      expect((await move(ids.A, null)).statusCode).toBe(200);
+      expect(await order()).toEqual(["A", "B", "C", "INT"]);
+    });
+
+    it("a move made on ONE tab leaves the other tab's services where they were", async () => {
+      // The Services page splits External from Internal, so a drag only ever sees half the
+      // catalog. Renumbering what the dragger can see would shuffle the hidden half.
+      const before = await prisma.service.findUnique({ where: { id: ids.INT }, select: { order: true } });
+      expect((await move(ids.C, null)).statusCode).toBe(200);
+      expect(await order()).toEqual(["C", "A", "B", "INT"]);
+      // the internal one is still last, and still after every external service
+      const after = await prisma.service.findUnique({ where: { id: ids.INT }, select: { order: true } });
+      expect(after!.order).toBeGreaterThanOrEqual(before!.order - 1);
+      const externals = await prisma.service.findMany({
+        where: { name: { startsWith: "Ord " }, type: { not: "internal" } },
+        select: { order: true },
+      });
+      expect(Math.max(...externals.map((e) => e.order))).toBeLessThan(after!.order);
+    });
+
+    it("the order reaches every reader, because one query feeds them all", async () => {
+      // nothing here filters or re-sorts: the clients screen, every picker and every chip take the
+      // catalog exactly as this endpoint hands it over
+      const res = await app.inject({ method: "GET", url: "/api/catalog", headers: { cookie: adminCookie } });
+      const list = res.json() as { name: string; order: number }[];
+      const orders = list.map((s) => s.order);
+      expect(orders).toEqual([...orders].sort((a, b) => a - b));
+    });
+
+    it("refuses to drop a service after itself", async () => {
+      expect((await move(ids.A, ids.A)).statusCode).toBe(400);
+    });
+
+    it("is admin-only, like every other change to the catalog", async () => {
+      expect((await move(ids.A, null, userCookie)).statusCode).toBe(403);
+    });
+  });
 });

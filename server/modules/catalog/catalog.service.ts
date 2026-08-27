@@ -1,4 +1,5 @@
 import type {
+  MoveServiceInput,
   CreateServiceInput,
   CreateTaskTemplateInput,
   UpdateServiceInput,
@@ -23,6 +24,7 @@ export function toServiceDto(service: repo.ServiceRecord) {
     dueDays: service.dueDays,
     active: service.active,
     autoAddToNewClients: service.autoAddToNewClients,
+    order: service.order,
     clientsCount: new Set(service.subscriptions.map((s) => s.clientId)).size,
     taskTemplates: service.taskTemplates.map((t) => ({
       id: t.id,
@@ -39,6 +41,20 @@ export function toServiceDto(service: repo.ServiceRecord) {
       billable: t.billable,
     })),
   };
+}
+
+/**
+ * Drag a service into place in the catalog. Admin-only, like every other change to it: the order
+ * is the firm's, not one reader's, and one read feeds every picker in the app.
+ */
+export async function moveService(id: string, input: MoveServiceInput) {
+  const service = await repo.findService(id);
+  if (!service) throw new NotFoundError("Service not found");
+  if (input.afterServiceId === id) {
+    throw new ValidationError("A service cannot be dropped after itself");
+  }
+  await repo.moveService(id, input.afterServiceId);
+  return listServices();
 }
 
 export async function listServices() {
