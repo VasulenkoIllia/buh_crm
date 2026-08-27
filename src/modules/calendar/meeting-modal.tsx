@@ -4,7 +4,8 @@ import { AlertTriangle } from "lucide-react";
 import type { Meeting } from "@shared/schema/calendar";
 import { DEFAULT_MEETING_MINUTES, MEETING_DURATION_PRESETS } from "@shared/schema/calendar";
 import { useCatalog } from "@/modules/catalog";
-import { useClient } from "@/modules/clients";
+import { ClientFormModal, useClient } from "@/modules/clients";
+import { LeadFormModal } from "@/modules/leads";
 import { ClientLeadSearch, useAssignees, type Target } from "@/modules/tasks";
 import { cn } from "@/shared/lib/cn";
 import { firmWallClockToInstant, firmZoneAbbr, instantToFirmWallClock } from "@/shared/lib/tz";
@@ -86,7 +87,15 @@ export function MeetingModal({
   const [link, setLink] = useState("");
   const [description, setDescription] = useState("");
   const [participants, setParticipants] = useState<string[]>([]);
-  const [withTask, setWithTask] = useState(false);
+  /**
+   * On by default — a meeting this firm books almost always has work attached, and ticking it every
+   * time was a step nobody skipped on purpose (user, 2026-08-27).
+   *
+   * `!editing`, not `true`: the block below renders for an EXISTING meeting too, as long as it has
+   * no task yet, and the update payload attaches one whenever this is set. Defaulting it on for
+   * every open would mean editing a meeting's notes silently created a task nobody asked for.
+   */
+  const [withTask, setWithTask] = useState(!editing);
   const [taskMode, setTaskMode] = useState<TaskMode>("internal");
   const [subscriptionId, setSubscriptionId] = useState("");
   /**
@@ -99,6 +108,10 @@ export function MeetingModal({
    */
   const [error, setError] = useState<string | null>(null);
   const [titleError, setTitleError] = useState<string | null>(null);
+  // booking a meeting is often the FIRST thing a new client or lead gets — see the early return
+  // below, which hands over to the same forms the Clients and Leads screens use
+  const [clientFormOpen, setClientFormOpen] = useState(false);
+  const [leadFormOpen, setLeadFormOpen] = useState(false);
 
   // seed the form once its meeting arrives (editing), or from where it was opened (creating)
   useEffect(() => {
@@ -200,6 +213,35 @@ export function MeetingModal({
     }
   }
 
+  // Creating a client or a lead inline pauses this modal and drops the new target back into it —
+  // the same handover the task form uses, and the same two forms, so a client created here is
+  // created exactly as it is on the Clients screen. Placed after every hook, not beside the state.
+  if (leadFormOpen) {
+    return (
+      <LeadFormModal
+        open
+        onClose={() => setLeadFormOpen(false)}
+        onSaved={(lead) => {
+          setTarget({ kind: "lead", id: lead.id, label: lead.name });
+          setSubscriptionId(""); // a lead has no services to bill through
+          setTaskMode("internal");
+        }}
+      />
+    );
+  }
+  if (clientFormOpen) {
+    return (
+      <ClientFormModal
+        open
+        onClose={() => setClientFormOpen(false)}
+        onSaved={(c) => {
+          setTarget({ kind: "client", id: c.id, label: c.displayName });
+          setSubscriptionId(""); // the picker below reloads against the new client
+        }}
+      />
+    );
+  }
+
   return (
     <Modal
       title={editing ? "Meeting" : "New meeting"}
@@ -283,6 +325,8 @@ export function MeetingModal({
               <ClientLeadSearch
                 value={target}
                 onPick={setTarget}
+                onNewClient={() => setClientFormOpen(true)}
+                onNewLead={() => setLeadFormOpen(true)}
                 onClear={() => {
                   setTarget(null);
                   setSubscriptionId("");
