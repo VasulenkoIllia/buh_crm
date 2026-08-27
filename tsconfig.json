@@ -19,5 +19,5 @@
       "@shared/*": ["shared/*"]
     }
   },
-  "include": ["src/**/*", "server/**/*", "shared/**/*", "prisma/seed.ts", "vite.config.ts", "vitest.config.ts", "eslint.config.js"]
+  "include": ["src/**/*", "server/**/*", "shared/**/*", "scripts/**/*.ts", "prisma/seed.ts", "vite.config.ts", "vitest.config.ts", "eslint.config.js"]
 }

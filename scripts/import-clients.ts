@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { prisma, disconnectDb } from "../server/core/db.js";
+import { clean, normalisePhone, parseCsv } from "./import-lib.js";
 import { createClient } from "../server/modules/clients/index.js";
 
 /**
@@ -17,34 +18,6 @@ import { createClient } from "../server/modules/clients/index.js";
  * the sheet knows when each client actually arrived and the service layer (rightly) does not let
  * a caller choose.
  */
-
-// ── CSV (RFC 4180, no dependency) ───────────────────────────────────────────
-
-function parseCsv(text: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let field = "";
-  let quoted = false;
-  // a BOM survives the export and would otherwise become part of the first header
-  const src = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
-
-  for (let i = 0; i < src.length; i++) {
-    const c = src[i];
-    if (quoted) {
-      if (c !== '"') { field += c; continue; }
-      if (src[i + 1] === '"') { field += '"'; i++; continue; }
-      quoted = false;
-      continue;
-    }
-    if (c === '"') { quoted = true; continue; }
-    if (c === ",") { row.push(field); field = ""; continue; }
-    if (c === "\r") continue;
-    if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; continue; }
-    field += c;
-  }
-  if (field || row.length) { row.push(field); rows.push(row); }
-  return rows.filter((r) => r.some((v) => v.trim()));
-}
 
 // ── field cleaning ──────────────────────────────────────────────────────────
 
@@ -75,9 +48,6 @@ const SOURCE_MAP: Record<string, string> = {
   видео: "Video",
 };
 
-const clean = (v: string | undefined) =>
-  (v ?? "").replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
-
 function splitName(raw: string): { firstName: string; lastName: string | null } {
   const n = clean(raw);
   if (KEEP_WHOLE.test(n)) return { firstName: n, lastName: null };
@@ -85,17 +55,6 @@ function splitName(raw: string): { firstName: string; lastName: string | null } 
   return at === -1
     ? { firstName: n, lastName: null }
     : { firstName: n.slice(0, at), lastName: n.slice(at + 1) };
-}
-
-/** US numbers to +1XXXXXXXXXX; anything else kept verbatim rather than mangled. */
-function normalisePhone(raw: string): string | null {
-  const s = clean(raw).replace(/^'/, "");
-  if (!s || /^https?:/i.test(s)) return null;
-  const digits = s.replace(/\D/g, "");
-  if (s.startsWith("+")) return `+${digits}`;
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-  return s;
 }
 
 /** "Fl Hallandale Beach" → "FL, Hallandale Beach"; "Nashville TN" → "TN, Nashville". */

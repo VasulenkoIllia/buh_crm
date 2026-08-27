@@ -8,3 +8,7 @@ export { toClientDto, applyDefaultClientService, createClient } from "./clients.
 export async function clientsModule(app: FastifyInstance) {
   await registerRoutes(app);
 }
+
+// used by `scripts/import-contacts.ts`: an SSN in a contacts export belongs in the encrypted
+// store, never in a plain field
+export { createSecret } from "./secrets.service.js";
