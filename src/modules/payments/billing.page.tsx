@@ -30,8 +30,17 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: "settled", label: "Settled" },
 ];
 
-// checkbox · № · client · service · issued · due · amount · paid · status · delivery
-const GRID = "grid-cols-[34px_116px_1fr_150px_84px_84px_92px_92px_86px_112px]";
+/**
+ * checkbox · № · client · service · issued · due · amount · paid · status · delivery
+ *
+ * `minmax(0,1fr)`, never a bare `1fr`. The header and the rows are SEPARATE grid containers inside
+ * one horizontally scrolling box, and a bare `1fr` is `minmax(auto,1fr)` — its floor is the widest
+ * thing in it. So a long client name widened that track in the ROWS and not in the header, and
+ * every column after it drifted left of its own label (user, 2026-08-27). A zero floor makes the
+ * two resolve identically whatever they hold; the cells truncate instead.
+ */
+const GRID =
+  "grid-cols-[30px_104px_minmax(0,1fr)_minmax(0,1fr)_72px_72px_84px_84px_76px_96px]";
 
 /** Billing / Unpaid — every invoice with what's been paid against it. */
 export function BillingPage() {
@@ -191,7 +200,7 @@ export function BillingPage() {
             <div className="overflow-x-auto rounded-(--radius-panel) border border-border bg-surface">
               <div
                 className={cn(
-                  "grid min-w-[980px] items-center gap-x-3 border-b border-border px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-faint",
+                  "grid min-w-[960px] items-center gap-x-3 border-b border-border px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-faint",
                   GRID,
                 )}
               >
@@ -406,7 +415,7 @@ function InvoiceRow({
     <div
       onClick={onOpen}
       className={cn(
-        "grid min-w-[980px] cursor-pointer items-center gap-x-3 border-b border-divider px-4 py-2.5 text-[13px] last:border-0 hover:bg-divider/40",
+        "grid min-w-[960px] cursor-pointer items-center gap-x-3 border-b border-divider px-4 py-2.5 text-[13px] last:border-0 hover:bg-divider/40",
         GRID,
         overdue && "bg-[#fef6f6]",
         (invoice.cancelledAt || invoice.tidiedAt) && "opacity-60",
@@ -420,7 +429,7 @@ function InvoiceRow({
           aria-label={`Select ${invoice.number}`}
         />
       </div>
-      <div className="tabular-nums text-ink-700">
+      <div className="truncate tabular-nums text-ink-700" title={invoice.number}>
         {overdue && <span className="mr-1 text-danger-text">⚠</span>}
         {invoice.number}
       </div>
@@ -432,7 +441,7 @@ function InvoiceRow({
           </span>
         )}
       </div>
-      <div className="truncate text-ink-700">
+      <div className="truncate text-ink-700" title={invoice.serviceName ?? invoice.description ?? ""}>
         {invoice.serviceName ?? invoice.description ?? "—"}
         {invoice.periodKey && <span className="text-faint"> · {invoice.periodKey}</span>}
       </div>

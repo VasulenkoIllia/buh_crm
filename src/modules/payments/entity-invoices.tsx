@@ -21,8 +21,15 @@ const VIEWS: { key: InvoiceListQuery["filter"]; label: string }[] = [
   { key: "cancelled", label: "Cancelled" },
 ];
 
-/** Fixed columns with a header — the same rhythm as the Billing table, so both read alike. */
-const GRID = "grid-cols-[116px_1fr_92px_108px_84px_96px_96px]";
+/**
+ * Fixed columns with a header — the same rhythm as the Billing table, so both read alike.
+ * № · service · status · delivery · issued · due · amount · paid
+ *
+ * `minmax(0,1fr)` for the same reason Billing uses it: header and rows are separate grids in one
+ * scrolling box, and a content-sized floor drifts them apart (see billing.page.tsx).
+ */
+const GRID =
+  "grid-cols-[104px_minmax(0,1fr)_84px_100px_76px_76px_88px_88px]";
 
 /**
  * A client's invoices, for the card's Invoices tab. Same modal as the Billing screen;
@@ -120,7 +127,7 @@ export function EntityInvoices({ client }: { client: Client }) {
           <div className="overflow-x-auto rounded-(--radius-panel) border border-border bg-surface">
             <div
               className={cn(
-                "grid min-w-[720px] items-center gap-x-3 border-b border-border px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-faint",
+                "grid min-w-[860px] items-center gap-x-3 border-b border-border px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-faint",
                 GRID,
               )}
             >
@@ -128,6 +135,8 @@ export function EntityInvoices({ client }: { client: Client }) {
               <div>Service</div>
               <div>Status</div>
               <div>Delivery</div>
+              {/* issued before due, as on Billing — raised, then falls due */}
+              <div>Issued</div>
               <div>Due</div>
               <div className="text-right">Amount</div>
               <div className="text-right">Paid</div>
@@ -209,13 +218,13 @@ function InvoiceRow({ invoice, onOpen }: { invoice: Invoice; onOpen: () => void 
     <div
       onClick={onOpen}
       className={cn(
-        "grid min-w-[720px] cursor-pointer items-center gap-x-3 border-b border-divider px-4 py-2.5 text-[13px] last:border-0 hover:bg-divider/40",
+        "grid min-w-[860px] cursor-pointer items-center gap-x-3 border-b border-divider px-4 py-2.5 text-[13px] last:border-0 hover:bg-divider/40",
         GRID,
         overdue && "bg-[#fef6f6]",
         (invoice.cancelledAt || invoice.tidiedAt) && "opacity-60",
       )}
     >
-      <div className="tabular-nums text-ink-700">
+      <div className="truncate tabular-nums text-ink-700" title={invoice.number}>
         {overdue && <span className="mr-1 text-danger-text">⚠</span>}
         {invoice.number}
       </div>
@@ -249,6 +258,8 @@ function InvoiceRow({ invoice, onOpen }: { invoice: Invoice; onOpen: () => void 
           </span>
         )}
       </div>
+      {/* `fmtDate` for an INSTANT on the firm's clock; `fmtBizDate` below for a calendar day */}
+      <div className="text-[12px] text-muted">{fmtDate(invoice.issuedAt)}</div>
       <div className={cn("text-[12px]", overdue ? "text-danger-text" : "text-muted")}>
         {invoice.dueDate ? fmtBizDate(invoice.dueDate) : <span className="text-faint">—</span>}
       </div>
