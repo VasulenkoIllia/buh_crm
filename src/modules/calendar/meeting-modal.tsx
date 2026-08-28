@@ -428,19 +428,27 @@ export function MeetingModal({
                 ))}
               </div>
             )}
-            {/* The phone, or the email when there is no phone — the email is only ever the answer
-                when the number isn't. */}
+            {/**
+             * Both ways of reaching them (user, 2026-08-28). Only the phone was shown at first,
+             * with the email standing in when there was none — that was a width argument, and it
+             * stopped applying the moment this line moved out of a half-width column.
+             *
+             * The phone is a `tel:` link because a Mac hands the call to the phone in your pocket.
+             * The email is plain selectable text: this firm's mail goes out through Mailouts, so a
+             * `mailto:` would open the wrong thing on a misclick.
+             */}
             <p className={cn("text-[12px] leading-snug text-muted", hasPeople && "mt-1.5")}>
-              {contact.phone ? (
+              {contact.phone && (
                 <a
                   className="text-primary-link hover:underline"
                   href={`tel:${contact.phone.replace(/[^\d+]/g, "")}`}
                 >
                   {contact.phone}
                 </a>
-              ) : contact.email ? (
-                <span>{contact.email}</span>
-              ) : (
+              )}
+              {contact.phone && contact.email && " · "}
+              {contact.email && <span>{contact.email}</span>}
+              {!contact.phone && !contact.email && (
                 <span className="text-faint">no phone or email on file</span>
               )}
             </p>
