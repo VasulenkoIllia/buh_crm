@@ -523,9 +523,21 @@ function Board({
   return (
     <DndContext sensors={sensors} collisionDetection={collisionDetection} onDragEnd={onDragEnd}>
       <div className="flex flex-1 items-start gap-3 overflow-auto p-3.5">
-        {/* horizontal: this board's columns run left to right, unlike every other sortable here */}
+        {/**
+         * Horizontal — this board's columns run left to right, unlike every other sortable here.
+         *
+         * The MOVABLE columns only. The fixed "New" column is deliberately not a slot: left in,
+         * dnd-kit counts it as one, and while dragging it shows your column taking position 0 and
+         * New sliding right — a place the server will never allow. Then the drop lands one along
+         * from the preview, `newIndex !== index`, and dnd-kit animates the correction. That
+         * animation IS the twitch (user, 2026-08-28); the preview lying is the cause of it.
+         *
+         * It keeps its `useSortable` and stays a drop TARGET — cards still land in it, and a
+         * column dropped on it still means "as early as a column may go". Only the sorted set
+         * shrinks, so what is previewed is what will happen.
+         */}
         <SortableContext
-          items={columns.map((c) => c.id)}
+          items={columns.filter((c) => !c.isFixed).map((c) => c.id)}
           strategy={horizontalListSortingStrategy}
         >
           {columns.map((column) => (
@@ -571,17 +583,6 @@ function BoardColumn({
       id: column.id,
       data: { type: "column" },
       disabled: column.isFixed,
-      /**
-       * No layout animation on THIS element, or a drop reads as a twitch (user, 2026-08-28).
-       *
-       * Releasing does two things a frame apart: dnd-kit clears the drag transform, which puts the
-       * column back in the slot it started from, and the optimistic reorder then re-renders it into
-       * its new one. With `transition` applied, the gap between those two is animated — so the
-       * column visibly springs back and travels forward again. A card does the same thing and gets
-       * away with it, being small and moving a few pixels vertically; a 230px column crossing half
-       * the board does not.
-       */
-      animateLayoutChanges: () => false,
     });
   const rename = useUpdateColumn();
   const remove = useDeleteColumn();
