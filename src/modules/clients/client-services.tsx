@@ -907,7 +907,20 @@ export function AddServiceModal({
         {/* The date and the service filter share a row: one is narrow by nature and left a hand's
             width of nothing beside it, and the two together are simply "what, and from when". */}
         <div className="flex items-end gap-3">
-          <FormField label="Service starts on" htmlFor="sub-starts">
+          <FormField
+            label={
+              <>
+                Service starts on{" "}
+                <InfoHint label="How a service is dated">
+                  Today or a future date — a service is never agreed backwards; work already done
+                  is billed with a one-off invoice. No end date either: it runs until someone
+                  pauses it. A period served only in part isn&apos;t invoiced automatically —
+                  you&apos;ll get a reminder task to issue that one by hand.
+                </InfoHint>
+              </>
+            }
+            htmlFor="sub-starts"
+          >
             {/* today or later — the server refuses a backdated start, so the picker shouldn't
                 offer one either (user, 2026-08-01) */}
             <Input
@@ -932,14 +945,6 @@ export function AddServiceModal({
             </div>
           )}
         </div>
-        {/* Three rules, and all three are worth knowing before you agree a service — but as a
-            four-line paragraph they were the biggest thing in the form. Same words, quieter. */}
-        <p className="-mt-1 text-[11px] leading-snug text-faint">
-          Today or a future date — a service is never agreed backwards; work already done is billed
-          with a one-off invoice. No end date either: it runs until someone pauses it. A period
-          served only in part isn&apos;t invoiced automatically — you&apos;ll get a reminder task to
-          issue that one by hand.
-        </p>
         {/* `stable` exactly when the filter is there: without it every keystroke resized the box
             and the price panel below jumped up and down while you were still typing */}
         <ScrollBox height={224} stable={searchable}>

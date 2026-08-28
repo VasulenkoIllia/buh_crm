@@ -78,7 +78,8 @@ export function FormField({
   error,
   children,
 }: {
-  label: string;
+  /** a node, not a string: a field's label is where its `<InfoHint>` hangs */
+  label: React.ReactNode;
   htmlFor?: string;
   error?: string;
   children: React.ReactNode;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveDrop } from "./drop-target";
+import { applyDrop, resolveDrop } from "./drop-target";
 
 const board = (cols: Record<string, string[]>) => new Map(Object.entries(cols));
 
@@ -83,5 +83,36 @@ describe("resolveDrop", () => {
       expect(resolveDrop(b(), "A", "nope")).toBeNull();
       expect(resolveDrop(b(), "ghost", "B")).toBeNull();
     });
+  });
+});
+
+describe("applyDrop", () => {
+  const list = () => [{ id: "a" }, { id: "b" }, { id: "c" }];
+  const ids = (r: { id: string }[]) => r.map((x) => x.id);
+  const at = (r: { id: string }) => r.id;
+
+  it("puts an item after its anchor", () => {
+    expect(ids(applyDrop(list(), "a", "c", at))).toEqual(["b", "c", "a"]);
+    expect(ids(applyDrop(list(), "c", "a", at))).toEqual(["a", "c", "b"]);
+  });
+
+  it("a null anchor means first", () => {
+    expect(ids(applyDrop(list(), "c", null, at))).toEqual(["c", "a", "b"]);
+  });
+
+  it("an anchor that is gone puts the item first — the same as both server paths", () => {
+    expect(ids(applyDrop(list(), "b", "ghost", at))).toEqual(["b", "a", "c"]);
+  });
+
+  it("an unknown item leaves the list exactly as it was", () => {
+    const original = list();
+    expect(applyDrop(original, "ghost", "a", at)).toBe(original);
+  });
+
+  it("matches what resolveDrop asked for — the two are used together", () => {
+    const board = new Map([["one", ["a", "b", "c"]]]);
+    const target = resolveDrop(board, "a", "c");
+    expect(target).not.toBeNull();
+    expect(ids(applyDrop(list(), "a", target!.afterId, at))).toEqual(["b", "c", "a"]);
   });
 });

@@ -22,13 +22,19 @@ import { Segmented } from "@/shared/ui/segmented";
 import { Tabs } from "@/shared/ui/tabs";
 import {
   DndContext,
+  KeyboardSensor,
   PointerSensor,
   closestCenter,
   useSensor,
   useSensors,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical } from "lucide-react";
 import { resolveDrop } from "@/shared/lib/drop-target";
@@ -85,7 +91,12 @@ export function ServicesPage() {
   const [tab, setTab] = useState<"external" | "internal">("external");
 
   const move = useMoveService();
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  // The handle is a focusable button, so a keyboard reaches it either way; without the keyboard
+  // sensor it was a tab stop that answered nothing. Space lifts, arrows move, Space drops.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   // row actions (default flag / deactivate) can be refused by the server — show why
   const rowError = updateService.error instanceof ApiError ? updateService.error.message : null;

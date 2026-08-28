@@ -73,3 +73,27 @@ export function resolveDrop(
   }
   return { listId: to, afterId };
 }
+
+/**
+ * The list as it will be once the drop lands — the client's mirror of the server's renumber.
+ *
+ * Both an optimistic reorder and the server's own `splice(at + 1, 0, id)` have to agree, and the
+ * same five lines had been written twice on the client already (the board and the catalog). Two
+ * copies of an arithmetic that must match a third is how they stop matching.
+ *
+ * An unknown `afterId` puts the item first, which is what `resolveDrop` and both server paths do
+ * with an anchor that is no longer there.
+ */
+export function applyDrop<T>(
+  items: T[],
+  id: string,
+  afterId: string | null,
+  idOf: (item: T) => string,
+): T[] {
+  const moving = items.find((i) => idOf(i) === id);
+  if (!moving) return items;
+  const rest = items.filter((i) => idOf(i) !== id);
+  const at = afterId ? rest.findIndex((i) => idOf(i) === afterId) : -1;
+  rest.splice(at + 1, 0, moving);
+  return rest;
+}

@@ -11,6 +11,7 @@ import type {
   UpdateTimeEntryInput,
 } from "@shared/schema/task";
 import { api } from "@/shared/lib/api";
+import { applyDrop } from "@/shared/lib/drop-target";
 import { CLIENTS_KEY, INVOICES_KEY, TASKS_KEY } from "@/shared/lib/query-keys";
 
 const TIMER_KEY = [...TASKS_KEY, "timer"] as const;
@@ -226,15 +227,14 @@ export function useMoveTask() {
           if (!old?.items) return old;
           const moving = old.items.find((t) => t.id === id);
           if (!moving) return old;
-          // rebuild the target column in the order the server will store, then splice the board back
-          // together — the list is flat and its order IS the board's order
+          // Rebuild the target column in the order the server will store, then splice the board
+          // back together — the list is flat and its order IS the board's order. `applyDrop` is
+          // the same arithmetic the server runs, shared so the two cannot drift apart.
           const rest = old.items.filter((t) => t.id !== id);
-          const target = rest.filter((t) => t.statusColumnId === input.statusColumnId);
-          const at = input.afterTaskId
-            ? target.findIndex((t) => t.id === input.afterTaskId)
-            : -1;
-          target.splice(at + 1, 0, { ...moving, statusColumnId: input.statusColumnId });
+          const column = rest.filter((t) => t.statusColumnId === input.statusColumnId);
           const others = rest.filter((t) => t.statusColumnId !== input.statusColumnId);
+          const landed = { ...moving, statusColumnId: input.statusColumnId };
+          const target = applyDrop([...column, landed], id, input.afterTaskId, (t) => t.id);
           return { ...old, items: [...target, ...others] };
         },
       );

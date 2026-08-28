@@ -8,6 +8,7 @@ import type {
   MoveServiceInput,
 } from "@shared/schema/catalog";
 import { api } from "@/shared/lib/api";
+import { applyDrop } from "@/shared/lib/drop-target";
 import { CATALOG_KEY } from "@/shared/lib/query-keys";
 
 /** The whole catalog (active + inactive) — dropdowns filter to active themselves. */
@@ -60,12 +61,7 @@ export function useMoveService() {
       const snapshot = queryClient.getQueryData<Service[]>(CATALOG_KEY);
       queryClient.setQueryData<Service[]>(CATALOG_KEY, (old) => {
         if (!old) return old;
-        const moving = old.find((s) => s.id === id);
-        if (!moving) return old;
-        const rest = old.filter((s) => s.id !== id);
-        const at = input.afterServiceId ? rest.findIndex((s) => s.id === input.afterServiceId) : -1;
-        rest.splice(at + 1, 0, moving);
-        return rest;
+        return applyDrop(old, id, input.afterServiceId, (s) => s.id);
       });
       return { snapshot };
     },

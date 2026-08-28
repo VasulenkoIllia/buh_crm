@@ -9,14 +9,21 @@ import { cn } from "@/shared/lib/cn";
  *
  * **What does NOT belong in here** (decision 2026-08-27, with the audit that produced it):
  *
- * - a RULE that constrains what may be typed ("today or a future date"). Hidden, it is learned
- *   from a rejection instead of read before the mistake;
+ * - a RULE the form does not enforce for you. Hidden, it is learned from a rejection instead of
+ *   read before the mistake. A rule the CONTROL already enforces is different — see below;
  * - a CONSEQUENCE that only shows up later ("a part-served period isn't invoiced automatically —
  *   you'll get a reminder task"). Hidden, it becomes a surprise a month afterwards;
  * - anything DYNAMIC ("Showing 12 of 40", "Part payment — $80 would still be owed"). That is the
  *   screen's state, not its documentation, and belongs on the screen.
  *
  * Hidden text is unread text. That is the whole point of the control and also its only danger.
+ *
+ * **Amended 2026-08-28 (user).** The four-line block on "Service starts on" moved in here, and it
+ * carries both a rule and a consequence — the two kinds listed above. It was the largest thing in
+ * a form asked to be compact, and it explained one field while floating under the whole row. The
+ * rule half is safe to hide because the picker enforces it: `min={todayIso()}` means a backdated
+ * start cannot be typed, so nobody learns it from a rejection. The consequence half is the real
+ * cost of this decision and is recorded as such.
  *
  * Opens on hover AND on click, and is reachable from the keyboard — a hover-only tooltip does not
  * exist for anyone on a touch screen or navigating by Tab, and `title=` (which this app uses for
@@ -76,7 +83,13 @@ export function InfoHint({
     }
     place();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key !== "Escape") return;
+      // Escape belongs to the innermost open thing. This listens on `document` and a modal
+      // listens on `window` — document comes first in the bubble path, so without stopping here
+      // both closed on one press, and reading a hint threw away a half-filled form
+      // (user, 2026-08-28).
+      e.stopPropagation();
+      setOpen(false);
     };
     const onDown = (e: MouseEvent) => {
       if (!wrap.current?.contains(e.target as Node)) setOpen(false);

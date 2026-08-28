@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   DndContext,
+  KeyboardSensor,
   PointerSensor,
   closestCenter,
   pointerWithin,
@@ -11,7 +12,12 @@ import {
   type CollisionDetection,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { Task, TaskColumn } from "@shared/schema/task";
 import { useAuth } from "@/app/auth";
@@ -416,7 +422,12 @@ function Board({
 }) {
   const { user } = useAuth();
   const move = useMoveTask(); // dropping a card is its own action — it carries a position
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  // Same as the catalog: the card is focusable, so without this it was a tab stop that answered
+  // nothing. Space lifts, arrows move within and across columns, Space drops.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   const byColumn = useMemo(() => {
     const map = new Map<string, Task[]>(columns.map((c) => [c.id, []]));
