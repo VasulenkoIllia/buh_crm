@@ -583,6 +583,20 @@ function BoardColumn({
       id: column.id,
       data: { type: "column" },
       disabled: column.isFixed,
+      /**
+       * The reorder lands instantly; nothing slides into place.
+       *
+       * `useDerivedTransform` runs for EVERY sortable whose index changed — not only the one being
+       * dragged — measuring where it was, where it now is, and animating the difference. On cards
+       * that is the pleasant "they step aside" effect. On columns it is two or three 230px blocks
+       * travelling across the board at once, which reads as jumping (user, 2026-08-28, twice: it
+       * was removed on the strength of an incomplete reading of the library and had to come back).
+       *
+       * This is separate from the fixed column being out of `items` below. That one stops the drag
+       * PREVIEW promising a position the server will refuse; this one stops the settle being
+       * animated at all. Both are needed — the first for honesty, the second for calm.
+       */
+      animateLayoutChanges: () => false,
     });
   const rename = useUpdateColumn();
   const remove = useDeleteColumn();
@@ -797,6 +811,19 @@ function BoardCard({
     id: task.id,
     // the board now drags TWO kinds of thing; `onDragEnd` and the collision detection both ask
     data: { type: "card" },
+    /**
+     * Same as the columns: the SETTLE is instant, the step-aside is not.
+     *
+     * `useDerivedTransform` fires for every sortable whose index changed, measuring where it was
+     * and animating it to where it now is. That runs AFTER the drop, when the optimistic reorder
+     * changes `items` — the cards travelling to their new places is what reads as jumping
+     * (user, 2026-08-28).
+     *
+     * It does NOT touch the cards moving aside while you drag: that transform comes from the
+     * sorting strategy during `isSorting`, when `items` has not changed yet and no derived
+     * transform exists. The pleasant half stays; only the post-drop travel goes.
+     */
+    animateLayoutChanges: () => false,
   });
 
   const service = services?.find((s) => s.id === task.serviceId);
