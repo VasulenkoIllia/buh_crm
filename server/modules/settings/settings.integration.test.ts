@@ -30,6 +30,13 @@ beforeAll(async () => {
   await prisma.user.deleteMany();
   await prisma.file.deleteMany();
   await prisma.priority.deleteMany();
+  // Clear the POINTERS before wiping the sources. This used to happen by itself: the foreign keys
+  // were ON DELETE SET NULL, so deleting a source quietly nulled every reference to it. They are
+  // RESTRICT now — deliberately — so the teardown has to say what it was relying on. Deleting the
+  // clients instead would be wrong twice over: this suite shares a database with the others, and
+  // their invoices reference those rows.
+  await prisma.lead.updateMany({ data: { sourceId: null } });
+  await prisma.client.updateMany({ data: { sourceId: null } });
   await prisma.sourceOption.deleteMany();
   await prisma.firmProfile.deleteMany();
 
@@ -129,7 +136,7 @@ describe("settings", () => {
     expect(defaults[0].name).toBe("High");
   });
 
-  it("creates a source, rejects duplicates, deactivates instead of deleting", async () => {
+  it("creates a source, rejects duplicates, and deactivating keeps the row", async () => {
     const created = await app.inject({
       method: "POST",
       url: "/api/settings/sources",
@@ -169,5 +176,80 @@ describe("settings", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ invoicePrefix: "ACC", invoiceCounterDigits: 5 });
+  });
+});
+
+/**
+ * Deleting a source of origin (user, 2026-08-28).
+ *
+ * Possible only while NOTHING records it. The archive counts — an archived client is a soft delete
+ * and has to come back with the source they arrived by — and that is the case worth pinning,
+ * because it is the one a live-records-only count would get wrong.
+ */
+describe("settings — deleting a source of origin", () => {
+  const makeSource = async (name: string) => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/settings/sources",
+      headers: { cookie: adminCookie },
+      payload: { name },
+    });
+    expect(res.statusCode).toBe(201);
+    return res.json().id as string;
+  };
+  const del = (id: string, cookie = adminCookie) =>
+    app.inject({ method: "DELETE", url: `/api/settings/sources/${id}`, headers: { cookie } });
+
+  it("deletes one nothing records", async () => {
+    const id = await makeSource("Unused source");
+    expect((await del(id)).statusCode).toBe(200);
+    expect(await prisma.sourceOption.findUnique({ where: { id } })).toBeNull();
+  });
+
+  it("refuses one a client records, and says how many", async () => {
+    const id = await makeSource("Client source");
+    await prisma.client.create({ data: { firstName: "Sourced", sourceId: id } });
+    const res = await del(id);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.message).toMatch(/1 client/);
+    // and the source is still there, with the client still pointing at it
+    expect(await prisma.sourceOption.findUnique({ where: { id } })).not.toBeNull();
+    expect(await prisma.client.count({ where: { sourceId: id } })).toBe(1);
+  });
+
+  it("refuses one a lead records", async () => {
+    const id = await makeSource("Lead source");
+    await prisma.lead.create({ data: { name: "Sourced lead", sourceId: id } });
+    const res = await del(id);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.message).toMatch(/1 lead/);
+  });
+
+  it("refuses one only an ARCHIVED client records — they can be restored", async () => {
+    const id = await makeSource("Archived source");
+    await prisma.client.create({
+      data: { firstName: "Gone", sourceId: id, archivedAt: new Date() },
+    });
+    const res = await del(id);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.message).toMatch(/archived included/);
+  });
+
+  it("is refused to a non-admin", async () => {
+    const id = await makeSource("Not yours");
+    expect((await del(id, userCookie)).statusCode).toBe(403);
+    expect(await prisma.sourceOption.findUnique({ where: { id } })).not.toBeNull();
+  });
+
+  it("404s for a source that is not there", async () => {
+    const res = await del("00000000-0000-4000-8000-000000000000");
+    expect(res.statusCode).toBe(404);
+  });
+
+  // this suite is the only one that creates clients and leads purely to hold a source; take them
+  // away again rather than leaving them for the next run to trip over
+  afterAll(async () => {
+    await prisma.lead.deleteMany({ where: { name: { in: ["Sourced lead"] } } });
+    await prisma.client.deleteMany({ where: { firstName: { in: ["Sourced", "Gone"] } } });
   });
 });

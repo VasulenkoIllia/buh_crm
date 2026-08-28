@@ -66,7 +66,6 @@ export async function createSource(input: CreateSourceInput) {
   return repo.createSource(input.name, (_max.order ?? -1) + 1);
 }
 
-/** Sources are deactivated, never deleted — existing records keep their history. */
 export async function updateSource(id: string, input: UpdateSourceInput) {
   if (input.name) {
     const existing = await repo.findSourceByName(input.name);
@@ -75,6 +74,34 @@ export async function updateSource(id: string, input: UpdateSourceInput) {
     }
   }
   return repo.updateSource(id, input);
+}
+
+/**
+ * Delete a source, but only while nothing records it — otherwise DEACTIVATE, which is what that
+ * control is for and what keeps the history.
+ *
+ * The database is what actually holds the line: both foreign keys are `ON DELETE RESTRICT`, so a
+ * source in use cannot be removed even if two requests race. This count exists to turn that
+ * refusal into a sentence with numbers in it, because "it is in use" leaves someone hunting.
+ *
+ * Archived records count. They can be restored, and a restored client has to come back with the
+ * source they arrived by.
+ */
+export async function removeSource(id: string) {
+  const source = await repo.findSource(id);
+  if (!source) throw new NotFoundError("Source not found");
+  const { clients, leads } = await repo.countSourceUsage(id);
+  if (clients > 0 || leads > 0) {
+    const parts = [
+      clients > 0 ? `${clients} client${clients === 1 ? "" : "s"}` : null,
+      leads > 0 ? `${leads} lead${leads === 1 ? "" : "s"}` : null,
+    ].filter(Boolean);
+    throw new ConflictError(
+      `“${source.name}” is recorded on ${parts.join(" and ")} (archived included) — deactivate it instead of deleting`,
+    );
+  }
+  await repo.deleteSource(id);
+  return { ok: true as const };
 }
 
 export async function updateFirm(input: UpdateFirmInput) {

@@ -63,6 +63,20 @@ export function useUpdateSource() {
   });
 }
 
+/**
+ * Only possible while nothing records the source. The server refuses with the numbers, and the
+ * caller shows that sentence — there is no point pre-checking here, since the answer can change
+ * between the check and the click.
+ */
+export function useDeleteSource() {
+  const invalidate = useInvalidateSettings();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api<{ ok: true }>(`/api/settings/sources/${id}`, { method: "DELETE" }),
+    onSuccess: invalidate,
+  });
+}
+
 export function useUpdateFirm() {
   const invalidate = useInvalidateSettings();
   return useMutation({

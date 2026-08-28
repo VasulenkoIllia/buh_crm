@@ -67,6 +67,18 @@ export async function registerRoutes(instance: FastifyInstance) {
     },
   );
 
+  /**
+   * Only while nothing records it — the service says how many do, and both foreign keys are
+   * RESTRICT so the database refuses regardless of who asks first.
+   */
+  app.delete(
+    "/sources/:id",
+    { preHandler: requireAdmin, schema: { params: idParams } },
+    async (request) => {
+      return service.removeSource(request.params.id);
+    },
+  );
+
   app.patch(
     "/firm",
     { preHandler: requireAdmin, schema: { body: updateFirmInput } },

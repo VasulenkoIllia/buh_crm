@@ -1,9 +1,9 @@
 import { useRef, useState } from "react";
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowDown, ArrowUp, Trash2 } from "lucide-react";
 import type { Priority, SourceOption } from "@shared/schema/settings";
 import { useAuth } from "@/app/auth";
 import { ApiError } from "@/shared/lib/api";
-import { Button } from "@/shared/ui/button";
+import { Button, IconButton } from "@/shared/ui/button";
 import { firmZoneAbbr } from "@/shared/lib/tz";
 import { FormField, Input, Select } from "@/shared/ui/field";
 import {
@@ -12,6 +12,7 @@ import {
   useSwapPriorities,
   useUpdateFirm,
   useUpdatePriority,
+  useDeleteSource,
   useUpdateSource,
   useUploadLogo,
 } from "./settings.api";
@@ -143,6 +144,7 @@ function PrioritiesSection({ priorities }: { priorities: Priority[] }) {
 function SourcesSection({ sources }: { sources: SourceOption[] }) {
   const create = useCreateSource();
   const update = useUpdateSource();
+  const remove = useDeleteSource();
   const [newName, setNewName] = useState("");
 
   const add = async () => {
@@ -185,6 +187,27 @@ function SourcesSection({ sources }: { sources: SourceOption[] }) {
             >
               {source.active ? "Deactivate" : "Activate"}
             </Button>
+            {/* Offered on every source and refused by the server when it is recorded somewhere —
+                the same shape the service catalog uses, and for the same reason: whether a delete
+                is possible can change between drawing the button and pressing it. */}
+            <IconButton
+              label={`Delete ${source.name}`}
+              disabled={remove.isPending}
+              className="hover:text-danger"
+              onClick={() => {
+                if (
+                  !window.confirm(
+                    `Delete “${source.name}”? Possible only while no client or lead records it.`,
+                  )
+                )
+                  return;
+                remove
+                  .mutateAsync(source.id)
+                  .catch((e) => window.alert(e instanceof Error ? e.message : "Delete failed"));
+              }}
+            >
+              <Trash2 size={15} />
+            </IconButton>
             {!source.active && <span className="text-[12px] text-muted">inactive</span>}
           </div>
         ))}
@@ -204,8 +227,9 @@ function SourcesSection({ sources }: { sources: SourceOption[] }) {
       </div>
       {createError && <p className="mt-1 text-[12px] text-danger-text">{createError}</p>}
       <p className="mt-3 text-[12px] text-muted">
-        Used by Clients and Leads. Deactivated sources disappear from forms but stay on
-        existing records.
+        Used by Clients and Leads. Deactivating hides a source from the forms and keeps it on
+        existing records; deleting is possible only while nothing records it at all, the archive
+        included.
       </p>
     </Section>
   );

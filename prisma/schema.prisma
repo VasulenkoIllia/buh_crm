@@ -534,7 +534,9 @@ model Client {
   archivedAt   DateTime?
   archivedById String?   @db.Uuid
 
-  source         SourceOption?         @relation(fields: [sourceId], references: [id])
+  /// Restrict, not the default SetNull: a source may only be deleted while nothing records it,
+  /// and the database is what makes that true rather than a count taken a moment earlier.
+  source         SourceOption?         @relation(fields: [sourceId], references: [id], onDelete: Restrict)
   companies      Company[] // 1:N — the client's companies (see below)
   people         ClientPerson[] // the "People" tab
   secrets        ClientSecret[] // the "Secrets" tab — encrypted, admin-only reveal
@@ -774,7 +776,8 @@ model Lead {
   archivedById      String?     @db.Uuid
 
   service         Service?      @relation(fields: [serviceId], references: [id])
-  source          SourceOption? @relation(fields: [sourceId], references: [id])
+  /// Restrict — see the note on `Client.source`.
+  source          SourceOption? @relation(fields: [sourceId], references: [id], onDelete: Restrict)
   convertedClient Client?       @relation("LeadConvertedClient", fields: [convertedClientId], references: [id])
   tasks           Task[]
   meetings        Meeting[]

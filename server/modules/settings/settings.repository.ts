@@ -54,6 +54,29 @@ export function updateSource(id: string, data: Prisma.SourceOptionUpdateInput) {
   return prisma.sourceOption.update({ where: { id }, data });
 }
 
+/**
+ * How many records name this source — archived ones INCLUDED.
+ *
+ * An archived client is a soft delete: they can be restored, and they have to come back with the
+ * source they arrived by. Counting only live records would let a source be deleted while the
+ * archive still remembers it, and the restore would bring back a client from nowhere.
+ */
+export async function countSourceUsage(id: string) {
+  const [clients, leads] = await Promise.all([
+    prisma.client.count({ where: { sourceId: id } }),
+    prisma.lead.count({ where: { sourceId: id } }),
+  ]);
+  return { clients, leads };
+}
+
+export function findSource(id: string) {
+  return prisma.sourceOption.findUnique({ where: { id } });
+}
+
+export function deleteSource(id: string) {
+  return prisma.sourceOption.delete({ where: { id } });
+}
+
 export function getFirmProfile() {
   return prisma.firmProfile.findUniqueOrThrow({ where: { id: 1 } });
 }
