@@ -65,6 +65,13 @@ export type Subscription = z.infer<typeof subscriptionSchema>;
 
 export const clientSchema = z.object({
   id: uuid,
+  /**
+   * The short handle staff use with each other — "have a look at C-042".
+   *
+   * The bare number travels; `clientCode()` renders it. Sorting stays numeric that way, and the
+   * prefix or the padding can change without a migration.
+   */
+  code: z.number().int().positive(),
   /** derived: the services of the client's ACTIVE subscriptions (joined to the catalog in the UI) */
   categories: z.array(uuid),
   subscriptions: z.array(subscriptionSchema),
@@ -324,3 +331,41 @@ export const revealedSecretSchema = z.object({
   value: z.string(),
   expiresAt: z.iso.datetime(),
 });
+
+// ── the client code ──────────────────────────────────────────────────────────
+
+/**
+ * The short handle staff say to each other about a client: "have a look at C-042".
+ *
+ * Only the NUMBER is stored. Everything about how it looks lives in these two functions, so the
+ * prefix or the width can change without a migration and without hunting through screens — and,
+ * more importantly, so what is rendered and what is searched for can never drift apart.
+ *
+ * A prefix rather than a bare number because the search box is shared: "042" also reads as part of
+ * a phone number or an amount, while "C-042" reads as exactly one thing. It sits beside the
+ * invoice numbering (`INV-2026-0001`) rather than inventing a second idea of what an id looks like.
+ *
+ * No yearly reset, unlike invoices: a client's identity has to stay unique for as long as they are
+ * a client, and `C-2026-001` beside `C-2027-001` would be two different people one glyph apart.
+ */
+const CODE_PREFIX = "C";
+const CODE_DIGITS = 3;
+
+/** `42` → `"C-042"`. Wider numbers simply get wider; the padding is a floor, not a limit. */
+export function clientCode(code: number): string {
+  return `${CODE_PREFIX}-${String(code).padStart(CODE_DIGITS, "0")}`;
+}
+
+/**
+ * The client code hidden in a search box, or `null` when there is none.
+ *
+ * Accepts what people actually type after reading one off a message: `C-042`, `c042`, `042`, `42`.
+ * Anything else — a name, a phone, an email — returns null so the caller leaves the clause out
+ * entirely. A search must never be NARROWED by a condition that cannot match.
+ */
+export function codeInSearch(query: string): number | null {
+  const m = /^\s*[cC]?[-\s]?0*(\d{1,9})\s*$/.exec(query);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return n > 0 ? n : null;
+}

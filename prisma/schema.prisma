@@ -476,6 +476,10 @@ model Service {
   invoices      Invoice[]
   meetings      Meeting[]
   people        ClientPerson[]
+
+  // the catalog's own read order. The index exists in the database — the 2026-08-27 migration
+  // created it — but the model had never declared it, so every schema diff wanted to drop it.
+  @@index([order])
 }
 
 model TaskTemplate {
@@ -507,6 +511,16 @@ model TaskTemplate {
 // plain informational label; the COMPANIES a client holds are real rows below.
 model Client {
   id           String    @id @default(uuid()) @db.Uuid
+  /// The short handle staff say out loud to each other — rendered `C-042`, stored as the bare
+  /// number so it sorts numerically and the format can change without touching the data.
+  ///
+  /// The DATABASE hands it out, not the application. A client is created from the Clients page,
+  /// the meeting form, the task form, the import scripts and — in a transaction of its own — lead
+  /// conversion; a counter in application code would have to be threaded through every one of
+  /// them, and any path added later would silently produce a client with no code. Invoices keep
+  /// their own counter because accounting demands numbering with no gaps; a gap here costs
+  /// nothing (user, 2026-08-28).
+  code         Int       @unique @default(autoincrement())
   firstName    String // the client's identity — required; lastName is optional
   lastName     String?
   companyName  String? // informational only ("works at / trades as"), never an identity

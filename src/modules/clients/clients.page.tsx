@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Pin, Users } from "lucide-react";
 import type { Client, ClientListQuery } from "@shared/schema/client";
+import { clientCode } from "@shared/schema/client";
 import type { Service } from "@shared/schema/catalog";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { cn } from "@/shared/lib/cn";
@@ -380,6 +381,17 @@ function ClientRow({
   const nameCell = (
     <div className="flex min-w-0 items-center gap-2">
       <Initials name={client.displayName} />
+      {/**
+       * Inside the name cell, not a column of its own. The two tab layouts each declare a fixed
+       * column budget against a `min-width`, and an eighth track would have to come out of the
+       * flexible ones — the same arithmetic that made the Billing table drift. It is also what
+       * was actually asked for: the code before the name.
+       *
+       * `tabular-nums` so a list of codes lines up as a column even though it isn't one.
+       */}
+      <span className="flex-none font-mono text-[12px] tabular-nums text-muted-400">
+        {clientCode(client.code)}
+      </span>
       <span className="truncate font-semibold">{client.displayName}</span>
     </div>
   );

@@ -8,6 +8,7 @@ import type {
   PauseSubscriptionInput,
   ResumeSubscriptionInput,
 } from "@shared/schema/client.js";
+import { codeInSearch } from "@shared/schema/client.js";
 import { billsPerJob, rhythmOverridesSchema } from "@shared/schema/catalog.js";
 import type { Prisma, User } from "../../generated/prisma/client.js";
 import { config } from "../../core/config.js";
@@ -90,6 +91,7 @@ export function toClientDto(
   const today = todayInTz(config.TZ);
   return {
     id: client.id,
+    code: client.code,
     // the services this client actually holds — a chip appears when a service is added and
     // disappears when it's stopped. Nothing curated, nothing to keep in step by hand.
     categories: [
@@ -197,6 +199,10 @@ export async function listClients(query: ClientListQuery, userId?: string) {
     and.push(
       {
         OR: [
+          // "C-042", "c042", "042" and "42" all reach the same client. `contains` is no use on an
+          // integer column, so the code is matched exactly and only when the query actually parses
+          // as one — a text search must never be narrowed by a clause that cannot match.
+          ...(codeInSearch(query.search) !== null ? [{ code: codeInSearch(query.search)! }] : []),
           { firstName: { contains: query.search, mode: "insensitive" } },
           { lastName: { contains: query.search, mode: "insensitive" } },
           { companyName: { contains: query.search, mode: "insensitive" } },

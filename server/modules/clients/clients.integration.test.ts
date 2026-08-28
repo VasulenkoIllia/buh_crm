@@ -1482,3 +1482,78 @@ describe("clients", () => {
     });
   });
 });
+
+/**
+ * The client code (user, 2026-08-28) — the short handle staff quote to each other.
+ *
+ * The database hands it out, which is the whole point: these cases exist to prove that every way a
+ * client can come into being gets one, including the transaction that converts a lead, and that no
+ * two clients ever share one.
+ */
+describe("clients — the code staff quote to each other", () => {
+  const create = (payload: Record<string, unknown>) =>
+    app.inject({
+      method: "POST",
+      url: "/api/clients",
+      headers: { cookie },
+      payload: { companies: [], people: [], ...payload },
+    });
+
+  it("hands out a code without being asked, and never the same one twice", async () => {
+    const a = await create({ firstName: "Coded", lastName: "One" });
+    const b = await create({ firstName: "Coded", lastName: "Two" });
+    expect(a.statusCode).toBe(201);
+    expect(typeof a.json().code).toBe("number");
+    expect(a.json().code).toBeGreaterThan(0);
+    expect(b.json().code).not.toBe(a.json().code);
+    // it is handed out in order, so a code says something about seniority
+    expect(b.json().code).toBeGreaterThan(a.json().code);
+  });
+
+  it("a client converted from a lead gets one too — a separate transaction, easily missed", async () => {
+    const lead = await app.inject({
+      method: "POST",
+      url: "/api/leads",
+      headers: { cookie },
+      payload: { name: "Lead With A Code" },
+    });
+    const converted = await app.inject({
+      method: "POST",
+      url: `/api/leads/${lead.json().id}/convert`,
+      headers: { cookie },
+      payload: { firstName: "Lead", lastName: "Converted" },
+    });
+    expect(converted.statusCode).toBeLessThan(300);
+    const clientId = converted.json().clientId as string;
+    const client = await app.inject({
+      method: "GET",
+      url: `/api/clients/${clientId}`,
+      headers: { cookie },
+    });
+    expect(client.json().code).toBeGreaterThan(0);
+  });
+
+  it("is findable by the code, however it was typed", async () => {
+    const made = await create({ firstName: "Findable", lastName: "ByCode" });
+    const code = made.json().code as number;
+    const padded = `C-${String(code).padStart(3, "0")}`;
+    for (const query of [String(code), padded, padded.toLowerCase()]) {
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/clients?tab=all&search=${encodeURIComponent(query)}`,
+        headers: { cookie },
+      });
+      const ids = res.json().items.map((c: { id: string }) => c.id);
+      expect(ids).toContain(made.json().id);
+    }
+  });
+
+  it("a search that is not a code still searches text, and is not narrowed by the attempt", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/clients?tab=all&search=Findable",
+      headers: { cookie },
+    });
+    expect(res.json().items.length).toBeGreaterThan(0);
+  });
+});
