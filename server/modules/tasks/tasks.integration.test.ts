@@ -769,7 +769,12 @@ describe("tasks", () => {
       url: "/api/tasks?view=board&status=open&pageSize=100",
       headers: { cookie: adminCookie },
     });
-    const withInvoice = billed.json().items.find((t: { invoice: unknown }) => t.invoice);
+    const withInvoice = billed
+      .json()
+      .items.find(
+        (t: { invoice: { id: string; status: string } | null }) =>
+          t.invoice && t.invoice.status !== "cancelled",
+      );
     if (withInvoice) {
       const refused = await app.inject({
         method: "PATCH",
@@ -779,6 +784,38 @@ describe("tasks", () => {
       });
       expect(refused.statusCode).toBe(409);
       expect(refused.json().error.message).toMatch(/already invoiced/i);
+
+      /**
+       * …and the way out that the refusal names actually works.
+       *
+       * Until 2026-08-28 it did not: the guard asked whether an invoice EXISTED rather than
+       * whether it was live, so voiding the invoice — the one thing the message tells you to do —
+       * left you exactly where you started, while the board card beside it already read
+       * "unbilled" (user).
+       */
+      const voided = await app.inject({
+        method: "POST",
+        url: `/api/invoices/${withInvoice.invoice.id}/cancel`,
+        headers: { cookie: adminCookie },
+      });
+      expect(voided.statusCode).toBe(200);
+
+      const calledOff = await app.inject({
+        method: "PATCH",
+        url: `/api/tasks/${withInvoice.id}`,
+        headers: { cookie: adminCookie },
+        payload: { cancelled: true },
+      });
+      expect(calledOff.statusCode).toBe(200);
+      expect(calledOff.json().cancelledAt).toBeTruthy();
+
+      // and it has left the board, which is what "cancelled" means here
+      const board = await app.inject({
+        method: "GET",
+        url: "/api/tasks?view=board&status=open&pageSize=100",
+        headers: { cookie: adminCookie },
+      });
+      expect(board.json().items.some((t: { id: string }) => t.id === withInvoice.id)).toBe(false);
     }
 
     // …and one raised by mistake can be taken back

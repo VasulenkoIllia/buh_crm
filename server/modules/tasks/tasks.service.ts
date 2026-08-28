@@ -492,14 +492,20 @@ export async function updateTask(id: string, input: UpdateTaskInput, actor: User
    * nightly sweep posting it again (the sweep dedups on the (subscription, template, period) key),
    * and the history is what the Archive shows (user, 2026-08-01).
    *
-   * It is refused once an invoice exists. Cancelling the work while the client stays billed is
+   * It is refused while a LIVE invoice exists. Cancelling the work while the client stays billed is
    * the one outcome nobody wants silently — void the invoice first, then call the task off. The
    * same direction as Payments: an invoice with payments on it can't be cancelled either.
+   *
+   * `billedLive`, not `task.invoiceId`: the message tells you to void the invoice, and until
+   * 2026-08-28 doing so changed nothing, because the guard only asked whether an invoice EXISTED.
+   * Following the instruction left you exactly where you started — while the board card beside it
+   * already read `⏳ unbilled`, which is the same judgement made correctly in the other half of
+   * the app (user).
    */
   if (input.done === true && task.cancelledAt && input.cancelled !== false) {
     throw new ConflictError("This task was cancelled — restore it before marking it done");
   }
-  if (input.cancelled === true && !task.cancelledAt && task.invoiceId) {
+  if (input.cancelled === true && !task.cancelledAt && billedLive(task)) {
     throw new ConflictError(
       "This job is already invoiced — cancel the invoice first, then call the task off",
     );
