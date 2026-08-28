@@ -567,7 +567,22 @@ function BoardColumn({
    * but stays a drop TARGET, so a column dropped on it means "as early as a column may go".
    */
   const { attributes, listeners, setNodeRef, transform, transition, isOver, isDragging } =
-    useSortable({ id: column.id, data: { type: "column" }, disabled: column.isFixed });
+    useSortable({
+      id: column.id,
+      data: { type: "column" },
+      disabled: column.isFixed,
+      /**
+       * No layout animation on THIS element, or a drop reads as a twitch (user, 2026-08-28).
+       *
+       * Releasing does two things a frame apart: dnd-kit clears the drag transform, which puts the
+       * column back in the slot it started from, and the optimistic reorder then re-renders it into
+       * its new one. With `transition` applied, the gap between those two is animated — so the
+       * column visibly springs back and travels forward again. A card does the same thing and gets
+       * away with it, being small and moving a few pixels vertically; a 230px column crossing half
+       * the board does not.
+       */
+      animateLayoutChanges: () => false,
+    });
   const rename = useUpdateColumn();
   const remove = useDeleteColumn();
   const [name, setName] = useState(column.name);
@@ -652,16 +667,11 @@ function BoardColumn({
         <span className="rounded-[10px] bg-[#e7eaef] px-[7px] py-px text-[11px] font-semibold text-[#8b929c]">
           {tasks.length}
         </span>
+        {/* No small "+" here. It called exactly the same `onAdd` as the green button three
+            centimetres below it — the same action, into the same column, twice. It arrived first
+            (da5099a) and the green one was added later without the older control being taken away
+            (user, 2026-08-28). */}
         <div className="ml-auto flex items-center gap-1">
-          <button
-            type="button"
-            aria-label={`Add task in ${column.name}`}
-            title="New task in this column"
-            className="flex h-[18px] w-[18px] items-center justify-center rounded-[5px] text-[15px] leading-none text-[#8b929c] hover:bg-[#e7eaef] hover:text-ink-700"
-            onClick={onAdd}
-          >
-            +
-          </button>
           {isAdmin && !column.isFixed && tasks.length === 0 && (
             <button
               type="button"
