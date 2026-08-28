@@ -69,7 +69,15 @@ const TAB_HINTS: Record<TabKey, string> = {
 };
 
 export function ClientsPage() {
-  const [tab, setTab] = useState<TabKey>("one_time");
+  /**
+   * Regular, not One-time (user, 2026-08-28). One-time is the bigger list by far — 218 of 241 —
+   * but it is mostly the imported back catalogue. The clients on a subscription are the ones the
+   * firm works on every month, so they are what the screen should open on.
+   *
+   * The tab order is left alone: Regular is the default, not the first, because moving a control
+   * someone has learned the position of costs more than it gains.
+   */
+  const [tab, setTab] = useState<TabKey>("regular");
   const [search, setSearch] = useState("");
   const [serviceId, setServiceId] = useState("");
   const [sort, setSort] = useState<SortKey>("recent");
