@@ -122,6 +122,25 @@ export type InvoiceList = z.infer<typeof invoiceListSchema>;
  * `todayMs` is today as a business date (see shared/dates.ts) — injectable for tests, and passed
  * explicitly by the server so the firm timezone decides the day, not the process timezone.
  */
+/**
+ * Is this job billed by an invoice that still COUNTS?
+ *
+ * A cancelled invoice is void — no balance, out of the debt, out of the unpaid list — so a job
+ * pointing at one is not billed. Reading `invoiceId` alone strands such a job: it cannot be
+ * re-invoiced (the billing guard sees a link), its price cannot be corrected, and it cannot be
+ * called off either, which is how a user found the last of those on 2026-08-28.
+ *
+ * Here rather than in either module because BOTH ask it — Tasks before locking a price or calling
+ * a job off, Payments before issuing a second invoice for the same work. It was written out twice,
+ * and the two copies agreeing was luck rather than design (audit, 2026-08-28).
+ */
+export function hasLiveInvoice(job: {
+  invoiceId: string | null;
+  invoice?: { cancelledAt: Date | null } | null;
+}): boolean {
+  return !!job.invoiceId && !job.invoice?.cancelledAt;
+}
+
 export function deriveStatus(
   invoice: { amount: number; paid: number; dueDate: Date | string | null; cancelledAt: Date | string | null },
   todayMs: number = localBusinessTodayMs(),

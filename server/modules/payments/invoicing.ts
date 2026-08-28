@@ -1,4 +1,5 @@
 import { config } from "../../core/config.js";
+import { hasLiveInvoice } from "@shared/schema/payment.js";
 import { todayInTz, toUtc } from "../../core/dates.js";
 import type { Prisma } from "../../generated/prisma/client.js";
 import * as repo from "./payments.repository.js";
@@ -155,7 +156,7 @@ export interface JobInvoiceInput {
 export function issueJobInvoice(input: JobInvoiceInput) {
   return repo.inTransaction(async (tx) => {
     const task = await repo.lockTaskForInvoicing(tx, input.taskId);
-    if (task.invoiceId && !task.invoice?.cancelledAt) return null;
+    if (hasLiveInvoice(task)) return null;
     return issueInvoiceIn(tx, input);
   });
 }

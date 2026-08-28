@@ -22,7 +22,10 @@ import { CLIENTS_KEY, LEADS_KEY } from "@/shared/lib/query-keys";
  */
 export function useLeads(scope: LeadListQuery["scope"] = "all") {
   return useQuery({
-    queryKey: [...LEADS_KEY, scope],
+    // "list" names what this cache holds. Everything under `["leads", …]` shares the prefix — one
+    // lead, the pipeline's stages — and an optimistic write meant for the LISTS must be able to
+    // say so, the way the tasks board's `isBoard` does (audit, 2026-08-28).
+    queryKey: [...LEADS_KEY, "list", scope],
     queryFn: () => api<LeadList>(`/api/leads?scope=${scope}`),
     placeholderData: (prev) => prev,
   });
@@ -88,16 +91,18 @@ export function useMoveLead() {
     mutationFn: ({ id, input }: { id: string; input: MoveLeadInput }) =>
       api<Lead>(`/api/leads/${id}/position`, { method: "PATCH", body: input }),
     onMutate: async ({ id, input }) => {
-      await queryClient.cancelQueries({ queryKey: LEADS_KEY });
-      const previous = queryClient.getQueriesData<LeadList>({ queryKey: LEADS_KEY });
-      queryClient.setQueriesData<LeadList>({ queryKey: LEADS_KEY }, (list) => {
-        /**
-         * Every cached lead query shares this prefix — INCLUDING the stages, which are a plain
-         * array. Without this guard the updater read `.items` off that array, threw inside
-         * `onMutate`, and the whole mutation failed and rolled back: the card opened a gap, went
-         * nowhere, and the server never heard about it (2026-08-28).
-         */
-        if (!list || !Array.isArray((list as Partial<LeadList>).items)) return list;
+      /**
+       * ONLY the lead LISTS. `["leads", …]` also covers one lead by id and the pipeline's stages,
+       * and the stages are a plain array — an updater that reached them read `.items` off an
+       * array, threw inside `onMutate`, and failed the whole mutation silently: the card opened a
+       * gap, went nowhere, and the server never heard about it (2026-08-28).
+       */
+      const isLeadList = (key: readonly unknown[]) => key[0] === "leads" && key[1] === "list";
+
+      await queryClient.cancelQueries({ predicate: (q) => isLeadList(q.queryKey) });
+      const previous = queryClient.getQueriesData<LeadList>({ predicate: (q) => isLeadList(q.queryKey) });
+      queryClient.setQueriesData<LeadList>({ predicate: (q) => isLeadList(q.queryKey) }, (list) => {
+        if (!list) return list;
         const moved = list.items.find((l) => l.id === id);
         if (!moved) return list;
         const landed = { ...moved, stageId: input.stageId };

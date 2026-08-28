@@ -14,7 +14,7 @@ import type {
   UpdateTaskInput,
   UpdateTimeEntryInput,
 } from "@shared/schema/task.js";
-import { deriveStatus } from "@shared/schema/payment.js";
+import { deriveStatus, hasLiveInvoice } from "@shared/schema/payment.js";
 import type { Prisma, User } from "../../generated/prisma/client.js";
 import { config } from "../../core/config.js";
 import { dateToUtc, todayBusinessMs } from "../../core/dates.js";
@@ -24,18 +24,6 @@ import { issueJobInvoice } from "../payments/index.js";
 import * as repo from "./tasks.repository.js";
 
 /** The job's invoice WITH its settlement state — same derivation rule as the Billing screen. */
-/**
- * Is this job billed by an invoice that still counts?
- *
- * A cancelled invoice is void — no balance, out of the debt, out of the unpaid list — so a job
- * pointing at one is NOT billed. Reading `invoiceId` alone stranded such a job: it could not be
- * re-invoiced (the billing guard saw a link), its price could not be corrected (the same guard),
- * and the cancelled invoice could not be edited either.
- */
-function billedLive(task: { invoiceId: string | null; invoice?: { cancelledAt: Date | null } | null }) {
-  return !!task.invoiceId && !task.invoice?.cancelledAt;
-}
-
 function toTaskInvoice(invoice: NonNullable<repo.TaskRecord["invoice"]>, todayMs: number) {
   const paid = invoice.paidTotal;
   return {
@@ -472,7 +460,7 @@ export async function updateTask(id: string, input: UpdateTaskInput, actor: User
     if (task.kind !== "once") {
       throw new ValidationError("Only one-time job tasks carry a price");
     }
-    if (billedLive(task)) {
+    if (hasLiveInvoice(task)) {
       throw new ValidationError("The invoice is already issued — the price is locked");
     }
   }
@@ -505,7 +493,7 @@ export async function updateTask(id: string, input: UpdateTaskInput, actor: User
   if (input.done === true && task.cancelledAt && input.cancelled !== false) {
     throw new ConflictError("This task was cancelled — restore it before marking it done");
   }
-  if (input.cancelled === true && !task.cancelledAt && billedLive(task)) {
+  if (input.cancelled === true && !task.cancelledAt && hasLiveInvoice(task)) {
     throw new ConflictError(
       "This job is already invoiced — cancel the invoice first, then call the task off",
     );
@@ -537,7 +525,7 @@ export async function updateTask(id: string, input: UpdateTaskInput, actor: User
   if (input.assignees) await repo.setAssignees(id, input.assignees);
 
   // one-time job billed on completion: issue the invoice the moment it's marked done
-  if (input.done === true && task.kind === "once" && !billedLive(task) && task.clientId) {
+  if (input.done === true && task.kind === "once" && !hasLiveInvoice(task) && task.clientId) {
     const amount = input.amount !== undefined ? input.amount : task.amount;
     if (amount != null) {
       const sub = task.subscriptionId
