@@ -27,6 +27,8 @@ export const meetingSchema = z.object({
   /** client OR lead OR neither (an internal meeting) — never both */
   clientId: uuid.nullable(),
   leadId: uuid.nullable(),
+  /** WHO at the client, when it is worth saying — a refinement of `clientId`, never a target */
+  personId: uuid.nullable(),
   /** what the meeting is about, when it maps to a catalog service */
   serviceId: uuid.nullable(),
   startAt: z.iso.datetime(),
@@ -38,6 +40,7 @@ export const meetingSchema = z.object({
   /** labels resolved server-side, so the calendar never depends on a clients page being loaded */
   clientName: z.string().nullable(),
   leadName: z.string().nullable(),
+  personName: z.string().nullable(),
   serviceName: z.string().nullable(),
   /** the task opened alongside it, if one was (see `task` on the create input) */
   taskId: uuid.nullable(),
@@ -77,6 +80,16 @@ const meetingFields = z.object({
   title: z.string().trim().min(1, "Required").max(200),
   clientId: uuid.nullable().optional(),
   leadId: uuid.nullable().optional(),
+  /**
+   * The contact at the client, when the meeting is with a particular person rather than with the
+   * firm at large. Only meaningful alongside `clientId` — a lead carries no contacts and an
+   * internal meeting has no client. The server checks the person actually belongs to that client:
+   * an id from somewhere else must not quietly attach a stranger's contact details.
+   *
+   * It IS editable after the fact, unlike the target — you often learn who you are dealing with
+   * after the meeting is booked, and moving it changes nothing a linked task points at.
+   */
+  personId: uuid.nullable().optional(),
   serviceId: uuid.nullable().optional(),
   startAt: z.iso.datetime(),
   durationMinutes: z.number().int().min(5).max(24 * 60),
@@ -94,6 +107,10 @@ export const createMeetingInput = meetingFields
   .refine((v) => !(v.clientId && v.leadId), {
     path: ["leadId"],
     message: "Pick a client or a lead, not both",
+  })
+  .refine((v) => !v.personId || !!v.clientId, {
+    path: ["personId"],
+    message: "A contact person belongs to a client — pick the client too",
   })
   .refine((v) => v.task?.mode !== "service" || !!v.clientId, {
     path: ["task"],

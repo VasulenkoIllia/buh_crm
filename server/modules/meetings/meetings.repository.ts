@@ -7,6 +7,7 @@ const meetingInclude = {
   // the same reason the task board carries them
   client: { select: { firstName: true, lastName: true } },
   lead: { select: { name: true } },
+  person: { select: { name: true } },
   service: { select: { name: true } },
   participants: { select: { userId: true } },
 } satisfies Prisma.MeetingInclude;
@@ -140,6 +141,15 @@ export async function setParticipants(meetingId: string, userIds: string[]) {
 
 export function findActiveClient(id: string) {
   return prisma.client.findFirst({ where: { id, archivedAt: null }, select: { id: true } });
+}
+
+/**
+ * A contact, but only if they belong to THIS client. A person id is guessable and arrives from the
+ * browser; without the `clientId` in the WHERE, one client's meeting could carry another client's
+ * contact — and with it their name and phone number.
+ */
+export function findClientPerson(id: string, clientId: string) {
+  return prisma.clientPerson.findFirst({ where: { id, clientId }, select: { id: true } });
 }
 
 export function findLead(id: string) {

@@ -21,6 +21,7 @@ export function toMeetingDto(m: repo.MeetingRecord) {
     title: m.title,
     clientId: m.clientId,
     leadId: m.leadId,
+    personId: m.personId,
     serviceId: m.serviceId,
     startAt: m.startAt.toISOString(),
     durationMinutes: m.durationMinutes,
@@ -29,6 +30,7 @@ export function toMeetingDto(m: repo.MeetingRecord) {
     participantIds: m.participants.map((p) => p.userId),
     clientName: m.client ? clientLabel(m.client) : null,
     leadName: m.lead?.name ?? null,
+    personName: m.person?.name ?? null,
     serviceName: m.service?.name ?? null,
     taskId: m.taskId,
     createdById: m.createdById,
@@ -165,6 +167,22 @@ async function resolveTarget(input: { clientId?: string | null; leadId?: string 
   return { clientId: null, leadId: null };
 }
 
+/**
+ * The contact is a REFINEMENT of the client, so it is only ever valid against that client.
+ *
+ * Checked on edit as well as on create: the target is frozen once a meeting exists, but the
+ * contact is not — you often learn who you are dealing with afterwards — so this is the only
+ * thing standing between a stale id and someone else's phone number.
+ */
+async function assertPersonBelongs(personId: string, clientId: string | null) {
+  if (!clientId) {
+    throw new ValidationError("A contact person belongs to a client — pick the client too");
+  }
+  if (!(await repo.findClientPerson(personId, clientId))) {
+    throw new ValidationError("That contact does not belong to this client");
+  }
+}
+
 async function assertBookable(userIds: string[]) {
   if (userIds.length === 0) return;
   if ((await repo.countActiveUsers(userIds)) !== userIds.length) {
@@ -226,6 +244,7 @@ async function openTaskFor(
 
 export async function createMeeting(input: CreateMeetingInput, actor: User) {
   const target = await resolveTarget(input);
+  if (input.personId) await assertPersonBelongs(input.personId, target.clientId);
   if (input.serviceId && !(await repo.findActiveService(input.serviceId))) {
     throw new ValidationError("Unknown or inactive service");
   }
@@ -246,6 +265,7 @@ export async function createMeeting(input: CreateMeetingInput, actor: User) {
     title: input.title,
     clientId: target.clientId,
     leadId: target.leadId,
+    personId: input.personId ?? null,
     serviceId: input.serviceId ?? null,
     startAt,
     durationMinutes: input.durationMinutes,
@@ -282,6 +302,7 @@ async function retimeTask(taskId: string, startAt: Date) {
 export async function updateMeeting(id: string, input: UpdateMeetingInput, actor: User) {
   const existing = await repo.findMeeting(id);
   if (!existing) throw new NotFoundError("Meeting not found");
+  if (input.personId) await assertPersonBelongs(input.personId, existing.clientId);
   if (input.serviceId && !(await repo.findActiveService(input.serviceId))) {
     throw new ValidationError("Unknown or inactive service");
   }
@@ -321,6 +342,7 @@ export async function updateMeeting(id: string, input: UpdateMeetingInput, actor
   await repo.updateMeeting(id, {
     ...(attachedTaskId ? { taskId: attachedTaskId } : {}),
     ...(input.title !== undefined ? { title: input.title } : {}),
+    ...(input.personId !== undefined ? { personId: input.personId } : {}),
     ...(input.serviceId !== undefined ? { serviceId: input.serviceId } : {}),
     ...(input.startAt !== undefined ? { startAt: new Date(input.startAt) } : {}),
     ...(input.durationMinutes !== undefined ? { durationMinutes: input.durationMinutes } : {}),

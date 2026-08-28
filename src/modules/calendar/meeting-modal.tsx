@@ -5,7 +5,7 @@ import type { Meeting } from "@shared/schema/calendar";
 import { DEFAULT_MEETING_MINUTES, MEETING_DURATION_PRESETS } from "@shared/schema/calendar";
 import { useCatalog } from "@/modules/catalog";
 import { ClientFormModal, useClient } from "@/modules/clients";
-import { LeadFormModal } from "@/modules/leads";
+import { LeadFormModal, useLead } from "@/modules/leads";
 import { ClientLeadSearch, useAssignees, type Target } from "@/modules/tasks";
 import { cn } from "@/shared/lib/cn";
 import { firmWallClockToInstant, firmZoneAbbr, instantToFirmWallClock } from "@/shared/lib/tz";
@@ -78,6 +78,12 @@ export function MeetingModal({
 
   const [title, setTitle] = useState("");
   const [target, setTarget] = useState<Target | null>(null);
+  /**
+   * WHO at the client, when the meeting is with a particular person. Null means "the client at
+   * large", which is what every meeting booked before contacts existed means and stays a normal
+   * answer afterwards. Cleared whenever the target changes: a contact belongs to ONE client.
+   */
+  const [personId, setPersonId] = useState<string | null>(null);
   const [start, setStart] = useState(() =>
     splitInstant(defaultStartAt ?? new Date().toISOString()),
   );
@@ -124,6 +130,7 @@ export function MeetingModal({
             ? { kind: "lead", id: existing.leadId, label: existing.leadName ?? "Lead" }
             : null,
       );
+      setPersonId(existing.personId);
       setStart(splitInstant(existing.startAt));
       setDuration(existing.durationMinutes);
       setLink(existing.link ?? "");
@@ -137,7 +144,23 @@ export function MeetingModal({
   }, [existing, defaultClientId, defaultLeadId]);
 
   const clientId = target?.kind === "client" ? target.id : undefined;
-  const { data: client } = useClient(withTask && taskMode === "service" ? clientId : undefined);
+  /**
+   * Fetched for ANY client now, not only when the task routes through a service: it carries both
+   * the contacts to choose from and the phone number to show. One request, and the answer to
+   * "what is their number" stops being a trip back to the client's card (user, 2026-08-28).
+   */
+  const { data: client } = useClient(clientId);
+  const { data: lead } = useLead(target?.kind === "lead" ? target.id : null);
+
+  /** the contact this meeting is with, and how to reach them — a person if one was named. */
+  const person = client?.people.find((p) => p.id === personId) ?? null;
+  const contact = person
+    ? { phone: person.phone, email: person.email }
+    : client
+      ? { phone: client.phone, email: client.email }
+      : lead
+        ? { phone: lead.phone, email: lead.email }
+        : null;
 
   const startAt = start.date && start.time ? joinToInstant(start.date, start.time) : null;
   // the slot settles before anyone is asked about it — see `useDebounced`
@@ -179,6 +202,9 @@ export function MeetingModal({
           id: meetingId!,
           input: {
             title,
+            // editable after the fact, unlike the target: you often learn who you are dealing
+            // with only once the meeting is booked
+            personId,
             startAt,
             durationMinutes: duration,
             link: link || null,
@@ -196,6 +222,7 @@ export function MeetingModal({
           title,
           clientId: target?.kind === "client" ? target.id : null,
           leadId: target?.kind === "lead" ? target.id : null,
+          personId: target?.kind === "client" ? personId : null,
           startAt,
           durationMinutes: duration,
           link: link || null,
@@ -223,6 +250,7 @@ export function MeetingModal({
         onClose={() => setLeadFormOpen(false)}
         onSaved={(lead) => {
           setTarget({ kind: "lead", id: lead.id, label: lead.name });
+          setPersonId(null); // and no contacts either — whoever was picked belonged elsewhere
           setSubscriptionId(""); // a lead has no services to bill through
           setTaskMode("internal");
         }}
@@ -236,6 +264,7 @@ export function MeetingModal({
         onClose={() => setClientFormOpen(false)}
         onSaved={(c) => {
           setTarget({ kind: "client", id: c.id, label: c.displayName });
+          setPersonId(null); // a contact belongs to ONE client, and this is a different one
           setSubscriptionId(""); // the picker below reloads against the new client
         }}
       />
@@ -324,16 +353,42 @@ export function MeetingModal({
             ) : (
               <ClientLeadSearch
                 value={target}
-                onPick={setTarget}
+                onPick={(t) => {
+                  setTarget(t);
+                  setPersonId(null); // a contact belongs to one client; a new target voids it
+                }}
                 onNewClient={() => setClientFormOpen(true)}
                 onNewLead={() => setLeadFormOpen(true)}
                 onClear={() => {
                   setTarget(null);
+                  setPersonId(null);
                   setSubscriptionId("");
                   setTaskMode("internal");
                 }}
                 placeholder="Search — or leave empty for an internal meeting"
               />
+            )}
+            {/* The number, where the meeting is. Booking a lead and then having to walk back into
+                the lead to find their phone was the whole complaint (user, 2026-08-28). */}
+            {contact && (
+              <p className="mt-1 text-[12px] leading-snug text-muted">
+                {person && <span className="font-medium text-ink-700">{person.name}</span>}
+                {person && " · "}
+                {/* The phone, or the email when there is no phone — one line in a half-width
+                    column, and the email is only ever the answer when the number isn't. */}
+                {contact.phone ? (
+                  <a
+                    className="text-primary-link hover:underline"
+                    href={`tel:${contact.phone.replace(/[^\d+]/g, "")}`}
+                  >
+                    {contact.phone}
+                  </a>
+                ) : contact.email ? (
+                  <span>{contact.email}</span>
+                ) : (
+                  <span className="text-faint">no phone or email on file</span>
+                )}
+              </p>
             )}
           </FormField>
           <FormField label={`Starts (${firmZoneAbbr()})`} htmlFor="m-date">
@@ -356,6 +411,34 @@ export function MeetingModal({
             </div>
           </FormField>
         </div>
+
+        {/**
+         * Only when the client HAS contacts — which is every client with a filled People tab and
+         * no one else, so a firm that never fills it sees the form exactly as before.
+         *
+         * "Contact", not "Who's coming": that row below is the firm's own people. This one is the
+         * other side of the table, and naming both the same way would read as one question asked
+         * twice.
+         */}
+        {client && client.people.length > 0 && (
+          <FormField label="Contact">
+            <div className="flex flex-wrap gap-1.5">
+              <button type="button" className={pillCls(!personId)} onClick={() => setPersonId(null)}>
+                The client
+              </button>
+              {client.people.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className={pillCls(personId === p.id)}
+                  onClick={() => setPersonId(p.id)}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          </FormField>
+        )}
 
         <FormField label="Duration">
           <div className="flex flex-wrap items-center gap-1.5">

@@ -733,3 +733,137 @@ describe("calendar — the two lanes", () => {
     expect((await get(`/api/calendar?from=${day(0)}&to=${day(200)}`)).statusCode).toBe(400);
   });
 });
+
+/**
+ * WHO at the client a meeting is with (S8, user 2026-08-28).
+ *
+ * A contact is a REFINEMENT of the client, never a target of its own. Everything here exists to
+ * hold that line: the meeting keeps belonging to the client, so no rollup changes; the contact is
+ * checked against THAT client, so a stray id cannot attach a stranger's phone number; and a
+ * contact who leaves takes nothing with them.
+ */
+describe("meetings — the contact at the client", () => {
+  const makeClientWithPeople = async (firstName: string, names: string[]) => {
+    const res = await post("/api/clients", {
+      firstName,
+      companies: [],
+      people: names.map((name) => ({ name, phone: `+1 555 000 ${names.indexOf(name)}` })),
+    });
+    expect(res.statusCode).toBe(201);
+    const c = res.json();
+    return { id: c.id as string, people: c.people as { id: string; name: string }[] };
+  };
+
+  it("books a meeting with a named contact and reads the name back", async () => {
+    const c = await makeClientWithPeople("Contactful", ["Maryna", "Serhii"]);
+    const res = await post("/api/calendar/meetings", {
+      title: "Quarterly review",
+      clientId: c.id,
+      personId: c.people[0].id,
+      startAt: at(day(3), "14:00"),
+      durationMinutes: 30,
+    });
+    expect(res.statusCode).toBe(201);
+    const m = res.json();
+    expect(m.personId).toBe(c.people[0].id);
+    // resolved server-side, like clientName — the calendar never resolves ids against a client list
+    expect(m.personName).toBe("Maryna");
+    // and the meeting still belongs to the CLIENT, which is what every rollup counts
+    expect(m.clientId).toBe(c.id);
+  });
+
+  it("refuses a contact who belongs to a different client", async () => {
+    const ours = await makeClientWithPeople("Ours", ["Ours person"]);
+    const theirs = await makeClientWithPeople("Theirs", ["Theirs person"]);
+    const res = await post("/api/calendar/meetings", {
+      title: "Not yours to book",
+      clientId: ours.id,
+      personId: theirs.people[0].id,
+      startAt: at(day(3), "15:00"),
+      durationMinutes: 30,
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("refuses a contact with no client behind them", async () => {
+    const c = await makeClientWithPeople("Orphaned", ["Someone"]);
+    const res = await post("/api/calendar/meetings", {
+      title: "Contact without a client",
+      personId: c.people[0].id,
+      startAt: at(day(3), "16:00"),
+      durationMinutes: 30,
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("refuses a contact on a LEAD's meeting — a lead has no contacts", async () => {
+    const c = await makeClientWithPeople("Has people", ["Person"]);
+    const lead = await post("/api/leads", { name: "Lead with no people" });
+    const res = await post("/api/calendar/meetings", {
+      title: "Wrong side",
+      leadId: lead.json().id,
+      personId: c.people[0].id,
+      startAt: at(day(3), "17:00"),
+      durationMinutes: 30,
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("lets the contact be changed after booking, and cleared again", async () => {
+    const c = await makeClientWithPeople("Changeable", ["First", "Second"]);
+    const created = await post("/api/calendar/meetings", {
+      title: "Learn who later",
+      clientId: c.id,
+      startAt: at(day(4), "10:00"),
+      durationMinutes: 30,
+    });
+    expect(created.json().personId).toBeNull();
+
+    const moved = await patch(`/api/calendar/meetings/${created.json().id}`, {
+      personId: c.people[1].id,
+    });
+    expect(moved.statusCode).toBe(200);
+    expect(moved.json().personName).toBe("Second");
+
+    const cleared = await patch(`/api/calendar/meetings/${created.json().id}`, { personId: null });
+    expect(cleared.json().personId).toBeNull();
+  });
+
+  it("refuses an edit that moves the contact to another client's person", async () => {
+    const ours = await makeClientWithPeople("Edit ours", ["Right"]);
+    const theirs = await makeClientWithPeople("Edit theirs", ["Wrong"]);
+    const created = await post("/api/calendar/meetings", {
+      title: "Guarded on edit too",
+      clientId: ours.id,
+      startAt: at(day(4), "11:00"),
+      durationMinutes: 30,
+    });
+    const res = await patch(`/api/calendar/meetings/${created.json().id}`, {
+      personId: theirs.people[0].id,
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("a contact who leaves takes nothing with them — the meeting stays on the client", async () => {
+    const c = await makeClientWithPeople("Leaver", ["Departing", "Staying"]);
+    const created = await post("/api/calendar/meetings", {
+      title: "Booked with someone who left",
+      clientId: c.id,
+      personId: c.people[0].id,
+      startAt: at(day(5), "10:00"),
+      durationMinutes: 30,
+    });
+    // the People tab replaces the list — dropping a row deletes that contact
+    const kept = c.people[1];
+    const upd = await patch(`/api/clients/${c.id}`, {
+      people: [{ name: kept.name, phone: "+1 555 111 1" }],
+    });
+    expect(upd.statusCode).toBe(200);
+
+    const after = await get(`/api/calendar/meetings/${created.json().id}`);
+    expect(after.statusCode).toBe(200);
+    expect(after.json().clientId).toBe(c.id);
+    expect(after.json().personId).toBeNull();
+    expect(after.json().personName).toBeNull();
+  });
+});
