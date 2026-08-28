@@ -154,6 +154,7 @@ export function MeetingModal({
 
   /** the contact this meeting is with, and how to reach them — a person if one was named. */
   const person = client?.people.find((p) => p.id === personId) ?? null;
+  const hasPeople = !!client && client.people.length > 0;
   const contact = person
     ? { phone: person.phone, email: person.email }
     : client
@@ -368,28 +369,6 @@ export function MeetingModal({
                 placeholder="Search — or leave empty for an internal meeting"
               />
             )}
-            {/* The number, where the meeting is. Booking a lead and then having to walk back into
-                the lead to find their phone was the whole complaint (user, 2026-08-28). */}
-            {contact && (
-              <p className="mt-1 text-[12px] leading-snug text-muted">
-                {person && <span className="font-medium text-ink-700">{person.name}</span>}
-                {person && " · "}
-                {/* The phone, or the email when there is no phone — one line in a half-width
-                    column, and the email is only ever the answer when the number isn't. */}
-                {contact.phone ? (
-                  <a
-                    className="text-primary-link hover:underline"
-                    href={`tel:${contact.phone.replace(/[^\d+]/g, "")}`}
-                  >
-                    {contact.phone}
-                  </a>
-                ) : contact.email ? (
-                  <span>{contact.email}</span>
-                ) : (
-                  <span className="text-faint">no phone or email on file</span>
-                )}
-              </p>
-            )}
           </FormField>
           <FormField label={`Starts (${firmZoneAbbr()})`} htmlFor="m-date">
             <div className="flex gap-2">
@@ -413,30 +392,58 @@ export function MeetingModal({
         </div>
 
         {/**
-         * Only when the client HAS contacts — which is every client with a filled People tab and
-         * no one else, so a firm that never fills it sees the form exactly as before.
+         * WHO, and then how to reach them — one block, because they are one question.
          *
-         * "Contact", not "Who's coming": that row below is the firm's own people. This one is the
-         * other side of the table, and naming both the same way would read as one question asked
-         * twice.
+         * It sits here rather than under the target field, where the number first went: there it
+         * landed beneath the "+ New client / + New lead" links and read as belonging to them, and
+         * it repeated a name the pill underneath was already showing (user, 2026-08-28).
+         *
+         * The name is deliberately NOT in the line. Whoever the number belongs to is already on
+         * screen — the selected pill when there are contacts, the target field when there are not.
+         *
+         * The pills appear only for a client that HAS contacts, so a firm with an empty People tab
+         * sees the number and nothing else. "Contact", not "Who's coming": that row below is the
+         * firm's own side of the table.
          */}
-        {client && client.people.length > 0 && (
+        {contact && (
           <FormField label="Contact">
-            <div className="flex flex-wrap gap-1.5">
-              <button type="button" className={pillCls(!personId)} onClick={() => setPersonId(null)}>
-                The client
-              </button>
-              {client.people.map((p) => (
+            {hasPeople && (
+              <div className="flex flex-wrap gap-1.5">
                 <button
-                  key={p.id}
                   type="button"
-                  className={pillCls(personId === p.id)}
-                  onClick={() => setPersonId(p.id)}
+                  className={pillCls(!personId)}
+                  onClick={() => setPersonId(null)}
                 >
-                  {p.name}
+                  The client
                 </button>
-              ))}
-            </div>
+                {client.people.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className={pillCls(personId === p.id)}
+                    onClick={() => setPersonId(p.id)}
+                  >
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+            )}
+            {/* The phone, or the email when there is no phone — the email is only ever the answer
+                when the number isn't. */}
+            <p className={cn("text-[12px] leading-snug text-muted", hasPeople && "mt-1.5")}>
+              {contact.phone ? (
+                <a
+                  className="text-primary-link hover:underline"
+                  href={`tel:${contact.phone.replace(/[^\d+]/g, "")}`}
+                >
+                  {contact.phone}
+                </a>
+              ) : contact.email ? (
+                <span>{contact.email}</span>
+              ) : (
+                <span className="text-faint">no phone or email on file</span>
+              )}
+            </p>
           </FormField>
         )}
 
