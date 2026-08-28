@@ -124,15 +124,16 @@ export async function listInvoices(query: InvoiceListQuery) {
   if (query.companyId) base.companyId = query.companyId === "root" ? null : query.companyId;
   if (query.search) {
     const contains = { contains: query.search, mode: "insensitive" as const };
+    // the client CODE is searchable here but never printed in the row: an invoice already carries
+    // its own identifier, and two ids on one line compete for the same glance
+    const code = codeInSearch(query.search);
     base.OR = [
       { number: contains },
       { description: contains },
       {
         client: {
           OR: [
-            // the client CODE is searchable here but not printed in the row: an invoice already
-            // carries its own identifier, and two ids on one line compete for the same glance
-            ...(codeInSearch(query.search) !== null ? [{ code: codeInSearch(query.search)! }] : []),
+            ...(code !== null ? [{ code }] : []),
             { firstName: contains },
             { lastName: contains },
             { companyName: contains },

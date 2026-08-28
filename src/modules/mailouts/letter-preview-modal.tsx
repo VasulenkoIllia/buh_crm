@@ -64,7 +64,8 @@ export function LetterPreviewModal({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the preview re-renders on the LETTER
+    // changing, not on the callbacks that fetch it; listing those would refetch on every keystroke
   }, [open, subject, heading, body, kind]);
 
   const used = MAIL_VARIABLES.filter((v) => result?.variablesUsed.includes(v.key));

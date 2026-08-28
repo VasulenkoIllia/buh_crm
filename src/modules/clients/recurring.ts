@@ -16,7 +16,7 @@ import type { BillingPeriod } from "@shared/schema/enums";
  * **Periods are never added together.** $600 a month and $300 a quarter have no common total that
  * anyone bills, so both are returned and the row shows both rather than inventing one number.
  */
-export const PERIOD_ORDER: BillingPeriod[] = ["month", "quarter", "year"];
+const PERIOD_ORDER: BillingPeriod[] = ["month", "quarter", "year"];
 
 /** How a period is written out. One map — the clients list had a second, identical copy. */
 export const PERIOD_LABEL: Record<BillingPeriod, string> = {

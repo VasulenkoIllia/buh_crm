@@ -196,13 +196,14 @@ export async function listClients(query: ClientListQuery, userId?: string) {
   }
 
   if (query.search) {
+    // "C-042", "c042", "042" and "42" all reach the same client. `contains` is no use on an integer
+    // column, so the code is matched exactly — and only when the query actually parses as one, so a
+    // text search is never narrowed by a clause that cannot match.
+    const code = codeInSearch(query.search);
     and.push(
       {
         OR: [
-          // "C-042", "c042", "042" and "42" all reach the same client. `contains` is no use on an
-          // integer column, so the code is matched exactly and only when the query actually parses
-          // as one — a text search must never be narrowed by a clause that cannot match.
-          ...(codeInSearch(query.search) !== null ? [{ code: codeInSearch(query.search)! }] : []),
+          ...(code !== null ? [{ code }] : []),
           { firstName: { contains: query.search, mode: "insensitive" } },
           { lastName: { contains: query.search, mode: "insensitive" } },
           { companyName: { contains: query.search, mode: "insensitive" } },
