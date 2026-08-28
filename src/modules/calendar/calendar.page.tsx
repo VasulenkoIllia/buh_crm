@@ -23,6 +23,7 @@ import {
   isoDay,
   placeInGrid,
   slotInstant,
+  splitOverflow,
   startOfMonth,
   windowFor,
   type ViewMode,
@@ -47,6 +48,15 @@ const VIEWS: { value: ViewMode; label: string }[] = [
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MONTH_CELL_ROWS = 4;
+/**
+ * How many deadlines a day of the lane shows before it starts counting instead.
+ *
+ * A week is seven narrow columns and the lane is reference material sitting on top of the hour
+ * grid, so it stays short. A day is one column somebody opened deliberately, so it stretches a
+ * little — the height of a row is the same in both, this is about what the view is for.
+ */
+const DUE_ROWS_WEEK = 3;
+const DUE_ROWS_DAY = 5;
 
 export function CalendarPage() {
   const [mode, setMode] = useState<ViewMode>("week");
@@ -399,6 +409,25 @@ function TimeGrid({
   const hours = Array.from({ length: DAY_END_HOUR - DAY_START_HOUR }, (_, i) => DAY_START_HOUR + i);
   const anyDeadlines = days.some((d) => (deadlinesByDay[isoDay(d)] ?? []).length > 0);
 
+  /**
+   * The whole lane opens, not one column of it.
+   *
+   * It is one CSS grid row, so its height is the tallest cell in it — expanding a single day
+   * would grow the band anyway. Seven pieces of state for one visible outcome is not a choice
+   * worth offering.
+   *
+   * A day gives the lane more room than a week does, and someone who opened one day did it to
+   * look at that day. The row itself costs the same height either way, so this is about intent
+   * rather than width.
+   */
+  const dueCap = days.length === 1 ? DUE_ROWS_DAY : DUE_ROWS_WEEK;
+  const [dueOpen, setDueOpen] = useState(false);
+  // reset on any move: opening the lane is a peek at one day, never a mode to be left in.
+  // Not a remount via `key` — that would re-run the scroll above and throw away the hour the
+  // person had scrolled to.
+  const range = `${days.length}:${isoDay(days[0])}`;
+  useEffect(() => setDueOpen(false), [range]);
+
   return (
     <div className="overflow-hidden rounded-(--radius-panel) border border-border bg-surface">
       {/* day headers */}
@@ -455,13 +484,33 @@ function TimeGrid({
           <div className="px-2 py-1.5 text-right text-[10px] font-medium uppercase tracking-wide text-[#8a5a12]">
             Due
           </div>
-          {days.map((d) => (
-            <div key={isoDay(d)} className="space-y-1 border-l border-[#f2f4f7] p-1.5">
-              {(deadlinesByDay[isoDay(d)] ?? []).map((item) => (
-                <DeadlineChip key={item.taskId} item={item} onClick={() => onOpenTask(item.taskId)} />
-              ))}
-            </div>
-          ))}
+          {days.map((d) => {
+            const all = deadlinesByDay[isoDay(d)] ?? [];
+            const { shown, hidden } = splitOverflow(all, dueOpen ? all.length : dueCap);
+            // the toggle belongs on exactly the days that were cut — nowhere else has anything
+            // to say, and a day of two deadlines should not carry a control about nine
+            const truncatable = all.length > dueCap + 1;
+            return (
+              <div key={isoDay(d)} className="space-y-1 border-l border-[#f2f4f7] p-1.5">
+                {shown.map((item) => (
+                  <DeadlineChip
+                    key={item.taskId}
+                    item={item}
+                    onClick={() => onOpenTask(item.taskId)}
+                  />
+                ))}
+                {truncatable && (
+                  <button
+                    type="button"
+                    onClick={() => setDueOpen((v) => !v)}
+                    className="px-1 text-[11px] text-[#8a5a12] hover:underline"
+                  >
+                    {hidden > 0 ? `+${hidden} more` : "− less"}
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 

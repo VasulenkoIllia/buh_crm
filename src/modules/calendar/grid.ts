@@ -208,3 +208,22 @@ export const fmtRange = (iso: string, minutes: number): string => {
   const nextDay = firmIsoDay(end) !== firmIsoDay(start);
   return `${fmtTime(start)}–${fmtTime(end)}${nextDay ? " +1" : ""}`;
 };
+
+/**
+ * How much of a list to draw, and how much to say is missing.
+ *
+ * The deadline lane sits ABOVE the hour grid and outside its scroller, so unlike the grid it does
+ * not limit itself — a day carrying nine deadlines pushed the working hours off the bottom of the
+ * screen (user, 2026-08-28). The lane is reference material, by the same decision that makes it
+ * read-only, so it may not take the calendar's room by default.
+ *
+ * **Nothing is hidden to save one row.** At `cap + 1` the whole list is drawn instead: a "+1 more"
+ * costs a row to say a row exists, and asks for a click to see what a click would have shown.
+ *
+ * A decision about what is drawn and what is merely counted, so it lives here with tests rather
+ * than in the render — the third time that rule has had to be relearned in this codebase.
+ */
+export function splitOverflow<T>(items: T[], cap: number): { shown: T[]; hidden: number } {
+  if (cap < 0 || items.length <= cap + 1) return { shown: items, hidden: 0 };
+  return { shown: items.slice(0, cap), hidden: items.length - cap };
+}

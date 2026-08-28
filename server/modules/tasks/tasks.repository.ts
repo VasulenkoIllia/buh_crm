@@ -196,7 +196,19 @@ export function listDeadlinesInRange(args: {
       ...(args.clientId ? { clientId: args.clientId } : {}),
       ...liveTargetWhere(),
     },
-    orderBy: [{ deadline: "asc" }, { createdAt: "asc" }],
+    /**
+     * Priority sits between the day and the tie-break because the calendar's deadline lane shows
+     * only the first few of a day and counts the rest: whichever ones survive that cut have to be
+     * the ones worth seeing. Inside a single day `overdue` cannot decide it — every deadline in a
+     * day column shares the day, so it shares the flag (user, 2026-08-28).
+     *
+     * DESCENDING, because `Priority.order` is a scale that climbs: Low 0, Normal 1, High 2,
+     * Urgent 3 — it is the order a picker lists them in, so ascending would surface the least
+     * urgent work and bury the rest behind "+6 more".
+     *
+     * `priorityId` is NOT nullable, so there is no null ordering to think about.
+     */
+    orderBy: [{ deadline: "asc" }, { priority: { order: "desc" } }, { createdAt: "asc" }],
     select: {
       id: true,
       title: true,

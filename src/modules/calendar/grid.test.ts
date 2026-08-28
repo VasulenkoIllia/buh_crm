@@ -13,6 +13,7 @@ import {
   fmtRange,
   placeInGrid,
   slotInstant,
+  splitOverflow,
   startOfWeek,
   windowFor,
 } from "./grid.js";
@@ -194,5 +195,39 @@ describe("calendar grid", () => {
     const byId = Object.fromEntries(laid.map((l) => [l.item.id, l.column]));
     expect(byId.b).not.toBe(byId.a);
     expect(byId.c).toBe(byId.b);
+  });
+});
+
+describe("splitOverflow", () => {
+  const list = (n: number) => Array.from({ length: n }, (_, i) => i);
+
+  it("draws everything when it fits", () => {
+    expect(splitOverflow(list(3), 3)).toEqual({ shown: [0, 1, 2], hidden: 0 });
+    expect(splitOverflow(list(0), 3)).toEqual({ shown: [], hidden: 0 });
+  });
+
+  it("does not hide a single item to save one row", () => {
+    // "+1 more" spends a row saying a row exists, and asks for a click to show what a click shows
+    expect(splitOverflow(list(4), 3)).toEqual({ shown: [0, 1, 2, 3], hidden: 0 });
+  });
+
+  it("caps once there is more than one to hide, and counts what is left", () => {
+    expect(splitOverflow(list(5), 3)).toEqual({ shown: [0, 1, 2], hidden: 2 });
+    expect(splitOverflow(list(9), 3)).toEqual({ shown: [0, 1, 2], hidden: 6 });
+    expect(splitOverflow(list(9), 5)).toEqual({ shown: [0, 1, 2, 3, 4], hidden: 4 });
+  });
+
+  it("shown and hidden always account for the whole list", () => {
+    for (const n of [0, 1, 4, 5, 20]) {
+      for (const cap of [0, 1, 3, 5]) {
+        const { shown, hidden } = splitOverflow(list(n), cap);
+        expect(shown.length + hidden).toBe(n);
+      }
+    }
+  });
+
+  it("a cap of zero still refuses to hide a lone item", () => {
+    expect(splitOverflow(list(1), 0)).toEqual({ shown: [0], hidden: 0 });
+    expect(splitOverflow(list(2), 0)).toEqual({ shown: [], hidden: 2 });
   });
 });
