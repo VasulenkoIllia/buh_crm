@@ -11,6 +11,7 @@ import type {
   UpdatePaymentInput,
 } from "@shared/schema/payment.js";
 import { deriveStatus, lineAmount, linesTotal } from "@shared/schema/payment.js";
+import { codeInSearch } from "@shared/schema/client.js";
 import type { Prisma, User } from "../../generated/prisma/client.js";
 import { config } from "../../core/config.js";
 import { dateToUtc, todayBusinessMs } from "../../core/dates.js";
@@ -128,7 +129,14 @@ export async function listInvoices(query: InvoiceListQuery) {
       { description: contains },
       {
         client: {
-          OR: [{ firstName: contains }, { lastName: contains }, { companyName: contains }],
+          OR: [
+            // the client CODE is searchable here but not printed in the row: an invoice already
+            // carries its own identifier, and two ids on one line compete for the same glance
+            ...(codeInSearch(query.search) !== null ? [{ code: codeInSearch(query.search)! }] : []),
+            { firstName: contains },
+            { lastName: contains },
+            { companyName: contains },
+          ],
         },
       },
     ];

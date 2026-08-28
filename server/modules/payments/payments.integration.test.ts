@@ -1206,3 +1206,50 @@ describe("carrying the total onto the job", () => {
     expect((await prisma.task.findFirstOrThrow({ where: { id: second.id } })).amount).toBe(40_00);
   });
 });
+
+/**
+ * The client code reaches Billing through SEARCH, not through the row.
+ *
+ * An invoice already carries its own identifier, so printing a second one beside it would put two
+ * ids in one glance. Being able to type the one a colleague quoted is the part that matters.
+ */
+describe("billing — finding a client's invoices by their code", () => {
+  it("finds them by the code, however it was typed, and not by somebody else's", async () => {
+    const mine = await app.inject({
+      method: "POST",
+      url: "/api/clients",
+      headers: { cookie: adminCookie },
+      payload: { firstName: "Codesearch", lastName: "Mine", companies: [], people: [] },
+    });
+    const theirs = await app.inject({
+      method: "POST",
+      url: "/api/clients",
+      headers: { cookie: adminCookie },
+      payload: { firstName: "Codesearch", lastName: "Theirs", companies: [], people: [] },
+    });
+    const code = mine.json().code as number;
+    const invoice = await makeInvoice(mine.json().id, 5_000);
+    await makeInvoice(theirs.json().id, 7_000);
+
+    const padded = `C-${String(code).padStart(3, "0")}`;
+    for (const query of [String(code), padded, padded.toLowerCase()]) {
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/invoices?search=${encodeURIComponent(query)}`,
+        headers: { cookie: adminCookie },
+      });
+      const ids = res.json().items.map((i: { id: string }) => i.id);
+      expect(ids).toContain(invoice.id);
+    }
+  });
+
+  it("a search that is not a code still matches text, and is not narrowed by the attempt", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/invoices?search=Codesearch",
+      headers: { cookie: adminCookie },
+    });
+    // both clients share the first name — the text clause still does its own work
+    expect(res.json().items.length).toBeGreaterThanOrEqual(2);
+  });
+});

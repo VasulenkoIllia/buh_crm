@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Check, Pencil, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { Task, TimeEntry, UpdateTaskInput } from "@shared/schema/task";
+import { clientCode } from "@shared/schema/client";
 import { useAuth } from "@/app/auth";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { ClientFormModal, useClient, useClients } from "@/modules/clients";
@@ -635,8 +636,13 @@ export function ClientLeadSearch({
               onMouseDown={(e) => e.preventDefault()} // keep focus so onClick fires before blur
               onClick={() => onPick({ kind: "client", id: c.id, label: c.displayName })}
             >
-              <span className="font-medium">{c.displayName}</span>
-              <span className="text-[11px] text-muted">client</span>
+              {/* the code is quoted BETWEEN people; this row is where a quoted one is acted on,
+                  so it has to be possible to confirm you picked the client you were told about */}
+              <span className="flex-none font-mono text-[11px] tabular-nums text-muted-400">
+                {clientCode(c.code)}
+              </span>
+              <span className="truncate font-medium">{c.displayName}</span>
+              <span className="flex-none text-[11px] text-muted">client</span>
             </button>
           ))}
           {leadMatches.map((l) => (
