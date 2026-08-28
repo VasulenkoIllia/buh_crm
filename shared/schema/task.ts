@@ -290,6 +290,18 @@ export const updateColumnInput = z.object({
 });
 export type UpdateColumnInput = z.infer<typeof updateColumnInput>;
 
+/**
+ * Dragging a column along the board. An ANCHOR — "put me after this one" — not an index, the same
+ * shape the catalog and the cards use: an index is a claim about a list that may have moved on,
+ * and two people reordering at once with indices produce duplicates and gaps.
+ *
+ * `null` means "as early as a column may go", which is NOT position 0: the fixed "New" column
+ * holds that and cannot be moved. Naming the fixed column as the anchor means the same thing, so
+ * dropping on it and dropping past it agree rather than one of them erroring.
+ */
+export const moveColumnInput = z.object({ afterColumnId: uuid.nullable() });
+export type MoveColumnInput = z.infer<typeof moveColumnInput>;
+
 // ── Timer ────────────────────────────────────────────────────────────────────
 
 /**

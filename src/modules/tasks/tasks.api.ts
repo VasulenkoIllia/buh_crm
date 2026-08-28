@@ -5,6 +5,7 @@ import type {
   CreateTaskInput,
   Task,
   TaskColumn,
+  MoveColumnInput,
   UpdateColumnInput,
   MoveTaskInput,
   UpdateTaskInput,
@@ -309,6 +310,46 @@ export function useUpdateColumn() {
     mutationFn: ({ id, input }: { id: string; input: UpdateColumnInput }) =>
       api<TaskColumn>(`/api/tasks/columns/${id}`, { method: "PATCH", body: input }),
     onSuccess: invalidate,
+  });
+}
+
+/**
+ * Dragging a column into place, applied to the cache first.
+ *
+ * Optimistic for the same reason a card is: without it the column springs back to where it was and
+ * jumps forward when the refetch lands, which reads as a drag that failed. `applyDrop` is the same
+ * arrangement the server performs, so the two cannot disagree — and the fixed columns are held at
+ * the front here exactly as they are there.
+ */
+export function useMoveColumn() {
+  const queryClient = useQueryClient();
+  const invalidate = useInvalidateTasks();
+  const key = [...TASKS_KEY, "columns"];
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: MoveColumnInput }) =>
+      api<TaskColumn[]>(`/api/tasks/columns/${id}/position`, { method: "PATCH", body: input }),
+    onMutate: async ({ id, input }) => {
+      await queryClient.cancelQueries({ queryKey: key });
+      const snapshot = queryClient.getQueryData<TaskColumn[]>(key);
+      if (snapshot) {
+        const fixed = snapshot.filter((c) => c.isFixed);
+        const movable = applyDrop(
+          snapshot.filter((c) => !c.isFixed),
+          id,
+          input.afterColumnId,
+          (c) => c.id,
+        );
+        queryClient.setQueryData<TaskColumn[]>(
+          key,
+          [...fixed, ...movable].map((c, order) => ({ ...c, order })),
+        );
+      }
+      return { snapshot };
+    },
+    onError: (_e, _vars, ctx) => {
+      if (ctx?.snapshot) queryClient.setQueryData(key, ctx.snapshot);
+    },
+    onSettled: invalidate,
   });
 }
 

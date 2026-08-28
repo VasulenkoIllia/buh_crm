@@ -13,6 +13,7 @@ import {
   startTimerInput,
   stopTimerInput,
   taskListQuery,
+  moveColumnInput,
   updateColumnInput,
   updateTaskInput,
   updateTimeEntryInput,
@@ -47,6 +48,16 @@ export async function registerRoutes(instance: FastifyInstance) {
     "/columns/:id",
     { preHandler: requireAdmin, schema: { params: idParams, body: updateColumnInput } },
     async (request) => service.updateColumn(request.params.id, request.body),
+  );
+
+  /**
+   * Dragging a column along the board. Its own route because the body is an ANCHOR describing a
+   * position, not a property of the column — the same reason the catalog has one.
+   */
+  app.patch(
+    "/columns/:id/position",
+    { preHandler: requireAdmin, schema: { params: idParams, body: moveColumnInput } },
+    async (request) => service.moveColumn(request.params.id, request.body),
   );
 
   app.delete(

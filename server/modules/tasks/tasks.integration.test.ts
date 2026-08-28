@@ -1791,3 +1791,92 @@ describe("tasks", () => {
     });
   });
 });
+
+/**
+ * Dragging a column along the board (user, 2026-08-28).
+ *
+ * An ANCHOR, like everything else here that has an order. The cases worth pinning are the two ends
+ * of it: the fixed "New" column never moves, and every way of asking for "first" resolves to first
+ * among the MOVABLE columns rather than to position 0 or to an error.
+ */
+describe("tasks — dragging a column", () => {
+  const cols = async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/tasks/columns",
+      headers: { cookie: adminCookie },
+    });
+    return res.json() as { id: string; name: string; order: number; isFixed: boolean }[];
+  };
+  const add = async (name: string) => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/tasks/columns",
+      headers: { cookie: adminCookie },
+      payload: { name },
+    });
+    expect(res.statusCode).toBe(201);
+    return res.json().id as string;
+  };
+  const move = (id: string, afterColumnId: string | null, cookie = adminCookie) =>
+    app.inject({
+      method: "PATCH",
+      url: `/api/tasks/columns/${id}/position`,
+      headers: { cookie },
+      payload: { afterColumnId },
+    });
+
+  let a = "", b = "", c = "";
+  it("sets up three movable columns after the fixed one", async () => {
+    a = await add("Alpha");
+    b = await add("Beta");
+    c = await add("Gamma");
+    const names = (await cols()).map((x) => x.name);
+    expect(names[0]).toBe("New");
+    expect(names.slice(-3)).toEqual(["Alpha", "Beta", "Gamma"]);
+  });
+
+  it("moves one behind a named neighbour", async () => {
+    expect((await move(a, c)).statusCode).toBe(200);
+    const names = (await cols()).map((x) => x.name);
+    expect(names.slice(-3)).toEqual(["Beta", "Gamma", "Alpha"]);
+  });
+
+  it("a null anchor means first among the MOVABLE — never ahead of the fixed column", async () => {
+    expect((await move(a, null)).statusCode).toBe(200);
+    const all = await cols();
+    expect(all[0].isFixed).toBe(true);
+    expect(all[0].order).toBe(0);
+    expect(all[1].name).toBe("Alpha");
+  });
+
+  it("naming the FIXED column as the anchor means the same thing, not an error", async () => {
+    const fixed = (await cols()).find((x) => x.isFixed)!;
+    expect((await move(b, fixed.id)).statusCode).toBe(200);
+    const all = await cols();
+    expect(all[0].isFixed).toBe(true);
+    expect(all[1].name).toBe("Beta");
+  });
+
+  it("an anchor that is gone puts it first rather than guessing", async () => {
+    expect((await move(c, "00000000-0000-4000-8000-000000000000")).statusCode).toBe(200);
+    expect((await cols())[1].name).toBe("Gamma");
+  });
+
+  it("the fixed column itself cannot be dragged", async () => {
+    const fixed = (await cols()).find((x) => x.isFixed)!;
+    const res = await move(fixed.id, c);
+    expect(res.statusCode).toBe(400);
+    expect((await cols())[0].isFixed).toBe(true);
+  });
+
+  it("leaves the orders a clean 0..n-1 run with no gaps or repeats", async () => {
+    const orders = (await cols()).map((x) => x.order);
+    expect(orders).toEqual(orders.map((_, i) => i));
+  });
+
+  it("is refused to a non-admin, and to an unknown column", async () => {
+    expect((await move(a, c, userCookie)).statusCode).toBe(403);
+    expect((await move("00000000-0000-4000-8000-000000000000", null)).statusCode).toBe(404);
+  });
+});

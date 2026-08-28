@@ -6,7 +6,6 @@ import {
   PointerSensor,
   closestCenter,
   pointerWithin,
-  useDroppable,
   useSensor,
   useSensors,
   type CollisionDetection,
@@ -14,11 +13,13 @@ import {
 } from "@dnd-kit/core";
 import {
   SortableContext,
+  horizontalListSortingStrategy,
   sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { GripVertical } from "lucide-react";
 import type { Task, TaskColumn } from "@shared/schema/task";
 import { useAuth } from "@/app/auth";
 import { resolveDrop } from "@/shared/lib/drop-target";
@@ -48,6 +49,7 @@ import {
   useTaskColumns,
   useTasks,
   useUpdateColumn,
+  useMoveColumn,
   useMoveTask,
   type AssigneeInfo,
 } from "./tasks.api";
@@ -422,6 +424,7 @@ function Board({
 }) {
   const { user } = useAuth();
   const move = useMoveTask(); // dropping a card is its own action — it carries a position
+  const moveColumn = useMoveColumn();
   // Same as the catalog: the card is focusable, so without this it was a tab stop that answered
   // nothing. Space lifts, arrows move within and across columns, Space drops.
   const sensors = useSensors(
@@ -441,6 +444,11 @@ function Board({
    * inline here and silently mishandled the column case (2026-08-27).
    */
   const onDragEnd = (event: DragEndEvent) => {
+    // TWO kinds of thing are dragged on this board, and they resolve differently: a card asks
+    // which column and which neighbour, a column asks only which neighbour. Each sortable says
+    // what it is, rather than this guessing from whether the id happens to be a column's.
+    if (event.active.data.current?.type === "column") return onColumnDragEnd(event);
+
     const taskId = String(event.active.id);
     const task = tasks.find((t) => t.id === taskId);
     const ids = new Map([...byColumn].map(([column, list]) => [column, list.map((t) => t.id)]));
@@ -463,6 +471,33 @@ function Board({
   };
 
   /**
+   * Dragging a column: the movable ones are one plain list, so the shared resolver answers it with
+   * the single-list call the service catalog already makes. The fixed column is in the list as a
+   * TARGET — dropped on it, a column lands as early as one may go — but never as the thing moved.
+   */
+  const onColumnDragEnd = (event: DragEndEvent) => {
+    const id = String(event.active.id);
+    const target = resolveDrop(
+      new Map([["board", columns.map((c) => c.id)]]),
+      id,
+      event.over ? String(event.over.id) : null,
+    );
+    if (!target) return;
+    // an anchor that is the fixed column means the same as no anchor: first among the movable
+    const anchor = columns.find((c) => c.id === target.afterId)?.isFixed ? null : target.afterId;
+    moveColumn.mutate(
+      { id, input: { afterColumnId: anchor } },
+      {
+        onError: (err) =>
+          window.alert(
+            `Could not move the column.\n\n` +
+              (err instanceof Error ? err.message : "Please try again."),
+          ),
+      },
+    );
+  };
+
+  /**
    * Cards win over the column they sit in.
    *
    * Both are droppable — the column so a card can land on the empty space below, and in a column
@@ -471,6 +506,14 @@ function Board({
    * pointer was plainly on a card, which is what "it lags with two cards" was.
    */
   const collisionDetection: CollisionDetection = (args) => {
+    // A COLUMN being dragged may only land beside another column. Without this the cards are
+    // candidates too, and a column dropped over a card resolves to nothing at all.
+    if (args.active.data.current?.type === "column") {
+      return closestCenter({
+        ...args,
+        droppableContainers: args.droppableContainers.filter((c) => byColumn.has(String(c.id))),
+      });
+    }
     const within = pointerWithin(args);
     const onCard = within.filter((c) => !byColumn.has(String(c.id)));
     if (onCard.length > 0) return onCard;
@@ -480,16 +523,22 @@ function Board({
   return (
     <DndContext sensors={sensors} collisionDetection={collisionDetection} onDragEnd={onDragEnd}>
       <div className="flex flex-1 items-start gap-3 overflow-auto p-3.5">
-        {columns.map((column) => (
-          <BoardColumn
-            key={column.id}
-            column={column}
-            tasks={byColumn.get(column.id) ?? []}
-            team={team}
-            onOpen={onOpen}
-            onAdd={() => onAddInColumn(column.id)}
-          />
-        ))}
+        {/* horizontal: this board's columns run left to right, unlike every other sortable here */}
+        <SortableContext
+          items={columns.map((c) => c.id)}
+          strategy={horizontalListSortingStrategy}
+        >
+          {columns.map((column) => (
+            <BoardColumn
+              key={column.id}
+              column={column}
+              tasks={byColumn.get(column.id) ?? []}
+              team={team}
+              onOpen={onOpen}
+              onAdd={() => onAddInColumn(column.id)}
+            />
+          ))}
+        </SortableContext>
         {user?.role === "admin" && <AddColumnTile />}
       </div>
     </DndContext>
@@ -510,7 +559,15 @@ function BoardColumn({
   onAdd: () => void;
 }) {
   const { user } = useAuth();
-  const { setNodeRef, isOver } = useDroppable({ id: column.id });
+  /**
+   * Sortable rather than merely droppable: the column is still where a card lands when dropped on
+   * empty space, and is now itself something to drag. One id serves both.
+   *
+   * The fixed "New" column is `disabled` — it cannot be picked up (the server refuses to move it)
+   * but stays a drop TARGET, so a column dropped on it means "as early as a column may go".
+   */
+  const { attributes, listeners, setNodeRef, transform, transition, isOver, isDragging } =
+    useSortable({ id: column.id, data: { type: "column" }, disabled: column.isFixed });
   const rename = useUpdateColumn();
   const remove = useDeleteColumn();
   const [name, setName] = useState(column.name);
@@ -519,9 +576,13 @@ function BoardColumn({
   return (
     <div
       ref={setNodeRef}
+      // Translate, not the raw transform — same reason as the cards: the columns that move ASIDE
+      // are animated too, and a scale on a whole column reads as the board flexing
+      style={{ transform: CSS.Translate.toString(transform), transition }}
       className={cn(
         "min-h-[120px] min-w-[230px] flex-[1_0_230px] rounded-[10px] bg-[#f4f6f8] p-[10px_9px]",
         isOver && "outline-1 outline-dashed outline-[#b9c1cc]",
+        isDragging && "z-10 opacity-60",
       )}
     >
       {/* header + add button stay put at the top of the column: adding tasks must never push
@@ -536,6 +597,24 @@ function BoardColumn({
         )}
       >
       <div className="flex items-center gap-1.5 px-1 pb-2">
+        {/**
+         * A HANDLE, not the whole column. The header holds a rename field and the body holds
+         * cards that are themselves draggable — a column that dragged from anywhere would fight
+         * both, exactly as the service catalog's row would have.
+         *
+         * Admin-only and never on the fixed column, matching what the server will accept.
+         */}
+        {isAdmin && !column.isFixed && (
+          <button
+            type="button"
+            aria-label={`Reorder ${column.name}`}
+            className="-ml-0.5 flex-none cursor-grab touch-none text-[#b6bcc5] hover:text-muted active:cursor-grabbing"
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical size={13} />
+          </button>
+        )}
         {isAdmin && !column.isFixed ? (
           <input
             className="w-full min-w-0 bg-transparent text-[12px] font-bold uppercase tracking-[.6px] text-ink-700 outline-none"
@@ -705,6 +784,8 @@ function BoardCard({
   // card be placed above or below it rather than only somewhere in the column
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
+    // the board now drags TWO kinds of thing; `onDragEnd` and the collision detection both ask
+    data: { type: "card" },
   });
 
   const service = services?.find((s) => s.id === task.serviceId);

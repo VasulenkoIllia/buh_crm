@@ -9,6 +9,7 @@ import type {
   StartTimerInput,
   StopTimerInput,
   TaskListQuery,
+  MoveColumnInput,
   UpdateColumnInput,
   UpdateTaskInput,
   UpdateTimeEntryInput,
@@ -170,6 +171,17 @@ export async function updateColumn(id: string, input: UpdateColumnInput) {
   }
   const updated = await repo.updateColumn(id, input);
   return { id: updated.id, name: updated.name, order: updated.order, isFixed: updated.isFixed };
+}
+
+/** Dragging a column into place. The fixed "New" column stays where it is — see `updateColumn`. */
+export async function moveColumn(id: string, input: MoveColumnInput) {
+  const column = await repo.findColumn(id);
+  if (!column) throw new NotFoundError("Column not found");
+  if (column.isFixed) {
+    throw new ValidationError('The "New" column is fixed — it can\'t be renamed or moved');
+  }
+  await repo.moveColumn(id, input.afterColumnId);
+  return listColumns();
 }
 
 export async function removeColumn(id: string) {

@@ -41,6 +41,37 @@ export function listColumns() {
 }
 
 /**
+ * Put `columnId` immediately after `afterColumnId` — or as early as a column may go when that is
+ * null. Renumbers the whole board 0..n-1 and writes only the rows that actually move, the same way
+ * the catalog and the cards do it.
+ *
+ * The FIXED columns are held at the front and never take part. That is not a special case bolted
+ * on: keeping them in their own list ahead of the movable ones makes "dropped past the left edge"
+ * (`afterColumnId` null) and "dropped on the fixed column" (`afterColumnId` names it, so
+ * `indexOf` is -1) resolve to the same place — first among the movable — instead of one of them
+ * being an error somebody has to read.
+ */
+export async function moveColumn(columnId: string, afterColumnId: string | null) {
+  return prisma.$transaction(async (tx) => {
+    const all = await tx.taskColumn.findMany({
+      orderBy: { order: "asc" },
+      select: { id: true, order: true, isFixed: true },
+    });
+    const was = new Map(all.map((c) => [c.id, c.order]));
+    const fixed = all.filter((c) => c.isFixed).map((c) => c.id);
+    const movable = all.filter((c) => !c.isFixed && c.id !== columnId).map((c) => c.id);
+
+    const at = afterColumnId ? movable.indexOf(afterColumnId) : -1;
+    movable.splice(at + 1, 0, columnId);
+
+    for (const [order, id] of [...fixed, ...movable].entries()) {
+      if (was.get(id) === order) continue;
+      await tx.taskColumn.update({ where: { id }, data: { order } });
+    }
+  });
+}
+
+/**
  * Put `taskId` in `columnId`, immediately after `afterTaskId` — or at the top when that is null.
  *
  * Renumbers the WHOLE column 0..n-1 rather than nudging one row, which is what makes the move
