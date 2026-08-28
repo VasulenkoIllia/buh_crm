@@ -1,16 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  DndContext,
-  PointerSensor,
-  useDraggable,
-  useDroppable,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
+import { DndContext, DragOverlay, useDroppable } from "@dnd-kit/core";
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Link, useSearchParams } from "react-router-dom";
 import type { LeadStage } from "@shared/schema/enums";
 import type { Lead } from "@shared/schema/lead";
+import { DRAG_CARD, useBoardDrag } from "@/shared/lib/board-drag";
 import { cn } from "@/shared/lib/cn";
 import { fmtDate } from "@/shared/lib/format";
 import { Button } from "@/shared/ui/button";
@@ -28,7 +23,7 @@ import {
   useLeads,
   useMarkLost,
   useReopenLead,
-  useUpdateLead,
+  useMoveLead,
 } from "./leads.api";
 
 const STAGES: Array<{ key: LeadStage; label: string }> = [
@@ -41,7 +36,7 @@ const STAGES: Array<{ key: LeadStage; label: string }> = [
 ];
 
 export function LeadsPage() {
-  const update = useUpdateLead();
+  const move = useMoveLead();
   const [formOpen, setFormOpen] = useState(false);
   const [selected, setSelected] = useState<Lead | null>(null);
   // ?lead=<id> opens that lead's card — the way a task (or any other screen) links INTO a lead.
@@ -68,8 +63,6 @@ export function LeadsPage() {
   const closedList = useLeads("closed");
   const { isLoading, error } = view === "board" ? board : closedList;
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
-
   const active = useMemo(() => board.data?.items ?? [], [board.data]);
   const closed = closedList.data?.items ?? [];
   const leads = view === "board" ? board.data : closedList.data;
@@ -82,13 +75,29 @@ export function LeadsPage() {
     return map;
   }, [active]);
 
-  const onDragEnd = (event: DragEndEvent) => {
-    const leadId = String(event.active.id);
-    const stage = event.over?.id as LeadStage | undefined;
-    const lead = active.find((l) => l.id === leadId);
-    if (!stage || !lead || lead.stage === stage) return;
-    update.mutate({ id: leadId, input: { stage } });
-  };
+  /**
+   * The same machinery the tasks board runs on, and deliberately not a second copy of it: cards
+   * winning collisions over their column, the preview that opens a gap in the stage a card is
+   * crossing into, the drop that reads that preview, the keyboard sensor, the overlay.
+   *
+   * Every one of those was a bug on the other board first. `columnIds` is left out — the stages
+   * are an enum, so there is nothing to reorder yet.
+   */
+  const drag = useBoardDrag<Lead>({
+    lists: byStage as Map<string, Lead[]>,
+    idOf: (l) => l.id,
+    onMoveCard: (lead, target) =>
+      move.mutate(
+        { id: lead.id, input: { stage: target.listId as LeadStage, afterLeadId: target.afterId } },
+        {
+          onError: (err) =>
+            window.alert(
+              `Could not move \u201c${lead.name}\u201d.\n\n` +
+                (err instanceof Error ? err.message : "Please try again."),
+            ),
+        },
+      ),
+  });
 
   return (
     // full-bleed screen: white header bar + board on the app background (design)
@@ -139,17 +148,26 @@ export function LeadsPage() {
       )}
 
       {leads && view === "board" && (
-        <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+        <DndContext
+          sensors={drag.sensors}
+          collisionDetection={drag.collisionDetection}
+          {...drag.handlers}
+        >
           <div className="grid flex-1 grid-cols-[repeat(6,minmax(190px,1fr))] items-start gap-3 overflow-auto p-3.5">
             {STAGES.map((stage) => (
               <StageColumn
                 key={stage.key}
                 stage={stage}
-                leads={byStage.get(stage.key) ?? []}
+                leads={drag.shownIn(stage.key)}
                 onOpen={setSelected}
               />
             ))}
           </div>
+          {/* `dropAnimation={null}`: the default flies the overlay to where the card landed, which
+              is the travel the settle deliberately does without */}
+          <DragOverlay dropAnimation={null}>
+            {drag.carried && <DraggedLead lead={drag.carried} />}
+          </DragOverlay>
         </DndContext>
       )}
 
@@ -219,60 +237,101 @@ function StageColumn({
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.key });
 
+  // the tasks board's column, to the pixel — one kanban, not two that resemble each other
   return (
     <div
       ref={setNodeRef}
       className={cn(
-        "min-h-40 rounded-(--radius-panel) p-1",
-        isOver && "bg-[#eef1fb] outline-2 outline-dashed outline-primary/40",
+        "min-h-[120px] rounded-[10px] bg-[#f4f6f8] p-[10px_9px]",
+        isOver && "outline-1 outline-dashed outline-[#b9c1cc]",
       )}
     >
-      <div className="flex items-center gap-1.5 px-1 pb-2.5 pt-0.5">
-        <span className="text-[12px] font-bold tracking-[.5px] text-ink-700">
+      <div className="flex items-center gap-1.5 px-1 pb-2">
+        <span className="text-[12px] font-bold uppercase tracking-[.6px] text-ink-700">
           {stage.label}
         </span>
-        <span className="rounded-[10px] bg-[#e7eaef] px-[7px] py-px text-[11px] font-semibold text-muted-400">
+        <span className="rounded-[10px] bg-[#e7eaef] px-[7px] py-px text-[11px] font-semibold text-[#8b929c]">
           {leads.length}
         </span>
       </div>
-      <div className="flex flex-col gap-2">
-        {leads.map((lead) => (
-          <LeadCard key={lead.id} lead={lead} onOpen={() => onOpen(lead)} />
-        ))}
-      </div>
+      <SortableContext items={leads.map((l) => l.id)} strategy={verticalListSortingStrategy}>
+        <div className="flex min-h-[8px] flex-col gap-2">
+          {leads.map((lead) => (
+            <LeadCard key={lead.id} lead={lead} onOpen={() => onOpen(lead)} />
+          ))}
+          {leads.length === 0 && (
+            <p className="py-6 text-center text-[12px] text-[#9aa1ab]">Nothing here yet</p>
+          )}
+        </div>
+      </SortableContext>
     </div>
   );
 }
 
 function LeadCard({ lead, onOpen }: { lead: Lead; onOpen: () => void }) {
   const locked = lead.outcome !== "in_process"; // won or lost — not draggable
+  /**
+   * Sortable, not merely draggable: the card is also a DROP TARGET, which is what lets another be
+   * placed above or below it. Until now a lead could only be thrown at a stage and landed wherever
+   * the list happened to put it (user, 2026-08-28).
+   *
+   * `animateLayoutChanges: false` for the reason the tasks board learned twice: after the drop the
+   * reorder changes `items`, and dnd-kit would animate every card whose index moved from where it
+   * was to where it now is. That travel is what reads as jumping. The cards stepping aside DURING
+   * a drag is a different transform and is untouched.
+   */
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: lead.id,
+    data: { type: DRAG_CARD },
+    disabled: locked,
+    animateLayoutChanges: () => false,
+  });
+
+  return (
+    <LeadCardFace
+      lead={lead}
+      nodeRef={setNodeRef}
+      wiring={{ ...attributes, ...listeners, onClick: () => !isDragging && onOpen() }}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      // barely there while it is in hand: the DragOverlay is drawing the real one
+      className={cn(isDragging && "opacity-25", locked && "opacity-70")}
+    />
+  );
+}
+
+/** The lead as it looks IN YOUR HAND, drawn by `DragOverlay` in a portal that follows the pointer. */
+function DraggedLead({ lead }: { lead: Lead }) {
+  return <LeadCardFace lead={lead} className="rotate-1 shadow-lg" />;
+}
+
+/** One lead's appearance. Shared so the overlay cannot drift from the board. */
+function LeadCardFace({
+  lead,
+  nodeRef,
+  wiring,
+  style,
+  className,
+}: {
+  lead: Lead;
+  nodeRef?: (node: HTMLElement | null) => void;
+  wiring?: Record<string, unknown>;
+  style?: React.CSSProperties;
+  className?: string;
+}) {
   const { data: settings } = useSettings();
   const { data: services } = useCatalog();
   const sourceName = settings?.sources.find((s) => s.id === lead.sourceId)?.name;
   const service = services?.find((s) => s.id === lead.serviceId);
-
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: lead.id,
-    disabled: locked,
-  });
-
   const contact = [lead.phone, lead.email].filter(Boolean).join(" · ");
 
   return (
     <div
-      ref={setNodeRef}
-      {...attributes}
-      {...listeners}
-      onClick={() => !isDragging && onOpen()}
-      style={
-        transform
-          ? { transform: `translate(${transform.x}px, ${transform.y}px)` }
-          : undefined
-      }
+      ref={nodeRef}
+      {...wiring}
+      style={style}
       className={cn(
-        "cursor-pointer rounded-[9px] border border-border bg-surface px-3 py-[11px] shadow-(--shadow-card)",
-        isDragging && "z-10 opacity-80",
-        locked && "opacity-70",
+        "cursor-pointer rounded-[9px] border border-border bg-surface px-3 py-[11px] shadow-[0_1px_2px_rgba(0,0,0,.04)]",
+        className,
       )}
     >
       <div className="flex items-start justify-between gap-1.5">

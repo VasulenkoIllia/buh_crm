@@ -1,13 +1,57 @@
+import type { LeadStage } from "@shared/schema/enums.js";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../core/db.js";
 import { ConflictError } from "../../core/errors.js";
 
 export async function listLeads(where: Prisma.LeadWhereInput, take: number) {
   const [items, total] = await prisma.$transaction([
-    prisma.lead.findMany({ where, orderBy: { createdAt: "desc" }, take }),
+    // board order first, newest second: the pipeline is arranged by hand, and a lead nobody has
+    // moved keeps the place its arrival gave it (the back-fill matched exactly that)
+    prisma.lead.findMany({
+      where,
+      orderBy: [{ boardOrder: "asc" }, { createdAt: "desc" }],
+      take,
+    }),
     prisma.lead.count({ where }),
   ]);
   return { items, total };
+}
+
+/**
+ * Put `leadId` in `stage`, immediately after `afterLeadId` — or at the top when that is null.
+ *
+ * Renumbers the whole stage 0..n-1 and writes only the rows that actually move, exactly as
+ * `moveTaskInBoard` does. Same problem, same answer; the two are worth comparing if either is
+ * ever changed.
+ */
+export async function moveLeadInBoard(
+  leadId: string,
+  stage: LeadStage,
+  afterLeadId: string | null,
+) {
+  return prisma.$transaction(async (tx) => {
+    const inStage = await tx.lead.findMany({
+      where: { stage, archivedAt: null, id: { not: leadId } },
+      orderBy: [{ boardOrder: "asc" }, { createdAt: "desc" }],
+      select: { id: true, boardOrder: true },
+    });
+    const was = new Map(inStage.map((l) => [l.id, l.boardOrder]));
+    const ids = inStage.map((l) => l.id);
+
+    // an anchor that is not in this stage (a stale board, someone else moved it) means the
+    // caller's picture is out of date — put the lead on top rather than guess a position
+    const at = afterLeadId ? ids.indexOf(afterLeadId) : -1;
+    ids.splice(at + 1, 0, leadId);
+
+    for (const [order, id] of ids.entries()) {
+      if (id === leadId || was.get(id) === order) continue;
+      await tx.lead.update({ where: { id }, data: { boardOrder: order } });
+    }
+    await tx.lead.update({
+      where: { id: leadId },
+      data: { stage, boardOrder: ids.indexOf(leadId) },
+    });
+  });
 }
 
 export function findLead(id: string) {

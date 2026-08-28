@@ -13,6 +13,8 @@ export const leadSchema = z.object({
   sourceId: uuid.nullable(),
   description: z.string().nullable(),
   stage: leadStage,
+  /** where it sits inside its stage on the board — the firm's own order, dragged by hand */
+  boardOrder: z.number().int(),
   outcome: leadOutcome,
   convertedClientId: uuid.nullable(),
   createdAt: z.iso.datetime(),
@@ -97,3 +99,17 @@ export const convertLeadInput = z.object({
   description: optionalTrimmed,
 });
 export type ConvertLeadInput = z.infer<typeof convertLeadInput>;
+
+/**
+ * Dragging a lead across the pipeline board.
+ *
+ * An ANCHOR — "put me after this one" — not an index, the same shape the tasks board, the service
+ * catalog and the board columns all use: an index is a claim about a list that may have moved on,
+ * and two people dragging at once with indices produce duplicates and gaps. `null` is the top of
+ * the stage.
+ */
+export const moveLeadInput = z.object({
+  stage: leadStage,
+  afterLeadId: uuid.nullable(),
+});
+export type MoveLeadInput = z.infer<typeof moveLeadInput>;

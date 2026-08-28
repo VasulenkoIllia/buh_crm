@@ -6,6 +6,7 @@ import {
   convertLeadInput,
   createLeadInput,
   leadListQuery,
+  moveLeadInput,
   updateLeadInput,
 } from "@shared/schema/lead.js";
 import { requireAuth } from "../../core/auth.js";
@@ -35,6 +36,15 @@ export async function registerRoutes(instance: FastifyInstance) {
     { schema: { params: idParams, body: updateLeadInput } },
     async (request) => {
       return service.updateLead(request.params.id, request.body);
+    },
+  );
+
+  /** dragging on the board: a stage AND a neighbour, which an edit does not carry */
+  app.patch(
+    "/:id/position",
+    { schema: { params: idParams, body: moveLeadInput } },
+    async (request) => {
+      return service.moveLead(request.params.id, request.body);
     },
   );
 

@@ -5,8 +5,10 @@ import type {
   Lead,
   LeadList,
   LeadListQuery,
+  MoveLeadInput,
   UpdateLeadInput,
 } from "@shared/schema/lead";
+import { applyDrop } from "@/shared/lib/drop-target";
 import { api } from "@/shared/lib/api";
 import { CLIENTS_KEY, LEADS_KEY } from "@/shared/lib/query-keys";
 
@@ -51,23 +53,53 @@ export function useCreateLead() {
   });
 }
 
+/**
+ * Editing a lead's fields. NOT its place on the board — that is `useMoveLead`, which carries a
+ * position as well as a stage.
+ *
+ * This used to hold an optimistic stage move, from when the board dragged through here. Its guard
+ * was `if (!input.stage) return`, and the edit form has never sent a stage — so once the board
+ * moved to its own mutation the whole block could only ever return early (audit, 2026-08-28).
+ */
 export function useUpdateLead() {
-  const queryClient = useQueryClient();
+  const invalidate = useInvalidateLeads();
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateLeadInput }) =>
       api<Lead>(`/api/leads/${id}`, { method: "PATCH", body: input }),
-    // optimistic stage move — the card lands instantly, server confirms after.
-    // Patches every cached lead list (board / archive / all) so whichever is on screen moves.
+    onSuccess: invalidate,
+  });
+}
+
+/**
+ * Dragging a lead on the board — its own mutation, because it carries a POSITION as well as a
+ * stage, and `useUpdateLead` knows nothing about order.
+ *
+ * Optimistic in the same shape the tasks board uses: `applyDrop` produces exactly the arrangement
+ * the server will make, so the card lands under the cursor and stays there. The two must agree —
+ * a client that guesses differently makes the card jump when the refetch lands.
+ */
+export function useMoveLead() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: MoveLeadInput }) =>
+      api<Lead>(`/api/leads/${id}/position`, { method: "PATCH", body: input }),
     onMutate: async ({ id, input }) => {
-      if (!input.stage) return;
       await queryClient.cancelQueries({ queryKey: LEADS_KEY });
       const previous = queryClient.getQueriesData<LeadList>({ queryKey: LEADS_KEY });
-      queryClient.setQueriesData<LeadList>({ queryKey: LEADS_KEY }, (list) =>
-        list && {
-          ...list,
-          items: list.items.map((l) => (l.id === id ? { ...l, stage: input.stage! } : l)),
-        },
-      );
+      queryClient.setQueriesData<LeadList>({ queryKey: LEADS_KEY }, (list) => {
+        if (!list) return list;
+        const moved = list.items.find((l) => l.id === id);
+        if (!moved) return list;
+        const landed = { ...moved, stage: input.stage };
+        const inStage = applyDrop(
+          [...list.items.filter((l) => l.id !== id && l.stage === input.stage), landed],
+          id,
+          input.afterLeadId,
+          (l) => l.id,
+        ).map((l, boardOrder) => ({ ...l, boardOrder }));
+        const elsewhere = list.items.filter((l) => l.id !== id && l.stage !== input.stage);
+        return { ...list, items: [...elsewhere, ...inStage] };
+      });
       return { previous };
     },
     onError: (_err, _vars, context) => {

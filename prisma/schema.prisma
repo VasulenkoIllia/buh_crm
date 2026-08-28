@@ -768,6 +768,10 @@ model Lead {
   sourceId          String?     @db.Uuid
   description       String?
   stage             LeadStage   @default(first_contact)
+  /// Where the lead sits INSIDE its stage on the board. The same idea as `Task.boardOrder`, and
+  /// for the same reason: a pipeline column has the order the firm arranged, not the one the
+  /// database happened to return (user, 2026-08-28).
+  boardOrder        Int         @default(0)
   outcome           LeadOutcome @default(in_process)
   convertedClientId String?     @unique @db.Uuid
   createdAt         DateTime    @default(now())

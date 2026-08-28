@@ -2,6 +2,7 @@ import type {
   ConvertLeadInput,
   CreateLeadInput,
   LeadListQuery,
+  MoveLeadInput,
   UpdateLeadInput,
 } from "@shared/schema/lead.js";
 import { LEAD_LIST_LIMIT } from "@shared/schema/lead.js";
@@ -30,6 +31,7 @@ function toLeadDto(lead: Lead) {
     sourceId: lead.sourceId,
     description: lead.description,
     stage: lead.stage,
+    boardOrder: lead.boardOrder,
     outcome: lead.outcome,
     convertedClientId: lead.convertedClientId,
     createdAt: lead.createdAt.toISOString(),
@@ -73,6 +75,23 @@ async function getActiveLead(id: string) {
  * archived one on the same terms as every other operation here.
  */
 export async function getLead(id: string) {
+  return toLeadDto(await getActiveLead(id));
+}
+
+/**
+ * Dragging a lead across the board — its own action, because it carries a POSITION and not just a
+ * stage. The same guards as an edit: a won lead is read-only and a lost one has to be reopened
+ * first, so the board cannot quietly resurrect either by dropping it somewhere.
+ */
+export async function moveLead(id: string, input: MoveLeadInput) {
+  const lead = await getActiveLead(id);
+  if (lead.outcome === "won") throw new ValidationError("A converted lead is read-only");
+  if (lead.outcome === "lost") {
+    throw new ValidationError("Reopen this lead before editing or moving it");
+  }
+  await repo.moveLeadInBoard(id, input.stage, input.afterLeadId);
+  // re-read rather than patch the copy in hand: the move renumbered its neighbours too, and the
+  // row that comes back is the one the board will be compared against
   return toLeadDto(await getActiveLead(id));
 }
 

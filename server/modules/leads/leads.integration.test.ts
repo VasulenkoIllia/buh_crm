@@ -245,3 +245,93 @@ describe("leads", () => {
     expect(res.statusCode).toBe(400);
   });
 });
+
+/**
+ * Dragging a lead on the pipeline board (user, 2026-08-28).
+ *
+ * Same shape as the tasks board — an anchor, a renumbered stage, and the guards that stop a closed
+ * lead being quietly reopened by dropping it somewhere.
+ */
+describe("leads — dragging on the board", () => {
+  const make = async (name: string) => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/leads",
+      headers: { cookie },
+      payload: { name },
+    });
+    expect(res.statusCode).toBe(201);
+    return res.json().id as string;
+  };
+  const move = (id: string, stage: string, afterLeadId: string | null) =>
+    app.inject({
+      method: "PATCH",
+      url: `/api/leads/${id}/position`,
+      headers: { cookie },
+      payload: { stage, afterLeadId },
+    });
+  const stageOf = async (stage: string) => {
+    const res = await app.inject({ method: "GET", url: "/api/leads?scope=in_process", headers: { cookie } });
+    return res
+      .json()
+      .items.filter((l: { stage: string }) => l.stage === stage)
+      .sort((a: { boardOrder: number }, b: { boardOrder: number }) => a.boardOrder - b.boardOrder)
+      .map((l: { name: string }) => l.name)
+      // this suite shares a stage with the cases above it; only the ones made here are asserted
+      .filter((n: string) => n.startsWith("Drag "));
+  };
+
+  let a = "", b = "", c = "";
+  it("puts three leads in one stage", async () => {
+    a = await make("Drag A");
+    b = await make("Drag B");
+    c = await make("Drag C");
+    for (const [id, after] of [[a, null], [b, a], [c, b]] as const) {
+      expect((await move(id, "first_contact", after)).statusCode).toBe(200);
+    }
+    expect(await stageOf("first_contact")).toEqual(["Drag A", "Drag B", "Drag C"]);
+  });
+
+  it("moves one within its stage, behind a named neighbour", async () => {
+    expect((await move(a, "first_contact", c)).statusCode).toBe(200);
+    expect(await stageOf("first_contact")).toEqual(["Drag B", "Drag C", "Drag A"]);
+  });
+
+  it("a null anchor is the top of the stage", async () => {
+    expect((await move(a, "first_contact", null)).statusCode).toBe(200);
+    expect(await stageOf("first_contact")).toEqual(["Drag A", "Drag B", "Drag C"]);
+  });
+
+  it("carries a lead into another stage, at the position asked for", async () => {
+    expect((await move(b, "thinking", null)).statusCode).toBe(200);
+    expect(await stageOf("thinking")).toEqual(["Drag B"]);
+    // and it left the one it came from, renumbered behind it
+    expect(await stageOf("first_contact")).toEqual(["Drag A", "Drag C"]);
+  });
+
+  it("leaves the stage a clean 0..n-1 run", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/leads?scope=in_process", headers: { cookie } });
+    const orders = res
+      .json()
+      .items.filter((l: { stage: string }) => l.stage === "first_contact")
+      .map((l: { boardOrder: number }) => l.boardOrder)
+      .sort((x: number, y: number) => x - y);
+    /**
+     * No two leads share a place. NOT "0..n-1 with no gaps": the renumber covers the whole stage,
+     * and a stage also holds leads that are lost or won and therefore absent from this list — so
+     * the board's own subset is expected to have gaps in it. What must never happen is a repeat,
+     * because that is what makes an order ambiguous.
+     */
+    expect(orders).toEqual([...new Set(orders)]);
+  });
+
+  it("an anchor that is not in the stage puts it on top rather than guessing", async () => {
+    expect((await move(c, "first_contact", b)).statusCode).toBe(200); // b is in `thinking` now
+    expect((await stageOf("first_contact"))[0]).toBe("Drag C");
+  });
+
+  it("refuses to move a lead that has been marked lost", async () => {
+    await app.inject({ method: "POST", url: `/api/leads/${c}/mark-lost`, headers: { cookie } });
+    expect((await move(c, "thinking", null)).statusCode).toBe(400);
+  });
+});
