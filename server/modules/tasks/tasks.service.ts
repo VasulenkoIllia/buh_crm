@@ -15,6 +15,7 @@ import type {
   UpdateTimeEntryInput,
 } from "@shared/schema/task.js";
 import { deriveStatus, hasLiveInvoice } from "@shared/schema/payment.js";
+import { MAX_FILE_SIZE, deleteFileBytes, saveFileBytes } from "../../core/files.js";
 import type { Prisma, User } from "../../generated/prisma/client.js";
 import { config } from "../../core/config.js";
 import { dateToUtc, todayBusinessMs } from "../../core/dates.js";
@@ -745,4 +746,68 @@ export async function removeTimeEntry(entryId: string) {
   if (!entry) throw new NotFoundError("Time entry not found");
   await repo.deleteEntry(entryId);
   return getTask(entry.taskId);
+}
+
+// ── files (≤ 25 MB each, uploads volume, API-served) ─────────────────────────
+
+/**
+ * Documents attached to a job — the scan, the signed form, the statement it was raised for.
+ *
+ * A file uploaded here ALSO lands on the client's card, because the row carries both pointers.
+ * That is one file in two places rather than two files: nothing to synchronise, and removing it
+ * removes it from both, which is the honest meaning of deleting a document.
+ *
+ * The bytes go through `core/files.ts` like every other upload in the app, so the day this firm
+ * moves to a separate file store, this module does not change at all.
+ */
+export async function listFiles(taskId: string) {
+  liveTaskOr404(await repo.findTask(taskId));
+  const files = await repo.listTaskFiles(taskId);
+  return files.map((f) => ({
+    id: f.id,
+    name: f.name,
+    size: f.size,
+    mime: f.mime,
+    createdAt: f.createdAt.toISOString(),
+  }));
+}
+
+export async function addFile(
+  taskId: string,
+  actor: User,
+  file: { buffer: Buffer; filename: string; mimetype: string },
+) {
+  const task = liveTaskOr404(await repo.findTask(taskId));
+  if (file.buffer.byteLength > MAX_FILE_SIZE) {
+    throw new ValidationError("File must be 25 MB or smaller");
+  }
+  const relPath = await saveFileBytes(file.buffer, file.filename);
+  const row = await repo.createTaskFile({
+    taskId,
+    // the client is read from the TASK, never from the caller: a file cannot be filed under
+    // somebody the job has nothing to do with
+    clientId: task.clientId,
+    name: file.filename,
+    size: file.buffer.byteLength,
+    mime: file.mimetype,
+    path: relPath,
+    uploadedById: actor.id,
+  });
+  return { id: row.id, name: row.name, size: row.size, mime: row.mime };
+}
+
+export async function getFile(taskId: string, fileId: string) {
+  liveTaskOr404(await repo.findTask(taskId));
+  const file = await repo.findTaskFile(taskId, fileId);
+  if (!file) throw new NotFoundError("File not found");
+  return file;
+}
+
+export async function removeFile(taskId: string, fileId: string) {
+  liveTaskOr404(await repo.findTask(taskId));
+  const file = await repo.findTaskFile(taskId, fileId);
+  if (!file) throw new NotFoundError("File not found");
+  await repo.deleteFileRow(file.id);
+  await deleteFileBytes(file.path);
+  return { ok: true as const };
 }

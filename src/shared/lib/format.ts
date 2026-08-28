@@ -70,3 +70,16 @@ export function isoDay(d: Date): string {
 /** Two-letter initials for an avatar chip. */
 export const initials = (u?: { firstName?: string | null; lastName?: string | null } | null) =>
   u ? `${u.firstName?.[0] ?? ""}${u.lastName?.[0] ?? ""}`.toUpperCase() || "?" : "?";
+
+/**
+ * A file's size, in the unit that actually says something.
+ *
+ * Both file lists divided by a megabyte and rounded to one decimal, so anything under 50 KB — a
+ * signed form, a text note, most scans of one page — read as "0.0 MB", which looks like an empty
+ * file rather than a small one (2026-08-28).
+ */
+export function fmtBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}

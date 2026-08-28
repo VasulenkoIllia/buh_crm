@@ -874,6 +874,7 @@ model Task {
   timeEntries  TimeEntry[]
   subtasks     Subtask[]
   comments     TaskComment[]
+  files        File[]         @relation("TaskFiles")
 
   /// set when the SYSTEM raised this task by itself (see shared/system-tasks.ts); null for the
   /// ordinary ones people and templates create. Behind it sits the partial unique index
@@ -1469,14 +1470,25 @@ model File {
   mime         String
   path         String // relative path on the uploads volume
   clientId     String?  @db.Uuid // client-card files
+  /// Attached to a task. ALSO carries `clientId` when that task has a client, which is the whole
+  /// mechanism behind "a file uploaded on a job shows up on the client's card": one row with two
+  /// pointers, not a copy. Nothing to keep in step, and one file to delete (user, 2026-08-28).
+  ///
+  /// A task's client cannot be changed after it is created, so a file filed under a client stays
+  /// filed correctly forever. A task on a LEAD has no client, and its files stay with the task.
+  taskId       String?  @db.Uuid
   uploadedById String   @db.Uuid
   createdAt    DateTime @default(now())
 
   client            Client?      @relation("ClientFiles", fields: [clientId], references: [id], onDelete: Cascade)
+  /// SetNull, not Cascade: a document filed under the client must survive its task. Tasks are
+  /// archived rather than deleted here, so this is a declaration of intent more than a live path.
+  task              Task?        @relation("TaskFiles", fields: [taskId], references: [id], onDelete: SetNull)
   uploadedBy        User         @relation("FileUploadedBy", fields: [uploadedById], references: [id])
   avatarOfUser      User?        @relation("UserAvatar")
   logoOfProfile     FirmProfile? @relation("FirmLogo")
   mailLogoOfProfile FirmProfile? @relation("FirmMailLogo")
 
   @@index([clientId])
+  @@index([taskId])
 }

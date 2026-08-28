@@ -9,7 +9,7 @@ import { EntityInvoices } from "@/modules/payments";
 import { EntityTasks } from "@/modules/tasks";
 import { useSettings } from "@/modules/settings";
 import { ApiError } from "@/shared/lib/api";
-import { fmtDate } from "@/shared/lib/format";
+import { fmtBytes, fmtDate } from "@/shared/lib/format";
 import { Button, IconButton } from "@/shared/ui/button";
 import { Tabs } from "@/shared/ui/tabs";
 import { ClientCode } from "@/shared/ui/client-code";
@@ -391,7 +391,7 @@ function FilesTab({ clientId }: { clientId: string }) {
           >
             <span className="truncate">{file.name}</span>
             <span className="ml-2 flex shrink-0 items-center gap-2 text-muted">
-              <span className="text-[11px]">{(file.size / 1024 / 1024).toFixed(1)} MB</span>
+              <span className="text-[11px]">{fmtBytes(file.size)}</span>
               <a
                 href={`/api/clients/${clientId}/files/${file.id}`}
                 className="hover:text-ink"

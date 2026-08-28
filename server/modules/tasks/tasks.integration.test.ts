@@ -1917,3 +1917,116 @@ describe("tasks — dragging a column", () => {
     expect((await move("00000000-0000-4000-8000-000000000000", null)).statusCode).toBe(404);
   });
 });
+
+/**
+ * Files on a task (user, 2026-08-28).
+ *
+ * The point of the feature is the second pointer: a file uploaded on a job that belongs to a
+ * CLIENT is the same row the client's card lists. These cases exist to prove it is one file and
+ * not a copy — including that removing it removes it from both places, which is the part a user
+ * has to be able to trust.
+ */
+describe("tasks — files", () => {
+  const upload = async (taskId: string, name: string, body = "hello") => {
+    const boundary = "----buhcrmtest";
+    const payload = Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${name}"\r\n` +
+        `Content-Type: text/plain\r\n\r\n${body}\r\n--${boundary}--\r\n`,
+    );
+    return app.inject({
+      method: "POST",
+      url: `/api/tasks/${taskId}/files`,
+      headers: { cookie: adminCookie, "content-type": `multipart/form-data; boundary=${boundary}` },
+      payload,
+    });
+  };
+  const list = async (url: string) =>
+    (await app.inject({ method: "GET", url, headers: { cookie: adminCookie } })).json();
+
+  let clientId = "";
+  let taskId = "";
+  let fileId = "";
+
+  it("attaches a file to a job, and the CLIENT's card lists the same one", async () => {
+    const client = await app.inject({
+      method: "POST",
+      url: "/api/clients",
+      headers: { cookie: adminCookie },
+      payload: { firstName: "Filed", companies: [], people: [] },
+    });
+    clientId = client.json().id;
+    const task = await app.inject({
+      method: "POST",
+      url: "/api/tasks",
+      headers: { cookie: adminCookie },
+      // `internal`: firm-side work attributed to the client. A client task otherwise has to route
+      // through one of their services, and this suite is about files, not billing.
+      payload: { title: "Job with a document", clientId, internal: true, assignees: [adminId] },
+    });
+    expect(task.statusCode).toBe(201);
+    taskId = task.json().id;
+
+    const res = await upload(taskId, "statement.txt");
+    expect(res.statusCode).toBe(201);
+    fileId = res.json().id;
+
+    expect((await list(`/api/tasks/${taskId}/files`)).map((f: { id: string }) => f.id)).toEqual([fileId]);
+    // the whole point: it is on the client's card too, without anything being copied
+    expect((await list(`/api/clients/${clientId}/files`)).map((f: { id: string }) => f.id)).toContain(fileId);
+  });
+
+  it("downloads as an ATTACHMENT, never inline", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/tasks/${taskId}/files/${fileId}`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-disposition"]).toMatch(/^attachment;/);
+    expect(res.body).toBe("hello");
+  });
+
+  it("removing it from the job removes it from the client too — it is one file", async () => {
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/tasks/${taskId}/files/${fileId}`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(await list(`/api/tasks/${taskId}/files`)).toEqual([]);
+    expect((await list(`/api/clients/${clientId}/files`)).map((f: { id: string }) => f.id)).not.toContain(fileId);
+  });
+
+  it("a task with no client keeps its files to itself", async () => {
+    const internal = await app.inject({
+      method: "POST",
+      url: "/api/tasks",
+      headers: { cookie: adminCookie },
+      payload: { title: "Internal with a document", assignees: [adminId] },
+    });
+    const res = await upload(internal.json().id, "note.txt");
+    expect(res.statusCode).toBe(201);
+    const files = await list(`/api/tasks/${internal.json().id}/files`);
+    expect(files).toHaveLength(1);
+    // and it is filed under nobody — the client lists cannot show it
+    expect((await list(`/api/clients/${clientId}/files`)).map((f: { id: string }) => f.id)).not.toContain(
+      res.json().id,
+    );
+  });
+
+  it("404s a file that belongs to another task", async () => {
+    const other = await app.inject({
+      method: "POST",
+      url: "/api/tasks",
+      headers: { cookie: adminCookie },
+      payload: { title: "Somebody else's job", assignees: [adminId] },
+    });
+    const mine = await upload(other.json().id, "mine.txt");
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/tasks/${taskId}/files/${mine.json().id}`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});

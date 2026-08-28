@@ -622,3 +622,34 @@ export async function listActiveUserIds() {
   const users = await prisma.user.findMany({ where: { status: "active" }, select: { id: true } });
   return users.map((u) => u.id);
 }
+
+// ── files (bytes live on the uploads volume; this is only the metadata) ──────
+
+export function listTaskFiles(taskId: string) {
+  return prisma.file.findMany({ where: { taskId }, orderBy: { createdAt: "desc" } });
+}
+
+/**
+ * One row, two pointers. `clientId` is filled in from the TASK's client at upload time, which is
+ * what makes the file appear on that client's card without anything being copied or kept in step.
+ * A task on a lead, or an internal one, simply passes null.
+ */
+export function createTaskFile(data: {
+  taskId: string;
+  clientId: string | null;
+  name: string;
+  size: number;
+  mime: string;
+  path: string;
+  uploadedById: string;
+}) {
+  return prisma.file.create({ data });
+}
+
+export function findTaskFile(taskId: string, fileId: string) {
+  return prisma.file.findFirst({ where: { id: fileId, taskId } });
+}
+
+export function deleteFileRow(id: string) {
+  return prisma.file.delete({ where: { id } });
+}

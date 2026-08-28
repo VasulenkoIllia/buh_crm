@@ -442,3 +442,55 @@ export function useDeleteComment() {
     onSuccess: invalidate,
   });
 }
+
+// ── files ────────────────────────────────────────────────────────────────────
+
+export interface TaskFile {
+  id: string;
+  name: string;
+  size: number;
+  mime: string;
+  createdAt: string;
+}
+
+export function useTaskFiles(taskId: string | undefined) {
+  return useQuery({
+    queryKey: [...TASKS_KEY, "files", taskId],
+    queryFn: () => api<TaskFile[]>(`/api/tasks/${taskId}/files`),
+    enabled: !!taskId,
+  });
+}
+
+/**
+ * A file uploaded on a job also lands on its client's card — one row carrying both pointers, not a
+ * copy. So the CLIENTS caches have to be invalidated too, or that card keeps showing the old list
+ * until something else happens to refresh it.
+ */
+function useInvalidateTaskFiles(taskId: string) {
+  const queryClient = useQueryClient();
+  return () => {
+    void queryClient.invalidateQueries({ queryKey: [...TASKS_KEY, "files", taskId] });
+    void queryClient.invalidateQueries({ queryKey: CLIENTS_KEY });
+  };
+}
+
+export function useUploadTaskFile(taskId: string) {
+  const invalidate = useInvalidateTaskFiles(taskId);
+  return useMutation({
+    mutationFn: (file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      return api<TaskFile>(`/api/tasks/${taskId}/files`, { method: "POST", formData });
+    },
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteTaskFile(taskId: string) {
+  const invalidate = useInvalidateTaskFiles(taskId);
+  return useMutation({
+    mutationFn: (fileId: string) =>
+      api<{ ok: true }>(`/api/tasks/${taskId}/files/${fileId}`, { method: "DELETE" }),
+    onSuccess: invalidate,
+  });
+}

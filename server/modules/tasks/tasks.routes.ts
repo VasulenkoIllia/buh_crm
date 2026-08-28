@@ -19,10 +19,13 @@ import {
   updateTimeEntryInput,
 } from "@shared/schema/task.js";
 import { requireAdmin, requireAuth } from "../../core/auth.js";
+import { readFileStream } from "../../core/files.js";
+import { ValidationError } from "../../core/errors.js";
 import * as service from "./tasks.service.js";
 
 const idParams = z.object({ id: uuid });
 const entryParams = z.object({ entryId: uuid });
+const fileParams = z.object({ id: uuid, fileId: uuid });
 const commentParams = z.object({ commentId: uuid });
 
 export async function registerRoutes(instance: FastifyInstance) {
@@ -180,5 +183,52 @@ export async function registerRoutes(instance: FastifyInstance) {
     "/comments/:commentId",
     { preHandler: requireAuth, schema: { params: commentParams } },
     async (request) => service.deleteComment(request.params.commentId, request.currentUser!),
+  );
+
+  // ── files ───────────────────────────────────────────────────────────────────
+  // The same four the client card has, on the same storage boundary. Downloads go through the API
+  // with a permission check like every other file here — there is no public static directory.
+
+  app.get("/:id/files", { preHandler: requireAuth, schema: { params: idParams } }, async (request) =>
+    service.listFiles(request.params.id),
+  );
+
+  app.post(
+    "/:id/files",
+    { preHandler: requireAuth, schema: { params: idParams } },
+    async (request, reply) => {
+      const part = await request.file();
+      if (!part) throw new ValidationError("File is required");
+      const buffer = await part.toBuffer();
+      const file = await service.addFile(request.params.id, request.currentUser!, {
+        buffer,
+        filename: part.filename,
+        mimetype: part.mimetype,
+      });
+      return reply.status(201).send(file);
+    },
+  );
+
+  app.get(
+    "/:id/files/:fileId",
+    { preHandler: requireAuth, schema: { params: fileParams } },
+    async (request, reply) => {
+      const file = await service.getFile(request.params.id, request.params.fileId);
+      reply.header("Content-Type", file.mime);
+      // ATTACHMENT, deliberately. Serving somebody's upload inline from the app's own origin runs
+      // whatever is in it — an .html or an .svg — with the reader's session. Preview is a decision
+      // for the day files move to storage of their own (user, 2026-08-28).
+      reply.header(
+        "Content-Disposition",
+        `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+      );
+      return reply.send(readFileStream(file.path));
+    },
+  );
+
+  app.delete(
+    "/:id/files/:fileId",
+    { preHandler: requireAuth, schema: { params: fileParams } },
+    async (request) => service.removeFile(request.params.id, request.params.fileId),
   );
 }

@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Check, Pencil, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Check, Download, Pencil, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { Task, TimeEntry, UpdateTaskInput } from "@shared/schema/task";
 import { useAuth } from "@/app/auth";
@@ -9,7 +9,7 @@ import { LeadFormModal, useLeads } from "@/modules/leads";
 import { useSettings } from "@/modules/settings";
 import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
-import { fmtBizDate, fmtDate, fmtDateTime, todayIso, todayPlus } from "@/shared/lib/format";
+import { fmtBizDate, fmtBytes, fmtDate, fmtDateTime, todayIso, todayPlus } from "@/shared/lib/format";
 import { fmtMoney } from "@/shared/lib/money";
 import { AssigneePicker } from "@/shared/ui/assignee-picker";
 import { userLabel } from "@/shared/ui/avatar";
@@ -33,8 +33,11 @@ import {
   useAssignees,
   useCreateTask,
   useDeleteComment,
+  useDeleteTaskFile,
   useDeleteTimeEntry,
   useSetSubtasks,
+  useTaskFiles,
+  useUploadTaskFile,
   useTaskColumns,
   useUpdateTask,
   useUpdateTimeEntry,
@@ -966,6 +969,7 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
               <TaskTimerButton task={task} />
             )}
             <SubtasksSection task={task} disabled={locked} />
+            <FilesSection task={task} disabled={locked} />
             <TimeLog task={task} isAdmin={isAdmin} userName={userName} />
             <CommentsSection
               task={task}
@@ -1182,6 +1186,104 @@ function SubtasksSection({ task, disabled }: { task: Task; disabled?: boolean })
 }
 
 /** Free-text notes on the task — anyone posts; delete your own (or admin). Read-only when locked. */
+/**
+ * Documents attached to this job — the scan, the signed form, the statement it was raised for.
+ *
+ * When the task belongs to a CLIENT the same file also appears on that client's Files tab: it is
+ * one row carrying both pointers rather than a copy, so there is nothing to keep in step. The line
+ * under the list says so, because a file removed here disappears from there too and that should
+ * not be a surprise.
+ *
+ * Download only. Serving somebody's upload inline from the app's own origin would run whatever is
+ * inside it with the reader's session; previewing waits for files to live somewhere of their own
+ * (user, 2026-08-28).
+ */
+function FilesSection({ task, disabled }: { task: Task; disabled: boolean }) {
+  const { data: files } = useTaskFiles(task.id);
+  const upload = useUploadTaskFile(task.id);
+  const remove = useDeleteTaskFile(task.id);
+  const [error, setError] = useState<string | null>(null);
+  const pick = useRef<HTMLInputElement>(null);
+
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-[11px] font-medium uppercase tracking-[.4px] text-muted-400">
+          Files{files && files.length > 0 && ` · ${files.length}`}
+        </span>
+        {!disabled && (
+          <button
+            type="button"
+            className="text-[12px] font-medium text-primary-link hover:underline disabled:text-faint"
+            disabled={upload.isPending}
+            onClick={() => pick.current?.click()}
+          >
+            {upload.isPending ? "Uploading…" : "+ Add file"}
+          </button>
+        )}
+      </div>
+      <input
+        ref={pick}
+        type="file"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = ""; // so picking the same file twice still fires
+          if (!file) return;
+          setError(null);
+          upload.mutateAsync(file).catch((err) => setError(err instanceof Error ? err.message : "Upload failed"));
+        }}
+      />
+      {(files ?? []).length === 0 ? (
+        <p className="text-[13px] text-muted">Nothing attached yet.</p>
+      ) : (
+        <ul className="space-y-1">
+          {(files ?? []).map((file) => (
+            <li
+              key={file.id}
+              className="flex items-center justify-between rounded-(--radius-btn-sm) border border-divider px-2.5 py-1.5 text-[13px]"
+            >
+              <span className="min-w-0 flex-1 truncate">{file.name}</span>
+              <span className="ml-2 flex shrink-0 items-center gap-2 text-muted">
+                <span className="text-[11px]">{fmtBytes(file.size)}</span>
+                <a
+                  href={`/api/tasks/${task.id}/files/${file.id}`}
+                  className="hover:text-ink"
+                  aria-label={`Download ${file.name}`}
+                >
+                  <Download size={14} />
+                </a>
+                {!disabled && (
+                  <button
+                    type="button"
+                    aria-label={`Delete ${file.name}`}
+                    className="text-[13px] text-[#b6bcc5] hover:text-danger"
+                    onClick={() => {
+                      setError(null);
+                      remove
+                        .mutateAsync(file.id)
+                        .catch((err) => setError(err instanceof Error ? err.message : "Delete failed"));
+                    }}
+                  >
+                    ×
+                  </button>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {task.clientId && (files ?? []).length > 0 && (
+        <p className="mt-1 text-[11px] text-faint">
+          Also on the client&apos;s Files tab — it is the same file, so removing it here removes it
+          there.
+        </p>
+      )}
+      {error && <p className="mt-1 text-[12px] text-danger-text">{error}</p>}
+    </div>
+  );
+}
+
 function CommentsSection({
   task,
   currentUserId,
