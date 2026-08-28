@@ -11,6 +11,7 @@ import {
   useSensors,
   type CollisionDetection,
   type DragEndEvent,
+  type DragOverEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -428,6 +429,19 @@ function Board({
   const moveColumn = useMoveColumn();
   /** the card currently in hand, drawn by `DragOverlay` — see `DraggedCard` */
   const [carried, setCarried] = useState<Task | null>(null);
+  /**
+   * The board as it looks WHILE a card is being dragged across it: column id → task ids.
+   *
+   * Null except during a cross-column drag. Each column is its own `SortableContext`, so a card
+   * that has left column A is in nobody's `items` and no list has anything to shift — the target
+   * opened no gap and the board sat still (user, 2026-08-28). Moving the id between these lists as
+   * the pointer crosses puts the card in the target's context, and dnd-kit does the rest: the gap
+   * appears there exactly as it does within one column.
+   *
+   * It is a PREVIEW and nothing else. The drop still resolves against the real board, and this is
+   * thrown away the moment the drag ends.
+   */
+  const [preview, setPreview] = useState<Map<string, string[]> | null>(null);
   // Same as the catalog: the card is focusable, so without this it was a tab stop that answered
   // nothing. Space lifts, arrows move within and across columns, Space drops.
   const sensors = useSensors(
@@ -441,6 +455,38 @@ function Board({
     return map;
   }, [columns, tasks]);
 
+  const taskById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
+  /** what a column shows: the preview while one is being carried across, the real thing otherwise */
+  const shownIn = (columnId: string): Task[] =>
+    preview
+      ? (preview.get(columnId) ?? []).flatMap((id) => taskById.get(id) ?? [])
+      : (byColumn.get(columnId) ?? []);
+
+  /**
+   * Carry the id between the lists as the pointer crosses a column boundary.
+   *
+   * Within one column this does nothing: dnd-kit's own strategy already opens the gap there, and
+   * rewriting the list under it would fight the animation it is running.
+   */
+  const onDragOver = (event: DragOverEvent) => {
+    if (event.active.data.current?.type !== "card" || !event.over) return;
+    const activeId = String(event.active.id);
+    const overId = String(event.over.id);
+    setPreview((current) => {
+      const base =
+        current ?? new Map([...byColumn].map(([c, list]) => [c, list.map((t) => t.id)] as const));
+      const from = [...base].find(([, ids]) => ids.includes(activeId))?.[0];
+      // `over` is a column when the pointer is on its empty space, a card when it is on one
+      const to = base.has(overId) ? overId : [...base].find(([, ids]) => ids.includes(overId))?.[0];
+      if (!from || !to || from === to) return current;
+      const next = new Map([...base].map(([c, ids]) => [c, ids.filter((id) => id !== activeId)]));
+      const landing = [...(next.get(to) ?? [])];
+      landing.splice(base.has(overId) ? landing.length : Math.max(0, landing.indexOf(overId)), 0, activeId);
+      next.set(to, landing);
+      return next;
+    });
+  };
+
   /**
    * A card is dropped ON another card, or on the empty space of a column — dnd-kit reports either.
    * Working out what that means is `resolveDrop`, on its own and under test: the first version was
@@ -448,6 +494,7 @@ function Board({
    */
   const onDragEnd = (event: DragEndEvent) => {
     setCarried(null);
+    setPreview(null);
     // TWO kinds of thing are dragged on this board, and they resolve differently: a card asks
     // which column and which neighbour, a column asks only which neighbour. Each sortable says
     // what it is, rather than this guessing from whether the id happens to be a column's.
@@ -455,8 +502,28 @@ function Board({
 
     const taskId = String(event.active.id);
     const task = tasks.find((t) => t.id === taskId);
-    const ids = new Map([...byColumn].map(([column, list]) => [column, list.map((t) => t.id)]));
-    const target = resolveDrop(ids, taskId, event.over ? String(event.over.id) : null);
+    /**
+     * With a preview open, the answer is already on the screen: wherever it put the card is where
+     * the person is looking. Asking `resolveDrop` again would be worse than redundant — the card
+     * is drawn under the cursor by now, so `over` is the card ITSELF, which it correctly refuses,
+     * and the drop did nothing at all (measured, 2026-08-28).
+     *
+     * A preview only exists for a cross-column drag; within one column dnd-kit shifts the list
+     * itself and `resolveDrop` reads it as it always has.
+     */
+    const target = preview
+      ? (() => {
+          const to = [...preview].find(([, list]) => list.includes(taskId))?.[0];
+          if (!to) return null;
+          const list = preview.get(to) ?? [];
+          const at = list.indexOf(taskId);
+          return { listId: to, afterId: at <= 0 ? null : (list[at - 1] ?? null) };
+        })()
+      : resolveDrop(
+          new Map([...byColumn].map(([column, list]) => [column, list.map((t) => t.id)])),
+          taskId,
+          event.over ? String(event.over.id) : null,
+        );
     if (!target || !task) return;
 
     move.mutate(
@@ -510,13 +577,23 @@ function Board({
    * pointer was plainly on a card, which is what "it lags with two cards" was.
    */
   const collisionDetection: CollisionDetection = (args) => {
-    // A COLUMN being dragged may only land beside another column. Without this the cards are
-    // candidates too, and a column dropped over a card resolves to nothing at all.
+    /**
+     * A COLUMN being dragged may only land beside another column — without the filter the cards
+     * are candidates too, and a column dropped over a card resolves to nothing at all.
+     *
+     * By the POINTER, not by centres. `closestCenter` measures from the middle of the thing being
+     * dragged, and a column is 230px of it: with the neighbours already shifted aside to make room,
+     * that midpoint sits nowhere near the cursor. Measured — released over column C, it reported D
+     * (user, 2026-08-28: "jumps across several columns, doesn't swap"). The cursor is the one thing
+     * that is never ambiguous, which is why the cards have been read this way all along.
+     */
     if (args.active.data.current?.type === "column") {
-      return closestCenter({
+      const onlyColumns = {
         ...args,
         droppableContainers: args.droppableContainers.filter((c) => byColumn.has(String(c.id))),
-      });
+      };
+      const under = pointerWithin(onlyColumns);
+      return under.length > 0 ? under : closestCenter(onlyColumns);
     }
     const within = pointerWithin(args);
     const onCard = within.filter((c) => !byColumn.has(String(c.id)));
@@ -535,7 +612,11 @@ function Board({
           setCarried(tasks.find((t) => t.id === String(active.id)) ?? null);
         }
       }}
-      onDragCancel={() => setCarried(null)}
+      onDragCancel={() => {
+        setCarried(null);
+        setPreview(null);
+      }}
+      onDragOver={onDragOver}
       onDragEnd={onDragEnd}
     >
       <div className="flex flex-1 items-start gap-3 overflow-auto p-3.5">
@@ -560,7 +641,7 @@ function Board({
             <BoardColumn
               key={column.id}
               column={column}
-              tasks={byColumn.get(column.id) ?? []}
+              tasks={shownIn(column.id)}
               team={team}
               onOpen={onOpen}
               onAdd={() => onAddInColumn(column.id)}
