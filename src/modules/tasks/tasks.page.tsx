@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   DndContext,
+  DragOverlay,
   KeyboardSensor,
   PointerSensor,
   closestCenter,
@@ -425,6 +426,8 @@ function Board({
   const { user } = useAuth();
   const move = useMoveTask(); // dropping a card is its own action — it carries a position
   const moveColumn = useMoveColumn();
+  /** the card currently in hand, drawn by `DragOverlay` — see `DraggedCard` */
+  const [carried, setCarried] = useState<Task | null>(null);
   // Same as the catalog: the card is focusable, so without this it was a tab stop that answered
   // nothing. Space lifts, arrows move within and across columns, Space drops.
   const sensors = useSensors(
@@ -444,6 +447,7 @@ function Board({
    * inline here and silently mishandled the column case (2026-08-27).
    */
   const onDragEnd = (event: DragEndEvent) => {
+    setCarried(null);
     // TWO kinds of thing are dragged on this board, and they resolve differently: a card asks
     // which column and which neighbour, a column asks only which neighbour. Each sortable says
     // what it is, rather than this guessing from whether the id happens to be a column's.
@@ -521,7 +525,19 @@ function Board({
   };
 
   return (
-    <DndContext sensors={sensors} collisionDetection={collisionDetection} onDragEnd={onDragEnd}>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={collisionDetection}
+      onDragStart={({ active }) => {
+        // only cards are carried: the columns move visibly on their own, and a 230px block
+        // following the cursor would be the opposite of calm
+        if (active.data.current?.type !== "column") {
+          setCarried(tasks.find((t) => t.id === String(active.id)) ?? null);
+        }
+      }}
+      onDragCancel={() => setCarried(null)}
+      onDragEnd={onDragEnd}
+    >
       <div className="flex flex-1 items-start gap-3 overflow-auto p-3.5">
         {/**
          * Horizontal — this board's columns run left to right, unlike every other sortable here.
@@ -553,6 +569,14 @@ function Board({
         </SortableContext>
         {user?.role === "admin" && <AddColumnTile />}
       </div>
+      {/**
+       * `dropAnimation={null}` on purpose. The default flies the overlay to where the card ended
+       * up, which is the very travel that was taken out of the settle a moment ago — it would put
+       * the jumping straight back. Released, the overlay simply goes and the card is already there.
+       */}
+      <DragOverlay dropAnimation={null}>
+        {carried && <DraggedCard task={carried} team={team} />}
+      </DragOverlay>
     </DndContext>
   );
 }
@@ -802,9 +826,6 @@ function BoardCard({
   team: AssigneeInfo[];
   onOpen: () => void;
 }) {
-  const { data: services } = useCatalog();
-  const priority = usePriority(task.priorityId);
-  const overdue = isOverdue(task);
   // sortable, not merely draggable: the card is also a DROP TARGET, which is what lets another
   // card be placed above or below it rather than only somewhere in the column
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -826,26 +847,71 @@ function BoardCard({
     animateLayoutChanges: () => false,
   });
 
-  const service = services?.find((s) => s.id === task.serviceId);
-  const doneSubtasks = task.subtasks.filter((s) => s.done).length;
-
   return (
-    <div
-      ref={setNodeRef}
-      {...attributes}
-      {...listeners}
-      onClick={() => !isDragging && onOpen()}
+    <CardFace
+      task={task}
+      team={team}
+      nodeRef={setNodeRef}
+      wiring={{ ...attributes, ...listeners, onClick: () => !isDragging && onOpen() }}
       style={{
         // CSS.Translate, not the raw transform: sortable also animates the cards that move ASIDE,
         // and `transition` is what makes that readable instead of a jump
         transform: CSS.Translate.toString(transform),
         transition,
+      }}
+      // barely there while it is in your hand: the DragOverlay is drawing the real one, and two
+      // solid copies of the same card is worse than none
+      className={isDragging ? "opacity-25" : undefined}
+    />
+  );
+}
+
+/**
+ * The card as it looks IN YOUR HAND, drawn by `DragOverlay` in a portal that follows the pointer.
+ *
+ * Without it a drag between columns showed nothing at all: each column is its own
+ * `SortableContext`, so a card leaving column A is not in column B's `items` and neither list has
+ * anything to shift — the board sat still and the card appeared in its new place on release
+ * (user, 2026-08-28). This is the same face, so what you carry is what you dropped.
+ */
+function DraggedCard({ task, team }: { task: Task; team: AssigneeInfo[] }) {
+  return <CardFace task={task} team={team} className="rotate-1 shadow-lg" />;
+}
+
+/** One card's appearance. Shared so the overlay cannot drift from the board. */
+function CardFace({
+  task,
+  team,
+  nodeRef,
+  wiring,
+  style,
+  className,
+}: {
+  task: Task;
+  team: AssigneeInfo[];
+  nodeRef?: (node: HTMLElement | null) => void;
+  wiring?: Record<string, unknown>;
+  style?: React.CSSProperties;
+  className?: string;
+}) {
+  const { data: services } = useCatalog();
+  const priority = usePriority(task.priorityId);
+  const overdue = isOverdue(task);
+  const service = services?.find((s) => s.id === task.serviceId);
+  const doneSubtasks = task.subtasks.filter((s) => s.done).length;
+
+  return (
+    <div
+      ref={nodeRef}
+      {...wiring}
+      style={{
+        ...style,
         ...(!overdue && priority ? { borderLeft: `3px solid ${priority.color}` } : {}),
       }}
       className={cn(
         "cursor-pointer rounded-[9px] border border-border bg-surface px-3 py-[11px] shadow-[0_1px_2px_rgba(0,0,0,.04)]",
-        isDragging && "z-10 opacity-80",
         overdue && "border-2 border-danger shadow-[0_0_0_3px_rgba(214,60,60,.09)]",
+        className,
       )}
     >
       <div className="flex items-start justify-between gap-2">
