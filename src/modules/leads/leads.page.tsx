@@ -1,11 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
-import { DndContext, DragOverlay, useDroppable } from "@dnd-kit/core";
-import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { DndContext, DragOverlay } from "@dnd-kit/core";
+import {
+  SortableContext,
+  horizontalListSortingStrategy,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Link, useSearchParams } from "react-router-dom";
-import type { LeadStage } from "@shared/schema/enums";
-import type { Lead } from "@shared/schema/lead";
-import { DRAG_CARD, useBoardDrag } from "@/shared/lib/board-drag";
+import type { Lead, LeadStageOption } from "@shared/schema/lead";
+import { GripVertical } from "lucide-react";
+import { useAuth } from "@/app/auth";
+import { DRAG_CARD, DRAG_COLUMN, useBoardDrag } from "@/shared/lib/board-drag";
 import { cn } from "@/shared/lib/cn";
 import { fmtDate } from "@/shared/lib/format";
 import { Button } from "@/shared/ui/button";
@@ -23,20 +29,23 @@ import {
   useLeads,
   useMarkLost,
   useReopenLead,
+  useAddLeadStage,
+  useDeleteLeadStage,
+  useLeadStages,
   useMoveLead,
+  useMoveLeadStage,
+  useRenameLeadStage,
 } from "./leads.api";
 
-const STAGES: Array<{ key: LeadStage; label: string }> = [
-  { key: "first_contact", label: "First contact" },
-  { key: "no_answer", label: "No answer" },
-  { key: "set_up_meeting", label: "Set up meeting" },
-  { key: "thinking", label: "Thinking" },
-  { key: "on_hold", label: "On hold" },
-  { key: "next_time", label: "Next time" },
-];
+// The pipeline is DATA now (2026-08-28). It was this list, hardcoded against a Prisma enum, and a
+// firm could not reorder, rename or add a column of its own board without a migration.
 
 export function LeadsPage() {
   const move = useMoveLead();
+  const moveStage = useMoveLeadStage();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const { data: stages = [] } = useLeadStages();
   const [formOpen, setFormOpen] = useState(false);
   const [selected, setSelected] = useState<Lead | null>(null);
   // ?lead=<id> opens that lead's card — the way a task (or any other screen) links INTO a lead.
@@ -68,12 +77,10 @@ export function LeadsPage() {
   const leads = view === "board" ? board.data : closedList.data;
 
   const byStage = useMemo(() => {
-    const map = new Map<LeadStage, Lead[]>(STAGES.map((s) => [s.key, []]));
-    for (const lead of active) {
-      map.get(lead.stage)?.push(lead);
-    }
+    const map = new Map<string, Lead[]>(stages.map((s) => [s.id, []]));
+    for (const lead of active) map.get(lead.stageId)?.push(lead);
     return map;
-  }, [active]);
+  }, [active, stages]);
 
   /**
    * The same machinery the tasks board runs on, and deliberately not a second copy of it: cards
@@ -84,11 +91,23 @@ export function LeadsPage() {
    * are an enum, so there is nothing to reorder yet.
    */
   const drag = useBoardDrag<Lead>({
-    lists: byStage as Map<string, Lead[]>,
+    lists: byStage,
     idOf: (l) => l.id,
+    columnIds: stages.map((s) => s.id),
+    onMoveColumn: (id, afterId) =>
+      moveStage.mutate(
+        { id, input: { afterStageId: afterId } },
+        {
+          onError: (err) =>
+            window.alert(
+              `Could not move the stage.\n\n` +
+                (err instanceof Error ? err.message : "Please try again."),
+            ),
+        },
+      ),
     onMoveCard: (lead, target) =>
       move.mutate(
-        { id: lead.id, input: { stage: target.listId as LeadStage, afterLeadId: target.afterId } },
+        { id: lead.id, input: { stageId: target.listId, afterLeadId: target.afterId } },
         {
           onError: (err) =>
             window.alert(
@@ -153,15 +172,22 @@ export function LeadsPage() {
           collisionDetection={drag.collisionDetection}
           {...drag.handlers}
         >
-          <div className="grid flex-1 grid-cols-[repeat(6,minmax(190px,1fr))] items-start gap-3 overflow-auto p-3.5">
-            {STAGES.map((stage) => (
-              <StageColumn
-                key={stage.key}
-                stage={stage}
-                leads={drag.shownIn(stage.key)}
-                onOpen={setSelected}
-              />
-            ))}
+          {/* a fixed six-column grid no longer fits: the firm decides how many stages there are */}
+          <div className="flex flex-1 items-start gap-3 overflow-auto p-3.5">
+            <SortableContext
+              items={stages.map((s) => s.id)}
+              strategy={horizontalListSortingStrategy}
+            >
+              {stages.map((stage) => (
+                <StageColumn
+                  key={stage.id}
+                  stage={stage}
+                  leads={drag.shownIn(stage.id)}
+                  onOpen={setSelected}
+                />
+              ))}
+            </SortableContext>
+            {isAdmin && <AddStageTile />}
           </div>
           {/* `dropAnimation={null}`: the default flies the overlay to where the card landed, which
               is the travel the settle deliberately does without */}
@@ -231,28 +257,101 @@ function StageColumn({
   leads,
   onOpen,
 }: {
-  stage: { key: LeadStage; label: string };
+  stage: LeadStageOption;
   leads: Lead[];
   onOpen: (lead: Lead) => void;
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id: stage.key });
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const rename = useRenameLeadStage();
+  const remove = useDeleteLeadStage();
+  const [name, setName] = useState(stage.name);
+  // sortable rather than merely droppable: the stage is where a card lands AND something to drag
+  const { attributes, listeners, setNodeRef, transform, transition, isOver, isDragging } =
+    useSortable({
+      id: stage.id,
+      data: { type: DRAG_COLUMN },
+      // the settle is instant here for the same reason it is on the tasks board
+      animateLayoutChanges: () => false,
+    });
 
   // the tasks board's column, to the pixel — one kanban, not two that resemble each other
   return (
     <div
       ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
       className={cn(
-        "min-h-[120px] rounded-[10px] bg-[#f4f6f8] p-[10px_9px]",
+        "min-h-[120px] min-w-[230px] flex-[1_0_230px] rounded-[10px] bg-[#f4f6f8] p-[10px_9px]",
         isOver && "outline-1 outline-dashed outline-[#b9c1cc]",
+        isDragging && "z-10 opacity-60",
       )}
     >
       <div className="flex items-center gap-1.5 px-1 pb-2">
-        <span className="text-[12px] font-bold uppercase tracking-[.6px] text-ink-700">
-          {stage.label}
-        </span>
-        <span className="rounded-[10px] bg-[#e7eaef] px-[7px] py-px text-[11px] font-semibold text-[#8b929c]">
+        {/* a HANDLE, not the whole column: the header renames and the body holds draggable cards */}
+        {isAdmin && (
+          <button
+            type="button"
+            aria-label={`Reorder ${stage.name}`}
+            className="-ml-0.5 flex-none cursor-grab touch-none text-[#b6bcc5] hover:text-muted active:cursor-grabbing"
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical size={13} />
+          </button>
+        )}
+        {isAdmin ? (
+          <input
+            className="w-full min-w-0 bg-transparent text-[12px] font-bold uppercase tracking-[.6px] text-ink-700 outline-none"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={() => {
+              const trimmed = name.trim();
+              if (trimmed && trimmed !== stage.name) {
+                rename.mutate(
+                  { id: stage.id, input: { name: trimmed } },
+                  {
+                    onError: (err) => {
+                      setName(stage.name); // back to what is actually stored
+                      window.alert(
+                        `Could not rename the stage.\n\n` +
+                          (err instanceof Error ? err.message : "Please try again."),
+                      );
+                    },
+                  },
+                );
+              }
+            }}
+          />
+        ) : (
+          <span className="text-[12px] font-bold uppercase tracking-[.6px] text-ink-700">
+            {stage.name}
+          </span>
+        )}
+        <span className="flex-none rounded-[10px] bg-[#e7eaef] px-[7px] py-px text-[11px] font-semibold text-[#8b929c]">
           {leads.length}
         </span>
+        {isAdmin && leads.length === 0 && (
+          <button
+            type="button"
+            aria-label="Delete stage"
+            className="ml-auto flex-none text-[15px] text-[#b6bcc5] hover:text-danger"
+            // `leads.length` is what this board shows: closed and archived leads still count on
+            // the server, which refuses and says so rather than leaving a button that does nothing
+            onClick={() =>
+              remove.mutate(stage.id, {
+                onError: (err) =>
+                  window.alert(
+                    `Could not delete “${stage.name}”.\n\n` +
+                      (err instanceof Error
+                        ? err.message
+                        : "It may still hold leads this board is not showing."),
+                  ),
+              })
+            }
+          >
+            ×
+          </button>
+        )}
       </div>
       <SortableContext items={leads.map((l) => l.id)} strategy={verticalListSortingStrategy}>
         <div className="flex min-h-[8px] flex-col gap-2">
@@ -384,7 +483,7 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
 
   const sourceName = settings?.sources.find((s) => s.id === lead.sourceId)?.name;
   const serviceName = services?.find((s) => s.id === lead.serviceId)?.name;
-  const stageLabel = STAGES.find((s) => s.key === lead.stage)?.label;
+  const stageLabel = lead.stageName;
 
   return (
     <div
@@ -520,6 +619,44 @@ function LeadField({ label, value }: { label: string; value: string | null }) {
         {label}
       </div>
       <div className="text-[13px] text-ink-700">{value || "—"}</div>
+    </div>
+  );
+}
+
+/** Adding a stage at the end of the pipeline — the leads board's `AddColumnTile`. */
+function AddStageTile() {
+  const add = useAddLeadStage();
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState("");
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className="min-w-[180px] rounded-[10px] border border-dashed border-[#c7ccd3] bg-[#fafbfc] px-3.5 py-[13px] text-center text-[13px] font-semibold text-[#6b7280] hover:bg-divider/40"
+      >
+        + Add stage
+      </button>
+    );
+  }
+  const save = () => {
+    const trimmed = name.trim();
+    if (trimmed) add.mutate({ name: trimmed });
+    setEditing(false);
+    setName("");
+  };
+  return (
+    <div className="min-w-[180px] rounded-[10px] border border-dashed border-[#c7ccd3] bg-[#fafbfc] p-2.5">
+      <input
+        autoFocus
+        className="w-full rounded-(--radius-field) border border-border px-2 py-1.5 text-[13px] outline-none focus:border-primary"
+        placeholder="Stage name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && save()}
+        onBlur={save}
+      />
     </div>
   );
 }

@@ -64,15 +64,6 @@ enum TaskKind {
   free // internal, non-billable
 }
 
-enum LeadStage {
-  first_contact
-  no_answer
-  set_up_meeting
-  thinking
-  on_hold
-  next_time
-}
-
 enum LeadOutcome {
   in_process
   won
@@ -254,6 +245,23 @@ model Priority {
   isDefault Boolean @default(false)
 
   tasks Task[]
+}
+
+/**
+ * A column of the leads pipeline.
+ *
+ * Was a Prisma enum until 2026-08-28. An enum cannot be reordered, renamed or added to by the firm
+ * that uses it — the board could not be dragged, and every change meant a migration. It is a table
+ * now, for the same reasons and in the same shape as `TaskColumn`, so both boards are one idea.
+ */
+model LeadStage {
+  id    String @id @default(uuid()) @db.Uuid
+  name  String @unique
+  order Int
+
+  leads Lead[]
+
+  @@index([order])
 }
 
 model SourceOption {
@@ -767,7 +775,7 @@ model Lead {
   serviceId         String?     @db.Uuid
   sourceId          String?     @db.Uuid
   description       String?
-  stage             LeadStage   @default(first_contact)
+  stageId           String      @db.Uuid
   /// Where the lead sits INSIDE its stage on the board. The same idea as `Task.boardOrder`, and
   /// for the same reason: a pipeline column has the order the firm arranged, not the one the
   /// database happened to return (user, 2026-08-28).
@@ -782,11 +790,13 @@ model Lead {
   service         Service?      @relation(fields: [serviceId], references: [id])
   /// Restrict — see the note on `Client.source`.
   source          SourceOption? @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  /// Restrict as well: a stage may only be deleted while no lead is standing in it.
+  stage           LeadStage     @relation(fields: [stageId], references: [id], onDelete: Restrict)
   convertedClient Client?       @relation("LeadConvertedClient", fields: [convertedClientId], references: [id])
   tasks           Task[]
   meetings        Meeting[]
 
-  @@index([stage])
+  @@index([stageId])
   @@index([archivedAt])
 }
 

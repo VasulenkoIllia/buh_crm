@@ -5,11 +5,14 @@ import { uuid } from "@shared/schema/common.js";
 import {
   convertLeadInput,
   createLeadInput,
+  createLeadStageInput,
   leadListQuery,
   moveLeadInput,
+  moveLeadStageInput,
   updateLeadInput,
+  updateLeadStageInput,
 } from "@shared/schema/lead.js";
-import { requireAuth } from "../../core/auth.js";
+import { requireAdmin, requireAuth } from "../../core/auth.js";
 import * as service from "./leads.service.js";
 
 const idParams = z.object({ id: uuid });
@@ -21,6 +24,36 @@ export async function registerRoutes(instance: FastifyInstance) {
   app.get("/", { schema: { querystring: leadListQuery } }, async (request) => {
     return service.listLeads(request.query);
   });
+
+  /**
+   * The pipeline's own columns. Before `/:id`, or Fastify would read "stages" as a lead id.
+   * Reading is for everyone; changing the board's shape is admin-only, like the task columns.
+   */
+  app.get("/stages", async () => service.listStages());
+
+  app.post(
+    "/stages",
+    { preHandler: requireAdmin, schema: { body: createLeadStageInput } },
+    async (request, reply) => reply.status(201).send(await service.addStage(request.body)),
+  );
+
+  app.patch(
+    "/stages/:id",
+    { preHandler: requireAdmin, schema: { params: idParams, body: updateLeadStageInput } },
+    async (request) => service.renameStage(request.params.id, request.body),
+  );
+
+  app.patch(
+    "/stages/:id/position",
+    { preHandler: requireAdmin, schema: { params: idParams, body: moveLeadStageInput } },
+    async (request) => service.moveStage(request.params.id, request.body),
+  );
+
+  app.delete(
+    "/stages/:id",
+    { preHandler: requireAdmin, schema: { params: idParams } },
+    async (request) => service.removeStage(request.params.id),
+  );
 
   app.get("/:id", { schema: { params: idParams } }, async (request) =>
     service.getLead(request.params.id),

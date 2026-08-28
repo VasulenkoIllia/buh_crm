@@ -219,7 +219,11 @@ describe("settings — deleting a source of origin", () => {
 
   it("refuses one a lead records", async () => {
     const id = await makeSource("Lead source");
-    await prisma.lead.create({ data: { name: "Sourced lead", sourceId: id } });
+    // a lead needs a stage now that the pipeline's columns are rows rather than an enum
+    const stage = await prisma.leadStage.findFirstOrThrow({ orderBy: { order: "asc" } });
+    await prisma.lead.create({
+      data: { name: "Sourced lead", sourceId: id, stageId: stage.id },
+    });
     const res = await del(id);
     expect(res.statusCode).toBe(409);
     expect(res.json().error.message).toMatch(/1 lead/);

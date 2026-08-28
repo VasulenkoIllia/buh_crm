@@ -92,5 +92,7 @@ DELETE FROM "Service" WHERE NOT "autoAddToNewClients";
 DELETE FROM "TaskColumn";
 DELETE FROM "Priority";
 DELETE FROM "SourceOption";
+-- after "Lead" above, which is what the RESTRICT on Lead.stageId requires
+DELETE FROM "LeadStage";
 
 COMMIT;

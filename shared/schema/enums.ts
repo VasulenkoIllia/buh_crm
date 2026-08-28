@@ -34,15 +34,7 @@ export type TaskKind = z.infer<typeof taskKind>;
 export const timeEntrySource = z.enum(["timer", "manual"]);
 export type TimeEntrySource = z.infer<typeof timeEntrySource>;
 
-export const leadStage = z.enum([
-  "first_contact",
-  "no_answer",
-  "set_up_meeting",
-  "thinking",
-  "on_hold",
-  "next_time",
-]);
-export type LeadStage = z.infer<typeof leadStage>;
+// `LeadStage` was here until 2026-08-28. It is a TABLE now — see `leadStageSchema` in lead.ts.
 
 export const leadOutcome = z.enum(["in_process", "won", "lost"]);
 export type LeadOutcome = z.infer<typeof leadOutcome>;

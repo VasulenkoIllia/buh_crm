@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   KeyboardSensor,
   PointerSensor,
@@ -72,6 +72,20 @@ export function useBoardDrag<T>({
    * A PREVIEW and nothing else, thrown away the moment the drag ends.
    */
   const [preview, setPreview] = useState<Map<string, string[]> | null>(null);
+  /**
+   * The same value, readable without waiting for a render.
+   *
+   * `onDragEnd` cannot use the state: it is captured in the closure of the render that has already
+   * happened, and a quick drag ends in the same tick as its last `dragOver`. The preview would
+   * then still read null there, the drop would fall back to `resolveDrop`, and `over` by that
+   * point is the ACTIVE card itself — which it rightly refuses. The gap opened and the card went
+   * nowhere (measured on the leads board, 2026-08-28).
+   */
+  const previewRef = useRef<Map<string, string[]> | null>(null);
+  const setPreviewBoth = (next: Map<string, string[]> | null) => {
+    previewRef.current = next;
+    setPreview(next);
+  };
 
   // the card is focusable, so without the keyboard sensor it is a tab stop that answers nothing
   const sensors = useSensors(
@@ -123,29 +137,30 @@ export function useBoardDrag<T>({
     if (event.active.data.current?.type !== DRAG_CARD || !event.over) return;
     const activeId = String(event.active.id);
     const overId = String(event.over.id);
-    setPreview((current) => {
-      const base =
-        current ?? new Map([...lists].map(([c, items]) => [c, items.map(idOf)] as const));
-      const from = [...base].find(([, ids]) => ids.includes(activeId))?.[0];
-      // `over` is a column when the pointer is on its empty space, a card when it is on one
-      const to = base.has(overId) ? overId : [...base].find(([, ids]) => ids.includes(overId))?.[0];
-      if (!from || !to || from === to) return current;
-      const next = new Map([...base].map(([c, ids]) => [c, ids.filter((id) => id !== activeId)]));
-      const landing = [...(next.get(to) ?? [])];
-      landing.splice(
-        base.has(overId) ? landing.length : Math.max(0, landing.indexOf(overId)),
-        0,
-        activeId,
-      );
-      next.set(to, landing);
-      return next;
-    });
+    // computed from the ref rather than inside a state updater: React may run an updater twice,
+    // and a ref written from in there is a side effect in a place that promises not to have one
+    const base =
+      previewRef.current ??
+      new Map([...lists].map(([c, items]) => [c, items.map(idOf)] as const));
+    const from = [...base].find(([, ids]) => ids.includes(activeId))?.[0];
+    // `over` is a column when the pointer is on its empty space, a card when it is on one
+    const to = base.has(overId) ? overId : [...base].find(([, ids]) => ids.includes(overId))?.[0];
+    if (!from || !to || from === to) return;
+    const next = new Map([...base].map(([c, ids]) => [c, ids.filter((id) => id !== activeId)]));
+    const landing = [...(next.get(to) ?? [])];
+    landing.splice(
+      base.has(overId) ? landing.length : Math.max(0, landing.indexOf(overId)),
+      0,
+      activeId,
+    );
+    next.set(to, landing);
+    setPreviewBoth(next);
   };
 
   const onDragEnd = (event: DragEndEvent) => {
-    const activePreview = preview;
+    const activePreview = previewRef.current;
     setCarriedId(null);
-    setPreview(null);
+    setPreviewBoth(null);
 
     if (event.active.data.current?.type === DRAG_COLUMN) {
       if (!columnIds || !onMoveColumn) return;
@@ -195,7 +210,7 @@ export function useBoardDrag<T>({
       onDragEnd,
       onDragCancel: () => {
         setCarriedId(null);
-        setPreview(null);
+        setPreviewBoth(null);
       },
     },
     carried: carriedId ? (byId.get(carriedId) ?? null) : null,

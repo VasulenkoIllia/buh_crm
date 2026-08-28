@@ -2,11 +2,14 @@ import type {
   ConvertLeadInput,
   CreateLeadInput,
   LeadListQuery,
+  CreateLeadStageInput,
   MoveLeadInput,
+  MoveLeadStageInput,
+  UpdateLeadStageInput,
   UpdateLeadInput,
 } from "@shared/schema/lead.js";
 import { LEAD_LIST_LIMIT } from "@shared/schema/lead.js";
-import type { Lead, Prisma, User } from "../../generated/prisma/client.js";
+import type { Prisma, User } from "../../generated/prisma/client.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
 import { applyDefaultClientService } from "../clients/index.js";
 import * as repo from "./leads.repository.js";
@@ -20,7 +23,7 @@ async function assertActiveService(serviceId: string | null | undefined, current
   if (service.type === "internal") throw new ValidationError("Internal services aren't client-facing");
 }
 
-function toLeadDto(lead: Lead) {
+function toLeadDto(lead: repo.LeadRecord) {
   return {
     id: lead.id,
     name: lead.name,
@@ -30,7 +33,8 @@ function toLeadDto(lead: Lead) {
     serviceId: lead.serviceId,
     sourceId: lead.sourceId,
     description: lead.description,
-    stage: lead.stage,
+    stageId: lead.stageId,
+    stageName: lead.stage.name,
     boardOrder: lead.boardOrder,
     outcome: lead.outcome,
     convertedClientId: lead.convertedClientId,
@@ -60,7 +64,12 @@ export async function listLeads(query: LeadListQuery) {
 
 export async function createLead(input: CreateLeadInput) {
   await assertActiveService(input.serviceId);
-  return toLeadDto(await repo.createLead(input));
+  // a new lead starts at the front of the pipeline — whichever column the firm has put there
+  const first = await repo.firstStage();
+  if (!first) throw new ValidationError("The pipeline has no stages — add one on the board first");
+  // `stageId`, not `stage: { connect }` — the rest of the input is scalars, and one relation
+  // form among them flips Prisma to its checked variant, where `serviceId` is not a valid key
+  return toLeadDto(await repo.createLead({ ...input, stageId: first.id }));
 }
 
 async function getActiveLead(id: string) {
@@ -89,7 +98,7 @@ export async function moveLead(id: string, input: MoveLeadInput) {
   if (lead.outcome === "lost") {
     throw new ValidationError("Reopen this lead before editing or moving it");
   }
-  await repo.moveLeadInBoard(id, input.stage, input.afterLeadId);
+  await repo.moveLeadInBoard(id, input.stageId, input.afterLeadId);
   // re-read rather than patch the copy in hand: the move renumbered its neighbours too, and the
   // row that comes back is the one the board will be compared against
   return toLeadDto(await getActiveLead(id));
@@ -175,4 +184,63 @@ export async function restoreLead(id: string) {
   if (!lead.archivedAt) throw new ConflictError("This lead is not archived");
   await repo.updateLead(id, { archivedAt: null, archivedById: null });
   return toLeadDto(await getActiveLead(id));
+}
+
+// ── the pipeline's columns ───────────────────────────────────────────────────
+
+/**
+ * The stages, and everything that can be done to them. Deliberately the same set of rules as the
+ * task board's columns, because they are the same thing: rename, add at the end, drag into place,
+ * and delete only while nothing is standing in it.
+ *
+ * Unlike the task board there is no FIXED column. A new lead simply starts in whichever stage the
+ * firm has put first, so the pipeline can be rearranged completely without a special case.
+ */
+export async function listStages() {
+  return repo.listStages();
+}
+
+export async function addStage(input: CreateLeadStageInput) {
+  if (await repo.findStageByName(input.name)) {
+    throw new ConflictError("A stage with this name already exists");
+  }
+  return repo.createStage(input.name);
+}
+
+export async function renameStage(id: string, input: UpdateLeadStageInput) {
+  const stage = await repo.findStage(id);
+  if (!stage) throw new NotFoundError("Stage not found");
+  const clash = await repo.findStageByName(input.name);
+  if (clash && clash.id !== id) throw new ConflictError("A stage with this name already exists");
+  return repo.renameStage(id, input.name);
+}
+
+export async function moveStage(id: string, input: MoveLeadStageInput) {
+  const stage = await repo.findStage(id);
+  if (!stage) throw new NotFoundError("Stage not found");
+  await repo.moveStage(id, input.afterStageId);
+  return repo.listStages();
+}
+
+/**
+ * Delete a stage — only while no lead stands in it, ARCHIVED and closed ones included. The count is
+ * for the message; the foreign key is `RESTRICT`, so the database is what actually holds the line.
+ *
+ * The last stage cannot go either: a pipeline with no columns has nowhere to put the next lead,
+ * and `createLead` would start failing with something far less clear than this.
+ */
+export async function removeStage(id: string) {
+  const stage = await repo.findStage(id);
+  if (!stage) throw new NotFoundError("Stage not found");
+  const leads = await repo.countLeadsInStage(id);
+  if (leads > 0) {
+    throw new ConflictError(
+      `“${stage.name}” still holds ${leads} lead${leads === 1 ? "" : "s"} (archived and closed included) — move them first`,
+    );
+  }
+  if ((await repo.listStages()).length === 1) {
+    throw new ValidationError("A pipeline needs at least one stage");
+  }
+  await repo.deleteStage(id);
+  return { ok: true as const };
 }

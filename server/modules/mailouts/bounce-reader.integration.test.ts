@@ -53,12 +53,29 @@ async function letterTo(email: string, messageId: string | null) {
   });
 }
 
+/**
+ * Take away only the client this file makes, and whatever has attached itself to it.
+ *
+ * It used to wipe every client in the test database, which worked until one of them had an invoice
+ * — then `beforeAll` threw on `Invoice_clientId_fkey`, all six tests here were skipped, and the
+ * file reported failed for reasons with nothing to do with bounces. A run interrupted halfway
+ * leaves exactly that behind, so the cleanup has to be able to clear its own wreckage rather than
+ * assume a pristine database (2026-08-28).
+ */
+async function forgetOurClient() {
+  const ours = { email: "olena@example.com" };
+  const client = await prisma.client.findFirst({ where: ours });
+  if (!client) return;
+  await prisma.invoice.deleteMany({ where: { clientId: client.id } });
+  await prisma.client.deleteMany({ where: ours });
+}
+
 beforeAll(async () => {
   await prisma.mailoutRecipient.deleteMany();
   await prisma.mailout.deleteMany();
   await prisma.deadEmailAddress.deleteMany();
   await prisma.mailSenderAccount.deleteMany();
-  await prisma.client.deleteMany();
+  await forgetOurClient();
 
   const account = await prisma.mailSenderAccount.create({
     data: {
@@ -83,7 +100,7 @@ afterAll(async () => {
   await prisma.mailout.deleteMany();
   await prisma.deadEmailAddress.deleteMany();
   await prisma.mailSenderAccount.deleteMany();
-  await prisma.client.deleteMany();
+  await forgetOurClient();
 });
 
 describe("reading delivery reports back", () => {

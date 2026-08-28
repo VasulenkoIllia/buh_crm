@@ -17,8 +17,24 @@ const PRIORITIES = [
 const SOURCES = ["Referral", "Website", "Social", "Cold", "Event", "Other"];
 
 /**
+ * The pipeline the firm starts with. A TABLE since 2026-08-28 — the migration seeds these same six
+ * for an existing database, and this is what puts them back after a `--reset`, which clears base
+ * data on purpose. Upserted by name, so a stage the firm has since renamed or reordered is never
+ * resurrected or overwritten.
+ */
+const LEAD_STAGES = [
+  "First contact",
+  "No answer",
+  "Set up meeting",
+  "Thinking",
+  "On hold",
+  "Next time",
+];
+
+/**
  * Ensures the defaults the app can't work without exist: task priorities, source
- * options, the fixed "New" task column, and the firm profile singleton.
+ * options, the leads pipeline's stages, the fixed "New" task column, and the firm profile
+ * singleton.
  * Non-destructive: existing rows are left untouched (admin edits are preserved).
  */
 export async function ensureBaseData() {
@@ -28,6 +44,10 @@ export async function ensureBaseData() {
 
   for (const [order, name] of SOURCES.entries()) {
     await prisma.sourceOption.upsert({ where: { name }, update: {}, create: { name, order } });
+  }
+
+  for (const [order, name] of LEAD_STAGES.entries()) {
+    await prisma.leadStage.upsert({ where: { name }, update: {}, create: { name, order } });
   }
 
   const fixedColumn = await prisma.taskColumn.findFirst({ where: { isFixed: true } });

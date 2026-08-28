@@ -5,7 +5,11 @@ import type {
   Lead,
   LeadList,
   LeadListQuery,
+  CreateLeadStageInput,
+  LeadStageOption,
   MoveLeadInput,
+  MoveLeadStageInput,
+  UpdateLeadStageInput,
   UpdateLeadInput,
 } from "@shared/schema/lead";
 import { applyDrop } from "@/shared/lib/drop-target";
@@ -87,17 +91,23 @@ export function useMoveLead() {
       await queryClient.cancelQueries({ queryKey: LEADS_KEY });
       const previous = queryClient.getQueriesData<LeadList>({ queryKey: LEADS_KEY });
       queryClient.setQueriesData<LeadList>({ queryKey: LEADS_KEY }, (list) => {
-        if (!list) return list;
+        /**
+         * Every cached lead query shares this prefix — INCLUDING the stages, which are a plain
+         * array. Without this guard the updater read `.items` off that array, threw inside
+         * `onMutate`, and the whole mutation failed and rolled back: the card opened a gap, went
+         * nowhere, and the server never heard about it (2026-08-28).
+         */
+        if (!list || !Array.isArray((list as Partial<LeadList>).items)) return list;
         const moved = list.items.find((l) => l.id === id);
         if (!moved) return list;
-        const landed = { ...moved, stage: input.stage };
+        const landed = { ...moved, stageId: input.stageId };
         const inStage = applyDrop(
-          [...list.items.filter((l) => l.id !== id && l.stage === input.stage), landed],
+          [...list.items.filter((l) => l.id !== id && l.stageId === input.stageId), landed],
           id,
           input.afterLeadId,
           (l) => l.id,
         ).map((l, boardOrder) => ({ ...l, boardOrder }));
-        const elsewhere = list.items.filter((l) => l.id !== id && l.stage !== input.stage);
+        const elsewhere = list.items.filter((l) => l.id !== id && l.stageId !== input.stageId);
         return { ...list, items: [...elsewhere, ...inStage] };
       });
       return { previous };
@@ -154,5 +164,79 @@ export function useConvertLead() {
       queryClient.invalidateQueries({ queryKey: LEADS_KEY });
       queryClient.invalidateQueries({ queryKey: CLIENTS_KEY });
     },
+  });
+}
+
+// ── the pipeline's columns ───────────────────────────────────────────────────
+
+export function useLeadStages() {
+  return useQuery({
+    queryKey: [...LEADS_KEY, "stages"],
+    queryFn: () => api<LeadStageOption[]>("/api/leads/stages"),
+  });
+}
+
+function useInvalidateStages() {
+  const queryClient = useQueryClient();
+  return () => queryClient.invalidateQueries({ queryKey: LEADS_KEY });
+}
+
+export function useAddLeadStage() {
+  const invalidate = useInvalidateStages();
+  return useMutation({
+    mutationFn: (input: CreateLeadStageInput) =>
+      api<LeadStageOption>("/api/leads/stages", { method: "POST", body: input }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRenameLeadStage() {
+  const invalidate = useInvalidateStages();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: UpdateLeadStageInput }) =>
+      api<LeadStageOption>(`/api/leads/stages/${id}`, { method: "PATCH", body: input }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteLeadStage() {
+  const invalidate = useInvalidateStages();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api<{ ok: true }>(`/api/leads/stages/${id}`, { method: "DELETE" }),
+    onSuccess: invalidate,
+  });
+}
+
+/**
+ * Dragging a stage along the board, applied to the cache first — the same reason a card is:
+ * without it the column springs back and jumps forward when the refetch lands, which reads as a
+ * drag that failed. `applyDrop` is the arrangement the server makes, so the two cannot disagree.
+ */
+export function useMoveLeadStage() {
+  const queryClient = useQueryClient();
+  const invalidate = useInvalidateStages();
+  const key = [...LEADS_KEY, "stages"];
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: MoveLeadStageInput }) =>
+      api<LeadStageOption[]>(`/api/leads/stages/${id}/position`, { method: "PATCH", body: input }),
+    onMutate: async ({ id, input }) => {
+      await queryClient.cancelQueries({ queryKey: key });
+      const snapshot = queryClient.getQueryData<LeadStageOption[]>(key);
+      if (snapshot) {
+        queryClient.setQueryData<LeadStageOption[]>(
+          key,
+          applyDrop(snapshot, id, input.afterStageId, (s) => s.id).map((s, order) => ({
+            ...s,
+            order,
+          })),
+        );
+      }
+      return { snapshot };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.snapshot) queryClient.setQueryData(key, ctx.snapshot);
+    },
+    onSettled: invalidate,
   });
 }

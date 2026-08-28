@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { uuid } from "./common.js";
-import { leadOutcome, leadStage } from "./enums.js";
+import { leadOutcome } from "./enums.js";
 
 export const leadSchema = z.object({
   id: uuid,
@@ -12,7 +12,9 @@ export const leadSchema = z.object({
   serviceId: uuid.nullable(),
   sourceId: uuid.nullable(),
   description: z.string().nullable(),
-  stage: leadStage,
+  stageId: uuid,
+  /** resolved server-side, so a board never has to hold the stage list to draw a card */
+  stageName: z.string(),
   /** where it sits inside its stage on the board — the firm's own order, dragged by hand */
   boardOrder: z.number().int(),
   outcome: leadOutcome,
@@ -77,10 +79,11 @@ const leadFields = z.object({
 export const createLeadInput = leadFields;
 export type CreateLeadInput = z.infer<typeof createLeadInput>;
 
-/** Partial edit; stage moves come through here too (kanban drag). */
-export const updateLeadInput = leadFields.partial().extend({
-  stage: leadStage.optional(),
-});
+/**
+ * Partial edit. NOT the board: dragging carries a position as well as a column and goes through
+ * `moveLeadInput`, which is why nothing about the stage appears here (2026-08-28).
+ */
+export const updateLeadInput = leadFields.partial();
 export type UpdateLeadInput = z.infer<typeof updateLeadInput>;
 
 /**
@@ -109,7 +112,31 @@ export type ConvertLeadInput = z.infer<typeof convertLeadInput>;
  * the stage.
  */
 export const moveLeadInput = z.object({
-  stage: leadStage,
+  stageId: uuid,
   afterLeadId: uuid.nullable(),
 });
 export type MoveLeadInput = z.infer<typeof moveLeadInput>;
+
+// ── the pipeline's columns ───────────────────────────────────────────────────
+
+/**
+ * A stage of the pipeline. A TABLE since 2026-08-28, where it was a Prisma enum before: a firm
+ * cannot reorder, rename or add to an enum, so the board could not be dragged and every change to
+ * the pipeline was a migration. Same shape as a task board column, so both boards are one idea.
+ */
+export const leadStageSchema = z.object({
+  id: uuid,
+  name: z.string().min(1),
+  order: z.number().int(),
+});
+export type LeadStageOption = z.infer<typeof leadStageSchema>;
+
+export const createLeadStageInput = z.object({ name: z.string().trim().min(1).max(40) });
+export type CreateLeadStageInput = z.infer<typeof createLeadStageInput>;
+
+export const updateLeadStageInput = z.object({ name: z.string().trim().min(1).max(40) });
+export type UpdateLeadStageInput = z.infer<typeof updateLeadStageInput>;
+
+/** an ANCHOR, like every other order in this app: "put me after this one", null being the front */
+export const moveLeadStageInput = z.object({ afterStageId: uuid.nullable() });
+export type MoveLeadStageInput = z.infer<typeof moveLeadStageInput>;
