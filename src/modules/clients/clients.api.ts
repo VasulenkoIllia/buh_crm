@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import type {
   Client,
   ClientListQuery,
@@ -44,6 +49,44 @@ export function useClients(query: Partial<ClientListQuery>, opts?: { enabled?: b
     queryKey: [...CLIENTS_KEY, "list", params.toString()],
     queryFn: () => api<ClientListResponse>(`/api/clients?${params}`),
     placeholderData: (prev) => prev,
+    enabled: opts?.enabled ?? true,
+  });
+}
+
+/**
+ * The same list, read a page at a time and kept.
+ *
+ * For the pickers that let someone BROWSE rather than jump to one client. `pageSize` is capped at
+ * 100 on the server — deliberately, the row carries the client's subscriptions, companies and
+ * contacts — so a screen that shows a plain first page simply cannot reach a firm's 101st client
+ * (user, 2026-08-28). Asking for a bigger page was never the fix; asking for the next one is.
+ *
+ * `total` comes back with every page, so the caller can say how many are still unread rather than
+ * offer a button that might do nothing.
+ */
+export function useClientsInfinite(
+  query: Partial<ClientListQuery>,
+  opts?: { enabled?: boolean },
+) {
+  const base = new URLSearchParams();
+  if (query.tab) base.set("tab", query.tab);
+  if (query.search) base.set("search", query.search);
+  if (query.serviceId) base.set("serviceId", query.serviceId);
+  if (query.sort) base.set("sort", query.sort);
+  const pageSize = query.pageSize ?? 100;
+  base.set("pageSize", String(pageSize));
+
+  return useInfiniteQuery({
+    queryKey: [...CLIENTS_KEY, "list-infinite", base.toString()],
+    initialPageParam: 1,
+    queryFn: ({ pageParam }) => {
+      const params = new URLSearchParams(base);
+      params.set("page", String(pageParam));
+      return api<ClientListResponse>(`/api/clients?${params}`);
+    },
+    // no next page once what has been read reaches the total the server reports
+    getNextPageParam: (last, pages) =>
+      pages.reduce((n, p) => n + p.items.length, 0) < last.total ? last.page + 1 : undefined,
     enabled: opts?.enabled ?? true,
   });
 }

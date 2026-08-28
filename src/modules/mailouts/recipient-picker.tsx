@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Building2, Search } from "lucide-react";
 import type { MailoutTarget } from "@shared/schema/mailouts";
-import { useClients } from "@/modules/clients";
+import { useClientsInfinite } from "@/modules/clients";
 import { useCatalog } from "@/modules/catalog";
 import { cn } from "@/shared/lib/cn";
 import { Input, Select } from "@/shared/ui/field";
@@ -69,7 +69,7 @@ export function RecipientPicker({
   const [serviceId, setServiceId] = useState("");
   const services = useCatalog();
 
-  const clients = useClients(
+  const clients = useClientsInfinite(
     {
       tab: "all",
       search: search || undefined,
@@ -79,7 +79,16 @@ export function RecipientPicker({
     { enabled },
   );
 
-  const visible = clients.data?.items ?? [];
+  /**
+   * Every page read so far, not just the first.
+   *
+   * The server caps a page at 100 — the row carries the client's subscriptions, companies and
+   * contacts, so that cap is right — and this list used to show one page and tell you to search
+   * for the rest. That works for a firm with ninety clients and stops working at a hundred and
+   * one: there was no way to reach the 101st except by already knowing their name (user).
+   */
+  const visible = clients.data?.pages.flatMap((p) => p.items) ?? [];
+  const total = clients.data?.pages[0]?.total ?? 0;
   const allVisibleSelected = visible.length > 0 && visible.every((c) => value.has(c.id));
 
   function toggle(key: string) {
@@ -141,9 +150,8 @@ export function RecipientPicker({
       )}
 
       {/* Opened from a client's card: their inboxes sit above the search rather than being hunted
-          for. Without this, reaching one of their companies would mean finding the client again in
-          a list the search pages at 100 — so it would work for a firm with ninety clients and stop
-          working at a hundred and one. */}
+          for. The list below pages now, so they COULD be reached by scrolling — but scrolling past
+          two hundred strangers to find the client whose card you opened is not reaching them. */}
       {presetClientId && presetTargets && presetTargets.length > 0 && (
         <div className="rounded-(--radius-field) border border-border">
           <p className="border-b border-divider px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-faint">
@@ -193,12 +201,27 @@ export function RecipientPicker({
             </div>
           ))
         )}
+        {/* Inside the box, at the end of what has been read — where someone who has scrolled to
+            the bottom is already looking. It says how many are left rather than "more", so nobody
+            clicks to find out whether anything happens. */}
+        {clients.hasNextPage && (
+          <button
+            type="button"
+            onClick={() => void clients.fetchNextPage()}
+            disabled={clients.isFetchingNextPage}
+            className="block w-full px-3 py-2.5 text-left text-[13px] font-medium text-primary-link hover:bg-divider/40 disabled:text-faint"
+          >
+            {clients.isFetchingNextPage
+              ? "Loading…"
+              : `Load ${Math.min(PICKER_PAGE_SIZE, total - visible.length)} more of ${total - visible.length} remaining`}
+          </button>
+        )}
       </ScrollBox>
 
-      {clients.data && clients.data.total > visible.length && (
+      {total > 0 && (
         <p className="text-[12px] text-muted">
-          Showing {visible.length} of {clients.data.total} — narrow the search to reach the
-          rest.
+          Showing {visible.length} of {total}
+          {clients.hasNextPage ? " — scroll for the rest, or narrow the search" : ""}
         </p>
       )}
     </div>
