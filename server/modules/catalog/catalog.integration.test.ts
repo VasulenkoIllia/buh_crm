@@ -1007,6 +1007,34 @@ describe("catalog", () => {
       expect(orders).toEqual([...orders].sort((a, b) => a - b));
     });
 
+    it("reorders INTERNAL categories by the same rule — one logic, not two", async () => {
+      const int2 = await make("Ord INT2", "internal");
+      const int3 = await make("Ord INT3", "internal");
+      // internal categories sit after the external ones and keep their own relative order
+      expect((await order()).slice(-3)).toEqual(["INT", "INT2", "INT3"]);
+
+      // drag the last internal above the first — the same endpoint, the same anchor
+      expect((await move(int3, null)).statusCode).toBe(200);
+      expect((await order())[0]).toBe("INT3");
+
+      expect((await move(int3, int2)).statusCode).toBe(200);
+      expect((await order()).slice(-3)).toEqual(["INT", "INT2", "INT3"]);
+
+      await prisma.service.deleteMany({ where: { name: { in: ["Ord INT2", "Ord INT3"] } } });
+    });
+
+    it("the internal-task sweep reads the catalog in the firm's order too", async () => {
+      // the one place internal categories are actually consumed; it used to have no ordering at
+      // all, so Postgres decided it
+      const internals = await prisma.service.findMany({
+        where: { active: true, type: "internal" },
+        orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+        select: { order: true },
+      });
+      const orders = internals.map((s) => s.order);
+      expect(orders).toEqual([...orders].sort((a, b) => a - b));
+    });
+
     it("refuses to drop a service after itself", async () => {
       expect((await move(ids.A, ids.A)).statusCode).toBe(400);
     });

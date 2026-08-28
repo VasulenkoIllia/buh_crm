@@ -504,6 +504,11 @@ export function findGeneratingSubscription(id: string): Promise<GeneratingSubscr
 /** Active internal (firm-only) services and their recurring templates. */
 const internalService = {
   where: { active: true, type: "internal" as const },
+  // The catalog's own order, the same one `listServices` hands the screens. This read had no
+  // `orderBy` at all, so Postgres returned the categories in whatever order it liked and the
+  // nightly sweep generated their tasks in that order — the one place internal services are
+  // actually consumed, ignoring the order an admin had just set (user, 2026-08-27).
+  orderBy: [{ order: "asc" as const }, { createdAt: "asc" as const }],
   select: {
     id: true,
     name: true,

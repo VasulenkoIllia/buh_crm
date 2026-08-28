@@ -42,8 +42,23 @@ export function countServices() {
   return prisma.service.count();
 }
 
-export function createService(data: Prisma.ServiceCreateInput) {
-  return prisma.service.create({ data, include: serviceInclude() });
+/**
+ * A new service goes to the END of the catalog.
+ *
+ * Without this every one is created at the column's default of 0 and lands at the TOP, above an
+ * order somebody arranged by hand — which is both surprising and the opposite of "I just added it"
+ * (caught by the ordering tests, 2026-08-27).
+ */
+async function nextOrder(tx: Pick<typeof prisma, "service">): Promise<number> {
+  const last = await tx.service.aggregate({ _max: { order: true } });
+  return (last._max.order ?? -1) + 1;
+}
+
+export async function createService(data: Prisma.ServiceCreateInput) {
+  return prisma.service.create({
+    data: { ...data, order: await nextOrder(prisma) },
+    include: serviceInclude(),
+  });
 }
 
 export function updateService(id: string, data: Prisma.ServiceUpdateInput) {
@@ -77,7 +92,7 @@ export function createServiceWithDefault(
   flag: boolean | undefined,
 ) {
   return prisma.$transaction(async (tx) => {
-    const service = await tx.service.create({ data });
+    const service = await tx.service.create({ data: { ...data, order: await nextOrder(tx) } });
     await applyDefaultFlag(tx, service.id, flag);
     return tx.service.findUnique({ where: { id: service.id }, include: serviceInclude() });
   });
