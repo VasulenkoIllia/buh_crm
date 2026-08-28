@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Archive as ArchiveIcon, RotateCcw } from "lucide-react";
-import { clientCode } from "@shared/schema/client";
+import { ClientCode } from "@/shared/ui/client-code";
 import { useClients, useRestoreClient } from "@/modules/clients";
 import { useLeads, useRestoreLead } from "@/modules/leads";
 import { useRestoreTask, useTasks } from "@/modules/tasks";
@@ -132,7 +132,10 @@ export function ArchivePage() {
               key={c.id}
               grid="grid-cols-[1.4fr_1fr_140px_120px]"
               cells={[
-                `${clientCode(c.code)}  ${c.displayName}`,
+                <span key="name" className="flex min-w-0 items-center gap-2">
+                  <ClientCode code={c.code} />
+                  <span className="truncate">{c.displayName}</span>
+                </span>,
                 c.companyName ?? "—",
                 archivedOn(c.archivedAt),
               ]}
@@ -305,7 +308,8 @@ function Row({
   onRestore,
 }: {
   grid: string;
-  cells: string[];
+  /** nodes, not strings: the first cell carries a fixed-width code beside a truncating name */
+  cells: React.ReactNode[];
   busy: boolean;
   onRestore: () => void;
 }) {

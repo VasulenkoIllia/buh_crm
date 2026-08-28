@@ -2,7 +2,6 @@ import { useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Download, Trash2 } from "lucide-react";
 import type { Client } from "@shared/schema/client";
-import { clientCode } from "@shared/schema/client";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { EntityMeetings } from "@/modules/calendar";
 import { ClientMailouts } from "@/modules/mailouts";
@@ -13,6 +12,7 @@ import { ApiError } from "@/shared/lib/api";
 import { fmtDate } from "@/shared/lib/format";
 import { Button, IconButton } from "@/shared/ui/button";
 import { Tabs } from "@/shared/ui/tabs";
+import { ClientCode } from "@/shared/ui/client-code";
 import { ClientFormModal } from "./client-form";
 import { CompaniesTab } from "./client-companies";
 import { ClientPeopleModal } from "./client-people-modal";
@@ -108,9 +108,7 @@ export function ClientCardPage() {
         <div>
           <div className="flex items-center gap-2.5">
             {/* the handle a colleague will have quoted to get you here */}
-            <span className="font-mono text-[13px] tabular-nums text-muted-400">
-              {clientCode(client.code)}
-            </span>
+            <ClientCode code={client.code} className="text-[13px]" />
             <h1 className="text-[20px] font-semibold">{client.displayName}</h1>
             {client.isRegular && (
               <span className="rounded-(--radius-chip) bg-[#f0ebfb] px-2 py-0.5 text-[12px] font-medium text-[#7a4fd6]">

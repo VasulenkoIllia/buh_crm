@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Check, Pencil, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { Task, TimeEntry, UpdateTaskInput } from "@shared/schema/task";
-import { clientCode } from "@shared/schema/client";
 import { useAuth } from "@/app/auth";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { ClientFormModal, useClient, useClients } from "@/modules/clients";
@@ -23,6 +22,7 @@ import { Modal } from "@/shared/ui/modal";
 import { pillCls } from "@/shared/ui/pill";
 import { SearchSelect } from "@/shared/ui/search-select";
 import { Segmented } from "@/shared/ui/segmented";
+import { ClientCode } from "@/shared/ui/client-code";
 import { TaskKindChip } from "./lib";
 import { DoneToggle, TaskTimerButton } from "./task-controls";
 import { TrackedTime, fmtDuration } from "./timer";
@@ -638,9 +638,7 @@ export function ClientLeadSearch({
             >
               {/* the code is quoted BETWEEN people; this row is where a quoted one is acted on,
                   so it has to be possible to confirm you picked the client you were told about */}
-              <span className="flex-none font-mono text-[11px] tabular-nums text-muted-400">
-                {clientCode(c.code)}
-              </span>
+              <ClientCode code={c.code} className="text-[11px]" />
               <span className="truncate font-medium">{c.displayName}</span>
               <span className="flex-none text-[11px] text-muted">client</span>
             </button>

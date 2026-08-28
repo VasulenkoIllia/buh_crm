@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Pin, Users } from "lucide-react";
 import type { Client, ClientListQuery } from "@shared/schema/client";
-import { clientCode } from "@shared/schema/client";
 import type { Service } from "@shared/schema/catalog";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { cn } from "@/shared/lib/cn";
@@ -11,6 +10,7 @@ import { Button } from "@/shared/ui/button";
 import { Select } from "@/shared/ui/field";
 import { SearchSelect } from "@/shared/ui/search-select";
 import { FilterChips } from "@/shared/ui/tabs";
+import { ClientCode } from "@/shared/ui/client-code";
 import { ClientFormModal } from "./client-form";
 import { PERIOD_LABEL, PERIOD_SHORT, recurringByPeriod } from "./recurring";
 import { useClients, usePinClient } from "./clients.api";
@@ -387,11 +387,10 @@ function ClientRow({
        * flexible ones — the same arithmetic that made the Billing table drift. It is also what
        * was actually asked for: the code before the name.
        *
-       * `tabular-nums` so a list of codes lines up as a column even though it isn't one.
+       * `ClientCode` reserves the width regardless, so the names stay in one line down the page
+       * whatever mix of three, four and five digit codes the list happens to hold.
        */}
-      <span className="flex-none font-mono text-[12px] tabular-nums text-muted-400">
-        {clientCode(client.code)}
-      </span>
+      <ClientCode code={client.code} />
       <span className="truncate font-semibold">{client.displayName}</span>
     </div>
   );

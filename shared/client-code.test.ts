@@ -17,6 +17,14 @@ describe("clientCode", () => {
     expect(clientCode(1000)).toBe("C-1000");
     expect(clientCode(123456)).toBe("C-123456");
   });
+
+  it("never grows past the width `ClientCode` reserves, up to the firm's 99999th client", () => {
+    // `ClientCode` holds 7ch open so names stay in one line down the page. `C-99999` is exactly
+    // that; anything shorter is padding or blank, and only a six-figure client base exceeds it.
+    expect(clientCode(99999)).toHaveLength(7);
+    expect(clientCode(99999)).toBe("C-99999");
+    for (const n of [1, 42, 268, 1000, 99999]) expect(clientCode(n).length).toBeLessThanOrEqual(7);
+  });
 });
 
 describe("codeInSearch", () => {
