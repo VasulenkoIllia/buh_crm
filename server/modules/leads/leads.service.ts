@@ -57,6 +57,18 @@ export async function listLeads(query: LeadListQuery) {
     query.scope === "archived" ? { archivedAt: { not: null } } : { archivedAt: null };
   if (query.scope === "in_process") where.outcome = "in_process";
   if (query.scope === "closed") where.outcome = { not: "in_process" };
+  // Same field-by-field shape as the clients and invoices searches, so a phrase typed on the
+  // Archive means the same thing whichever tab it is typed on. A lead has no client code to
+  // match — it is not a client yet, which is the whole point of the pipeline.
+  if (query.search) {
+    const contains = { contains: query.search, mode: "insensitive" as const };
+    where.OR = [
+      { name: contains },
+      { companyName: contains },
+      { email: contains },
+      { phone: contains },
+    ];
+  }
 
   const { items, total } = await repo.listLeads(where, LEAD_LIST_LIMIT);
   return { items: items.map(toLeadDto), total, truncated: total > items.length };

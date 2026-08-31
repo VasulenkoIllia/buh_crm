@@ -19,6 +19,7 @@ import { Modal } from "@/shared/ui/modal";
 import { pillCls } from "@/shared/ui/pill";
 import { InfoHint } from "@/shared/ui/info-hint";
 import { Segmented } from "@/shared/ui/segmented";
+import { SearchInput } from "@/shared/ui/search-input";
 import { Tabs } from "@/shared/ui/tabs";
 import {
   DndContext,
@@ -88,6 +89,7 @@ export function ServicesPage() {
     { service: Service; template?: TaskTemplate } | undefined
   >();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState("");
   const [tab, setTab] = useState<"external" | "internal">("external");
 
   const move = useMoveService();
@@ -115,7 +117,24 @@ export function ServicesPage() {
 
   const internalCount = services.filter((s) => s.type === "internal").length;
   const externalCount = services.length - internalCount;
-  const shown = tab === "internal" ? services.filter((s) => s.type === "internal") : services.filter((s) => s.type !== "internal");
+  /**
+   * The phrase is matched HERE, in the browser, and that is the right place for once: the whole
+   * catalog is loaded in one read — templates included — and it is never truncated, so there is no
+   * page beyond which a typed word would stop finding things. (The Archive's lists are capped, so
+   * their search had to go to the database. Same feature, opposite answer, for a reason.)
+   *
+   * An internal category is a CONTAINER of templates, and a template is what people actually go
+   * looking for — so a category matches on its templates too, and says so by opening itself.
+   */
+  const q = search.trim().toLowerCase();
+  const nameHit = (s: Service) => s.name.toLowerCase().includes(q);
+  const templateHit = (s: Service) => s.taskTemplates.some((t) => t.name.toLowerCase().includes(q));
+  const matches = (s: Service) => !q || nameHit(s) || templateHit(s);
+  /** Matched only by something inside it — open the row, or the match is invisible. */
+  const matchedInside = (s: Service) => !!q && !nameHit(s) && templateHit(s);
+
+  const inTab = (s: Service) => (tab === "internal" ? s.type === "internal" : s.type !== "internal");
+  const shown = services.filter((s) => inTab(s) && matches(s));
 
   /**
    * The catalog is ONE order and the tabs are a filter over it, so the drop is resolved against
@@ -151,6 +170,12 @@ export function ServicesPage() {
     <div className="mx-auto max-w-[820px]">
       <div className="mb-1 flex items-center justify-between">
         <h1 className="text-[20px] font-semibold">Service catalog</h1>
+        <SearchInput
+          className="ml-auto mr-3 w-64"
+          placeholder="🔍 Search: service, task template…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
         {isAdmin && (
           <Button
             onClick={() => {
@@ -172,13 +197,21 @@ export function ServicesPage() {
 
       {shown.length === 0 ? (
         <div className="rounded-(--radius-panel) border border-dashed border-[#cfd4db] bg-surface p-12 text-center">
+          {/* an empty catalog and an empty SEARCH are different facts, and "create the first
+              service" is bad advice when there are forty of them and the phrase simply missed */}
           <div className="text-[15px] font-semibold">
-            {tab === "external" ? "No services yet" : "No internal templates yet"}
+            {q
+              ? "Nothing matches that"
+              : tab === "external"
+                ? "No services yet"
+                : "No internal templates yet"}
           </div>
           <p className="mt-1 text-[13px] text-muted">
-            {tab === "external"
-              ? "Create the first service — it becomes the shared category list."
-              : "Create an internal category, then add recurring task templates to it."}
+            {q
+              ? "Try another phrase, clear the search, or look in the other tab."
+              : tab === "external"
+                ? "Create the first service — it becomes the shared category list."
+                : "Create an internal category, then add recurring task templates to it."}
           </p>
         </div>
       ) : (
@@ -203,7 +236,7 @@ export function ServicesPage() {
                 <span
                   className={cn(
                     "text-[11px] text-muted transition-transform",
-                    expanded.has(service.id) && "rotate-90",
+                    (expanded.has(service.id) || matchedInside(service)) && "rotate-90",
                   )}
                 >
                   ▸
@@ -330,7 +363,7 @@ export function ServicesPage() {
                 </div>
               </div>
 
-              {expanded.has(service.id) && (
+              {(expanded.has(service.id) || matchedInside(service)) && (
                 <ExpandedPanel
                   service={service}
                   isAdmin={isAdmin}

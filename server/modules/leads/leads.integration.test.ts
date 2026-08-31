@@ -167,6 +167,59 @@ describe("leads", () => {
     expect(archive.json().total).toBe(1);
   });
 
+  /**
+   * The phrase is answered by the DATABASE. That is the whole point: this list is capped at
+   * `LEAD_LIST_LIMIT`, so a filter applied to the rows the browser happened to receive would
+   * search the first page and report the rest absent — the failure the client picker had at a
+   * hundred rows (2026-08-31).
+   */
+  it("searches leads by person, company and contacts, and stays inside its scope", async () => {
+    const made = await app.inject({
+      method: "POST",
+      url: "/api/leads",
+      headers: { cookie },
+      payload: {
+        name: "Zoryana Verkhovyna",
+        companyName: "Karpaty Timber LLC",
+        email: "zoryana@karpaty-timber.example",
+        phone: "+380679998877",
+      },
+    });
+    const id = made.json().id;
+
+    const found = async (term: string, scope = "in_process") =>
+      (
+        await app.inject({
+          method: "GET",
+          url: `/api/leads?scope=${scope}&search=${encodeURIComponent(term)}`,
+          headers: { cookie },
+        })
+      )
+        .json()
+        .items.map((l: { id: string }) => l.id);
+
+    // every field the box promises, and case is not the user's problem
+    expect(await found("verkhovyna")).toContain(id);
+    expect(await found("KARPATY")).toContain(id);
+    expect(await found("zoryana@karpaty")).toContain(id);
+    expect(await found("9998877")).toContain(id);
+    expect(await found("Verkhovyna Zoryana")).not.toContain(id);
+    expect(await found("nothing here matches this")).toEqual([]);
+
+    // the phrase narrows a scope, it does not escape one: this lead is live, so the archive's
+    // answer for the same word is empty rather than "found it, on the other screen"
+    expect(await found("verkhovyna", "archived")).toEqual([]);
+
+    // and `total` describes the ANSWER, not the pipeline — otherwise the count beside a chip
+    // would contradict the rows underneath it
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/leads?scope=in_process&search=verkhovyna",
+      headers: { cookie },
+    });
+    expect(res.json().total).toBe(1);
+  });
+
   it("marks lost, blocks moving a lost lead, then reopens", async () => {
     const lost = await app.inject({
       method: "POST",

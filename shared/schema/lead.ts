@@ -39,6 +39,14 @@ export const leadListQuery = z.object({
    * view but the Archive. Every other scope excludes archived leads.
    */
   scope: z.enum(["in_process", "closed", "all", "archived"]).default("all"),
+  /**
+   * Free text over the person, their company and their contacts.
+   *
+   * It has to be answered by the DATABASE, not by filtering the loaded rows: this list is capped
+   * at `LEAD_LIST_LIMIT`, so a browser-side filter would quietly search the first 500 leads and
+   * report "nothing found" for the rest — the same failure the client picker had at a hundred.
+   */
+  search: z.string().trim().optional(),
 });
 export type LeadListQuery = z.infer<typeof leadListQuery>;
 

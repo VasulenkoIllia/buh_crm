@@ -595,6 +595,91 @@ describe("tasks", () => {
   });
 
   // the Done view is a WINDOW over completed work, not the whole history
+  /**
+   * The Archive's task rows show the title AND the client or lead the work is for, so the search
+   * box above them has to reach both — a phrase that can only match the title sends people back
+   * to scrolling for the one thing they remember (user, 2026-08-31).
+   *
+   * The parameter itself is older than the box: it was implemented, tested and called by nothing
+   * until the Archive gained a search.
+   */
+  it("searches tasks by title, and by the client or lead the work is for", async () => {
+    const madeClient = await app.inject({
+      method: "POST",
+      url: "/api/clients",
+      headers: { cookie: adminCookie },
+      payload: { firstName: "Solomiya", lastName: "Naboka", companies: [], people: [] },
+    });
+    const clientId = madeClient.json().id;
+    const clientCode = madeClient.json().code as number;
+
+    const svc = await app.inject({
+      method: "POST",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+      payload: { name: "Search Subscription", type: "subscription" },
+    });
+    const sub = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions`,
+      headers: { cookie: adminCookie },
+      payload: { serviceId: svc.json().id, amount: 10000 },
+    });
+    const clientTask = await app.inject({
+      method: "POST",
+      url: "/api/tasks",
+      headers: { cookie: adminCookie },
+      payload: {
+        title: "Quarterly paperwork",
+        clientId,
+        subscriptionId: sub.json().subscriptions[0].id,
+        assignees: [adminId],
+      },
+    });
+    const clientTaskId = clientTask.json().id;
+
+    const madeLead = await app.inject({
+      method: "POST",
+      url: "/api/leads",
+      headers: { cookie: adminCookie },
+      payload: { name: "Bohdan Chornomorets", companyName: "Prychal Shipping" },
+    });
+    const leadTask = await app.inject({
+      method: "POST",
+      url: "/api/tasks",
+      headers: { cookie: adminCookie },
+      payload: { title: "Send the offer", leadId: madeLead.json().id, assignees: [adminId] },
+    });
+    const leadTaskId = leadTask.json().id;
+
+    const found = async (term: string) =>
+      (
+        await app.inject({
+          method: "GET",
+          url: `/api/tasks?view=table&status=all&search=${encodeURIComponent(term)}`,
+          headers: { cookie: adminCookie },
+        })
+      )
+        .json()
+        .items.map((t: { id: string }) => t.id);
+
+    // the title, as before
+    expect(await found("quarterly")).toContain(clientTaskId);
+    // the person the work is for — the second column on the Archive's rows
+    expect(await found("naboka")).toContain(clientTaskId);
+    expect(await found("SOLOMIYA")).toContain(clientTaskId);
+    // …and their code, the way the invoice search already accepts one: the number is what the
+    // team says out loud, and nobody should have to translate it back into a surname first
+    expect(await found(`C-${String(clientCode).padStart(3, "0")}`)).toContain(clientTaskId);
+    expect(await found(String(clientCode))).toContain(clientTaskId);
+    // a lead is reachable by person and by company
+    expect(await found("chornomorets")).toContain(leadTaskId);
+    expect(await found("prychal")).toContain(leadTaskId);
+    // and one target's phrase never drags in the other's work
+    expect(await found("naboka")).not.toContain(leadTaskId);
+    expect(await found("no such words anywhere")).toEqual([]);
+  });
+
   it("stamps completedAt and windows the Done view by it", async () => {
     const created = await app.inject({
       method: "POST",

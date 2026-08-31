@@ -65,6 +65,8 @@ export interface TaskQuery {
   leadId?: string;
   /** Archive screen only: archived tasks instead of live ones */
   archived?: boolean;
+  /** free text over the task's title and the name of the client or lead it is for */
+  search?: string;
   page?: number;
   pageSize?: number;
 }
@@ -78,6 +80,7 @@ export function useTasks(query: TaskQuery) {
   const params = new URLSearchParams({ view: query.view, status: query.status });
   if (query.overdue) params.set("overdue", "true");
   if (query.archived) params.set("archived", "true");
+  if (query.search) params.set("search", query.search);
   if (query.withinDays) params.set("withinDays", String(query.withinDays));
   if (query.serviceId) params.set("serviceId", query.serviceId);
   if (query.assigneeId) params.set("assigneeId", query.assigneeId);

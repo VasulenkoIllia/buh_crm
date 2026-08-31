@@ -7,8 +7,11 @@ import { useLeads, useRestoreLead } from "@/modules/leads";
 import { useRestoreTask, useTasks } from "@/modules/tasks";
 import { cn } from "@/shared/lib/cn";
 import { fmtDate } from "@/shared/lib/format";
+import { useDebounced } from "@/shared/lib/use-debounced";
 import { Button } from "@/shared/ui/button";
+import { SearchInput } from "@/shared/ui/search-input";
 import { FilterChips } from "@/shared/ui/tabs";
+import { type ArchiveTab, phraseFor } from "./search-scope";
 
 /**
  * The Archive — one screen for everything that was soft-deleted, and the only place it can be
@@ -30,7 +33,8 @@ const TABS = [
   { key: "leads", label: "Leads" },
   { key: "tasks", label: "Tasks" },
 ] as const;
-type TabKey = (typeof TABS)[number]["key"];
+// the module that owns the scoping rule owns the tab names too, so the two cannot drift
+type TabKey = ArchiveTab;
 
 const PAGE_SIZE = 25;
 const pagesOf = (total: number | undefined) => Math.max(1, Math.ceil((total ?? 0) / PAGE_SIZE));
@@ -47,20 +51,62 @@ const HINTS: Record<TabKey, string> = {
     "A task of an archived client can't come back on its own. Restore the client and every one of their tasks comes back with them.",
 };
 
+/** What each tab searches, said in the box rather than left to be discovered. */
+const SEARCH_HINTS: Record<TabKey, string> = {
+  clients: "🔍 Search: code, name, company, email…",
+  leads: "🔍 Search: name, company, email, phone…",
+  tasks: "🔍 Search: task, client, lead…",
+};
+
 export function ArchivePage() {
   const [tab, setTab] = useState<TabKey>("clients");
   const [error, setError] = useState<string | null>(null);
   // one page number per tab: switching tabs must not carry page 3 into a one-page list
   const [page, setPage] = useState<Record<TabKey, number>>({ clients: 1, leads: 1, tasks: 1 });
+  /**
+   * And one search per tab, for the same reason. A phrase that narrows the clients list means
+   * nothing in the tasks one, and carrying it across would land you on an empty screen you never
+   * asked for.
+   *
+   * All three lists stay mounted here (that is what keeps every chip's count live), so all three
+   * phrases are debounced together — the record only changes identity on a keystroke, so one hook
+   * covers the lot without a timer per tab.
+   */
+  const [search, setSearch] = useState<Record<TabKey, string>>({ clients: "", leads: "", tasks: "" });
+  const settled = useDebounced(search);
+
+  const onSearch = (value: string) => {
+    setSearch((prev) => ({ ...prev, [tab]: value }));
+    setPage((prev) => ({ ...prev, [tab]: 1 }));
+  };
+
+  // The phrase narrows the tab you are LOOKING AT, and only that one — see `search-scope.ts` for
+  // the count it silently broke when every list carried its own.
+  const phrase = (key: TabKey) => phraseFor(tab, key, settled);
+
+  /**
+   * An empty archive and a search that found nothing are different facts, and only one of them is
+   * good news. Asks `phrase`, not the raw state, so this cannot drift from what was actually sent:
+   * that means the SETTLED word (the message matches the rows rather than flipping a moment before
+   * they arrive) and only on the tab being looked at.
+   */
+  const emptyLabelFor = (key: TabKey, whenEmpty: string) =>
+    phrase(key) ? "Nothing matches that" : whenEmpty;
 
   // all three stay mounted so every chip carries a live count — the same reason the Leads screen
   // keeps both of its lists loaded
-  const clients = useClients({ tab: "archived", page: page.clients, pageSize: PAGE_SIZE });
-  const leads = useLeads("archived");
+  const clients = useClients({
+    tab: "archived",
+    search: phrase("clients"),
+    page: page.clients,
+    pageSize: PAGE_SIZE,
+  });
+  const leads = useLeads("archived", phrase("leads"));
   const tasks = useTasks({
     view: "table",
     status: "all",
     archived: true,
+    search: phrase("tasks"),
     page: page.tasks,
     pageSize: PAGE_SIZE,
   });
@@ -100,6 +146,12 @@ export function ArchivePage() {
         <span className="text-[13px] text-muted-400">
           Everything hidden from the working views — and the way back
         </span>
+        <SearchInput
+          className="ml-auto w-64"
+          placeholder={SEARCH_HINTS[tab]}
+          value={search[tab]}
+          onChange={(e) => onSearch(e.target.value)}
+        />
       </div>
 
       <FilterChips
@@ -123,7 +175,7 @@ export function ArchivePage() {
           loading={clients.isLoading}
           failed={!!clients.error}
           empty={clients.data?.items.length === 0}
-          emptyLabel="No archived clients"
+          emptyLabel={emptyLabelFor("clients", "No archived clients")}
           columns={["Client", "Company", "Archived", ""]}
           grid="grid-cols-[1.4fr_1fr_140px_120px]"
         >
@@ -158,7 +210,7 @@ export function ArchivePage() {
           loading={leads.isLoading}
           failed={!!leads.error}
           empty={leads.data?.items.length === 0}
-          emptyLabel="No archived leads"
+          emptyLabel={emptyLabelFor("leads", "No archived leads")}
           columns={["Lead", "Company", "Archived", ""]}
           grid="grid-cols-[1.4fr_1fr_140px_120px]"
         >
@@ -184,7 +236,7 @@ export function ArchivePage() {
           loading={tasks.isLoading}
           failed={!!tasks.error}
           empty={tasks.data?.items.length === 0}
-          emptyLabel="No archived tasks"
+          emptyLabel={emptyLabelFor("tasks", "No archived tasks")}
           columns={["Task", "For", "Archived", ""]}
           grid="grid-cols-[2fr_1fr_140px_120px]"
         >

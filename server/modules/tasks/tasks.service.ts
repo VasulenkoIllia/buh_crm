@@ -14,6 +14,7 @@ import type {
   UpdateTaskInput,
   UpdateTimeEntryInput,
 } from "@shared/schema/task.js";
+import { codeInSearch } from "@shared/schema/client.js";
 import { deriveStatus, hasLiveInvoice } from "@shared/schema/payment.js";
 import { MAX_FILE_SIZE, deleteFileBytes, saveFileBytes } from "../../core/files.js";
 import type { Prisma, User } from "../../generated/prisma/client.js";
@@ -237,7 +238,36 @@ export async function listTasks(query: TaskListQuery) {
     const since = new Date(today - (query.withinDays - 1) * 86_400_000);
     and.push(query.status === "done" ? { completedAt: { gte: since } } : { cancelledAt: { gte: since } });
   }
-  if (query.search) and.push({ title: { contains: query.search, mode: "insensitive" } });
+  /**
+   * Free text over what the ROW SHOWS: the title, and the client or lead the work is for. The
+   * Archive's task rows carry that second column, and until the Archive gained a search box this
+   * parameter was implemented, tested and called by nothing — title-only, because nothing had
+   * asked for more yet (user, 2026-08-31).
+   *
+   * Same shape as the invoice search, client code included, so a phrase typed on one screen means
+   * the same thing on the other. `C-042` finds that client's archived work without them having to
+   * remember the name that goes with the number.
+   */
+  if (query.search) {
+    const contains = { contains: query.search, mode: "insensitive" as const };
+    const code = codeInSearch(query.search);
+    and.push({
+      OR: [
+        { title: contains },
+        {
+          client: {
+            OR: [
+              ...(code !== null ? [{ code }] : []),
+              { firstName: contains },
+              { lastName: contains },
+              { companyName: contains },
+            ],
+          },
+        },
+        { lead: { OR: [{ name: contains }, { companyName: contains }] } },
+      ],
+    });
+  }
   if (query.assigneeId) and.push({ assignees: { some: { userId: query.assigneeId } } });
   if (query.clientId) and.push({ clientId: query.clientId });
   // "none" is not a service id — it means work that goes through no service at all, which is every

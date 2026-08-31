@@ -20,13 +20,18 @@ import { CLIENTS_KEY, LEADS_KEY } from "@/shared/lib/query-keys";
  * The board and the archive are separate queries — each asks the server for its own side of the
  * pipeline rather than pulling every lead the firm ever had and filtering it here.
  */
-export function useLeads(scope: LeadListQuery["scope"] = "all") {
+export function useLeads(scope: LeadListQuery["scope"] = "all", search?: string) {
+  const params = new URLSearchParams({ scope });
+  // the SERVER answers the phrase — this list is capped, so filtering the loaded rows in the
+  // browser would search the first page and call the rest absent (2026-08-31)
+  if (search) params.set("search", search);
   return useQuery({
     // "list" names what this cache holds. Everything under `["leads", …]` shares the prefix — one
     // lead, the pipeline's stages — and an optimistic write meant for the LISTS must be able to
-    // say so, the way the tasks board's `isBoard` does (audit, 2026-08-28).
-    queryKey: [...LEADS_KEY, "list", scope],
-    queryFn: () => api<LeadList>(`/api/leads?scope=${scope}`),
+    // say so, the way the tasks board's `isBoard` does (audit, 2026-08-28). The phrase belongs in
+    // the key too: two searches are two different lists.
+    queryKey: [...LEADS_KEY, "list", params.toString()],
+    queryFn: () => api<LeadList>(`/api/leads?${params}`),
     placeholderData: (prev) => prev,
   });
 }
