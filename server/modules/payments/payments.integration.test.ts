@@ -521,24 +521,42 @@ describe("payments", () => {
       invoices.json().items.filter((i: { periodKey: string | null }) => i.periodKey === ym),
     ).toHaveLength(0);
 
-    // …but it IS reported: one reminder task, and re-running the sweep never posts a second
+    // …but it IS reported: one reminder task, and re-running the sweep never posts a second.
+    //
+    // Scoped to THIS period, exactly as the invoice assertion above is, and for a related reason.
+    // Creating a subscription bills it straight away (`clients.service` → `generateForSubscription
+    // Invoices`), so on the LAST DAY of a month the subscription is already part-served for the
+    // current month — its `on_period_end` trigger day is today, and the period covers one day of
+    // it. That second reminder is correct product behaviour: somebody has to decide the pro-rata
+    // amount. The test is about the backdated period, so it counts that period's reminder rather
+    // than every reminder the subscription has ever earned (2026-08-31: the suite failed for two
+    // days each month-end because of this).
     const reminders = await prisma.task.findMany({
-      where: { subscriptionId: subId, systemKind: "partial_period_invoice" },
+      where: { subscriptionId: subId, systemKind: "partial_period_invoice", periodKey: ym },
     });
     expect(reminders).toHaveLength(1);
     expect(reminders[0].clientId).toBe(clientId);
     expect(reminders[0].periodKey).toBe(ym);
     await generatePeriodInvoices();
     expect(
-      await prisma.task.count({ where: { subscriptionId: subId, systemKind: { not: null } } }),
+      await prisma.task.count({
+        where: { subscriptionId: subId, systemKind: { not: null }, periodKey: ym },
+      }),
     ).toBe(1);
 
-    // the CURRENT month is served in full so far, but its trigger day (the period's end) hasn't
-    // arrived — so nothing at all has happened for it yet, neither invoice nor reminder
-    const thisMonth = today().monthKey;
+    // A period is never billed BEFORE its trigger day. For `on_period_end` that day is the last of
+    // the month, so the current month is untouched on every other day — and on the last day it is
+    // billed, which is the same rule seen from the other side rather than an exception to it.
+    //
+    // Stated as the rule because it used to be stated as one day's consequence ("nothing has
+    // happened for the current month yet"), which is simply false at a month's end. That is why
+    // this suite failed for the last two days of every month (2026-08-31).
+    const now = today();
+    const thisMonth = now.monthKey;
+    const lastDayOfMonth = now.d === new Date(Date.UTC(now.y, now.m, 0)).getUTCDate();
     expect(
-      await prisma.task.count({ where: { subscriptionId: subId, periodKey: thisMonth } }),
-    ).toBe(0);
+      await prisma.invoice.count({ where: { subscriptionId: subId, periodKey: thisMonth } }),
+    ).toBe(lastDayOfMonth ? 1 : 0);
   });
 
   it("a cancelled period invoice is never re-issued by the sweep", async () => {
