@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   Archive,
@@ -73,7 +74,15 @@ export function AppLayout() {
           </div>
         </header>
         <main className="flex-1 p-6">
-          <Outlet />
+          {/*
+            The boundary sits HERE, not around the whole app: every screen is loaded on demand
+            (see router.tsx), and a page-level boundary would blank the sidebar and the header on
+            every navigation. Scoped to the content area, a first visit to a screen shows one line
+            where the screen will be, and everything the person was looking at stays put.
+          */}
+          <Suspense fallback={<p className="text-[13px] text-muted">Loading…</p>}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </div>

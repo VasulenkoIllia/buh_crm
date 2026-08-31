@@ -1,4 +1,3 @@
-export { TasksPage } from "./tasks.page";
 // the client/lead combobox, shared with the meeting form. It searches on the SERVER, so it has no
 // cap — the meeting form first used the tasks BOARD FILTER list by mistake, which only ever
 // contained clients and leads that already had work (user, 2026-08-06)

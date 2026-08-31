@@ -1,24 +1,80 @@
+import { Suspense, lazy } from "react";
 import { createBrowserRouter, Navigate, Outlet, useLocation } from "react-router-dom";
 import { AuthProvider, PublicOnly, RequireAdmin, RequireAuth } from "./auth";
 import { AppLayout } from "./layout";
 import { ComingSoon } from "./coming-soon";
 import { ErrorScreen } from "./error-screen";
-import {
-  ForgotPasswordPage,
-  ResetPasswordPage,
-  SetPasswordPage,
-  SignInPage,
-} from "@/modules/auth";
-import { ProfilePage, TeamPage } from "@/modules/users";
-import { SettingsPage } from "@/modules/settings";
-import { ClientCardPage, ClientsPage } from "@/modules/clients";
-import { LeadsPage } from "@/modules/leads";
-import { ServicesPage } from "@/modules/catalog";
-import { BillingPage } from "@/modules/payments";
-import { TasksPage } from "@/modules/tasks";
-import { ArchivePage } from "@/modules/archive";
-import { CalendarPage } from "@/modules/calendar";
-import { MailoutsPage } from "@/modules/mailouts";
+
+/**
+ * EVERY screen is loaded on demand. This is a rule, not an optimisation — see
+ * `AGENTS.md` → Frontend rules, and `docs/architecture.md`.
+ *
+ * With plain imports the bundler is told every screen is needed at once, so it welds them into one
+ * file: opening the sign-in page downloaded the kanban's drag-and-drop, the invoice modals, the
+ * mailout composer and the services catalog before a single pixel appeared. 930 kB of it
+ * (2026-09-01 scale audit). The cost is paid by everyone on every first visit, including the
+ * person who only ever opens Tasks — and it grows with each module, charting libraries worst of
+ * all, which is exactly what the planned dashboards will bring.
+ *
+ * The shell stays eager: `AppLayout`, the auth guards, `ErrorScreen` and `ComingSoon` are needed
+ * to draw anything at all, and splitting them would only add a round-trip.
+ *
+ * Pages come from their own `*.page` file, NOT from the module barrel, and no barrel exports a
+ * page any more. That is what makes the splitting real rather than decorative: `layout.tsx` needs
+ * `TimerBar` from `@/modules/tasks`, and while that barrel re-exported `TasksPage` the shell
+ * dragged the whole kanban — dnd-kit included — into the first load, however lazily the route was
+ * declared. A barrel is a module's cross-module surface; a screen is not part of it.
+ *
+ * The modules export named components, hence the `.then` — `lazy` wants a default export.
+ */
+const SignInPage = lazy(() =>
+  import("@/modules/auth/sign-in.page").then((m) => ({ default: m.SignInPage })),
+);
+const ForgotPasswordPage = lazy(() =>
+  import("@/modules/auth/forgot-password.page").then((m) => ({ default: m.ForgotPasswordPage })),
+);
+const SetPasswordPage = lazy(() =>
+  import("@/modules/auth/set-password.page").then((m) => ({ default: m.SetPasswordPage })),
+);
+const ResetPasswordPage = lazy(() =>
+  import("@/modules/auth/reset-password.page").then((m) => ({ default: m.ResetPasswordPage })),
+);
+const ProfilePage = lazy(() =>
+  import("@/modules/users/profile.page").then((m) => ({ default: m.ProfilePage })),
+);
+const TeamPage = lazy(() =>
+  import("@/modules/users/team.page").then((m) => ({ default: m.TeamPage })),
+);
+const SettingsPage = lazy(() =>
+  import("@/modules/settings/settings.page").then((m) => ({ default: m.SettingsPage })),
+);
+const ClientsPage = lazy(() =>
+  import("@/modules/clients/clients.page").then((m) => ({ default: m.ClientsPage })),
+);
+const ClientCardPage = lazy(() =>
+  import("@/modules/clients/client-card.page").then((m) => ({ default: m.ClientCardPage })),
+);
+const LeadsPage = lazy(() =>
+  import("@/modules/leads/leads.page").then((m) => ({ default: m.LeadsPage })),
+);
+const ServicesPage = lazy(() =>
+  import("@/modules/catalog/services.page").then((m) => ({ default: m.ServicesPage })),
+);
+const BillingPage = lazy(() =>
+  import("@/modules/payments/billing.page").then((m) => ({ default: m.BillingPage })),
+);
+const TasksPage = lazy(() =>
+  import("@/modules/tasks/tasks.page").then((m) => ({ default: m.TasksPage })),
+);
+const ArchivePage = lazy(() =>
+  import("@/modules/archive/archive.page").then((m) => ({ default: m.ArchivePage })),
+);
+const CalendarPage = lazy(() =>
+  import("@/modules/calendar/calendar.page").then((m) => ({ default: m.CalendarPage })),
+);
+const MailoutsPage = lazy(() =>
+  import("@/modules/mailouts/mailouts.page").then((m) => ({ default: m.MailoutsPage })),
+);
 
 /** Old /unpaid path → /billing, preserving ?invoice= / ?client= deep links. */
 function RedirectToBilling() {
@@ -29,7 +85,19 @@ function RedirectToBilling() {
 function Root() {
   return (
     <AuthProvider>
-      <Outlet />
+      {/*
+        The outer boundary, for the screens that have no shell — sign-in, the token links. Inside
+        the app, `AppLayout` has its own tighter one so navigating does not blank the sidebar.
+      */}
+      <Suspense
+        fallback={
+          <div className="flex min-h-screen items-center justify-center text-[13px] text-muted">
+            Loading…
+          </div>
+        }
+      >
+        <Outlet />
+      </Suspense>
     </AuthProvider>
   );
 }
