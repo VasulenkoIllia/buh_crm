@@ -1,12 +1,20 @@
 import { useEffect, useState } from "react";
 import { Info } from "lucide-react";
-import type { MailSenderAccountDto } from "@shared/schema/mailouts";
+import {
+  CONTACT_ORDER,
+  MAX_CONTACT_PILLS,
+  type ContactField,
+  contactsInLetter,
+  type MailSenderAccountDto,
+} from "@shared/schema/mailouts";
+import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { FormField, Input, Textarea } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
 import { InfoHint } from "@/shared/ui/info-hint";
 import { Segmented } from "@/shared/ui/segmented";
 import { useCreateSender, useUpdateSender } from "./mailouts.api";
+import { encryptionFor, encryptionLabel, secureFor } from "./port-encryption";
 
 /**
  * One mailbox, edited where the detail belongs.
@@ -14,6 +22,18 @@ import { useCreateSender, useUpdateSender } from "./mailouts.api";
  * All of this used to live on the Sender page itself, which made the page a form for a single
  * mailbox rather than a view of all of them. Here the nine fields are the subject, not the noise.
  */
+/** The checks that mean the DELIVERY half needs looking at, so it opens itself when they fire. */
+const DELIVERY_FIELDS = new Set([
+  "smtpHost",
+  "smtpPort",
+  "smtpUser",
+  "smtpPass",
+  "imapHost",
+  "imapPort",
+  "imapUser",
+  "imapPass",
+]);
+
 export function SenderAccountModal({
   open,
   account,
@@ -69,7 +89,20 @@ export function SenderAccountModal({
   const [reads, setReads] = useState(false);
   /** Almost every host wants the same credentials for both protocols; asking twice invites a typo. */
   const [imapOwnAuth, setImapOwnAuth] = useState(false);
-  const [active, setActive] = useState(true);
+  /**
+   * Whether the delivery half is open.
+   *
+   * Mail is configured once and then works; what people come back for is the signature and the
+   * contact buttons (user, 2026-08-31). So the twelve fields that carry SMTP and IMAP fold into
+   * one line — and open themselves for a NEW mailbox, which must be filled, or for one carrying an
+   * ERROR, so an incomplete setup can never hide behind a tidy summary.
+   *
+   * Errors only, not warnings: the two warnings a working mailbox can carry are advice, not faults
+   * — "this one borrows the server's account" and "bounces are not read" — and opening twelve
+   * fields for advice would defeat the point in the commonest case. Both are visible anyway, in
+   * the summary line right beside the arrow.
+   */
+  const [deliveryOpen, setDeliveryOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -99,10 +132,32 @@ export function SenderAccountModal({
     setImapSecure(account?.imapSecure ?? true);
     setReads(!!account?.imapHost);
     setImapOwnAuth(!!account?.imapUser);
-    setActive(account?.active ?? true);
     setTransport(account?.ownSmtp ? "own" : "server");
+    setDeliveryOpen(
+      !account ||
+        account.checks.some(
+          (c) => c.level === "error" && !!c.field && DELIVERY_FIELDS.has(c.field),
+        ),
+    );
     setError(null);
   }, [open, account]);
+
+  /**
+   * Whether "server's mailbox vs its own SMTP" is a live question for THIS mailbox: it is for a new
+   * one, for one still borrowing the server, and for one being moved back there in this very edit.
+   */
+  const contactValues = {
+    email: form.contactEmail,
+    phone: form.contactPhone,
+    telegram: form.contactTelegram,
+    whatsapp: form.contactWhatsapp,
+    viber: form.contactViber,
+    website: form.contactWebsite,
+  };
+  const inLetter = contactsInLetter(contactValues);
+  const dropped = CONTACT_ORDER.filter((k) => !!contactValues[k]?.trim() && !inLetter.includes(k));
+
+  const offerTransportChoice = !account || !account.ownSmtp || transport === "server";
 
   const set = (key: keyof typeof form) => (v: string) => setForm((f) => ({ ...f, [key]: v }));
 
@@ -120,14 +175,17 @@ export function SenderAccountModal({
       // keeping half a stale configuration the checks would then complain about
       smtpHost: transport === "own" ? form.smtpHost : "",
       smtpPort: transport === "own" && form.smtpPort ? Number(form.smtpPort) : null,
-      smtpSecure: transport === "own" ? secure : null,
+      // the PORT decides, so a stale tick from a port typed earlier cannot survive the save
+      smtpSecure: transport === "own" ? secureFor(form.smtpPort, secure) : null,
       smtpUser: transport === "own" ? form.smtpUser : "",
       // Off clears the whole block, so a mailbox that is not read carries no stale half of one.
       imapHost: reads ? form.imapHost : "",
       imapPort: reads && form.imapPort ? Number(form.imapPort) : null,
-      imapSecure: reads ? imapSecure : null,
+      imapSecure: reads ? secureFor(form.imapPort, imapSecure) : null,
       imapUser: reads && imapOwnAuth ? form.imapUser : "",
-      active,
+      // `active` is deliberately ABSENT: the switch lives on the row now, and `accountWrite`
+      // writes only what it is given. Sending a value from here would mean editing a signature
+      // silently reactivated a mailbox somebody had turned off.
       contactEmail: form.contactEmail,
       contactPhone: form.contactPhone,
       contactTelegram: form.contactTelegram,
@@ -280,24 +338,87 @@ export function SenderAccountModal({
             />
           </FormField>
         </div>
+        {/*
+          The rule, applied to THIS mailbox rather than described.
+
+          It used to be a footnote — "four fit; the rest are dropped, website first" — which a
+          person had to apply to their own six fields to learn that their website button was not
+          going out. Now it names the buttons the letter will carry, and the one it will not
+          (user, 2026-08-31). `contactsInLetter` is the SERVER's rule, imported, not a second copy.
+        */}
         <p className="flex gap-1.5 text-[11px] leading-relaxed text-muted-400">
           <Info size={13} className="mt-0.5 shrink-0" />
-          Four fit across a letter; the rest are dropped, website first — it is already a link
-          in the signature above.
+          <span>
+            In the letter:{" "}
+            <span className="font-medium text-ink-700">
+              {inLetter.length ? inLetter.map((k) => CONTACT_LABELS[k]).join(" · ") : "no buttons"}
+            </span>
+            {dropped.length > 0 && (
+              <>
+                {" — "}
+                {dropped.map((k) => CONTACT_LABELS[k]).join(" and ")}{" "}
+                {dropped.length === 1 ? "does" : "do"} not fit. Only {MAX_CONTACT_PILLS} fit across
+                a letter, and the website goes last because the signature already links it.
+              </>
+            )}
+          </span>
         </p>
 
         <div className="border-t border-divider pt-3">
-          <p className="text-[13px] font-semibold">Sends over</p>
+          <button
+            type="button"
+            onClick={() => setDeliveryOpen((v) => !v)}
+            className="flex w-full items-center gap-2 text-left"
+          >
+            <span
+              className={cn(
+                "text-[11px] text-muted transition-transform",
+                deliveryOpen && "rotate-90",
+              )}
+            >
+              ▶
+            </span>
+            <span className="text-[13px] font-semibold">Delivery</span>
+            {!deliveryOpen && (
+              <span className="truncate font-mono text-[12px] text-muted">
+                {deliverySummary({ transport, form, reads, server })}
+              </span>
+            )}
+          </button>
         </div>
 
-        <Segmented
-          value={transport}
-          onChange={(v) => setTransport(v as "server" | "own")}
-          options={[
-            { value: "server", label: "The server's mailbox" },
-            { value: "own", label: "Its own SMTP" },
-          ]}
-        />
+        {deliveryOpen && (
+        <>
+        <p className="text-[13px] font-semibold">Sends over</p>
+
+        {/*
+          The choice is offered only where it IS one.
+
+          Borrowing the server's account is a starting state, not a way to run: `bootstrap` creates
+          a mailbox on it so a fresh install can send from the first minute, and the app then says
+          plainly why to leave — a spam complaint against a mailout damages the very address that
+          delivers password resets. A mailbox that already has its own SMTP is never going back,
+          so the toggle and its paragraph were four lines of explanation about a road not taken
+          (user, 2026-08-31). The way back stays, quietly, underneath.
+        */}
+        {offerTransportChoice ? (
+          <Segmented
+            value={transport}
+            onChange={(v) => setTransport(v as "server" | "own")}
+            options={[
+              { value: "server", label: "The server's mailbox" },
+              { value: "own", label: "Its own SMTP" },
+            ]}
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => setTransport("server")}
+            className="self-start text-[12px] text-muted underline decoration-dotted underline-offset-2 hover:text-ink"
+          >
+            Use the server's mailbox instead
+          </button>
+        )}
 
         {transport === "server" ? (
           <div className="rounded-(--radius-field) border border-border bg-surface px-3 py-2.5">
@@ -336,15 +457,11 @@ export function SenderAccountModal({
               </FormField>
             </div>
 
-            <label className="flex items-center gap-2 text-[13px]">
-              <input
-                type="checkbox"
-                checked={secure}
-                onChange={(e) => setSecure(e.target.checked)}
-                className="size-3.5 accent-[var(--color-primary)]"
-              />
-              Implicit TLS (port 465). Leave off for 587, which upgrades via STARTTLS.
-            </label>
+            <Encryption
+              port={form.smtpPort}
+              checked={secure}
+              onChange={setSecure}
+            />
 
             <div className="grid gap-3 sm:grid-cols-2">
               <FormField label="Username">
@@ -410,15 +527,11 @@ export function SenderAccountModal({
               </FormField>
             </div>
 
-            <label className="flex items-center gap-2 text-[13px]">
-              <input
-                type="checkbox"
-                checked={imapSecure}
-                onChange={(e) => setImapSecure(e.target.checked)}
-                className="size-3.5 accent-[var(--color-primary)]"
-              />
-              Implicit TLS (port 993). Leave off for 143, which upgrades via STARTTLS.
-            </label>
+            <Encryption
+              port={form.imapPort}
+              checked={imapSecure}
+              onChange={setImapSecure}
+            />
 
             <label className="flex items-center gap-2 text-[13px]">
               <input
@@ -465,19 +578,90 @@ export function SenderAccountModal({
             )}
           </>
         )}
-
-        {account && !account.isDefault && (
-          <label className="flex items-center gap-2 border-t border-divider pt-3 text-[13px] text-ink">
-            <input
-              type="checkbox"
-              checked={active}
-              onChange={(e) => setActive(e.target.checked)}
-              className="size-3.5 accent-[var(--color-primary)]"
-            />
-            Active — an inactive mailbox cannot be picked for a send
-          </label>
+        </>
         )}
       </div>
     </Modal>
   );
 }
+
+/**
+ * What the port already said, or the question when it said nothing.
+ *
+ * Two checkboxes stood here, in two near-identical sentences about 465 and 993, and each was a
+ * chance to contradict the port right beside it — which produces a connection that hangs rather
+ * than an error anyone can read. The four ports mail actually uses answer for themselves; anything
+ * else is exactly when a person should be asked (user, 2026-08-31).
+ */
+function Encryption({
+  port,
+  checked,
+  onChange,
+}: {
+  port: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  const known = encryptionFor(port);
+  if (known) {
+    return (
+      <p className="text-[12px] text-muted">
+        Encrypted with <span className="font-medium text-ink">{encryptionLabel(known)}</span>, which
+        is what port {port} means.
+      </p>
+    );
+  }
+  return (
+    <label className="flex items-center gap-2 text-[13px]">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="size-3.5 accent-[var(--color-primary)]"
+      />
+      Implicit TLS from the first byte (leave off if the port upgrades via STARTTLS)
+    </label>
+  );
+}
+
+/**
+ * The delivery half, said in one line.
+ *
+ * The row above the modal already prints `illion.tax:587 as no-reply@illion.tax`, so twelve
+ * editable fields are not what a person needs to SEE — they are what they needed once. This says
+ * the same thing in the place the fields used to sit.
+ */
+function deliverySummary({
+  transport,
+  form,
+  reads,
+  server,
+}: {
+  transport: "server" | "own";
+  form: { smtpHost: string; smtpPort: string; imapHost: string; imapPort: string };
+  reads: boolean;
+  server: { label: string };
+}): string {
+  const sends =
+    transport === "server"
+      ? server.label
+      : form.smtpHost
+        ? `${form.smtpHost}:${form.smtpPort || "?"}`
+        : "not set";
+  const bounces = reads
+    ? form.imapHost
+      ? `bounces from ${form.imapHost}:${form.imapPort || "?"}`
+      : "bounces on, host not set"
+    : "bounces not read";
+  return `${sends} · ${bounces}`;
+}
+
+/** What each contact field is called where the buttons are listed. */
+const CONTACT_LABELS: Record<ContactField, string> = {
+  email: "Email",
+  phone: "Call",
+  telegram: "Telegram",
+  whatsapp: "WhatsApp",
+  viber: "Viber",
+  website: "Website",
+};

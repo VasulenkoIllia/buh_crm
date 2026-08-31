@@ -39,6 +39,7 @@
  * Without them this shell still lands in spam. See docs/modules/mailouts.md.
  */
 import { MARK_END, MARK_START } from "@shared/mailouts.js";
+import { type ContactField, contactsInLetter } from "@shared/schema/mailouts.js";
 import { escapeHtml } from "./html.js";
 
 const GREEN = "#37544F";
@@ -172,15 +173,6 @@ export interface ContactDetails {
   website?: string | null;
 }
 
-/**
- * How many pills fit on one line of a 600px letter.
- *
- * A fifth wraps, and a wrapped row of table cells does NOT reflow in Outlook: it runs off the
- * right edge. So the row is capped, and the order below decides what survives — write first,
- * website last, because the site is already a link inside the signature card above it.
- */
-const MAX_CONTACT_PILLS = 4;
-
 /** `+1 (704) 726-6994` → `17047266994`. `wa.me` and `t.me` reject anything else. */
 const digits = (value: string) => value.replace(/\D/g, "");
 
@@ -195,30 +187,37 @@ const digits = (value: string) => value.replace(/\D/g, "");
  * and they take different URLs.
  */
 export function contactLinks(contacts: ContactDetails): ContactLink[] {
-  const out: ContactLink[] = [];
-  const add = (glyph: string, label: string, href: string) => out.push({ glyph, label, href });
-
-  if (contacts.email?.trim()) add("✉", "Email", `mailto:${contacts.email.trim()}`);
-  if (contacts.phone?.trim()) add("☎", "Call", `tel:+${digits(contacts.phone)}`);
-
-  const telegram = contacts.telegram?.trim();
-  if (telegram) {
-    const handle = telegram.replace(/^@/, "");
+  // WHICH fields survive, and in what order, is decided in `shared/schema/mailouts.ts` — the form
+  // reads the same rule to tell a firm which buttons its letters will actually carry. Here we only
+  // turn each surviving field into a glyph, a label and a URL.
+  const build: Record<ContactField, (v: string) => ContactLink> = {
+    email: (v) => ({ glyph: "✉", label: "Email", href: `mailto:${v}` }),
+    phone: (v) => ({ glyph: "☎", label: "Call", href: `tel:+${digits(v)}` }),
     // a username has letters in it; a phone does not
-    add("✈", "Telegram", /[a-z_]/i.test(handle) ? `https://t.me/${handle}` : `https://t.me/+${digits(handle)}`);
-  }
-  if (contacts.whatsapp?.trim()) {
-    add("✆", "WhatsApp", `https://wa.me/${digits(contacts.whatsapp)}`);
-  }
-  if (contacts.viber?.trim()) {
-    add("✆", "Viber", `viber://chat?number=%2B${digits(contacts.viber)}`);
-  }
-  if (contacts.website?.trim()) {
-    const site = contacts.website.trim();
-    add("▸", site.replace(/^https?:\/\//, ""), site.startsWith("http") ? site : `https://${site}`);
-  }
+    telegram: (v) => {
+      const handle = v.replace(/^@/, "");
+      return {
+        glyph: "✈",
+        label: "Telegram",
+        href: /[a-z_]/i.test(handle)
+          ? `https://t.me/${handle}`
+          : `https://t.me/+${digits(handle)}`,
+      };
+    },
+    whatsapp: (v) => ({ glyph: "✆", label: "WhatsApp", href: `https://wa.me/${digits(v)}` }),
+    viber: (v) => ({
+      glyph: "✆",
+      label: "Viber",
+      href: `viber://chat?number=%2B${digits(v)}`,
+    }),
+    website: (v) => ({
+      glyph: "▸",
+      label: v.replace(/^https?:\/\//, ""),
+      href: v.startsWith("http") ? v : `https://${v}`,
+    }),
+  };
 
-  return out.slice(0, MAX_CONTACT_PILLS);
+  return contactsInLetter(contacts).map((key) => build[key](contacts[key]!.trim()));
 }
 
 // The signature is prose now — a name and a title — but firms still type an address or a number

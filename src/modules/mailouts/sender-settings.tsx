@@ -6,6 +6,7 @@ import {
   Pencil,
   Plug,
   Plus,
+  Power,
   Receipt,
   Send,
   Star,
@@ -24,6 +25,7 @@ import {
   useMakeInvoiceSender,
   useMakeSenderDefault,
   useTestSender,
+  useUpdateSender,
   useUpdateFirmMail,
 } from "./mailouts.api";
 
@@ -124,6 +126,7 @@ function AccountCard({
   const makeInvoice = useMakeInvoiceSender();
   const remove = useDeleteSender();
   const test = useTestSender();
+  const setActive = useUpdateSender();
   const [result, setResult] = useState<SenderTestResult | null>(null);
 
   const errors = account.checks.filter((c) => c.level === "error");
@@ -200,6 +203,24 @@ function AccountCard({
             button that vanishes when you use it is harder to learn than one that stays. */}
         {isAdmin && (
           <div className="flex shrink-0 items-center gap-1">
+            {/* Active is a STATE, not a setting: it belongs where you can see it and flip it,
+                not at the bottom of a form you opened to fix a signature (user, 2026-08-31). */}
+            <IconButton
+              label={
+                account.isDefault
+                  ? "The default mailbox is always active — make another one the default first"
+                  : account.active
+                    ? "Active — click to stop this mailbox being picked for a send"
+                    : "Inactive — click to let this mailbox be picked again"
+              }
+              disabled={setActive.isPending || account.isDefault}
+              className={cn(!account.active && "text-muted")}
+              onClick={() =>
+                act(() => setActive.mutateAsync({ id: account.id, input: { active: !account.active } }))
+              }
+            >
+              <Power size={15} />
+            </IconButton>
             <IconButton label="Edit this mailbox" onClick={onEdit}>
               <Pencil size={15} />
             </IconButton>

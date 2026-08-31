@@ -580,3 +580,43 @@ export const updateFirmMailInput = z.object({
     .optional(),
 });
 export type UpdateFirmMailInput = z.infer<typeof updateFirmMailInput>;
+
+// ── contact buttons: the order, and how many survive it ──────────────────────
+
+/**
+ * The order contact buttons appear in a letter, and the ONLY place it is written.
+ *
+ * It used to be implicit in the sequence of `if`s inside `contactLinks`, which meant the form
+ * could only describe the rule by repeating it — and a repeated rule is one deploy away from
+ * disagreeing with itself (2026-08-31). The server iterates this; the form reads it to say which
+ * buttons a given mailbox will actually get.
+ */
+export const CONTACT_ORDER = [
+  "email",
+  "phone",
+  "telegram",
+  "whatsapp",
+  "viber",
+  "website",
+] as const;
+export type ContactField = (typeof CONTACT_ORDER)[number];
+
+/**
+ * How many pills fit across one line of a 600px letter.
+ *
+ * A fifth wraps, and a wrapped row of table cells does NOT reflow in Outlook — it runs off the
+ * right edge. So the row is capped, and `CONTACT_ORDER` decides what survives.
+ */
+export const MAX_CONTACT_PILLS = 4;
+
+/**
+ * Which fields become buttons, given what is filled in — in order, capped.
+ *
+ * The website goes last on purpose: the signature above already carries it as a link, so it is the
+ * one worth losing when a mailbox has more contacts than a letter has room for.
+ */
+export function contactsInLetter(
+  filled: Partial<Record<ContactField, string | null | undefined>>,
+): ContactField[] {
+  return CONTACT_ORDER.filter((k) => !!filled[k]?.trim()).slice(0, MAX_CONTACT_PILLS);
+}
