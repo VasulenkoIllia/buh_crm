@@ -4,7 +4,7 @@ import { config } from "./core/config.js";
 import { disconnectDb } from "./core/db.js";
 import { ensureUploadsDir } from "./core/files.js";
 import { registerJob, startScheduler, stopScheduler } from "./core/scheduler.js";
-import { runDueCampaigns, sweepBounces } from "./modules/mailouts/index.js";
+import { runDueCampaigns, sweepBounces, sweepStalledSends } from "./modules/mailouts/index.js";
 import { generatePeriodInvoices } from "./modules/payments/index.js";
 import { generateInternalTasks, generateSubscriptionTasks } from "./modules/tasks/index.js";
 
@@ -107,6 +107,25 @@ async function main() {
         else if (r.matched || r.retired) app.log.info({ ...r }, "delivery reports applied");
       }
     },
+  });
+
+  /**
+   * Close out sends that died mid-flight.
+   *
+   * Delivery runs in the background after the response returns, so a restart leaves whatever it
+   * had not reached at `queued` — reading as still in flight, forever. This is the sweep that
+   * turns that into a definite `failed` a person can act on. It runs on BOOT as well as on a
+   * timer, because the commonest way a send dies is the deploy that just restarted this process.
+   */
+  const closeStalledSends = async (label: string) => {
+    const { closed } = await sweepStalledSends();
+    if (closed > 0) app.log.warn({ closed, label }, "abandoned mailout rows closed as failed");
+  };
+  registerJob({
+    name: "stalled-send-sweep",
+    cronExpr: "*/10 * * * *",
+    run: () => closeStalledSends("run"),
+    catchUp: () => closeStalledSends("boot"),
   });
 
   await app.listen({ port: config.PORT, host: "0.0.0.0" });

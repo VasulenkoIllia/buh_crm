@@ -741,6 +741,47 @@ async function resolveSenderAccount(
  * firewall, a wrong port, or a server that refuses the From. This is the difference between
  * believing the settings are right and knowing.
  */
+/**
+ * How long a send may make no progress before it is called abandoned.
+ *
+ * Generous on purpose. A thousand recipients delivered sequentially takes five to ten minutes, and
+ * the clock here measures SILENCE, not duration: a working send keeps flipping rows to `sent`, so
+ * thirty minutes without one means nothing is delivering.
+ */
+const STALLED_AFTER_MS = 30 * 60_000;
+
+/**
+ * Close out sends that died mid-flight.
+ *
+ * Delivery happens in the background after the response, so a restart — a deploy, a crash — leaves
+ * the rows it had not reached sitting at `queued` forever. They then read as still in flight, and
+ * the firm has no way to tell "sending" from "never going to send" (2026-09-01 scale audit; at a
+ * thousand recipients the window is ten minutes, which is long enough for a routine deploy to land
+ * in the middle of one).
+ *
+ * The rows are marked FAILED, not re-sent. A process can die between the SMTP handoff and the row
+ * update, so re-sending would duplicate letters precisely when we know least about what happened —
+ * and a duplicate mailout is a complaint, which costs the sending domain. Failed is a definite
+ * state a person can act on: the log shows exactly who missed it, and the firm re-sends to them.
+ */
+export async function sweepStalledSends(): Promise<{ closed: number }> {
+  const since = new Date(Date.now() - STALLED_AFTER_MS);
+  const rows = await repo.findStalledSends(since);
+  let closed = 0;
+  for (const row of rows) {
+    // one row's failure must not stop the rest — the sweep is idempotent and retries next run
+    const ok = await repo
+      .markRecipient(row.id, {
+        status: "failed",
+        reason: "The sender stopped before this went out — re-send to pick it up",
+      })
+      .then(() => true)
+      .catch(() => false);
+    if (ok) closed++;
+  }
+  return { closed };
+}
+
 export async function testSenderAccount(
   actor: User,
   id: string,

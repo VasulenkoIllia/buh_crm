@@ -225,6 +225,33 @@ export function listRecipients(mailoutId: string) {
  *
  * Three small columns per recipient, and none of it reaches the browser: only the tallies do.
  */
+/**
+ * Sends that stopped moving — a mailout still holding `queued` rows whose last delivery is older
+ * than `since`, or which never delivered one and was created before it.
+ *
+ * The anchor is PROGRESS, not the start: a live send keeps flipping rows to `sent`, so a frozen
+ * newest-`sentAt` is what says the process is gone. Anchoring on the start instead would have
+ * declared a large send abandoned while it was still working, and the operator would then re-send
+ * on top of letters already going out.
+ */
+export async function findStalledSends(since: Date) {
+  const rows = await prisma.mailoutRecipient.groupBy({
+    by: ["mailoutId"],
+    where: { mailout: { createdAt: { lt: since } } },
+    _count: { _all: true },
+    _max: { sentAt: true },
+  });
+  if (rows.length === 0) return [];
+
+  const stalled = rows.filter((r) => !r._max.sentAt || r._max.sentAt < since).map((r) => r.mailoutId);
+  if (stalled.length === 0) return [];
+
+  return prisma.mailoutRecipient.findMany({
+    where: { mailoutId: { in: stalled }, status: "queued" },
+    select: { id: true, mailoutId: true },
+  });
+}
+
 export function deliveryFacts(mailoutIds: string[]) {
   return prisma.mailoutRecipient.findMany({
     where: { mailoutId: { in: mailoutIds } },

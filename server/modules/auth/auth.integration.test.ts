@@ -320,3 +320,69 @@ describe("what a system letter calls the firm", () => {
     }
   });
 });
+
+/**
+ * The request budget belongs to a session, not to an address.
+ *
+ * Keyed by IP it was shared by everyone behind one office NAT: ten people, 300 requests a minute
+ * between them, and a 429 arriving for all of them at once rather than degrading (2026-09-01 scale
+ * audit). Anonymous requests still fall back to the address, which is what keeps the tighter limit
+ * on the credential routes a brute-force defence.
+ */
+describe("who the rate limit counts", () => {
+  const remaining = (res: { headers: Record<string, unknown> }) =>
+    Number(res.headers["x-ratelimit-remaining"]);
+
+  async function sessionFor(email: string) {
+    await prisma.user.upsert({
+      where: { email },
+      update: { status: "active" },
+      create: {
+        email,
+        firstName: "Budget",
+        lastName: "Probe",
+        role: "user",
+        status: "active",
+        passwordHash: await argon2.hash("Budget-Probe-1234"),
+      },
+    });
+    return cookieOf(
+      await app.inject({
+        method: "POST",
+        url: "/api/auth/login",
+        payload: { email, password: "Budget-Probe-1234" },
+      }),
+    );
+  }
+
+  it("gives two sessions two budgets, not one shared by address", async () => {
+    const a = await sessionFor("budget-a@test.local");
+    const b = await sessionFor("budget-b@test.local");
+
+    // spend a few on A
+    for (let i = 0; i < 3; i++) {
+      await app.inject({ method: "GET", url: "/api/auth/me", headers: { cookie: a } });
+    }
+    const afterA = remaining(
+      await app.inject({ method: "GET", url: "/api/auth/me", headers: { cookie: a } }),
+    );
+    const firstB = remaining(
+      await app.inject({ method: "GET", url: "/api/auth/me", headers: { cookie: b } }),
+    );
+
+    // B is untouched by everything A spent — the two are counted apart. Both inject calls report
+    // the same address, so under the old IP key B would have continued A's count.
+    expect(firstB).toBeGreaterThan(afterA);
+
+    await prisma.user.deleteMany({
+      where: { email: { in: ["budget-a@test.local", "budget-b@test.local"] } },
+    });
+  });
+
+  /** No session, no per-session budget — the address is what is left, and what protects /login. */
+  it("falls back to the address when there is no session", async () => {
+    const one = remaining(await app.inject({ method: "GET", url: "/health" }));
+    const two = remaining(await app.inject({ method: "GET", url: "/health" }));
+    expect(two).toBe(one - 1);
+  });
+});

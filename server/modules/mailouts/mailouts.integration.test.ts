@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../../app.js";
 import { prisma } from "../../core/db.js";
 import { testOutbox } from "../../core/email.js";
+import { sweepStalledSends } from "./mailouts.service.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 let cookie: string;
@@ -1852,5 +1853,64 @@ describe("writing to a client's companies", () => {
     expect(one.json().companyName).toBe("Kvitka Payroll LLC");
     expect(one.json().email).toBe("office@kvitka.example");
     expect(one.json().body).toBe("For Kvitka Payroll LLC.");
+  });
+});
+
+/**
+ * Delivery runs in the background AFTER the response, so a restart — a deploy, a crash — leaves
+ * whatever it had not reached at `queued`, reading as still in flight forever. At a thousand
+ * recipients that window is ten minutes, which is long enough for a routine deploy to land in the
+ * middle of one (2026-09-01 scale audit).
+ *
+ * The sweep marks those rows FAILED rather than re-sending them: a process can die between the
+ * SMTP handoff and the row update, so re-sending would duplicate letters exactly when we know
+ * least about what happened.
+ */
+describe("a send that died mid-flight", () => {
+  const HOUR_AGO = () => new Date(Date.now() - 60 * 60_000);
+
+  async function abandonedMailout(sentAt: Date | null) {
+    const res = await send({ letter: letter(), recipients: to(clientA) });
+    const id = res.json().id;
+    await settled(id);
+    // rewind it and put a row back in flight, as a killed process would have left it
+    await prisma.mailout.update({ where: { id }, data: { createdAt: HOUR_AGO() } });
+    await prisma.mailoutRecipient.updateMany({
+      where: { mailoutId: id },
+      data: { status: "queued", sentAt, reason: null },
+    });
+    return id;
+  }
+
+  it("closes rows nothing is coming back for, and says why", async () => {
+    const id = await abandonedMailout(null);
+
+    const { closed } = await sweepStalledSends();
+    expect(closed).toBeGreaterThan(0);
+
+    const rows = await prisma.mailoutRecipient.findMany({ where: { mailoutId: id } });
+    expect(rows.every((r) => r.status === "failed")).toBe(true);
+    // the reason has to tell a person what to DO, not just that something went wrong
+    expect(rows[0].reason).toContain("re-send");
+  });
+
+  /**
+   * The guard that matters most. Anchoring on when the send STARTED would declare a large one
+   * abandoned while it was still working, and the firm would then re-send on top of letters
+   * already going out. Progress is the anchor: a live send keeps flipping rows to `sent`.
+   */
+  it("leaves a send alone while it is still making progress", async () => {
+    const id = await abandonedMailout(new Date()); // last delivery: just now
+
+    const before = await prisma.mailoutRecipient.count({
+      where: { mailoutId: id, status: "queued" },
+    });
+    await sweepStalledSends();
+    const after = await prisma.mailoutRecipient.count({
+      where: { mailoutId: id, status: "queued" },
+    });
+
+    expect(after).toBe(before);
+    expect(after).toBeGreaterThan(0);
   });
 });

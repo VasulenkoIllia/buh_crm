@@ -12,6 +12,7 @@ import {
   type ZodTypeProvider,
 } from "fastify-type-provider-zod";
 import { config, isDev, isProd } from "./core/config.js";
+import { SESSION_COOKIE } from "./core/auth.js";
 import { loadFirmName } from "./core/firm.js";
 import { errorHandler } from "./core/errors.js";
 import { authModule } from "./modules/auth/index.js";
@@ -59,7 +60,30 @@ export async function buildApp() {
 
   await app.register(helmet);
   await app.register(cookie, { secret: config.SESSION_SECRET });
-  await app.register(rateLimit, { max: 300, timeWindow: "1 minute" });
+  /**
+   * The budget belongs to a SESSION, not to an address.
+   *
+   * Keyed by IP — the plugin's default — ten people in one office behind one NAT shared 300
+   * requests a minute between them, and when that tripped it did not degrade: everyone got 429 at
+   * the same moment (2026-09-01 scale audit). A page load costs 2–6 calls, so normal work sat well
+   * under it, but a busy morning with refetch-on-focus did not have much room.
+   *
+   * The signed cookie is read, never the session row: this runs on every request, and the point is
+   * to tell one browser from another, which the cookie already does without a query.
+   *
+   * Anonymous requests still fall back to the address, which is what keeps the tighter limit on
+   * the credential routes (10/min, see auth.routes) a brute-force defence — an attacker has no
+   * session to be counted by.
+   */
+  await app.register(rateLimit, {
+    max: 300,
+    timeWindow: "1 minute",
+    keyGenerator: (request) => {
+      const raw = request.cookies?.[SESSION_COOKIE];
+      const unsigned = raw ? request.unsignCookie(raw) : null;
+      return unsigned?.valid && unsigned.value ? `s:${unsigned.value}` : request.ip;
+    },
+  });
   await app.register(multipart, { limits: { fileSize: 25 * 1024 * 1024, files: 1 } });
 
   // CSRF (decision 2026-07-17): JSON-only API + Origin check on state-changing routes.
