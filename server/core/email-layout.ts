@@ -47,6 +47,8 @@ const INK = "#222222";
 const INK_HEAD = "#1c2422";
 const SAGE = "#c4d2cf";
 const TINT = "#f7faf9";
+/** The tinted container the facts and the signature both sit in — one look, one place. */
+const CARD = `background:${TINT};border:1px solid ${SAGE};border-radius:14px;`;
 const PAGE_BG = "#eef1f0";
 const ON_GREEN = "#e8eeec"; // body text inside the green band — not pure white, easier to read
 
@@ -68,6 +70,25 @@ export interface LetterShell {
   postalAddress: string | null;
   /** absolute URL; omitted for transactional mail, which carries no unsubscribe */
   unsubscribeUrl: string | null;
+  /**
+   * The one thing the letter wants done, as a button.
+   *
+   * It exists because `body` is escaped plain text — deliberately, so a client's own
+   * `Smith & Sons <Holdings>` can never become markup — which leaves no way to write a link into
+   * it. Every transactional letter this app sends is the same shape: a sentence, a link, a
+   * caveat. A mailout is written in a textarea and has no such thing, so it passes null
+   * (user, 2026-08-31).
+   */
+  cta: { label: string; url: string } | null;
+  /**
+   * Facts about the recipient and the thing that happened — the account this concerns, the task
+   * that was assigned, the day it is due.
+   *
+   * This is the slot a system letter uses where a mailout puts its signature and contact buttons.
+   * A password reset must not invite anyone to WhatsApp the sales team; what it owes the reader
+   * is which account it is about (user, 2026-08-31). Empty array draws nothing.
+   */
+  facts: Array<{ label: string; value: string }>;
   /**
    * Where the masthead image comes from, or null to set the wordmark in type.
    *
@@ -274,6 +295,77 @@ function contactRow(links: ContactLink[]): string {
  * Addresses and numbers inside it are linked too, not only in the pill row: some people tap the
  * line they are reading rather than hunting for a button.
  */
+/**
+ * The facts block — what this letter is about, as label/value rows.
+ *
+ * A transactional letter owes the reader proof it is meant for them: which account, which task,
+ * which day. Rendered as a table rather than a definition list because Outlook's HTML renderer is
+ * Word's, and `dl` there is a lottery.
+ *
+ * Values are escaped like everything else, and NOT linkified: a fact is a fact, and the one thing
+ * the letter wants clicked is the button below it.
+ */
+function factsCard(facts: Array<{ label: string; value: string }>): string {
+  if (facts.length === 0) return "";
+  const rows = facts
+    .map(
+      (f) =>
+        `<tr>` +
+        `<td style="padding:0 14px 6px 0;font-family:${FONT};font-size:12px;line-height:1.5;` +
+        `font-weight:500;letter-spacing:0.3px;color:${GREEN};white-space:nowrap;` +
+        `vertical-align:top;">${escapeHtml(f.label)}</td>` +
+        `<td style="padding:0 0 6px;font-family:${FONT};font-size:14px;line-height:1.5;` +
+        `color:${INK};">${escapeHtml(f.value)}</td>` +
+        `</tr>`,
+    )
+    .join("\n");
+  return `<tr><td style="padding:4px 34px 4px;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+         style="${CARD}">
+    <tr><td style="padding:16px 22px;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+${rows}
+      </table>
+    </td></tr>
+  </table>
+</td></tr>`;
+}
+
+/**
+ * The one thing the letter wants done.
+ *
+ * A table with a background, not an `<a>` with padding: Outlook ignores padding on inline
+ * elements, which turns a button into bare underlined text at the exact moment it matters most.
+ *
+ * The href is escaped, exactly like the contact pills above. `&amp;` is the CORRECT way to write
+ * an ampersand inside an attribute — every client decodes it back — so escaping costs the query
+ * string nothing and closes the hole a future template would otherwise open: today these URLs are
+ * built from a generated token, but the type accepts any string, and one built from user input
+ * would break out of the attribute (2026-08-31 audit).
+ */
+/**
+ * The breathing room under the transactional blocks.
+ *
+ * It belongs to the GROUP, not to either block, because which one comes last depends on the
+ * letter: a notification may carry facts and no button. Giving each block its own bottom padding
+ * meant "facts, no button" pressed the card straight against the footer band, and the combination
+ * that broke it was one nothing sends yet (2026-08-31 audit).
+ */
+const TAIL_GAP = `<tr><td style="height:24px;line-height:24px;font-size:0;">&nbsp;</td></tr>`;
+
+function ctaButton(cta: { label: string; url: string }): string {
+  return `<tr><td style="padding:14px 34px 6px;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+    <tr><td style="border-radius:10px;background:${GREEN};">
+      <a href="${escapeHtml(cta.url)}"
+         style="display:inline-block;padding:13px 26px;font-family:${FONT};font-size:15px;
+                font-weight:700;line-height:1;color:#ffffff;text-decoration:none;
+                border-radius:10px;">${escapeHtml(cta.label)}</a>
+    </td></tr>
+  </table>
+</td></tr>`;
+}
+
 function signatureCard(signature: string): string {
   const lines = signature
     .replace(/\r\n/g, "\n")
@@ -285,7 +377,7 @@ function signatureCard(signature: string): string {
   const [name, role, ...rest] = lines;
   return `<tr><td style="padding:4px 34px 30px;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
-         style="background:${TINT};border:1px solid ${SAGE};border-radius:14px;">
+         style="${CARD}">
     <tr><td style="padding:18px 22px;">
       <p style="margin:0;font-family:${FONT};font-size:15px;font-weight:700;color:${INK_HEAD};">${escapeHtml(name)}</p>
       ${
@@ -411,6 +503,9 @@ export function renderLetter(shell: LetterShell): string {
 ${paragraphs(shell.body)}
         </td></tr>
 
+${factsCard(shell.facts)}
+${shell.cta ? ctaButton(shell.cta) : ""}
+${shell.facts.length || shell.cta ? TAIL_GAP : ""}
 ${shell.signature ? signatureCard(shell.signature) : ""}
 ${contactRow(contactLinks(shell.contacts))}
 ${footerBand(shell)}
@@ -431,6 +526,12 @@ ${footerBand(shell)}
  */
 export function renderLetterText(shell: LetterShell): string {
   const parts = [shell.heading, "", shell.body.replace(/\r\n/g, "\n").trim()];
+  if (shell.facts.length) {
+    parts.push("", ...shell.facts.map((f) => `${f.label}: ${f.value}`));
+  }
+  // the URL spelled out, not the label: in a text part there is nothing to click, and a reader
+  // who only ever sees this version still has to be able to finish what the letter asks
+  if (shell.cta) parts.push("", `${shell.cta.label}: ${shell.cta.url}`);
   if (shell.signature) parts.push("", "--", shell.signature.trim());
   parts.push("", shell.firmName);
   if (shell.postalAddress) parts.push(shell.postalAddress.trim());

@@ -24,6 +24,9 @@ const shell = {
     whatsapp: "+1 (704) 726-6994",
     website: "illion.tax",
   },
+  // a mailout is written in a textarea and has neither — both belong to transactional letters
+  cta: null,
+  facts: [],
 };
 
 describe("contactLinks", () => {
@@ -169,5 +172,102 @@ describe("renderLetterText", () => {
     expect(text).toContain("Charlotte");
     expect(text).toContain(shell.unsubscribeUrl);
     expect(text).not.toContain("<");
+  });
+});
+
+/**
+ * The two blocks a TRANSACTIONAL letter uses where a mailout puts its signature and buttons.
+ *
+ * They exist because `body` is escaped plain text — a link cannot be written into it — and every
+ * system letter this app sends has the same shape: a sentence, a link, a caveat (user, 2026-08-31).
+ */
+describe("the transactional blocks", () => {
+  const transactional = {
+    ...shell,
+    heading: "Reset your password",
+    body: "Someone asked to reset the password for your account.",
+    signature: null,
+    contacts: {},
+    postalAddress: null,
+    unsubscribeUrl: null,
+    facts: [{ label: "Account", value: "illia@illion.tax" }],
+    cta: { label: "Set a new password", url: "https://buhcrm.workflo.space/reset?token=ABC&x=1" },
+  };
+
+  it("draws the button as a table, not a padded link", () => {
+    const html = renderLetter(transactional);
+    // Outlook ignores padding on inline elements, so an <a> alone degrades to underlined text
+    // at the exact moment it matters most
+    expect(html).toContain("Set a new password");
+    expect(html).toMatch(/<table[^>]*>\s*<tr><td style="border-radius:10px;background:/);
+  });
+
+  /**
+   * `&amp;` in an attribute IS the ampersand — clients decode it — so escaping the href costs the
+   * query string nothing and stops a URL built from user input ever breaking out of the attribute.
+   * The contact pills have always escaped theirs; this used not to, which was the audit's find.
+   */
+  it("escapes the href and the label, and the query string still means what it says", () => {
+    const html = renderLetter({
+      ...transactional,
+      cta: { label: "Open <the> task", url: "https://x.test/a?b=1&c=2" },
+    });
+    expect(html).toContain('href="https://x.test/a?b=1&amp;c=2"');
+    expect(html).toContain("Open &lt;the&gt; task");
+    expect(html).not.toContain('href="https://x.test/a?b=1&c=2"');
+  });
+
+  it("cannot be broken out of by a url carrying a quote", () => {
+    const html = renderLetter({
+      ...transactional,
+      cta: { label: "Go", url: 'https://x.test/"><script>alert(1)</script>' },
+    });
+    expect(html).not.toContain("<script>alert(1)</script>");
+  });
+
+  it("prints the facts as label and value, both escaped", () => {
+    const html = renderLetter({
+      ...transactional,
+      facts: [{ label: "Client", value: "Smith & Sons <Holdings>" }],
+    });
+    expect(html).toContain("Client");
+    expect(html).toContain("Smith &amp; Sons &lt;Holdings&gt;");
+  });
+
+  /** The combination nothing sends yet: a notification with facts and nothing to click. */
+  it("still leaves room above the footer when there are facts but no button", () => {
+    const html = renderLetter({ ...transactional, cta: null });
+    expect(html).toContain("illia@illion.tax");
+    expect(html).toContain("height:24px");
+  });
+
+  it("draws nothing at all when there is neither", () => {
+    const html = renderLetter({ ...transactional, cta: null, facts: [] });
+    expect(html).not.toContain("border-radius:10px;background:");
+    // the VALUE, not the label "Account" — the firm is called "Tax & Accounting"
+    expect(html).not.toContain("illia@illion.tax");
+    // …and no gap under a group that isn't there
+    expect(html).not.toContain("height:24px");
+  });
+
+  /** The exemption the shell was always written for, finally exercised. */
+  it("carries no postal address and no unsubscribe", () => {
+    const html = renderLetter(transactional);
+    expect(html).not.toContain("1200 Main St");
+    expect(html).not.toMatch(/unsubscribe/i);
+  });
+
+  /**
+   * The text part is not decoration: a message without one scores worse with spam filters, and it
+   * is the only version some clients show. A reader who sees only this must still be able to
+   * finish what the letter asks — so the URL is spelled out, not the label alone.
+   */
+  it("spells the URL out in the text half, with the facts", () => {
+    const text = renderLetterText(transactional);
+    expect(text).toContain("Account: illia@illion.tax");
+    expect(text).toContain(
+      "Set a new password: https://buhcrm.workflo.space/reset?token=ABC&x=1",
+    );
+    expect(text).not.toMatch(/unsubscribe/i);
   });
 });

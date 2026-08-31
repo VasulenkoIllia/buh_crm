@@ -828,6 +828,10 @@ export async function testSenderAccount(
     postalAddress: firm.postalAddress,
     unsubscribeUrl: null, // a test is not commercial mail; nobody should unsubscribe from it
     logoSrc: cidSrc(logo),
+    // a mailout carries neither: its body is written in a textarea, and its contact block IS the
+    // signature card below it
+    cta: null,
+    facts: [],
   };
 
   try {
@@ -941,6 +945,8 @@ function buildEmail(
     postalAddress: commercial ? firm.postalAddress : null,
     unsubscribeUrl: unsub,
     logoSrc,
+    cta: null,
+    facts: [],
   };
 
   const headers: Record<string, string> = {};
@@ -1243,6 +1249,8 @@ export async function previewLetter(input: PreviewLetterInput): Promise<LetterPr
     postalAddress: commercial ? firm.postalAddress : null,
     unsubscribeUrl: commercial ? unsubscribeUrl("sample-token", null) : null,
     logoSrc: dataSrc(await loadLogo(firm)),
+    cta: null,
+    facts: [],
   };
   const html = renderLetter(shell);
 

@@ -1,6 +1,6 @@
 import nodemailer, { type Transporter } from "nodemailer";
 import { config, isDev } from "./config.js";
-import { escapeHtml } from "./html.js";
+import { renderLetter, renderLetterText } from "./email-layout.js";
 import { explainSendError } from "./send-error.js";
 
 // Shared SMTP transport (Nodemailer → Mailpit in dev). Modules never touch SMTP
@@ -29,35 +29,80 @@ export function webOrigin(): string {
   return isDev ? "http://localhost:5173" : `https://${config.APP_DOMAIN}`;
 }
 
+/**
+ * What a system letter SAYS. Not how it looks.
+ *
+ * These used to be three bare `<p>` tags each, sent with no shell and no text part, while the
+ * letters clients receive went through `renderLetter` — one app, two completely different-looking
+ * kinds of mail (user, 2026-08-31). A template now returns content, and the shell dresses it, so
+ * adding the notification letters later means adding a case here and nothing else.
+ *
+ * `body` is PLAIN TEXT on purpose: the shell escapes it, which is why the link lives in `cta`
+ * rather than inside a sentence.
+ */
 function render<T extends EmailTemplateName>(
   template: T,
   data: EmailTemplates[T],
-): { subject: string; html: string } {
+): {
+  subject: string;
+  heading: string;
+  body: string;
+  cta: { label: string; url: string } | null;
+  facts: Array<{ label: string; value: string }>;
+} {
   switch (template) {
     case "invite": {
       const d = data as EmailTemplates["invite"];
       return {
         subject: `You are invited to ${config.APP_NAME}`,
-        html: [
-          `<p>${escapeHtml(d.invitedBy)} invited you to the ${config.APP_NAME} CRM.</p>`,
-          `<p><a href="${d.inviteUrl}">Set your password</a> to activate your account.</p>`,
-          `<p>The link expires in 7 days.</p>`,
-        ].join("\n"),
+        heading: `You are invited to ${config.APP_NAME}`,
+        body:
+          `${d.invitedBy} invited you to the ${config.APP_NAME} CRM.\n\n` +
+          `Set a password to activate your account. The link expires in 7 days.`,
+        cta: { label: "Set your password", url: d.inviteUrl },
+        facts: [{ label: "Invited by", value: d.invitedBy }],
       };
     }
     case "passwordReset": {
       const d = data as EmailTemplates["passwordReset"];
       return {
         subject: `Reset your ${config.APP_NAME} password`,
-        html: [
-          `<p>Someone requested a password reset for your account.</p>`,
-          `<p><a href="${d.resetUrl}">Set a new password</a> (the link expires in 1 hour).</p>`,
-          `<p>If it wasn't you, ignore this email.</p>`,
-        ].join("\n"),
+        heading: "Reset your password",
+        body:
+          `Someone requested a password reset for your account.\n\n` +
+          `If it wasn't you, ignore this email and nothing will change.`,
+        cta: { label: "Set a new password", url: d.resetUrl },
+        facts: [],
       };
     }
   }
   throw new Error(`Unknown email template: ${template}`);
+}
+
+function dress(
+  to: string,
+  content: ReturnType<typeof render>,
+): { html: string; text: string } {
+  const shell = {
+    heading: content.heading,
+    body: content.body,
+    // `APP_NAME`, not a read of the firm profile. A password reset must not depend on a database
+    // query: it is the letter someone needs precisely when they cannot get in, and adding a read
+    // to that path adds a way for it to fail. `bootstrap` seeds the firm profile FROM this name,
+    // so the two agree unless the firm renames itself — set `APP_NAME` to the firm's own name and
+    // the masthead draws it (the wordmark lockup included).
+    firmName: config.APP_NAME,
+    signature: null,
+    contacts: {},
+    postalAddress: null,
+    unsubscribeUrl: null,
+    logoSrc: null,
+    cta: content.cta,
+    // the address it was sent to leads every system letter: the first thing a reader needs is
+    // proof it concerns them, and a template cannot forget to say so if it never says it
+    facts: [{ label: "Account", value: to }, ...content.facts],
+  };
+  return { html: renderLetter(shell), text: renderLetterText(shell) };
 }
 
 /** Test outbox — in NODE_ENV=test emails are collected here instead of sent. */
@@ -138,10 +183,12 @@ export async function sendEmail<T extends EmailTemplateName>(
   to: string,
   data: EmailTemplates[T],
 ): Promise<void> {
-  const { subject, html } = render(template, data);
+  const content = render(template, data);
+  const { subject } = content;
+  const { html, text } = dress(to, content);
 
   if (config.NODE_ENV === "test") {
-    testOutbox.push({ to, subject, html });
+    testOutbox.push({ to, subject, html, text });
     return;
   }
 
@@ -153,6 +200,10 @@ export async function sendEmail<T extends EmailTemplateName>(
         to,
         subject,
         html,
+        // Not decoration: a message with no text/plain part scores measurably worse with spam
+        // filters, and it is the only version some clients show. These letters had none until the
+        // shell brought one with it.
+        text,
       });
       return;
     } catch (err) {
