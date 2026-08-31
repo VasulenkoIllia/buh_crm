@@ -1,2 +1,2 @@
 export { LeadFormModal } from "./lead-modals";
-export { useArchiveLead, useLead, useLeads, useMoveLead, useRestoreLead } from "./leads.api";
+export { useLead, useLeads, useRestoreLead } from "./leads.api";
