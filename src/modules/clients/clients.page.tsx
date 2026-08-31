@@ -5,9 +5,11 @@ import type { Client, ClientListQuery } from "@shared/schema/client";
 import type { Service } from "@shared/schema/catalog";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { cn } from "@/shared/lib/cn";
+import { useDebounced } from "@/shared/lib/use-debounced";
 import { fmtMoney } from "@/shared/lib/money";
 import { Button } from "@/shared/ui/button";
 import { Select } from "@/shared/ui/field";
+import { SearchInput } from "@/shared/ui/search-input";
 import { SearchSelect } from "@/shared/ui/search-select";
 import { FilterChips } from "@/shared/ui/tabs";
 import { ClientCode } from "@/shared/ui/client-code";
@@ -80,6 +82,10 @@ export function ClientsPage() {
    */
   const [tab, setTab] = useState<TabKey>("regular");
   const [search, setSearch] = useState("");
+  // The request follows the pause, not the keystroke: without this every letter typed was a
+  // separate call against the app's global rate limit. `placeholderData` keeps the old rows
+  // on screen meanwhile, so the wait is not visible as a flash of empty list.
+  const settledSearch = useDebounced(search);
   const [serviceId, setServiceId] = useState("");
   const [sort, setSort] = useState<SortKey>("recent");
   const [pageSize, setPageSize] = useState(storedPageSize);
@@ -90,7 +96,7 @@ export function ClientsPage() {
 
   const { data, isLoading, error } = useClients({
     tab,
-    search: search || undefined,
+    search: settledSearch || undefined,
     serviceId: serviceId || undefined,
     sort,
     page,
@@ -111,8 +117,8 @@ export function ClientsPage() {
         <span className="whitespace-nowrap text-[13px] text-muted-400">
           {data ? `${data.counts.one_time + data.counts.regular} total` : ""}
         </span>
-        <input
-          className="ml-2 w-72 rounded-(--radius-card) border border-[#d9dde3] bg-surface px-3 py-2 text-[13px] outline-none placeholder:text-faint focus:border-primary"
+        <SearchInput
+          className="ml-2"
           placeholder="🔍 Search: name, company, email…"
           value={search}
           onChange={(e) => {

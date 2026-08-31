@@ -4,10 +4,12 @@ import { CircleDollarSign } from "lucide-react";
 import type { Invoice, InvoiceListQuery } from "@shared/schema/payment";
 import { useClient } from "@/modules/clients";
 import { cn } from "@/shared/lib/cn";
+import { useDebounced } from "@/shared/lib/use-debounced";
 import { fmtBizDate, fmtDate } from "@/shared/lib/format";
 import { fmtMoney } from "@/shared/lib/money";
 import { Button } from "@/shared/ui/button";
 import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
+import { SearchInput } from "@/shared/ui/search-input";
 import { FilterChips } from "@/shared/ui/tabs";
 import { InvoiceModal, NewInvoiceModal } from "./invoice-modals";
 import {
@@ -46,6 +48,10 @@ const GRID =
 export function BillingPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
+  // The request follows the pause, not the keystroke: without this every letter typed was a
+  // separate call against the app's global rate limit. `placeholderData` keeps the old rows
+  // on screen meanwhile, so the wait is not visible as a flash of empty list.
+  const settledSearch = useDebounced(search);
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<string[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -64,7 +70,7 @@ export function BillingPage() {
 
   const { data, isLoading, error: loadError, refetch } = useInvoices({
     filter,
-    search: search || undefined,
+    search: settledSearch || undefined,
     clientId: clientParam ?? undefined,
     page,
   });
@@ -145,8 +151,8 @@ export function BillingPage() {
             </button>
           </span>
         )}
-        <input
-          className="ml-2 w-64 rounded-(--radius-card) border border-[#d9dde3] bg-surface px-3 py-2 text-[13px] outline-none placeholder:text-faint focus:border-primary"
+        <SearchInput
+          className="ml-2 w-64"
           placeholder="🔍 Search: number, client…"
           value={search}
           onChange={(e) => {
