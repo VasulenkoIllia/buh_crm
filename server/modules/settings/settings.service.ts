@@ -6,6 +6,7 @@ import type {
 } from "@shared/schema/settings.js";
 import type { FirmProfile, User } from "../../generated/prisma/client.js";
 import { ConflictError, NotFoundError } from "../../core/errors.js";
+import { rememberFirmName } from "../../core/firm.js";
 import { deleteFileBytes, saveFileBytes } from "../../core/files.js";
 import { ValidationError } from "../../core/errors.js";
 import * as repo from "./settings.repository.js";
@@ -105,7 +106,10 @@ export async function removeSource(id: string) {
 }
 
 export async function updateFirm(input: UpdateFirmInput) {
-  return toFirmDto(await repo.updateFirmProfile(input));
+  const firm = await repo.updateFirmProfile(input);
+  // letters print this name and read it from memory, so a rename has to say so
+  rememberFirmName(firm.name);
+  return toFirmDto(firm);
 }
 
 export async function setLogo(

@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../../app.js";
 import { prisma } from "../../core/db.js";
 import { testOutbox } from "../../core/email.js";
+import { firmName, rememberFirmName } from "../../core/firm.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 
@@ -267,5 +268,55 @@ describe("auth + users", () => {
       payload,
     });
     expect(res.statusCode).toBe(400);
+  });
+});
+
+/**
+ * The masthead prints the name the FIRM typed into Settings, not `APP_NAME`.
+ *
+ * `APP_NAME` names the container — it is what `/health` reports and what compose calls the
+ * service — and a client reading `buh_crm` where the firm's name belongs is the wrong kind of
+ * technical (user, 2026-08-31). Nothing is written to the database here: the name letters use is
+ * held in memory precisely so the send path stays synchronous, and this pokes that memory rather
+ * than renaming a firm other suites share.
+ */
+describe("what a system letter calls the firm", () => {
+  it("prints the firm's own name, and follows a rename", async () => {
+    const before = firmName();
+    try {
+      rememberFirmName("Kvitka Trade Advisors");
+      await prisma.user.upsert({
+        where: { email: "mastheads@test.local" },
+        update: { status: "active" },
+        create: {
+          email: "mastheads@test.local",
+          firstName: "Mast",
+          lastName: "Head",
+          role: "user",
+          status: "active",
+          passwordHash: await argon2.hash("Whatever-1234"),
+        },
+      });
+      await app.inject({
+        method: "POST",
+        url: "/api/auth/forgot-password",
+        payload: { email: "mastheads@test.local" },
+      });
+
+      const letter = [...testOutbox].reverse().find((m) => m.to === "mastheads@test.local");
+      expect(letter).toBeDefined();
+      expect(letter!.html).toContain("Kvitka Trade Advisors");
+      expect(letter!.text).toContain("Kvitka Trade Advisors");
+      // the account it concerns leads the letter, so a reader knows it is for them
+      expect(letter!.html).toContain("mastheads@test.local");
+      // the subject too — it is the line a person reads before opening anything
+      expect(letter!.subject).toContain("Kvitka Trade Advisors");
+      // and the technical identifier is nowhere in the letter at all
+      expect(letter!.html).not.toContain("buh_crm");
+      expect(letter!.subject).not.toContain("buh_crm");
+    } finally {
+      rememberFirmName(before);
+      await prisma.user.deleteMany({ where: { email: "mastheads@test.local" } });
+    }
   });
 });

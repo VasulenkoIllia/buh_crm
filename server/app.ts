@@ -12,6 +12,7 @@ import {
   type ZodTypeProvider,
 } from "fastify-type-provider-zod";
 import { config, isDev, isProd } from "./core/config.js";
+import { loadFirmName } from "./core/firm.js";
 import { errorHandler } from "./core/errors.js";
 import { authModule } from "./modules/auth/index.js";
 import { catalogModule } from "./modules/catalog/index.js";
@@ -122,6 +123,9 @@ export async function buildApp() {
       return reply.status(404).send({ error: { code: "not_found", message: "Not Found" } });
     });
   }
+
+  // the name letters print, read once here rather than per send — see core/firm.ts
+  await loadFirmName();
 
   return app;
 }

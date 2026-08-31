@@ -1,6 +1,7 @@
 import nodemailer, { type Transporter } from "nodemailer";
 import { config, isDev } from "./config.js";
 import { renderLetter, renderLetterText } from "./email-layout.js";
+import { firmName } from "./firm.js";
 import { explainSendError } from "./send-error.js";
 
 // Shared SMTP transport (Nodemailer → Mailpit in dev). Modules never touch SMTP
@@ -54,10 +55,10 @@ function render<T extends EmailTemplateName>(
     case "invite": {
       const d = data as EmailTemplates["invite"];
       return {
-        subject: `You are invited to ${config.APP_NAME}`,
-        heading: `You are invited to ${config.APP_NAME}`,
+        subject: `You are invited to ${firmName()}`,
+        heading: `You are invited to ${firmName()}`,
         body:
-          `${d.invitedBy} invited you to the ${config.APP_NAME} CRM.\n\n` +
+          `${d.invitedBy} invited you to the ${firmName()} CRM.\n\n` +
           `Set a password to activate your account. The link expires in 7 days.`,
         cta: { label: "Set your password", url: d.inviteUrl },
         facts: [{ label: "Invited by", value: d.invitedBy }],
@@ -66,7 +67,7 @@ function render<T extends EmailTemplateName>(
     case "passwordReset": {
       const d = data as EmailTemplates["passwordReset"];
       return {
-        subject: `Reset your ${config.APP_NAME} password`,
+        subject: `Reset your ${firmName()} password`,
         heading: "Reset your password",
         body:
           `Someone requested a password reset for your account.\n\n` +
@@ -86,12 +87,10 @@ function dress(
   const shell = {
     heading: content.heading,
     body: content.body,
-    // `APP_NAME`, not a read of the firm profile. A password reset must not depend on a database
-    // query: it is the letter someone needs precisely when they cannot get in, and adding a read
-    // to that path adds a way for it to fail. `bootstrap` seeds the firm profile FROM this name,
-    // so the two agree unless the firm renames itself — set `APP_NAME` to the firm's own name and
-    // the masthead draws it (the wordmark lockup included).
-    firmName: config.APP_NAME,
+    // the firm's OWN name, not `APP_NAME` — that one names the container in /health and compose,
+    // and a client reading `buh_crm` in a masthead is the wrong kind of technical. Held in memory
+    // (core/firm.ts) so this stays synchronous: the test outbox is written before any await.
+    firmName: firmName(),
     signature: null,
     contacts: {},
     postalAddress: null,
