@@ -14,6 +14,7 @@ import {
 import { config, isDev, isProd } from "./core/config.js";
 import { SESSION_COOKIE } from "./core/auth.js";
 import { loadFirmName } from "./core/firm.js";
+import { staticCacheControl } from "./core/static-cache.js";
 import { errorHandler } from "./core/errors.js";
 import { authModule } from "./modules/auth/index.js";
 import { catalogModule } from "./modules/catalog/index.js";
@@ -135,7 +136,26 @@ export async function buildApp() {
   // index.html for client-side routes so emailed links (/set-password, /reset-password) resolve.
   if (isProd) {
     const distDir = join(fileURLToPath(new URL(".", import.meta.url)), "..", "dist");
-    await app.register(fastifyStatic, { root: distDir, prefix: "/" });
+    await app.register(fastifyStatic, {
+      root: distDir,
+      prefix: "/",
+      /**
+       * Screens are fetched on demand now, so how long their file may be kept decides whether a
+       * person sees the loading line once or every time they open that screen.
+       *
+       * Vite content-hashes everything under `/assets`, so those names are IMMUTABLE by
+       * construction — a change produces a different name. They were being served
+       * `max-age=0`, which makes the browser revalidate on every navigation: cheap in bytes
+       * (a 304) but a full network round-trip each time, which is invisible on an office LAN and
+       * very visible to somebody working remotely (2026-09-01).
+       *
+       * `index.html` is the opposite and must never be cached: it is the map from route to hashed
+       * file, so a stale one points a browser at the previous deploy's chunks.
+       */
+      setHeaders: (res, filePath) => {
+        res.header("cache-control", staticCacheControl(filePath));
+      },
+    });
     app.setNotFoundHandler((request, reply) => {
       if (
         request.method === "GET" &&
