@@ -11,8 +11,8 @@ export { useClient, useClients, useClientsInfinite, useRestoreClient } from "./c
  * plain `export … from "./client-services"` here would let the task form reach the subscription
  * screen statically, and Rollup would move all of it into that shared chunk: measured 2026-09-04,
  * `task-modals` went 9.66 → 14.27 kB gzip and opening the CALENDAR started downloading billing
- * pills. Through `lazy()` it is its own 5.9 kB chunk, fetched when someone actually opens the form,
- * and `task-modals` moves by 0.08 kB.
+ * pills. Through `lazy()` it is its own 6.59 kB chunk, fetched when someone actually opens the
+ * form, and `task-modals` moves by 0.34 kB.
  *
  * Callers must render it inside a <Suspense>.
  */

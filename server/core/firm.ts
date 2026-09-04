@@ -16,17 +16,42 @@ import { prisma } from "./db.js";
  * letter goes out.
  */
 let cached: string | null = null;
+/** in flight, so a run of letters on a cold cache does not queue a read each */
+let reloading = false;
 
-/** Load the name once at start-up. Tolerant: a letter must not be blocked by a cold cache. */
-export async function loadFirmName(): Promise<void> {
+/** How the name is fetched. A parameter so the failure path can be tested without a database. */
+export type ReadFirmName = () => Promise<string | null>;
+
+const readFromDb: ReadFirmName = async () => {
+  const firm = await prisma.firmProfile.findUnique({
+    where: { id: 1 },
+    select: { name: true },
+  });
+  return firm?.name ?? null;
+};
+
+/** Remembered so the background retry below asks the same place the first attempt did. */
+let source: ReadFirmName = readFromDb;
+
+/**
+ * Load the name into the cache. Tolerant — a letter must not be blocked by a cold cache — but
+ * never SILENT: an empty catch here meant one transient read failure at boot left `cached` null for
+ * the life of the process, and every invite and password reset then printed `APP_NAME` in its
+ * masthead. Nothing surfaced it: Settings reads the name straight from the database, so the screen
+ * showed the right one and only a client reading a letter would ever have seen the wrong one
+ * (audit 2026-09-04).
+ */
+export async function loadFirmName(read?: ReadFirmName): Promise<void> {
+  if (read) source = read;
   try {
-    const firm = await prisma.firmProfile.findUnique({
-      where: { id: 1 },
-      select: { name: true },
-    });
-    if (firm?.name?.trim()) cached = firm.name.trim();
-  } catch {
-    // before the first migration there is no table to read; the fallback below covers it
+    const name = await source();
+    if (name?.trim()) cached = name.trim();
+  } catch (err) {
+    console.error(
+      "[firm] could not read the firm name; letters will say APP_NAME until this succeeds. " +
+        "On a first boot, before the first migration, there is no table yet and bootstrap fixes it.",
+      err,
+    );
   }
 }
 
@@ -37,10 +62,19 @@ export function rememberFirmName(name: string): void {
 }
 
 /**
- * What a letter prints. Falls back to `APP_NAME` only when nothing has been loaded yet — which is
- * the same value `bootstrap` seeds the profile with, so the fallback is the profile's own default
- * rather than a second idea of what the firm is called.
+ * What a letter prints.
+ *
+ * Falls back to `APP_NAME` only while nothing has been loaded — the same value `bootstrap` seeds
+ * the profile with, so the fallback is the profile's own default rather than a second idea of what
+ * the firm is called. A cold cache also asks for the name again in the background, so the fallback
+ * lasts one letter rather than until the next deploy. Stays synchronous: see the note above.
  */
 export function firmName(): string {
+  if (cached === null && !reloading) {
+    reloading = true;
+    void loadFirmName().finally(() => {
+      reloading = false;
+    });
+  }
   return cached ?? config.APP_NAME;
 }

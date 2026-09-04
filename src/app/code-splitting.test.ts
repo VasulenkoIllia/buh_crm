@@ -52,7 +52,7 @@ describe("code splitting cannot be undone by accident", () => {
    * needs the client's "Add service" modal, and exporting it from the clients barrel with a plain
    * `export … from` moved the whole subscription screen into that shared chunk — measured
    * 2026-09-04: task-modals 9.66 → 14.27 kB gzip, and opening the CALENDAR downloaded billing
-   * pills. Through `lazy()` it is its own chunk and task-modals moves by 0.22 kB.
+   * pills. Through `lazy()` it is its own 6.59 kB chunk and task-modals moves by 0.34 kB.
    */
   it("the clients barrel reaches the subscription screen only through lazy()", async () => {
     const barrel = await readFile(new URL("../modules/clients/index.ts", import.meta.url), "utf8");
