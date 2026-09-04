@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { Check, Download, Pencil, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { Task, TimeEntry, UpdateTaskInput } from "@shared/schema/task";
 import { useAuth } from "@/app/auth";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
-import { ClientFormModal, useClient, useClients } from "@/modules/clients";
+import { AddServiceModal, ClientFormModal, useClient, useClients } from "@/modules/clients";
 import { LeadFormModal, useLeads } from "@/modules/leads";
 import { useSettings } from "@/modules/settings";
 import { ApiError } from "@/shared/lib/api";
@@ -102,9 +102,36 @@ export function TaskFormModal({
   const [subtasks, setSubtasks] = useState<string[]>([]);
   const [leadFormOpen, setLeadFormOpen] = useState(false);
   const [clientFormOpen, setClientFormOpen] = useState(false);
+  // null = closed. A string opens the catalog form and carries the phrase already typed into the
+  // service picker, so nobody types it twice.
+  const [addServiceQuery, setAddServiceQuery] = useState<string | null>(null);
+  /** a service was added but does not start until this day — see `onSaved` below */
+  const [addedLater, setAddedLater] = useState<string | null>(null);
 
   // "+ New task" on a client's or lead's own card pins the target: that's who the work is for
   const targetLocked = !!preset && !editing;
+
+  /**
+   * The same offer from both branches below — the picker's and the empty box's — so the label and
+   * the handler cannot drift apart. Styled like "+ New client" two fields above rather than as a
+   * `Button`: it sits in a line of text, not in a row of controls.
+   */
+  const addServiceLink = (
+    <button
+      type="button"
+      className="text-[12px] font-medium text-primary-link hover:underline"
+      onClick={() => setAddServiceQuery("")}
+    >
+      + Add a service to this client
+    </button>
+  );
+
+  /** Whose work this is decides the service, its price and any note about it — so they go together. */
+  const clearService = () => {
+    setSubscriptionId("");
+    setAmount(null);
+    setAddedLater(null);
+  };
 
   // fetch the picked client directly — includes their subscriptions
   const { data: client } = useClient(target?.kind === "client" ? target.id : undefined);
@@ -120,9 +147,12 @@ export function TaskFormModal({
     ? client?.companies.find((c) => c.id === subscription.companyId)?.name
     : null;
 
-  const pickSubscription = (id: string) => {
+  // `from` defaults to the cached client, but a subscription created a moment ago is not in that
+  // copy yet — the mutation's own response is, and that is what the add-service form hands back.
+  const pickSubscription = (id: string, from = client?.subscriptions ?? []) => {
     setSubscriptionId(id);
-    const sub = client?.subscriptions.find((s) => s.id === id);
+    setAddedLater(null);
+    const sub = from.find((s) => s.id === id);
     const svc = services?.find((s) => s.id === sub?.serviceId);
     // one-time container: the per-client default job price prefills (editable per job)
     setAmount(svc?.type === "one_time" ? (sub?.amount ?? null) : null);
@@ -215,10 +245,41 @@ export function TaskFormModal({
         onClose={() => setLeadFormOpen(false)}
         onSaved={(lead) => {
           setTarget({ kind: "lead", id: lead.id, label: lead.name });
-          setSubscriptionId("");
-          setAmount(null);
+          clearService();
         }}
       />
+    );
+  }
+  // Adding a service pauses this modal the way "+ New client" does. The component stays mounted,
+  // so everything typed into the task survives; the new subscription is selected on the way back.
+  if (addServiceQuery !== null && client) {
+    return (
+      // The modal arrives in its own chunk (see modules/clients/index.ts). A null fallback would
+      // uncover the board for that round trip — the frame stays put instead, the way the app's
+      // other lazy boundaries keep a visible "Loading…".
+      <Suspense
+        fallback={
+          <Modal title="Add service to client" open onClose={() => setAddServiceQuery(null)}>
+            <p className="text-[13px] text-muted">Loading…</p>
+          </Modal>
+        }
+      >
+        <AddServiceModal
+          client={client}
+          open
+          initialQuery={addServiceQuery || undefined}
+          onClose={() => setAddServiceQuery(null)}
+          onSaved={(saved, id) => {
+            const added = saved.subscriptions.find((s) => s.id === id);
+            // A service agreed for a FUTURE date is not in force, and `createTask` refuses a task
+            // on one ("Pick one of the client's active services"). Selecting it would leave this
+            // picker — which lists active services only — looking empty with Create enabled and a
+            // refusal waiting behind it, so say what happened instead.
+            if (added && !added.active) setAddedLater(added.inForceFrom);
+            else pickSubscription(id, saved.subscriptions);
+          }}
+        />
+      </Suspense>
     );
   }
   if (clientFormOpen) {
@@ -228,8 +289,7 @@ export function TaskFormModal({
         onClose={() => setClientFormOpen(false)}
         onSaved={(c) => {
           setTarget({ kind: "client", id: c.id, label: c.displayName });
-          setSubscriptionId("");
-          setAmount(null);
+          clearService();
         }}
       />
     );
@@ -281,8 +341,7 @@ export function TaskFormModal({
                   // a locked target survives the switch — it's who the task is FOR either way;
                   // only the service and its price are specific to billable client work
                   if (!targetLocked) setTarget(null);
-                  setSubscriptionId("");
-                  setAmount(null);
+                  clearService();
                 }}
                 options={[
                   { value: "client", label: "Client / lead work" },
@@ -325,13 +384,11 @@ export function TaskFormModal({
                   value={target}
                   onPick={(t) => {
                     setTarget(t);
-                    setSubscriptionId("");
-                    setAmount(null);
+                    clearService();
                   }}
                   onClear={() => {
                     setTarget(null);
-                    setSubscriptionId("");
-                    setAmount(null);
+                    clearService();
                   }}
                   onNewClient={() => setClientFormOpen(true)}
                   onNewLead={() => setLeadFormOpen(true)}
@@ -353,6 +410,12 @@ export function TaskFormModal({
                       onChange={pickSubscription}
                       placeholder="Search this client's services…"
                       emptyLabel="— pick a service —"
+                      // the moment the reader learns the client hasn't got it: offer the
+                      // catalog right there, carrying the phrase they just typed
+                      emptyAction={{
+                        label: "+ Add it to this client from the catalog",
+                        onSelect: (q) => setAddServiceQuery(q),
+                      }}
                       options={client.subscriptions
                         .filter((s) => s.active)
                         .map((s) => {
@@ -367,13 +430,26 @@ export function TaskFormModal({
                           };
                         })}
                     />
+                    <div className="mt-1">{addServiceLink}</div>
                   </div>
                 ) : (
-                  <p className="rounded-(--radius-field) bg-[#fdf5f5] px-3 py-2 text-[12px] text-danger-text">
-                    This client has no active services — add one on the client card first.
-                  </p>
+                  // not a dead end any more: client work cannot exist without a subscription, so
+                  // the way out of this message is the only thing worth putting in it
+                  <div className="rounded-(--radius-field) bg-[#fdf5f5] px-3 py-2">
+                    <p className="text-[12px] text-danger-text">
+                      This client has no active services, and client work has to hang off one.
+                    </p>
+                    <div className="mt-1">{addServiceLink}</div>
+                  </div>
                 )
               ) : null)}
+
+            {addedLater && (
+              <p className="rounded-(--radius-field) bg-[#f7f8fa] px-3 py-2 text-[12px] text-muted">
+                Added — but it starts {fmtBizDate(addedLater)}, so work can only go on it from that
+                day. Pick another service for this task.
+              </p>
+            )}
 
               {subscription && (
                 <p className="rounded-(--radius-field) bg-[#f7f8fa] px-3 py-2 text-[12px] text-muted">

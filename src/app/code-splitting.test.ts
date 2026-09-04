@@ -43,6 +43,28 @@ describe("code splitting cannot be undone by accident", () => {
     ).toEqual([]);
   });
 
+  /**
+   * The same failure one level down: a barrel is shared, so what it reaches statically travels to
+   * every module that imports it — screens are simply the loudest case, not the only one.
+   *
+   * `modules/tasks/index.ts` publishes `ClientLeadSearch` out of `task-modals.tsx`, which makes
+   * that file a chunk the board, leads, the client card and the calendar all share. The task form
+   * needs the client's "Add service" modal, and exporting it from the clients barrel with a plain
+   * `export … from` moved the whole subscription screen into that shared chunk — measured
+   * 2026-09-04: task-modals 9.66 → 14.27 kB gzip, and opening the CALENDAR downloaded billing
+   * pills. Through `lazy()` it is its own chunk and task-modals moves by 0.22 kB.
+   */
+  it("the clients barrel reaches the subscription screen only through lazy()", async () => {
+    const barrel = await readFile(new URL("../modules/clients/index.ts", import.meta.url), "utf8");
+    expect(
+      /^\s*export\s.*from\s+["']\.\/client-services["']/m.test(barrel),
+      "Re-exporting ./client-services statically welds the subscription screen to every module " +
+        "that imports the clients barrel. Export it as lazy(() => import(...)) instead.",
+    ).toBe(false);
+    // whitespace-tolerant: prettier wraps this call across lines
+    expect(barrel).toMatch(/lazy\(\s*\(\)\s*=>\s*import\("\.\/client-services"\)/);
+  });
+
   it("the router loads every screen on demand", async () => {
     const router = await readFile(new URL("./router.tsx", import.meta.url), "utf8");
     // every Page component the router names must arrive through lazy(), not a static import

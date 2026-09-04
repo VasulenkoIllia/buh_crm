@@ -188,13 +188,22 @@ export function useDeleteClientFile(clientId: string) {
 
 // ── subscriptions & categories (S3) ─────────────────────────────────────────
 
-/** Subscriptions change the catalog's clientsCount — refresh both caches. */
+/**
+ * Subscriptions change the catalog's clientsCount — refresh both caches.
+ *
+ * The promise is RETURNED, not discarded: TanStack awaits `onSuccess`, so `mutateAsync` then resolves
+ * only once both caches have actually refetched. Discarding it (the original `void`) let the caller
+ * continue against a stale client — the task form derives "is this a billable job" from
+ * `client.subscriptions` at render time, and for one round trip after adding a one-time service it
+ * read `false`, hiding the price field and the preset chips (audit 2026-09-04).
+ */
 function useInvalidateClientsAndCatalog() {
   const queryClient = useQueryClient();
-  return () => {
-    void queryClient.invalidateQueries({ queryKey: CLIENTS_KEY });
-    void queryClient.invalidateQueries({ queryKey: CATALOG_KEY });
-  };
+  return () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: CLIENTS_KEY }),
+      queryClient.invalidateQueries({ queryKey: CATALOG_KEY }),
+    ]);
 }
 
 export function useAddSubscription() {

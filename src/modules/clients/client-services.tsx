@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Pencil, RotateCcw, Star } from "lucide-react";
 import type { Client, Subscription } from "@shared/schema/client";
-import { billsPerJob, isClientFacing } from "@shared/schema/catalog";
+import { billsPerJob } from "@shared/schema/catalog";
 import type { Service, TaskOverride, TaskTemplate } from "@shared/schema/catalog";
 import type { BillingPeriod } from "@shared/schema/enums";
 import {
@@ -17,6 +17,8 @@ import { fmtBizDate, todayIso } from "@/shared/lib/format";
 import { fmtMoney } from "@/shared/lib/money";
 import { Button, IconButton } from "@/shared/ui/button";
 import { PERIOD_LABEL } from "./recurring";
+import { addStateFor, assignableServices, billingNote, existingFor } from "./subscription-add-rules";
+import type { BillingTiming } from "./subscription-add-rules";
 import { Chip } from "@/shared/ui/chip";
 import { ChecklistEditor } from "@/shared/ui/checklist-editor";
 import { FormField, Input, Label, Select } from "@/shared/ui/field";
@@ -56,7 +58,7 @@ const rhythmEdited = (o?: TaskOverride) =>
     o.estimatedMinutes !== undefined ||
     o.checklist !== undefined);
 
-type BillingTiming = { trigger: "on_period_start" | "on_period_end"; day: number | null };
+// the one definition lives with the rules that read it — see subscription-add-rules.ts
 
 /** The service preset, normalized to a subscription-shaped timing. */
 function presetTiming(service?: Service): BillingTiming {
@@ -807,15 +809,30 @@ function EditSubscriptionModal({
   );
 }
 
-/** "Add service to client" — catalog list + per-client price (design: width 500). */
+/**
+ * "Add service to client" — catalog list + per-client price (design: width 500).
+ *
+ * Raised from the client's Services tab AND from the task form, which cannot file client work
+ * without a subscription to hang it on. One screen for both on purpose: a second, "quick" form
+ * would own a second copy of the catalog defaults and the two would drift.
+ */
 export function AddServiceModal({
   client,
   open,
+  initialQuery,
   onClose,
+  onSaved,
 }: {
   client: Client;
   open: boolean;
+  /** the phrase already typed wherever this was opened from — don't ask for it twice */
+  initialQuery?: string;
   onClose: () => void;
+  /**
+   * The saved client and the subscription just created. The client comes back too because the
+   * caller needs it NOW: the cache invalidation has not landed, so its own copy has no such row.
+   */
+  onSaved?: (client: Client, subscriptionId: string) => void;
 }) {
   const { data: services } = useCatalog();
   const add = useAddSubscription();
@@ -826,10 +843,45 @@ export function AddServiceModal({
   const [startsOn, setStartsOn] = useState(todayIso());
   const [dueDays, setDueDays] = useState<number | null>(null);
   const [companyId, setCompanyId] = useState("");
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery ?? "");
 
-  const active = (services ?? []).filter((s) => s.active && isClientFacing(s));
+  const active = assignableServices(services ?? []);
   const selected = active.find((s) => s.id === serviceId);
+  const target = companyId || null;
+  // The rule the server enforces, asked here: the same service twice only for DIFFERENT companies,
+  // and a paused or future-dated row still counts. Recomputed as the company changes, since that
+  // is what decides it — and the company is picked below, after the service.
+  const blocked = selected ? addStateFor(selected.id, client.subscriptions, target) : null;
+  const blockedWhy =
+    blocked?.kind === "in_force"
+      ? "Already running on this client — it is in the service list, nothing to add."
+      : blocked?.kind === "paused"
+        ? `Already on this client, paused${
+            blocked.until ? ` (served to ${fmtBizDate(blocked.until)})` : ""
+          }. Resume it on the Services tab — a second copy can't be added.`
+        : blocked?.kind === "scheduled"
+          ? `Already agreed, starting ${fmtBizDate(blocked.from)}. Tasks can hang off it then.`
+          : null;
+
+  const companyLabel = (id: string | null) =>
+    id ? (client.companies.find((c) => c.id === id)?.name ?? "a company") : "client (main)";
+
+  /** What the client ALREADY holds for this service, on every company — a fact, not a verdict. */
+  const heldNote = (svcId: string) => {
+    const held = existingFor(svcId, client.subscriptions);
+    if (held.length === 0) return null;
+    return held
+      .map((h) => {
+        const where = companyLabel(h.companyId);
+        if (h.state === "paused") {
+          const to = h.inForceUntil ? `, served to ${fmtBizDate(h.inForceUntil)}` : "";
+          return `${where} — paused${to}`;
+        }
+        if (h.state === "scheduled") return `${where} — starts ${fmtBizDate(h.inForceFrom)}`;
+        return `${where} — running`;
+      })
+      .join(" · ");
+  };
 
   /**
    * The filter appears exactly when the list stops fitting.
@@ -839,7 +891,9 @@ export function AddServiceModal({
    * clutter over a list you can already see whole (the firm's catalog runs to twenty).
    */
   const VISIBLE_ROWS = 6;
-  const searchable = active.length > VISIBLE_ROWS;
+  // a phrase carried in from elsewhere is already filtering the list, so the box that explains
+  // why has to be on screen however short the catalog is
+  const searchable = active.length > VISIBLE_ROWS || !!initialQuery;
   const q = query.trim().toLowerCase();
   const shown = active.filter(
     // the PICKED service always stays on screen, however the query narrows: the panel below names
@@ -856,12 +910,19 @@ export function AddServiceModal({
     setAmount(svc?.defaultAmount ?? null); // expected price prefills, editable per client
     setTiming(presetTiming(svc)); // billing preset copies in, editable per client
     setDueDays(svc?.dueDays ?? null); // overdue preset copies in, editable per client
+    // the catalog has no period to preset, so this resets rather than carrying the last service's
+    // choice across — "per year" survived a switch and silently billed the next one that way
+    setPeriod("month");
   };
 
   const save = async () => {
-    if (!serviceId || amount == null) return;
+    if (!serviceId || amount == null || blocked?.kind !== "addable") return;
+    // Only the WRITE is guarded. Widening this to cover `onSaved` would let a throw in the
+    // parent's state update swallow itself and skip `onClose`, leaving the modal open over a
+    // subscription that was in fact created — with no error to explain it.
+    let saved: Client;
     try {
-      await add.mutateAsync({
+      saved = await add.mutateAsync({
         clientId: client.id,
         input: {
           serviceId,
@@ -879,10 +940,16 @@ export function AddServiceModal({
           startsOn: startsOn === todayIso() ? undefined : startsOn,
         },
       });
-      onClose();
     } catch {
-      /* surfaced via serverError below */
+      return; /* surfaced via serverError below */
     }
+    // (serviceId, companyId) identifies it exactly — the server refuses a second row on the
+    // same target, so this pair can never match two subscriptions
+    const created = saved.subscriptions.find(
+      (x) => x.serviceId === serviceId && (x.companyId ?? null) === target,
+    );
+    if (created) onSaved?.(saved, created.id);
+    onClose();
   };
 
   const serverError = add.error instanceof ApiError ? add.error.message : null;
@@ -897,7 +964,10 @@ export function AddServiceModal({
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button disabled={!serviceId || amount == null || add.isPending} onClick={() => void save()}>
+          <Button
+            disabled={!serviceId || amount == null || add.isPending || blocked?.kind !== "addable"}
+            onClick={() => void save()}
+          >
             {add.isPending ? "Adding…" : "Add to client"}
           </Button>
         </>
@@ -958,25 +1028,35 @@ export function AddServiceModal({
               No service matches “{query.trim()}”.
             </p>
           )}
-          {shown.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => pick(s.id)}
-              className={cn(
-                "flex w-full items-center gap-2 border-b border-divider px-3 py-1.5 text-left text-[13px] last:border-0 hover:bg-divider/40",
-                serviceId === s.id && "bg-[#eef1fb]",
-              )}
-            >
-              <ServiceChip name={s.name} color={s.color} />
-              <span className="text-[12px] text-muted">
-                {s.type === "subscription" ? "Subscription" : "One-time"}
-              </span>
-              <span className="ml-auto text-[12px] text-muted">
-                {s.defaultAmount != null ? `${fmtMoney(s.defaultAmount)} expected` : "—"}
-              </span>
-            </button>
-          ))}
+          {shown.map((s) => {
+            const held = heldNote(s.id);
+            return (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => pick(s.id)}
+                className={cn(
+                  "block w-full border-b border-divider px-3 py-1.5 text-left text-[13px] last:border-0 hover:bg-divider/40",
+                  serviceId === s.id && "bg-[#eef1fb]",
+                )}
+              >
+                <span className="flex items-center gap-2">
+                  <ServiceChip name={s.name} color={s.color} />
+                  <span className="text-[12px] text-muted">
+                    {s.type === "subscription" ? "Subscription" : "One-time"}
+                  </span>
+                  <span className="ml-auto text-[12px] text-muted">
+                    {s.defaultAmount != null ? `${fmtMoney(s.defaultAmount)} expected` : "—"}
+                  </span>
+                </span>
+                {/* a fact about the client, not a verdict on the row: whether it can actually be
+                    added depends on the company, which is chosen further down */}
+                {held && (
+                  <span className="mt-0.5 block text-[11px] text-faint">Already: {held}</span>
+                )}
+              </button>
+            );
+          })}
         </ScrollBox>
 
         {selected && (
@@ -1036,7 +1116,15 @@ export function AddServiceModal({
             <div className="mt-2.5">
               <DueDaysField value={dueDays} onChange={setDueDays} />
             </div>
+            {billingNote(selected, timing) && (
+              <p className="mt-2.5 text-[12px] text-muted">💰 {billingNote(selected, timing)}</p>
+            )}
           </div>
+        )}
+        {blockedWhy && (
+          <p className="rounded-(--radius-field) bg-[#fdf5f5] px-3 py-2 text-[12px] text-danger-text">
+            {blockedWhy}
+          </p>
         )}
         {serverError && <p className="text-[12px] text-danger-text">{serverError}</p>}
       </div>

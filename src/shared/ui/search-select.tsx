@@ -25,6 +25,7 @@ export function SearchSelect({
   emptyLabel = "—",
   ariaLabel,
   disabled,
+  emptyAction,
   onChange,
 }: {
   id?: string;
@@ -38,6 +39,12 @@ export function SearchSelect({
   ariaLabel?: string;
   /** nothing to pick from yet (e.g. no client chosen) — say so in the placeholder too */
   disabled?: boolean;
+  /**
+   * A way forward when what was typed matches nothing — offered instead of "No matches". It
+   * receives the phrase, so the screen it opens can carry the search rather than ask for it
+   * twice. Omitted wherever the dead end is the honest answer.
+   */
+  emptyAction?: { label: string; onSelect: (query: string) => void };
   onChange: (value: string) => void;
 }) {
   const selected = options.find((o) => o.value === value) ?? null;
@@ -121,6 +128,9 @@ export function SearchSelect({
   };
 
   const rows: (SearchOption | null)[] = [null, ...matches]; // null = the "nothing" row
+  // the moment the action earns its place: they typed, and this list has nothing to offer.
+  // Holding the action itself rather than a boolean is what lets the uses below be type-checked.
+  const offerAction = searching && matches.length === 0 ? emptyAction : undefined;
 
   return (
     <div className="relative" ref={box}>
@@ -153,7 +163,11 @@ export function SearchSelect({
             });
           } else if (e.key === "Enter" && open) {
             e.preventDefault();
-            pick(rows[highlight]?.value ?? "");
+            // nothing to pick: Enter takes the way out rather than clearing what was typed
+            if (offerAction) {
+              setOpen(false);
+              offerAction.onSelect(query.trim());
+            } else pick(rows[highlight]?.value ?? "");
           } else if (e.key === "Escape" && open) {
             e.stopPropagation(); // don't close the whole modal, just the list
             setOpen(false);
@@ -212,6 +226,20 @@ export function SearchSelect({
             ))}
             {searching && matches.length === 0 && (
               <p className="px-3 py-1.5 text-[13px] text-muted">No matches</p>
+            )}
+            {offerAction && (
+              <button
+                type="button"
+                // mousedown, not click: blur would close the list before a click landed
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  setOpen(false);
+                  offerAction.onSelect(query.trim());
+                }}
+                className="block w-full border-t border-divider px-3 py-1.5 text-left text-[13px] font-medium text-primary-link hover:bg-divider"
+              >
+                {offerAction.label}
+              </button>
             )}
           </div>,
           document.body,
