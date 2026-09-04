@@ -63,6 +63,27 @@ export function rhythmSummary(t: {
 
 const DEADLINE_PRESETS = [1, 2, 5] as const;
 
+/**
+ * The free-entry boxes beside the preset pills: what each one SHOWS, and what a typed string
+ * MEANS. They are a pair, and the pair is the contract — a controlled input re-renders from state
+ * after every keystroke, so a box that does not echo its own value eats what you type.
+ *
+ * Both boxes used to blank themselves whenever the number happened to match a pill. Typing "15"
+ * therefore put 1 in state, the box cleared, and the "5" started a fresh number: you got day 5.
+ * The deadline box was worse — "12" left it empty with "+2 days" lit, so the reader asked for 12
+ * days and silently got 2 (user, 2026-09-04). Every value a box accepts must survive a round trip
+ * through it; `rhythm-boxes.test.ts` types into them to prove it.
+ *
+ * "Last day" (-1) is the one value the pill owns outright: it is not a number anyone types into a
+ * 1–31 box, so the box stays empty and the pill carries it.
+ */
+export const dayBoxValue = (day: number | null) => (day != null && day > 0 ? String(day) : "");
+/** Empty means the 1st — `calendarDay` reads a null day that way, and the "1st" pill lights up. */
+export const dayFromBox = (text: string): number => (text ? Number(text) : 1);
+export const offsetBoxValue = (offset: number | null) => (offset == null ? "" : String(offset));
+/** Empty means no deadline at all, which is the "none" pill. */
+export const offsetFromBox = (text: string): number | null => (text ? Number(text) : null);
+
 /** Rhythm + deadline + planned-time controls; controlled by a RhythmValue + onChange(patch).
  * `oneTime` = job-preset mode: no rhythm (periodicity is always "once"), only deadline + time. */
 export function TaskRhythmFields({
@@ -172,8 +193,8 @@ export function TaskRhythmFields({
               min={1}
               max={31}
               placeholder="day"
-              value={day != null && day !== 1 && day !== 15 && day !== -1 ? day : ""}
-              onChange={(e) => onChange({ dayOfPeriod: e.target.value ? Number(e.target.value) : 1 })}
+              value={dayBoxValue(day)}
+              onChange={(e) => onChange({ dayOfPeriod: dayFromBox(e.target.value) })}
             />
             {dayError && <span className="text-[12px] text-danger-text">{dayError}</span>}
           </div>
@@ -210,11 +231,11 @@ export function TaskRhythmFields({
             type="number"
             min={0}
             max={90}
-            placeholder="flex"
-            value={offset != null && !DEADLINE_PRESETS.includes(offset as 1 | 2 | 5) ? offset : ""}
-            onChange={(e) =>
-              onChange({ deadlineOffsetDays: e.target.value ? Number(e.target.value) : null })
-            }
+            // "flex" read as a mode the box was in; it is simply the number of days, and now that
+            // it echoes the pills it has to say so
+            placeholder="days"
+            value={offsetBoxValue(offset)}
+            onChange={(e) => onChange({ deadlineOffsetDays: offsetFromBox(e.target.value) })}
           />
         </div>
       </div>
