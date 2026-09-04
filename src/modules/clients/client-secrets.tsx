@@ -301,7 +301,18 @@ function UnlockModal({ clientId, onClose }: { clientId: string; onClose: () => v
             onKeyDown={(e) => e.key === "Enter" && password && void submit()}
           />
         </FormField>
-        {error && <p className="text-[12px] text-danger-text">{error}</p>}
+        {error && (
+          <div className="space-y-1">
+            <p className="text-[12px] text-danger-text">{error}</p>
+            {/* A failed re-auth used to end here with nothing to try next, and the way out is not
+                obvious: the vault has no password of its own, so the fix is a normal reset
+                (user, 2026-09-04). */}
+            <p className="text-[12px] text-muted">
+              Forgotten it? Sign out and use <strong>Forgot password</strong> on the sign-in
+              screen — the new one works here too.
+            </p>
+          </div>
+        )}
       </div>
     </Modal>
   );

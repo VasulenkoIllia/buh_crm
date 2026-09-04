@@ -182,7 +182,12 @@ export async function unlock(
       label: null, // an unlock targets the client, not one secret
       ip,
     });
-    throw new ForbiddenError("Wrong password");
+    // Names WHICH password, because that is the part people get wrong. The window asks for
+    // re-authentication, and somebody who assumes the vault has a password of its own will try
+    // one that never existed and read "Wrong password" as a fault in the app. Seven consecutive
+    // failures in the access log, with no idea what to try next, is what prompted this
+    // (user, 2026-09-04).
+    throw new ForbiddenError("Wrong password — use the one you sign in with");
   }
 
   // sweep on the way in: an expired entry is otherwise only dropped when somebody happens to ask
