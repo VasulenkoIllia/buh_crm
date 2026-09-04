@@ -69,6 +69,22 @@ const optionalTrimmed = z
   .nullable()
   .optional();
 
+/**
+ * The brief. Capped, but generously — the longest one this firm has written is 1 214 characters
+ * and the average is 163 (measured 2026-09-04), so 4 000 stops somebody pasting a whole document
+ * without ever refusing real work. A limit that rejects a genuine brief is worse than no limit:
+ * the person retypes it somewhere the CRM cannot see.
+ *
+ * Checked against production before choosing the number — nothing stored today exceeds it, so no
+ * existing lead becomes uneditable.
+ */
+const background = z
+  .string()
+  .max(4000, "Keep the background under 4000 characters")
+  .transform((v) => v.trim() || null)
+  .nullable()
+  .optional();
+
 const leadFields = z.object({
   name: z.string().trim().min(1, "Required"),
   companyName: optionalTrimmed,
@@ -77,7 +93,7 @@ const leadFields = z.object({
   /** the catalog service the lead came for (S3) */
   serviceId: uuid.nullable().optional(),
   sourceId: uuid.nullable().optional(),
-  description: optionalTrimmed,
+  description: background,
 });
 
 /**

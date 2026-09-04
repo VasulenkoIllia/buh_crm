@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DndContext, DragOverlay } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -9,7 +9,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { Link, useSearchParams } from "react-router-dom";
 import type { Lead, LeadStageOption } from "@shared/schema/lead";
-import { GripVertical } from "lucide-react";
+import { ArrowRight, CalendarPlus, Check, GripVertical, X } from "lucide-react";
 import { useAuth } from "@/app/auth";
 import { DRAG_CARD, DRAG_COLUMN, useBoardDrag } from "@/shared/lib/board-drag";
 import { cn } from "@/shared/lib/cn";
@@ -452,6 +452,54 @@ function LeadCardFace({
   );
 }
 
+/**
+ * The lead's brief, folded until asked for.
+ *
+ * Scrolling alone fixes the clipped actions but not the reading: a 1 200-character brief means
+ * scrolling past a wall of text to reach the tasks under it. Eight lines is about what a person
+ * scans before deciding whether they want the rest.
+ *
+ * Whether there IS more is MEASURED, not guessed from the character count — the same 400
+ * characters are four lines wide and twelve narrow, and a "Show all" that reveals nothing is worse
+ * than no control at all.
+ */
+function Background({ text }: { text: string | null }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [clipped, setClipped] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    setClipped(el.scrollHeight > el.clientHeight + 1);
+  }, [text]);
+
+  if (!text) return <div className="text-[13px] text-ink-700">—</div>;
+
+  return (
+    <>
+      <div
+        ref={ref}
+        className={cn(
+          "whitespace-pre-wrap text-[13px] leading-normal text-ink-700",
+          !open && "line-clamp-8",
+        )}
+      >
+        {text}
+      </div>
+      {(clipped || open) && (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="mt-1 text-[12px] font-medium text-primary-link hover:underline"
+        >
+          {open ? "Show less" : "Show all"}
+        </button>
+      )}
+    </>
+  );
+}
+
 function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => void }) {
   // both lists are already in cache (the page keeps them mounted) — read the lead from whichever
   // holds it now, so Mark lost / Reopen, which move it between them, update the open card
@@ -510,6 +558,17 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
         </div>
 
         {/* detail grid */}
+        {/*
+          ONE scrolling region, holding everything between the header and the actions.
+
+          The details used to sit outside it, growing with the description while only the tasks
+          block scrolled — so a long Background pushed the tasks and the whole action row past the
+          container's `max-h`, and `overflow-hidden` cut them off. The lead with a 1 200-character
+          brief had no Convert, no Edit, no Archive at all (user, 2026-09-04). Nothing may sit
+          outside this box again: that is what makes the actions unreachable-proof rather than
+          merely reachable today.
+        */}
+        <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="grid grid-cols-2 gap-x-6 gap-y-3.5 border-b border-[#eef0f3] px-5 py-[18px]">
           <LeadField label="Phone" value={lead.phone} />
           <LeadField label="Email" value={lead.email} />
@@ -523,9 +582,7 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
             <div className="mb-[3px] text-[11px] uppercase tracking-[.4px] text-muted-400">
               Background
             </div>
-            <div className="whitespace-pre-wrap text-[13px] leading-normal text-ink-700">
-              {lead.description || "—"}
-            </div>
+            <Background text={lead.description} />
           </div>
           {locked && lead.convertedClientId && (
             <div className="col-span-2">
@@ -540,72 +597,85 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
         </div>
 
         {/* tasks for this lead (free internal work) */}
-        <div className="min-h-0 flex-1 overflow-y-auto border-b border-[#eef0f3] px-5 py-[18px]">
+        <div className="border-b border-[#eef0f3] px-5 py-[18px]">
           <EntityTasks target={{ kind: "lead", id: lead.id, label: lead.name }} />
         </div>
+        </div>
 
-        {/* footer actions */}
-        <div className="flex items-center justify-between gap-2 bg-[#fafbfc] px-5 py-3.5">
-          <button
-            type="button"
-            onClick={() => setMeetingOpen(true)}
-            className="rounded-[8px] border border-[#d9dde3] px-4 py-2.5 text-[13px] font-medium text-ink-700 hover:bg-divider"
-          >
-            📅 Schedule meeting
-          </button>
+        {/*
+          The actions, ordered by what they mean rather than by what fits.
+          Housekeeping (quiet) → tools → the two outcomes, with the one the pipeline exists for
+          last. Every label is `whitespace-nowrap` and every control is the shared `Button`, which
+          has a fixed height: three of these used to break mid-phrase — "Schedule / meeting",
+          "Mark / as lost", "Convert / to client" — because they were hand-rolled with padding and
+          no height (user, 2026-09-04). Icons are lucide like the rest of the app; the emoji
+          calendar was the only colour glyph in the interface.
+        */}
+        <div className="flex flex-wrap items-center gap-2 border-t border-[#eef0f3] bg-[#fafbfc] px-5 py-3">
           {!locked && (
-            <button
-              type="button"
+            <Button
+              variant="text"
+              size="sm"
               disabled={archiveLead.isPending}
+              className="text-muted hover:text-ink-700"
               onClick={() => {
                 if (!window.confirm("Archive this lead? It leaves the pipeline — restorable from Archive.")) return;
                 archiveLead.mutate(lead.id, { onSuccess: onClose });
               }}
-              className="mr-auto ml-2 text-[13px] font-medium text-muted hover:text-ink-700 hover:underline"
             >
               Archive
-            </button>
+            </Button>
           )}
-          {locked ? (
-            <span className="text-[13px] font-semibold text-success">✓ Already a client</span>
-          ) : lead.outcome === "lost" ? (
-            <span className="flex items-center gap-3">
-              <span className="text-[13px] font-semibold text-danger-text">✗ Marked as lost</span>
-              <button
-                type="button"
-                disabled={reopen.isPending}
-                onClick={() => reopen.mutate(lead.id)}
-                className="text-[13px] font-medium text-primary-link hover:underline"
-              >
-                Reopen
-              </button>
-            </span>
-          ) : (
-            <span className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setEditOpen(true)}
-                className="rounded-[8px] border border-[#d9dde3] px-4 py-2.5 text-[13px] font-medium text-ink-700 hover:bg-divider"
-              >
-                Edit
-              </button>
-              <button
-                type="button"
-                disabled={markLost.isPending}
-                onClick={() => markLost.mutate(lead.id)}
-                className="rounded-[8px] border border-[#e6c3c3] px-4 py-2.5 text-[13px] font-semibold text-danger-text hover:bg-danger-soft"
-              >
-                ✗ Mark as lost
-              </button>
-              <button
-                type="button"
-                onClick={() => setConvertOpen(true)}
-                className="rounded-[8px] bg-success px-[18px] py-2.5 text-[13px] font-semibold text-white hover:opacity-90"
-              >
-                → Convert to client
-              </button>
-            </span>
+          <Button
+            variant="secondary"
+            className="whitespace-nowrap"
+            onClick={() => setMeetingOpen(true)}
+          >
+            <CalendarPlus size={14} />
+            Schedule meeting
+          </Button>
+          {!locked && lead.outcome !== "lost" && (
+            <Button variant="secondary" onClick={() => setEditOpen(true)}>
+              Edit
+            </Button>
           )}
+
+          <div className="ml-auto flex items-center gap-2">
+            {locked ? (
+              <span className="flex items-center gap-1.5 whitespace-nowrap text-[13px] font-semibold text-success">
+                <Check size={15} /> Already a client
+              </span>
+            ) : lead.outcome === "lost" ? (
+              <>
+                <span className="flex items-center gap-1.5 whitespace-nowrap text-[13px] font-semibold text-danger-text">
+                  <X size={15} /> Marked as lost
+                </span>
+                <Button variant="text" disabled={reopen.isPending} onClick={() => reopen.mutate(lead.id)}>
+                  Reopen
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="secondary"
+                  disabled={markLost.isPending}
+                  className="whitespace-nowrap border-[#e6c3c3] text-danger-text hover:bg-danger-soft"
+                  onClick={() => markLost.mutate(lead.id)}
+                >
+                  <X size={14} />
+                  Mark as lost
+                </Button>
+                <Button
+                  variant="positive"
+                  className="whitespace-nowrap"
+                  onClick={() => setConvertOpen(true)}
+                >
+                  Convert to client
+                  <ArrowRight size={14} />
+                </Button>
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>
