@@ -849,7 +849,19 @@ function CardFace({
       )}
     >
       <div className="flex items-start justify-between gap-2">
-        <div className="text-[13px] font-semibold leading-[1.3]">
+        {/*
+          `min-w-0` and `break-words` together, and both are load-bearing.
+
+          A flex child defaults to `min-width: auto`, which means it will not shrink below its
+          LONGEST WORD — and the toggle beside it is `flex-none`. Neither yields, so in a narrow
+          column the row simply overflowed the card and the Done button hung outside the border.
+          Measured at the column's 230px floor: "зарегестрировать sales tax" pushed it 2px out,
+          a longer single word 54px (user, 2026-09-04).
+
+          `min-w-0` alone lets the box shrink but the word then spills out of it; `break-words` is
+          what makes the word wrap instead of setting the width.
+        */}
+        <div className="min-w-0 break-words text-[13px] font-semibold leading-[1.3]">
           {overdue && <span className="mr-1 text-danger-text">⚠</span>}
           {task.title}
         </div>
