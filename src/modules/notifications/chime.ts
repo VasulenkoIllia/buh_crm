@@ -102,6 +102,25 @@ function unlockOnFirstGesture(): void {
 }
 unlockOnFirstGesture();
 
+/**
+ * What the browser did with the last chime — for the preview button, which was otherwise
+ * indistinguishable from a broken one.
+ *
+ * `playChime` cannot answer this synchronously: `resume()` returns a promise, and the state is
+ * still "suspended" on the line after it. So the button plays first (synchronously, because
+ * Safari requires that) and asks a moment later. "blocked" means the browser refused to start
+ * audio at all — a muted tab, or a gesture it did not accept — and that is worth saying out loud
+ * rather than leaving somebody to wonder whether the feature is broken.
+ */
+export type ChimeResult = "played" | "blocked" | "unsupported";
+
+export async function chimeStatus(): Promise<ChimeResult> {
+  const audio = context();
+  if (!audio) return "unsupported";
+  await new Promise((r) => setTimeout(r, 200));
+  return audio.state === "running" ? "played" : "blocked";
+}
+
 export function playChime(): void {
   try {
     const audio = context();

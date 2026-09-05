@@ -9,7 +9,7 @@ import {
 import { cn } from "@/shared/lib/cn";
 import { ApiError } from "@/shared/lib/api";
 import { InfoHint } from "@/shared/ui/info-hint";
-import { playChime } from "./chime";
+import { chimeStatus, playChime, type ChimeResult } from "./chime";
 import {
   useNotificationPolicies,
   useUpdateNotificationPolicy,
@@ -38,6 +38,7 @@ export function NotificationPolicySection() {
   const { data, isLoading, error } = useNotificationPolicies();
   const update = useUpdateNotificationPolicy();
   const [openGroups, setOpenGroups] = useState<Set<NotificationGroup>>(new Set());
+  const [chime, setChime] = useState<ChimeResult | null>(null);
 
   if (isLoading) return <p className="text-[13px] text-muted">Loading…</p>;
   if (error || !data) {
@@ -66,10 +67,25 @@ export function NotificationPolicySection() {
         <button
           type="button"
           className="font-semibold text-primary-link hover:underline"
-          onClick={() => playChime()}
+          onClick={() => {
+            // played synchronously — Safari will not start audio once the gesture is over — then
+            // asked a moment later what the browser actually did. A preview button that is silent
+            // whether it worked or was refused is a button nobody can debug.
+            playChime();
+            void chimeStatus().then(setChime);
+          }}
         >
           Play it
         </button>
+        {chime === "blocked" && (
+          <span className="text-muted">
+            — your browser blocked the sound. Click anywhere on the page, then try again; if it
+            stays silent, check the tab is not muted.
+          </span>
+        )}
+        {chime === "unsupported" && (
+          <span className="text-muted">— this browser has no Web Audio.</span>
+        )}
       </p>
       {update.error instanceof ApiError && (
         <p className="mb-2 text-[12px] text-danger-text">{update.error.message}</p>
