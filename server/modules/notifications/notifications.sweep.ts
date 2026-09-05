@@ -15,7 +15,7 @@ import { config } from "../../core/config.js";
 import { addDays, isoDayInTz, todayInTz, toUtc, zonedDayStart } from "../../core/dates.js";
 import { clientLabel } from "../../core/names.js";
 import { notify, type NotifyOutcome } from "../../core/notify.js";
-import { drainSweepFailures } from "../../core/sweep-health.js";
+import { drainSweepFailures } from "../../core/job-health.js";
 import * as repo from "./notifications.repository.js";
 
 /** "tomorrow" / "in 3 days" — how far off one particular deadline is, in whole days. */
@@ -236,10 +236,11 @@ export async function runNotificationSweep(): Promise<SweepResult> {
     out,
   );
 
-  // Drained, not read: one bad night is reported once. The next report only happens if a sweep
-  // fails again (core/sweep-health.ts).
+  // Drained, not read: one bad night is reported once. The next report only happens if a job
+  // fails again (core/job-health.ts). It is a TABLE now rather than a Map, so a restart between
+  // the failure and this run no longer loses the alert.
   await each(
-    drainSweepFailures(),
+    await drainSweepFailures(),
     (failure) =>
       notify("ops_sweep_failed", {
         // the day's run: unlike every other sweep key this one names an OCCASION rather than a

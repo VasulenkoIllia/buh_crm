@@ -69,6 +69,20 @@ export const CHIP_TONES: Record<ChipTone, ChipColors> = {
   violet: { fg: "#6b3fd0", bg: "#f1ecfc" },
 };
 
+/**
+ * The System tab's three tones.
+ *
+ * Here rather than as Tailwind tokens because there is no `warning` token in the theme and adding
+ * one for a single screen would be a design-system decision made sideways. Amber is exactly
+ * `CHIP_TONES.amber`, green and red exactly the `active`/`blocked` pair below — the colours this
+ * app already means "fine", "look at this" and "wrong" by.
+ */
+export const JOB_TONE_COLORS: Record<"ok" | "warn" | "bad", ChipColors> = {
+  ok: { fg: "#1f8f3a", bg: "#e6f4ea" },
+  warn: { fg: "#8b6a1f", bg: "#f6efdc" },
+  bad: { fg: "#c23434", bg: "#fbeaea" },
+};
+
 export const USER_STATUS_COLORS: Record<string, ChipColors> = {
   active: { fg: "#1f8f3a", bg: "#e6f4ea" },
   pending: { fg: "#b5651d", bg: "#f7ede2" },

@@ -11,8 +11,30 @@ import type {
   UpdateSourceInput,
 } from "@shared/schema/settings";
 import { api } from "@/shared/lib/api";
-import { SETTINGS_KEY } from "@/shared/lib/query-keys";
+import { SETTINGS_KEY, SYSTEM_HEALTH_KEY } from "@/shared/lib/query-keys";
+import type { JobHealthRow } from "@shared/system-jobs";
 
+/**
+ * The System tab's data.
+ *
+ * Polled every 30 seconds, and that is not for freshness — a nightly job does not change minute to
+ * minute. It is so a page left open while somebody restarts the server stops showing a status
+ * that was true five minutes ago. `SYSTEM_HEALTH_KEY` is separate from `SETTINGS_KEY` so saving
+ * the firm's name does not refetch this, and this refetching does not disturb an open form.
+ */
+export function useSystemHealth() {
+  return useQuery({
+    queryKey: SYSTEM_HEALTH_KEY,
+    queryFn: () => api<SystemHealthResponse>("/api/settings/system"),
+    refetchInterval: 30_000,
+  });
+}
+
+export interface SystemHealthResponse {
+  bootedAt: string;
+  now: string;
+  jobs: JobHealthRow[];
+}
 
 export function useSettings() {
   return useQuery({

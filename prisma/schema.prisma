@@ -309,6 +309,7 @@ model FirmProfile {
   /**
    * /**
    * /**
+   * /**
    * When the nightly notification sweep runs, as `HH:MM` in the firm's own timezone.
    * Was hardcoded at 07:00, which was a guess about when this firm's day starts. The hour is the
    * firm's to choose; the CONSTRAINT is not. It must be later than 03:20, because the task sweep
@@ -332,6 +333,7 @@ model FirmProfile {
   // fields could only ever describe one of them.
   //
   /**
+   * /**
    * /**
    * /**
    * /**
@@ -439,6 +441,7 @@ model MailSenderAccount {
    * /**
    * /**
    * /**
+   * /**
    * /** null = this mailbox is not read for bounces
    */
   imapHost       String?
@@ -459,6 +462,7 @@ model MailSenderAccount {
   // Never `\Seen`, never a moved message: this mailbox belongs to a person, and flagging their
   // mail to track our own progress would hide a bounce from them — or theirs from us.
   /**
+   * /**
    * /**
    * /**
    * /**
@@ -1640,4 +1644,37 @@ model File {
 
   @@index([clientId])
   @@index([taskId])
+}
+
+/// One row per scheduled job, holding only its LAST outcome — never a history.
+///
+/// The question this table exists to answer is "is the background work happening?", and that needs
+/// the last run, not every run. Nine rows, bounded, no retention rule of its own: a history table
+/// would need one, and would then need somebody to read it.
+///
+/// Keyed by the job's own name (`registerJob`), because that name IS its identity — the scheduler,
+/// the log and `shared/system-jobs.ts` all already agree on it, and a surrogate id would be a
+/// fourth thing to keep in step.
+///
+/// This replaces the in-memory register the notification sweep used to drain, and closes the gap
+/// that came with it: a process that crashed between a failed sweep and the morning run lost the
+/// alert (docs/modules/notifications.md §13).
+model JobHealth {
+  name           String    @id
+  /// last run that finished without throwing
+  lastOkAt       DateTime?
+  lastFailedAt   DateTime?
+  /// consecutive runs that threw. One blip is not a broken job; this is what tells them apart.
+  failStreak     Int       @default(0)
+  /// items the last run finished WITHOUT doing — a partial failure, isolated per item on purpose
+  lastSkipped    Int       @default(0)
+  lastDurationMs Int?
+  /// the job's own one-line summary, in the firm's language ("12 tasks created")
+  lastNote       String?
+  /// the last error text, for whoever has to fix it. Never the headline on screen.
+  lastError      String?
+  /// skipped items not yet reported to anybody. The notification sweep drains this and raises
+  /// `ops_sweep_failed`; zeroing it is what stops one bad night being reported every morning after.
+  unreported     Int       @default(0)
+  updatedAt      DateTime  @updatedAt
 }

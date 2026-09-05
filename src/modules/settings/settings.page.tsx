@@ -1,4 +1,4 @@
-import { Suspense, useRef, useState } from "react";
+import { Suspense, lazy, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ArrowDown, ArrowUp, Trash2 } from "lucide-react";
 import type { Priority, SourceOption } from "@shared/schema/settings";
@@ -22,6 +22,14 @@ import { SWEEP_EARLIEST_HOUR } from "@shared/notifications";
 import { NotificationPolicySection } from "@/modules/notifications";
 
 /**
+ * Lazy for the same reason the notifications section is: this tab pulls in the whole job registry
+ * and its copy, and four out of five visits to Settings are not about it.
+ */
+const SystemStatusSection = lazy(() =>
+  import("./system-status").then((m) => ({ default: m.SystemStatusSection })),
+);
+
+/**
  * Grouped by WHAT IS BEING CONFIGURED, not by which module owns the code.
  *
  * Six sections stacked in one column read as a pile — and the pile only got worse when the
@@ -34,6 +42,7 @@ const TABS = [
   { value: "lists" as const, label: "Lists" },
   { value: "invoices" as const, label: "Invoices" },
   { value: "notifications" as const, label: "Notifications" },
+  { value: "system" as const, label: "System" },
 ];
 type Tab = (typeof TABS)[number]["value"];
 
@@ -49,6 +58,8 @@ const BLURB: Record<Tab, string> = {
   lists: "The options the forms offer: task priorities, and where a client or lead came from.",
   invoices: "How invoice numbers are built, and what the next one will look like.",
   notifications: "Which notifications the firm raises at all, and by which channel.",
+  system:
+    "Whether the work the CRM does on its own — overnight and in the background — is happening.",
 };
 
 export function SettingsPage() {
@@ -133,6 +144,11 @@ export function SettingsPage() {
             <NotificationPolicySection />
           </Suspense>
         </div>
+      )}
+      {tab === "system" && (
+        <Suspense fallback={<p className="text-[13px] text-muted">Loading…</p>}>
+          <SystemStatusSection />
+        </Suspense>
       )}
     </div>
   );

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { uuid } from "./common.js";
+import { SWEEP_EARLIEST_HOUR } from "../notifications.js";
 
 export const prioritySchema = z.object({
   id: uuid,
@@ -92,8 +93,8 @@ export const updateFirmInput = z.object({
   notifySweepAt: z
     .string()
     .regex(/^([0-9]|[01][0-9]|2[0-3]):[0-5][0-9]$/, "Use HH:MM")
-    .refine((v) => Number(v.split(":")[0]) >= 4, {
-      message: "Not before 04:00 — the task and invoice sweeps have to run first",
+    .refine((v) => Number(v.split(":")[0]) >= SWEEP_EARLIEST_HOUR, {
+      message: `Not before ${String(SWEEP_EARLIEST_HOUR).padStart(2, "0")}:00 — the task and invoice sweeps have to run first`,
     })
     .optional(),
   /** how many days ahead `task_deadline_near` warns. 1 = "due tomorrow". */

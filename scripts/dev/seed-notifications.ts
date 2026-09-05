@@ -12,7 +12,7 @@
  */
 import { config } from "../../server/core/config.js";
 import { prisma } from "../../server/core/db.js";
-import { recordSweepFailure } from "../../server/core/sweep-health.js";
+import { recordJobRun } from "../../server/core/job-health.js";
 import * as tasks from "../../server/modules/tasks/tasks.service.js";
 import * as meetings from "../../server/modules/meetings/meetings.service.js";
 import { runNotificationSweep } from "../../server/modules/notifications/notifications.sweep.js";
@@ -231,7 +231,7 @@ async function main() {
   });
 
   // ops_sweep_failed — as the billing sweep would have reported it
-  recordSweepFailure("period-invoice-generation", 2);
+  await recordJobRun("period-invoice-generation", { ok: true, durationMs: 12, skipped: 2 });
 
   const swept = await runNotificationSweep();
   console.log(

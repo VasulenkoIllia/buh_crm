@@ -6,7 +6,7 @@ import { ensureBaseData } from "../../core/bootstrap.js";
 import { config } from "../../core/config.js";
 import { prisma } from "../../core/db.js";
 import { testOutbox } from "../../core/email.js";
-import { recordSweepFailure, resetSweepFailures } from "../../core/sweep-health.js";
+import { recordJobRun, resetJobHealth } from "../../core/job-health.js";
 import { purgeOldNotifications, runNotificationSweep } from "./index.js";
 
 /**
@@ -142,7 +142,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   testOutbox.length = 0;
-  resetSweepFailures();
+  await resetJobHealth();
   await prisma.notification.deleteMany();
   await prisma.notificationPreference.deleteMany();
 });
@@ -423,7 +423,9 @@ describe("the sweep", () => {
   });
 
   it("tells the firm when a generating sweep skipped work", async () => {
-    recordSweepFailure("period-invoice-generation", 3);
+    // as the scheduler would have stored it: the billing sweep FINISHED, having isolated three
+    // subscriptions it could not bill. That is a skip, not a crash, which is why the run is `ok`.
+    await recordJobRun("period-invoice-generation", { ok: true, durationMs: 12, skipped: 3 });
     await runNotificationSweep();
 
     const [row] = await rowsFor(adminId, "ops_sweep_failed");

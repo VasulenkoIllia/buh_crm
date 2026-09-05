@@ -126,6 +126,19 @@ docker compose exec -T db psql -U "$PG_USER" -d "$PG_DB" -c \
           (select count(*) from "Notification" where "readAt" is null) unread,
           (select count(*) from "NotificationPreference") personal_choices;'
 
+# Background jobs (S9.4). `failing` is the number that matters; the rest is context.
+#
+# Read it AS OF A FRESH RESTART: this process has just booted, so most jobs have not run yet and a
+# low `recorded` is normal and not a problem — nightly ones will not appear until tomorrow morning.
+# What is never normal is `failing > 0`, and `owed` is work that finished undone and has not been
+# reported to anybody yet. Both are on Settings → System in plain language; this line is here so a
+# broken job is visible without opening a browser.
+docker compose exec -T db psql -U "$PG_USER" -d "$PG_DB" -c \
+  'select (select count(*) from "JobHealth") recorded,
+          (select count(*) from "JobHealth" where "failStreak" > 0) failing,
+          (select coalesce(sum("unreported"), 0) from "JobHealth") owed,
+          (select max("lastOkAt") from "JobHealth") last_success;'
+
 # ── 5. prune orphaned uploads (reset only) ───────────────────────────────────
 # After the rebuild, so the container is running the image that HAS the script. The APP wrote
 # those files, so they belong to the container's user and a host-side `rm` gets Permission denied

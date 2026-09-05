@@ -195,8 +195,10 @@ async function resolveRecipients(
    * this way, and making it configurable would only let somebody manufacture guaranteed noise for
    * themselves.
    *
-   * `self` is the one exception, and it is not really one: `timer_left_running` is a consequence
-   * of INACTION, addressed to the person it is about by design.
+   * `self` is the one exception, and it is not really one: it means "the person this fact is
+   * ABOUT". `timer_left_running` is a consequence of INACTION; `meeting_invited` and
+   * `meeting_uninvited` are facts about you that somebody else usually causes. The test is the
+   * matched ROLE, not the trigger, so an actor who is merely a participant is still dropped.
    */
   if (ctx.actorId) {
     const asSelf = seen.get(ctx.actorId) === "self";

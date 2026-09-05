@@ -87,6 +87,15 @@ export async function registerRoutes(instance: FastifyInstance) {
     },
   );
 
+  /**
+   * Admin-only: it names every background job and the last error text each one produced, which is
+   * internal plumbing rather than anything a bookkeeper needs — and an error message is the kind
+   * of string that quotes a host or a query back at you.
+   */
+  app.get("/system", { preHandler: requireAdmin }, async () => {
+    return service.getSystemHealth();
+  });
+
   app.put("/firm/logo", { preHandler: requireAdmin }, async (request) => {
     const part = await request.file();
     if (!part) throw new ValidationError("Logo file is required");

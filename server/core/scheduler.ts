@@ -1,6 +1,7 @@
 import cron, { type ScheduledTask } from "node-cron";
 import type { FastifyBaseLogger } from "fastify";
 import { config } from "./config.js";
+import { recordJobRun, type JobRunResult } from "./job-health.js";
 
 // In-process scheduler skeleton (S0). Jobs land per stage:
 //   S6 — subscription task generation · S7 — per-period invoices
@@ -17,9 +18,14 @@ export interface SchedulerJob {
   name: string;
   /** cron expression, evaluated in the firm timezone (config.TZ). Mutable: see `rescheduleJob`. */
   cronExpr: string;
-  run: () => Promise<void>;
+  /**
+   * Returns nothing, or an outcome for the System screen — a one-line note in the firm's language
+   * and the count of items it finished without doing. Optional by design: a job that says nothing
+   * is still recorded as having run, which is the question that screen mostly answers.
+   */
+  run: () => Promise<JobRunResult>;
   /** startup catch-up for missed periods; optional for non-generating jobs */
-  catchUp?: () => Promise<void>;
+  catchUp?: () => Promise<JobRunResult>;
 }
 
 const jobs: SchedulerJob[] = [];
@@ -37,12 +43,43 @@ export function registerJob(job: SchedulerJob) {
   jobs.push(job);
 }
 
+/**
+ * Run a job once and record what happened.
+ *
+ * THE single writer of `JobHealth`, and that is the whole design: a job added next year is on the
+ * System screen without anybody remembering to instrument it. Instrumenting each job by hand is
+ * what was not done for the first nine, which is how the module ended up unable to say whether its
+ * own sweep had run (docs/modules/system.md).
+ *
+ * A job that throws is still recorded, then re-thrown into the log exactly as before — this
+ * wrapper adds a record, it does not change what a failure does.
+ */
+async function runOnce(job: SchedulerJob, log: FastifyBaseLogger): Promise<void> {
+  const started = Date.now();
+  try {
+    const outcome = await job.run();
+    await recordJobRun(job.name, {
+      ok: true,
+      durationMs: Date.now() - started,
+      note: outcome?.note,
+      skipped: outcome?.skipped,
+    });
+  } catch (err) {
+    await recordJobRun(job.name, {
+      ok: false,
+      durationMs: Date.now() - started,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    log.error({ job: job.name, err }, "scheduler job failed");
+  }
+}
+
 /** One place that turns a job into a running cron task, so start and reschedule cannot diverge. */
 function schedule(job: SchedulerJob, log: FastifyBaseLogger): ScheduledTask {
   return cron.schedule(
     job.cronExpr,
     () => {
-      job.run().catch((err) => log.error({ job: job.name, err }, "scheduler job failed"));
+      void runOnce(job, log);
     },
     // pin the firm timezone explicitly — don't rely on the container's TZ env matching
     { timezone: config.TZ },
@@ -53,10 +90,25 @@ export async function startScheduler(log: FastifyBaseLogger) {
   logger = log;
   for (const job of jobs) {
     if (job.catchUp) {
+      /**
+       * A SUCCESSFUL catch-up is deliberately not recorded: it is the boot doing the job's work
+       * for it, and stamping `lastOkAt` would make a job that has been dead for a week look
+       * healthy for as long as somebody keeps redeploying.
+       *
+       * A FAILED one is recorded, because it is a real failure of that job and hides nothing —
+       * and without it a job that breaks on boot would stay invisible until its next scheduled
+       * run, which for a nightly job is up to a day away.
+       */
+      const started = Date.now();
       try {
         await job.catchUp();
         log.info({ job: job.name }, "scheduler catch-up done");
       } catch (err) {
+        await recordJobRun(job.name, {
+          ok: false,
+          durationMs: Date.now() - started,
+          error: err instanceof Error ? err.message : String(err),
+        });
         log.error({ job: job.name, err }, "scheduler catch-up failed");
       }
     }

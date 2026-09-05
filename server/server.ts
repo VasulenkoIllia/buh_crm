@@ -7,7 +7,7 @@ import { ensureUploadsDir } from "./core/files.js";
 import { sweepCron } from "@shared/notifications.js";
 import { prisma } from "./core/db.js";
 import { registerJob, startScheduler, stopScheduler } from "./core/scheduler.js";
-import { recordSweepFailure } from "./core/sweep-health.js";
+import { plural } from "@shared/text.js";
 import { runDueCampaigns, sweepBounces, sweepStalledSends } from "./modules/mailouts/index.js";
 import {
   purgeOldNotifications,
@@ -29,18 +29,21 @@ async function main() {
   // both are idempotent and self-heal on the next successful run.
   const runGeneration = async (label: "run" | "catch-up") => {
     let created = 0;
+    let skipped = 0;
     for (const gen of [generateSubscriptionTasks, generateInternalTasks]) {
       try {
         created += (await gen()).created;
       } catch (err) {
         app.log.error({ err, sweep: gen.name }, "task generation sweep failed");
-        // ALSO recorded, not only logged: nobody reads the log, and a subscription that quietly
-        // stops producing tasks looks exactly like a subscription with nothing due (S9).
-        recordSweepFailure("subscription-task-generation");
+        // REPORTED, not only logged: nobody reads the log, and a subscription that quietly stops
+        // producing tasks looks exactly like a subscription with nothing due (S9). The scheduler
+        // stores what this returns; the System screen is where somebody finally sees it.
+        skipped++;
       }
     }
     if (label === "catch-up" && created > 0)
       app.log.info({ created }, "scheduled tasks caught up");
+    return { note: `${plural(created, "task")} created`, skipped };
   };
   registerJob({
     name: "subscription-task-generation",
@@ -52,19 +55,13 @@ async function main() {
   // S7 job #2: one invoice per subscription period, issued on the service's billing day.
   // Same idempotent sweep for the daily run and the startup catch-up (unique subscription+period).
   const runBilling = async (label: "run" | "catch-up") => {
-    try {
-      const { created, failed } = await generatePeriodInvoices();
-      if (created > 0) app.log.info({ created, label }, "period invoices issued");
-      // per-subscription failures are isolated inside the sweep; surface them so a client
-      // that silently stops being billed is visible in the logs
-      if (failed > 0) {
-        app.log.error({ failed, label }, "period invoice sweep skipped subscriptions");
-        recordSweepFailure("period-invoice-generation", failed);
-      }
-    } catch (err) {
-      app.log.error({ err }, "period invoice sweep failed");
-      recordSweepFailure("period-invoice-generation");
-    }
+    const { created, failed } = await generatePeriodInvoices();
+    if (created > 0) app.log.info({ created, label }, "period invoices issued");
+    // per-subscription failures are isolated inside the sweep; surface them so a client that
+    // silently stops being billed is visible somewhere a person looks
+    if (failed > 0)
+      app.log.error({ failed, label }, "period invoice sweep skipped subscriptions");
+    return { note: `${plural(created, "invoice")} issued`, skipped: failed };
   };
   registerJob({
     name: "period-invoice-generation",
@@ -84,17 +81,10 @@ async function main() {
   // run the next one is counted from today. A missing invoice is a missing fact worth recovering;
   // six months of newsletters arriving in one morning is not.
   const runCampaigns = async (label: "run" | "catch-up") => {
-    try {
-      const { fired, failed } = await runDueCampaigns();
-      if (fired > 0) app.log.info({ fired, label }, "campaigns sent");
-      if (failed > 0) {
-        app.log.error({ failed, label }, "campaign runs failed — still due");
-        recordSweepFailure("campaign-sends", failed);
-      }
-    } catch (err) {
-      app.log.error({ err }, "campaign sweep failed");
-      recordSweepFailure("campaign-sends");
-    }
+    const { fired, failed } = await runDueCampaigns();
+    if (fired > 0) app.log.info({ fired, label }, "campaigns sent");
+    if (failed > 0) app.log.error({ failed, label }, "campaign runs failed — still due");
+    return { note: `${plural(fired, "campaign")} sent`, skipped: failed };
   };
   registerJob({
     name: "campaign-sends",
@@ -121,10 +111,20 @@ async function main() {
     cronExpr: "*/15 * * * *",
     run: async () => {
       const results = await sweepBounces();
+      let matched = 0;
+      let unreadable = 0;
       for (const r of results) {
-        if (r.error) app.log.error({ mailbox: r.mailbox, err: r.error }, "mailbox unreadable");
-        else if (r.matched || r.retired) app.log.info({ ...r }, "delivery reports applied");
+        if (r.error) {
+          app.log.error({ mailbox: r.mailbox, err: r.error }, "mailbox unreadable");
+          unreadable++;
+        } else {
+          matched += r.matched;
+          if (r.matched || r.retired) app.log.info({ ...r }, "delivery reports applied");
+        }
       }
+      // an unreadable mailbox is a SKIP, not a crash: the other mailboxes were read fine, and
+      // `ops_mailbox_broken` already tells somebody which one it was
+      return { note: `${plural(matched, "delivery report")} applied`, skipped: unreadable };
     },
   });
 
@@ -139,6 +139,9 @@ async function main() {
   const closeStalledSends = async (label: string) => {
     const { closed } = await sweepStalledSends();
     if (closed > 0) app.log.warn({ closed, label }, "abandoned mailout rows closed as failed");
+    return {
+      note: closed > 0 ? `${plural(closed, "abandoned send")} closed` : "Nothing abandoned",
+    };
   };
   registerJob({
     name: "stalled-send-sweep",
@@ -157,10 +160,11 @@ async function main() {
    * refuses anything before 04:00. It is also when the night's sweep failures are reported, which is the only reason a
    * person hears about one.
    *
-   * `catchUp` is deliberately NOT defined, and this is the only job in the app that has none.
-   * Unlike an invoice, a missed notification has no value the next morning: "your meeting is
-   * today" is wrong by then, and `task_overdue` is raised by the next ordinary run anyway. Every
-   * other job here defines `catchUp`; this one states why it does not.
+   * `catchUp` is deliberately NOT defined. Unlike an invoice, a missed notification has no value
+   * the next morning: "your meeting is today" is wrong by then, and `task_overdue` is raised by
+   * the next ordinary run anyway. The rule across the app is that a job catches up when the work
+   * it missed still needs doing — the generating and sending jobs do; this one, the two
+   * housekeeping purges and `read-bounces` do not.
    *
    * Note for the day a second app container exists: the in-process jobs have no leader election,
    * so this would double-run. Its writes are idempotent through `dedupKey`, so the cost is
@@ -188,24 +192,23 @@ async function main() {
      * one run of the day that matters most (audit, 2026-09-06). A pass that looked at forty things
      * and wrote none of them now says exactly that.
      *
-     * `recordSweepFailure` closes the loop the same way `runBilling` above does: the module
-     * notifies somebody about its own failure instead of only writing it down. The honest caveat
-     * is that THIS sweep is what drains that register, so its own failure is reported by the next
-     * morning's run rather than today's — better than the log alone, and not as good as a place
-     * on screen. That place is the next piece of work.
+     * Partial failures are RETURNED rather than recorded here, and the scheduler stores them
+     * (`core/job-health.ts`). The module still notifies somebody about its own failure instead of
+     * only writing it down, and the honest caveat stands: THIS sweep is what drains that register,
+     * so its own failure is reported by the next morning's run rather than today's. What has
+     * changed is that the failure now also sits on the System screen, where it does not need a
+     * notification to be seen at all.
      */
     run: async () => {
-      try {
-        const { scanned, raised, alreadyRaised, failed } = await runNotificationSweep();
-        app.log.info({ scanned, raised, alreadyRaised, failed }, "notification sweep finished");
-        if (failed > 0) {
-          app.log.error({ failed, scanned }, "notification sweep could not raise everything");
-          recordSweepFailure("notification-sweep", failed);
-        }
-      } catch (err) {
-        app.log.error({ err }, "notification sweep failed");
-        recordSweepFailure("notification-sweep");
+      const { scanned, raised, alreadyRaised, failed } = await runNotificationSweep();
+      app.log.info({ scanned, raised, alreadyRaised, failed }, "notification sweep finished");
+      if (failed > 0) {
+        app.log.error({ failed, scanned }, "notification sweep could not raise everything");
       }
+      return {
+        note: `${plural(scanned, "thing")} checked, ${plural(raised, "notification")} sent`,
+        skipped: failed,
+      };
     },
   });
 
@@ -232,16 +235,15 @@ async function main() {
      * the opposite choice from the nightly pass above, and for the opposite reason.
      */
     run: async () => {
-      try {
-        const { scanned, raised, alreadyRaised, failed } = await runMeetingReminders();
-        if (raised > 0 || failed > 0) {
-          app.log.info({ scanned, raised, alreadyRaised, failed }, "meeting reminders");
-        }
-        if (failed > 0) recordSweepFailure("meeting-reminders", failed);
-      } catch (err) {
-        app.log.error({ err }, "meeting reminder pass failed");
-        recordSweepFailure("meeting-reminders");
+      const { scanned, raised, alreadyRaised, failed } = await runMeetingReminders();
+      if (raised > 0 || failed > 0) {
+        app.log.info({ scanned, raised, alreadyRaised, failed }, "meeting reminders");
       }
+      return {
+        note:
+          raised > 0 ? `${plural(raised, "reminder")} sent` : "No meeting was due a reminder",
+        skipped: failed,
+      };
     },
   });
 
@@ -256,6 +258,9 @@ async function main() {
     run: async () => {
       const { purged } = await purgeOldNotifications();
       if (purged > 0) app.log.info({ purged }, "read notifications purged");
+      return {
+        note: purged > 0 ? `${plural(purged, "old notification")} removed` : "Nothing to clear",
+      };
     },
   });
 

@@ -115,6 +115,9 @@ export async function requireAdmin(request: FastifyRequest, reply: FastifyReply)
   }
 }
 
-export async function deleteExpiredSessions() {
-  await prisma.session.deleteMany({ where: { expiresAt: { lt: new Date() } } });
+export async function deleteExpiredSessions(): Promise<number> {
+  const { count } = await prisma.session.deleteMany({
+    where: { expiresAt: { lt: new Date() } },
+  });
+  return count;
 }

@@ -13,6 +13,7 @@ import { deleteFileBytes, saveFileBytes } from "../../core/files.js";
 import { ValidationError } from "../../core/errors.js";
 import * as repo from "./settings.repository.js";
 import { config } from "../../core/config.js";
+import { processBootedAt, readJobHealth } from "../../core/job-health.js";
 
 const MAX_LOGO_SIZE = 5 * 1024 * 1024; // 5 MB
 // raster only — no SVG (can carry inline scripts → stored XSS; same rule as avatars)
@@ -168,4 +169,34 @@ export async function getLogoFile() {
   const file = await repo.findFileById(firm.logoFileId);
   if (!file) throw new NotFoundError("No logo");
   return file;
+}
+
+/**
+ * What every scheduled job did last time, for the System tab.
+ *
+ * The rows come back raw and the BROWSER decides what they mean, by joining them against
+ * `shared/system-jobs.ts` and calling `jobStatus()`. Two reasons for that split. The words are a
+ * product decision and belong in the registry both sides read, not in a server response — and a
+ * status computed here would be stale the moment it was sent, since "has not run when it should
+ * have" is a statement about the clock, and the clock keeps moving while the page is open.
+ *
+ * `bootedAt` is what stops a fresh deploy painting every nightly job red: a job that has never run
+ * on a container started twenty minutes ago is not late, it is simply not 3am yet.
+ */
+export async function getSystemHealth() {
+  const rows = await readJobHealth();
+  return {
+    bootedAt: processBootedAt().toISOString(),
+    now: new Date().toISOString(),
+    jobs: rows.map((r) => ({
+      name: r.name,
+      lastOkAt: r.lastOkAt?.toISOString() ?? null,
+      lastFailedAt: r.lastFailedAt?.toISOString() ?? null,
+      failStreak: r.failStreak,
+      lastSkipped: r.lastSkipped,
+      lastDurationMs: r.lastDurationMs,
+      lastNote: r.lastNote,
+      lastError: r.lastError,
+    })),
+  };
 }

@@ -2,6 +2,7 @@ import argon2 from "argon2";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../../app.js";
 import { prisma } from "../../core/db.js";
+import { recordJobRun, resetJobHealth } from "../../core/job-health.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 let adminCookie: string;
@@ -255,5 +256,46 @@ describe("settings — deleting a source of origin", () => {
   afterAll(async () => {
     await prisma.lead.deleteMany({ where: { name: { in: ["Sourced lead"] } } });
     await prisma.client.deleteMany({ where: { firstName: { in: ["Sourced", "Gone"] } } });
+  });
+});
+
+describe("settings — the System tab", () => {
+  it("is admin-only, because it names every job and quotes its errors", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/settings/system",
+      headers: { cookie: userCookie },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("returns every job's last outcome, plus the two clocks the screen needs", async () => {
+    await resetJobHealth();
+    await recordJobRun("campaign-sends", {
+      ok: true,
+      durationMs: 42,
+      note: "2 campaigns sent",
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/settings/system",
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+
+    // `bootedAt` and `now` are not decoration: without them the browser cannot tell a nightly job
+    // that has never run on a container started ten minutes ago from one that is a day late
+    expect(new Date(body.bootedAt).getTime()).toBeLessThanOrEqual(new Date(body.now).getTime());
+
+    const job = body.jobs.find((j: { name: string }) => j.name === "campaign-sends");
+    expect(job).toMatchObject({ lastNote: "2 campaigns sent", failStreak: 0, lastSkipped: 0 });
+    expect(job.lastOkAt).not.toBeNull();
+
+    // the screen derives the STATUS itself, from the registry and the clock — the server sends
+    // facts, so a page left open does not keep showing a verdict that has gone stale
+    expect(job).not.toHaveProperty("status");
+    await resetJobHealth();
   });
 });

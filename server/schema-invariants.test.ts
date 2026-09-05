@@ -140,6 +140,10 @@ describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
      *   • NotificationPolicy — firm configuration, like FirmProfile above: which triggers the firm
      *     has switched off is a decision they made, not client data. (The TRAY is wiped — see the
      *     DELETE in the script.)
+     *   • JobHealth — the server's record of its OWN background jobs, not the firm's data. A
+     *     reset wipes clients; it does not un-run last night's sweeps, and clearing it would make
+     *     every job on the System tab read "Has not run yet" — false, on the one screen whose
+     *     whole value is being believed.
      *   • _prisma_migrations — Prisma owns its own ledger.
      */
     const KEPT = new Set([
@@ -150,6 +154,7 @@ describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
       "MailSenderAccount",
       "NotificationPolicy",
       "NotificationPreference",
+      "JobHealth",
       "_prisma_migrations",
     ]);
 
