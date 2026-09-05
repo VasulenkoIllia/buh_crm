@@ -102,3 +102,22 @@ describe("what the System screen says about a job", () => {
     }
   });
 });
+
+describe("the words and the doors", () => {
+  it("points at a real screen, or at none — never at a vague one", () => {
+    for (const key of SYSTEM_JOB_KEYS) {
+      const fix = SYSTEM_JOBS[key].fixAt;
+      if (!fix) continue;
+      expect(fix.to, key).toMatch(/^\/[a-z]/); // an in-app route, never an external URL
+      expect(fix.label, key).not.toMatch(/^(Fix|Go|Click)/); // says where it goes, not "click here"
+    }
+  });
+
+  it("describes what the housekeeping job actually clears, now that it clears two things", () => {
+    // it purges notifications AND the activity list; saying only the first is the drift that
+    // starts every stale document
+    const spec = SYSTEM_JOBS["notifications:retention"];
+    expect(spec.whenOk).toContain("notification");
+    expect(spec.whenOk).toContain("activity");
+  });
+});

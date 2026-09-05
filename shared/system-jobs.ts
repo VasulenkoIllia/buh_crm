@@ -39,6 +39,15 @@ export interface SystemJobSpec {
   /** what goes wrong if it stops. The whole reason this screen exists. */
   whenBad: string;
   /**
+   * Where to go and DO something about it, when there is such a place.
+   *
+   * The screen is read-only, and a read-only screen that tells somebody a job is broken and not
+   * where to fix it has handed them half a job. Only set where a real screen configures the thing
+   * that broke — a vague pointer at "Billing" is worse than none. Shown only while the job is
+   * unhealthy: a door you need is help, a door you do not is clutter.
+   */
+  fixAt?: { label: string; to: string };
+  /**
    * How long after its last successful run it should start worrying somebody.
    *
    * Generous on purpose — comfortably more than one missed run. A daily job that is four hours
@@ -77,6 +86,7 @@ export const SYSTEM_JOBS: Record<SystemJobKey, SystemJobSpec> = {
     cadence: "Every hour, on the hour",
     whenOk: "Sends the campaigns whose date and time have come.",
     whenBad: "A campaign scheduled for a date simply never goes out.",
+    fixAt: { label: "Open campaigns", to: "/mailouts?tab=campaigns" },
     staleAfterMinutes: 4 * HOUR,
   },
   "read-bounces": {
@@ -94,6 +104,8 @@ export const SYSTEM_JOBS: Record<SystemJobKey, SystemJobSpec> = {
       "Mailouts keep reporting letters as delivered when they were not, and dead addresses stay " +
       "on the lists and keep being written to — which is what damages a sending domain's " +
       "reputation until real letters start landing in spam.",
+    // almost always a mailbox that stopped answering, and that is where it is configured
+    fixAt: { label: "Check the mailbox", to: "/mailouts?tab=sender" },
     staleAfterMinutes: 2 * HOUR,
   },
   "stalled-send-sweep": {
@@ -106,6 +118,7 @@ export const SYSTEM_JOBS: Record<SystemJobKey, SystemJobSpec> = {
     whenBad:
       "An interrupted mailout reads as still sending, forever. Nobody re-sends it, because " +
       "nothing says it stopped.",
+    fixAt: { label: "Open mailouts", to: "/mailouts" },
     staleAfterMinutes: 2 * HOUR,
   },
   "notification-sweep": {
@@ -116,6 +129,7 @@ export const SYSTEM_JOBS: Record<SystemJobKey, SystemJobSpec> = {
       "Checks what the passing of time has changed — deadlines coming up, meetings today, " +
       "invoices past their due day, timers left running — and tells the right people.",
     whenBad: "Nobody is warned about anything until they happen to look at it themselves.",
+    fixAt: { label: "Notification settings", to: "/settings?tab=notifications" },
     staleAfterMinutes: DAY + 12 * HOUR,
   },
   "meeting-reminders": {
@@ -124,14 +138,17 @@ export const SYSTEM_JOBS: Record<SystemJobKey, SystemJobSpec> = {
     cadence: "Every minute",
     whenOk: "Rings shortly before a meeting that was booked with a reminder.",
     whenBad: "Reminders stop arriving, and the first anyone knows is a meeting they missed.",
+    fixAt: { label: "Open the calendar", to: "/calendar" },
     staleAfterMinutes: 30,
   },
   "notifications:retention": {
     area: "housekeeping",
-    label: "Clearing old notifications",
+    label: "Clearing old records",
     cadence: "Every night, just after 4am",
-    whenOk: "Removes notifications that were read more than 90 days ago. Unread ones are kept.",
-    whenBad: "Nothing breaks; the table simply keeps growing.",
+    whenOk:
+      "Removes notifications that were read more than 90 days ago — unread ones are kept — and " +
+      "the entries older than that from the activity list below.",
+    whenBad: "Nothing breaks; the two tables simply keep growing.",
     staleAfterMinutes: DAY + 12 * HOUR,
   },
   "sessions:cleanup": {

@@ -12,6 +12,7 @@ import {
   type SystemJobKey,
 } from "@shared/system-jobs";
 import { plural } from "@shared/text";
+import { Link } from "react-router-dom";
 import { fmtDateTime } from "@/shared/lib/format";
 import { cn } from "@/shared/lib/cn";
 import { JOB_TONE_COLORS } from "@/shared/lib/colors";
@@ -200,6 +201,9 @@ function Activity({ events, now }: { events: JobEventRow[]; now: Date }) {
                   : e.note}
                 {warn ? ` · ${plural(e.skipped, "item")} skipped` : ""}
               </span>
+              <span className="text-[12px] text-muted-400 tabular-nums">
+                {duration(e.durationMs)}
+              </span>
             </div>
           );
         })}
@@ -316,7 +320,20 @@ function JobRow({
         {row && row.failStreak > 1
           ? ` · failed ${plural(row.failStreak, "time")} in a row`
           : ""}
+        {/* how long it took. Collected on every run and worth showing: a job that has quietly gone
+            from 400 ms to 40 s is the shape of a problem nothing else on this screen would name. */}
+        {row?.lastDurationMs != null ? ` · took ${duration(row.lastDurationMs)}` : ""}
       </p>
+
+      {/* only while something is wrong: a door you need is help, a door you do not is clutter */}
+      {spec.fixAt && !isHealthy(status) && (
+        <Link
+          to={spec.fixAt.to}
+          className="mt-1 inline-block text-[12px] font-medium text-primary-link hover:underline"
+        >
+          {spec.fixAt.label} →
+        </Link>
+      )}
     </div>
   );
 }
@@ -338,6 +355,13 @@ function StatusDot({ tone }: { tone: "ok" | "warn" | "bad" }) {
  * absolute after it because "3 days ago" is not something anybody can act on. `now` is passed in
  * rather than read here so every row on one render agrees with every other.
  */
+/** "412 ms" / "1.4 s" / "2 min" — the unit a person would say, not always milliseconds. */
+function duration(ms: number): string {
+  if (ms < 1_000) return `${ms} ms`;
+  if (ms < 60_000) return `${(ms / 1_000).toFixed(1)} s`;
+  return `${Math.round(ms / 60_000)} min`;
+}
+
 function relative(at: Date, now: Date): string {
   const mins = Math.round((now.getTime() - at.getTime()) / 60_000);
   if (mins < 1) return "just now";
