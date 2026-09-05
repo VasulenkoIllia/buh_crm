@@ -1046,7 +1046,12 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
             )}
             <SubtasksSection task={task} disabled={locked} />
             <FilesSection task={task} disabled={locked} />
-            <TimeLog task={task} isAdmin={isAdmin} userName={userName} />
+            <TimeLog
+              task={task}
+              isAdmin={isAdmin}
+              currentUserId={user?.id}
+              userName={userName}
+            />
             <CommentsSection
               task={task}
               currentUserId={user?.id}
@@ -1430,13 +1435,23 @@ function CommentsSection({
   );
 }
 
+/**
+ * **Your own entry, or an admin's** (2026-09-07, permissions §8).
+ *
+ * The edit and delete buttons used to show for an admin only, so a person who mistyped their own
+ * minutes had to ask one — a rule people route around. What is worth protecting is somebody
+ * ELSE'S record of their working time, and the server enforces exactly that, journalling every
+ * change. "+ Add time" stays admin: it writes an entry on another person's behalf.
+ */
 function TimeLog({
   task,
   isAdmin,
+  currentUserId,
   userName,
 }: {
   task: Task;
   isAdmin: boolean;
+  currentUserId?: string;
   userName: (id: string | null) => string;
 }) {
   const removeEntry = useDeleteTimeEntry();
@@ -1477,7 +1492,7 @@ function TimeLog({
           <span className="min-w-0 flex-1 truncate text-muted" title={e.comment ?? ""}>
             {e.comment ?? ""}
           </span>
-          {isAdmin && (
+          {(isAdmin || e.userId === currentUserId) && (
             <span className="flex flex-none gap-1">
               {e.stoppedAt !== null && (
                 <IconButton label="Edit this time entry" onClick={() => setEditEntry(e)}>

@@ -6,7 +6,7 @@ import { FormField, Input, Select, Textarea } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
 import { Segmented } from "@/shared/ui/segmented";
 import { LetterPreviewModal } from "./letter-preview-modal";
-import { useCreateTemplate, useMailSenders, useUpdateTemplate } from "./mailouts.api";
+import { useCreateTemplate, useSenderOptions, useUpdateTemplate } from "./mailouts.api";
 
 /**
  * The template editor.
@@ -27,7 +27,7 @@ export function TemplateModal({
 }) {
   const create = useCreateTemplate();
   const update = useUpdateTemplate();
-  const senders = useMailSenders();
+  const senders = useSenderOptions();
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const [lastFocused, setLastFocused] = useState<"subject" | "heading" | "body">("body");
 

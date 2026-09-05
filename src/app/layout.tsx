@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import { Suspense, useCallback } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   Archive,
@@ -14,7 +14,10 @@ import {
   UserRound,
   Users,
 } from "lucide-react";
-import { useAuth, useLogout } from "./auth";
+import type { GateKey } from "@shared/access";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAccess, useAuth, useLogout, ME_QUERY_KEY } from "./auth";
+import { useModuleClosedWatch } from "@/shared/lib/module-closed";
 import { cn } from "@/shared/lib/cn";
 import { UserAvatar } from "@/shared/ui/avatar";
 import { useSettings } from "@/modules/settings";
@@ -22,24 +25,44 @@ import { NotificationTray } from "@/modules/notifications";
 import { TimerBar } from "@/modules/tasks";
 import { FirmClock } from "./firm-clock";
 
-const NAV = [
+/**
+ * Dashboard has no gate — everybody has somewhere to land. Every other item names one, and a
+ * `closed` gate takes the item out of the sidebar entirely (`read_only` leaves it: the screen is
+ * reachable, only its buttons are gone).
+ *
+ * This used to read `adminOnly: true` on Team and Settings. It is the same rule expressed as data
+ * the firm can change, which is the whole point of the module: those two are now `team` (fixed
+ * admin, so nothing moved) and `settings` (seeded closed for a user, so nothing moved either).
+ */
+const NAV: { to: string; label: string; icon: typeof Kanban; end?: boolean; gate?: GateKey }[] = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
-  { to: "/tasks", label: "Tasks", icon: Kanban },
-  { to: "/clients", label: "Clients", icon: Users },
-  { to: "/leads", label: "Leads", icon: UserRound },
-  { to: "/billing", label: "Billing", icon: CircleDollarSign },
-  { to: "/calendar", label: "Calendar", icon: Calendar },
-  { to: "/services", label: "Services", icon: Layers },
-  { to: "/mailouts", label: "Mailouts", icon: Mail },
-  { to: "/reports", label: "Reports", icon: BarChart3 },
-  { to: "/team", label: "Team", icon: Users, adminOnly: true },
-  { to: "/archive", label: "Archive", icon: Archive },
-  { to: "/settings", label: "Settings", icon: Settings, adminOnly: true },
+  { to: "/tasks", label: "Tasks", icon: Kanban, gate: "tasks" },
+  { to: "/clients", label: "Clients", icon: Users, gate: "clients" },
+  { to: "/leads", label: "Leads", icon: UserRound, gate: "leads" },
+  { to: "/billing", label: "Billing", icon: CircleDollarSign, gate: "billing" },
+  { to: "/calendar", label: "Calendar", icon: Calendar, gate: "calendar" },
+  { to: "/services", label: "Services", icon: Layers, gate: "services" },
+  { to: "/mailouts", label: "Mailouts", icon: Mail, gate: "mailouts" },
+  { to: "/reports", label: "Reports", icon: BarChart3, gate: "reports" },
+  { to: "/team", label: "Team", icon: Users, gate: "team" },
+  { to: "/archive", label: "Archive", icon: Archive, gate: "archive" },
+  { to: "/settings", label: "Settings", icon: Settings, gate: "settings" },
 ];
 
 export function AppLayout() {
-  const { user } = useAuth();
-  const nav = NAV.filter((item) => !item.adminOnly || user?.role === "admin");
+  const access = useAccess();
+  const queryClient = useQueryClient();
+  /**
+   * One place, at the shell, because it is a fact about the SESSION rather than about any screen:
+   * refetch who this person is the moment the server says an area is closed to them. See
+   * `shared/lib/module-closed.ts`.
+   */
+  useModuleClosedWatch(
+    useCallback(() => {
+      void queryClient.invalidateQueries({ queryKey: ME_QUERY_KEY });
+    }, [queryClient]),
+  );
+  const nav = NAV.filter((item) => !item.gate || access(item.gate) !== "closed");
   return (
     <div className="flex min-h-screen">
       <aside className="flex w-56 shrink-0 flex-col bg-sidebar text-white">

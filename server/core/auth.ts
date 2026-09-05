@@ -2,7 +2,6 @@ import { createHash, randomBytes } from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { User } from "../generated/prisma/client.js";
 import { prisma } from "./db.js";
-import { ForbiddenError, UnauthorizedError } from "./errors.js";
 
 // Cookie sessions, Postgres-backed (decision 2026-07-17):
 // 30-day rolling TTL — extended on activity once less than 15 days remain.
@@ -99,21 +98,17 @@ export async function resolveUser(
   return session.user;
 }
 
-/** Route guard: requires a logged-in active user. */
-export async function requireAuth(request: FastifyRequest, reply: FastifyReply) {
-  request.currentUser = await resolveUser(request, reply);
-  if (!request.currentUser) {
-    throw new UnauthorizedError();
-  }
-}
-
-/** Route guard: requires the admin role. */
-export async function requireAdmin(request: FastifyRequest, reply: FastifyReply) {
-  await requireAuth(request, reply);
-  if (request.currentUser!.role !== "admin") {
-    throw new ForbiddenError("Admin access required");
-  }
-}
+/**
+ * There are no `requireAuth` / `requireAdmin` route guards any more.
+ *
+ * They were 46 admin guards across eight route files plus 105 auth guards, nothing enumerated
+ * them, and a new route was PUBLIC unless its author remembered one. Every route now declares
+ * what it is — `gate()`, `shared()`, `own()` or `anonymous()` — and the single `onRequest` hook in
+ * `core/access.ts` resolves the session and decides. `buildApp()` refuses to start if a route
+ * under `/api` declares nothing.
+ *
+ * `resolveUser` above is what that hook calls.
+ */
 
 export async function deleteExpiredSessions(): Promise<number> {
   const { count } = await prisma.session.deleteMany({

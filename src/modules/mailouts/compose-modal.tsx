@@ -12,7 +12,7 @@ import { Modal } from "@/shared/ui/modal";
 import { Segmented } from "@/shared/ui/segmented";
 import { RecipientPicker, toTarget } from "./recipient-picker";
 import {
-  useMailSenders,
+  useSenderOptions,
   usePreviewMailout,
   useSendMailout,
   useTemplates,
@@ -55,7 +55,7 @@ export function ComposeModal({
   presetTargets?: { companyId: string | null; name: string; email: string | null }[];
 }) {
   const templates = useTemplates();
-  const senders = useMailSenders();
+  const senders = useSenderOptions();
   const preview = usePreviewMailout();
   const send = useSendMailout();
 

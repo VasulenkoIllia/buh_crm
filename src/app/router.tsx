@@ -1,6 +1,6 @@
 import { Suspense, lazy } from "react";
 import { createBrowserRouter, Navigate, Outlet, useLocation } from "react-router-dom";
-import { AuthProvider, PublicOnly, RequireAdmin, RequireAuth } from "./auth";
+import { AuthProvider, PublicOnly, RequireAuth, RequireGate } from "./auth";
 import { AppLayout } from "./layout";
 import { ComingSoon } from "./coming-soon";
 import { ErrorScreen } from "./error-screen";
@@ -127,29 +127,36 @@ export const router = createBrowserRouter([
             path: "/",
             element: <AppLayout />,
             children: [
+              // Dashboard and Profile are never gated: everybody has somewhere to land and
+              // somewhere to change their own password.
               { index: true, element: <ComingSoon module="Dashboard" stage="S12" /> },
-              { path: "tasks", element: <TasksPage /> },
-              { path: "clients", element: <ClientsPage /> },
-              { path: "clients/:id", element: <ClientCardPage /> },
-              { path: "leads", element: <LeadsPage /> },
-              { path: "billing", element: <BillingPage /> },
+              { path: "profile", element: <ProfilePage /> },
               // the screen was called "Unpaid" until 2026-07-25 — keep old links (and any
               // bookmarks) working, query string and all
               { path: "unpaid", element: <RedirectToBilling /> },
-              { path: "calendar", element: <CalendarPage /> },
-              { path: "services", element: <ServicesPage /> },
-              { path: "mailouts", element: <MailoutsPage /> },
-              { path: "reports", element: <ComingSoon module="Reports" stage="S12" /> },
-              { path: "archive", element: <ArchivePage /> },
-              { path: "profile", element: <ProfilePage /> },
-              // admin-only (backend enforces too — this stops the page from even mounting)
+              /**
+               * Every other screen sits behind its gate. A closed one bounces to the dashboard
+               * rather than mounting and firing requests the server will refuse — see
+               * `RequireGate`. The hook in `server/core/access.ts` is the authority; this is
+               * the courtesy.
+               */
+              { element: <RequireGate gate="tasks" />, children: [{ path: "tasks", element: <TasksPage /> }] },
               {
-                element: <RequireAdmin />,
+                element: <RequireGate gate="clients" />,
                 children: [
-                  { path: "team", element: <TeamPage /> },
-                  { path: "settings", element: <SettingsPage /> },
+                  { path: "clients", element: <ClientsPage /> },
+                  { path: "clients/:id", element: <ClientCardPage /> },
                 ],
               },
+              { element: <RequireGate gate="leads" />, children: [{ path: "leads", element: <LeadsPage /> }] },
+              { element: <RequireGate gate="billing" />, children: [{ path: "billing", element: <BillingPage /> }] },
+              { element: <RequireGate gate="calendar" />, children: [{ path: "calendar", element: <CalendarPage /> }] },
+              { element: <RequireGate gate="services" />, children: [{ path: "services", element: <ServicesPage /> }] },
+              { element: <RequireGate gate="mailouts" />, children: [{ path: "mailouts", element: <MailoutsPage /> }] },
+              { element: <RequireGate gate="reports" />, children: [{ path: "reports", element: <ComingSoon module="Reports" stage="S12" /> }] },
+              { element: <RequireGate gate="archive" />, children: [{ path: "archive", element: <ArchivePage /> }] },
+              { element: <RequireGate gate="team" />, children: [{ path: "team", element: <TeamPage /> }] },
+              { element: <RequireGate gate="settings" />, children: [{ path: "settings", element: <SettingsPage /> }] },
             ],
           },
         ],

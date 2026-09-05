@@ -500,6 +500,24 @@ export const mailSenderAccountSchema = z.object({
 });
 export type MailSenderAccountDto = z.infer<typeof mailSenderAccountSchema>;
 
+/**
+ * What a From picker needs, and nothing more.
+ *
+ * The full `mailSenderStateSchema` below carries SMTP and IMAP hostnames and usernames, and three
+ * screens inside Mail-outs were reading it to fill a dropdown. This is that dropdown's shape.
+ */
+export const mailSenderOptionSchema = z.object({
+  id: uuid,
+  name: z.string(),
+  fromEmail: z.string().nullable(),
+  isDefault: z.boolean(),
+  active: z.boolean(),
+});
+export type MailSenderOption = z.infer<typeof mailSenderOptionSchema>;
+
+export const mailSenderOptionsSchema = z.object({ accounts: z.array(mailSenderOptionSchema) });
+export type MailSenderOptions = z.infer<typeof mailSenderOptionsSchema>;
+
 export const mailSenderStateSchema = z.object({
   accounts: z.array(mailSenderAccountSchema),
   /** firm-wide: one firm, one legal address, never per mailbox */

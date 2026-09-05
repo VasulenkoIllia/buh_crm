@@ -9,6 +9,7 @@ import { Tabs } from "@/shared/ui/tabs";
 import { Campaigns } from "./campaigns";
 import { ComposeModal } from "./compose-modal";
 import { MailoutDetailModal } from "./mailout-detail";
+import { useCanOpen } from "@/app/auth";
 import { SenderSettings } from "./sender-settings";
 import { DeliveryCounts } from "./mailout-detail";
 import { TemplateModal } from "./template-modal";
@@ -67,8 +68,12 @@ export function MailoutsPage() {
    * and practically did not (S9, 2026-09-05).
    */
   const [params, setParams] = useSearchParams();
+  const canOpenMailboxes = useCanOpen("mailboxes");
   const rawTab = params.get("tab");
-  const tab: Tab = TABS.some((t) => t.value === rawTab) ? (rawTab as Tab) : "log";
+  // The Sender tab is its own gate (`mailboxes`), so it leaves the strip entirely when closed —
+  // and a bookmark pointing at it lands on the log rather than on a blank panel.
+  const tabs = canOpenMailboxes ? TABS : TABS.filter((t) => t.value !== "sender");
+  const tab: Tab = tabs.some((t) => t.value === rawTab) ? (rawTab as Tab) : "log";
   const setTab = (next: Tab) =>
     setParams(
       (prev) => {
@@ -105,7 +110,7 @@ export function MailoutsPage() {
         )}
       </div>
 
-      <Tabs className="mb-4" value={tab} onChange={setTab} options={TABS} />
+      <Tabs className="mb-4" value={tab} onChange={setTab} options={tabs} />
 
       {tab === "log" && <SentLog onOpen={setOpenMailout} />}
       {tab === "campaigns" && <Campaigns newSignal={newCampaign} />}

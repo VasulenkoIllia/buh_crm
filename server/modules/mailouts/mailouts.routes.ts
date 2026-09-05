@@ -14,7 +14,7 @@ import {
   updateFirmMailInput,
   updateTemplateInput,
 } from "@shared/schema/mailouts.js";
-import { requireAdmin, requireAuth } from "../../core/auth.js";
+import { anonymous, gate } from "../../core/access.js";
 import { ValidationError } from "../../core/errors.js";
 import { readFileStream } from "../../core/files.js";
 import * as service from "./mailouts.service.js";
@@ -35,6 +35,16 @@ type UnsubscribeState = "confirm" | "done" | "invalid";
 
 export async function registerRoutes(instance: FastifyInstance) {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+
+  const mailouts = gate("mailouts");
+  /**
+   * **Its own gate, split out of Mail-outs deliberately.** Sending a letter and rewriting the
+   * credentials the firm's mail leaves from are not one privilege — and one of these accounts
+   * carries `isInvoiceSender`, so whoever holds it holds where invoices come from. Riding that on
+   * the Mail-outs switch is the only failure in this design a client would notice before the firm
+   * did.
+   */
+  const mailboxes = gate("mailboxes");
 
   // ── the public unsubscribe pages ──────────────────────────────────────────
   //
@@ -84,7 +94,7 @@ export async function registerRoutes(instance: FastifyInstance) {
       .withTypeProvider<ZodTypeProvider>()
       .get(
         "/unsubscribe/:token",
-        { schema: { params: tokenParams, querystring: unsubscribeQuery } },
+        { config: anonymous(), schema: { params: tokenParams, querystring: unsubscribeQuery } },
         async (request, reply) => {
           const [known, firmName] = await Promise.all([
             service.unsubscribeTokenExists(request.params.token),
@@ -103,7 +113,7 @@ export async function registerRoutes(instance: FastifyInstance) {
         // carries no session: the unguessable token IS the credential, and nothing an attacker
         // could forge gets them one. All the check can do here is 403 a legitimate unsubscribe
         // whose Origin is the webmail the client is reading in.
-        config: { skipOriginCheck: true },
+        config: { ...anonymous(), skipOriginCheck: true },
         schema: { params: tokenParams, querystring: unsubscribeQuery },
       },
       async (request, reply) => {
@@ -121,24 +131,24 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   // ── templates ─────────────────────────────────────────────────────────────
 
-  app.get("/templates", { preHandler: requireAuth }, async () => service.listTemplates());
+  app.get("/templates", { config: mailouts }, async () => service.listTemplates());
 
   app.post(
     "/templates",
-    { preHandler: requireAuth, schema: { body: createTemplateInput } },
+    { config: mailouts, schema: { body: createTemplateInput } },
     async (request, reply) =>
       reply.status(201).send(await service.createTemplate(request.body)),
   );
 
   app.patch(
     "/templates/:id",
-    { preHandler: requireAuth, schema: { params: idParams, body: updateTemplateInput } },
+    { config: mailouts, schema: { params: idParams, body: updateTemplateInput } },
     async (request) => service.updateTemplate(request.params.id, request.body),
   );
 
   app.delete(
     "/templates/:id",
-    { preHandler: requireAuth, schema: { params: idParams } },
+    { config: mailouts, schema: { params: idParams } },
     async (request, reply) => {
       await service.deleteTemplate(request.params.id);
       return reply.status(204).send();
@@ -151,20 +161,20 @@ export async function registerRoutes(instance: FastifyInstance) {
   // `/preview` is irrelevant (static segments differ), but it is the one the template editor uses.
   app.post(
     "/preview/letter",
-    { preHandler: requireAuth, schema: { body: previewLetterInput } },
+    { config: mailouts, schema: { body: previewLetterInput } },
     async (request) => service.previewLetter(request.body),
   );
 
   // "who will actually get this" — needs the chosen clients
   app.post(
     "/preview",
-    { preHandler: requireAuth, schema: { body: previewMailoutInput } },
+    { config: mailouts, schema: { body: previewMailoutInput } },
     async (request) => service.preview(request.body),
   );
 
   app.post(
     "/send",
-    { preHandler: requireAuth, schema: { body: sendMailoutInput } },
+    { config: mailouts, schema: { body: sendMailoutInput } },
     async (request, reply) =>
       reply.status(201).send(await service.send(request.currentUser!, request.body)),
   );
@@ -173,11 +183,11 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   app.get(
     "/",
-    { preHandler: requireAuth, schema: { querystring: mailoutListQuery } },
+    { config: mailouts, schema: { querystring: mailoutListQuery } },
     async (request) => service.list(request.query),
   );
 
-  app.get("/:id", { preHandler: requireAuth, schema: { params: idParams } }, async (request) =>
+  app.get("/:id", { config: mailouts, schema: { params: idParams } }, async (request) =>
     service.detail(request.params.id),
   );
 
@@ -186,7 +196,7 @@ export async function registerRoutes(instance: FastifyInstance) {
   app.get(
     "/clients/:clientId",
     {
-      preHandler: requireAuth,
+      config: mailouts,
       schema: { params: clientParams, querystring: mailoutListQuery },
     },
     async (request) => service.clientState(request.params.clientId, request.query),
@@ -203,7 +213,7 @@ export async function registerRoutes(instance: FastifyInstance) {
   app.get(
     "/clients/:clientId/letters/:letterId",
     {
-      preHandler: requireAuth,
+      config: mailouts,
       schema: { params: clientParams.extend({ letterId: uuid }) },
     },
     async (request) => service.clientLetter(request.params.letterId, request.params.clientId),
@@ -211,7 +221,7 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   app.patch(
     "/clients/:clientId/subscription",
-    { preHandler: requireAuth, schema: { params: clientParams, body: setSubscriptionInput } },
+    { config: mailouts, schema: { params: clientParams, body: setSubscriptionInput } },
     async (request) =>
       service.setSubscription(
         request.currentUser!,
@@ -227,7 +237,7 @@ export async function registerRoutes(instance: FastifyInstance) {
   app.post(
     "/clients/:clientId/addresses/revive",
     {
-      preHandler: requireAuth,
+      config: mailouts,
       schema: { params: clientParams, body: z.object({ email: z.string() }) },
     },
     async (request) =>
@@ -236,41 +246,58 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   // ── sender mailboxes ──────────────────────────────────────────────────────
   //
-  // Reading is open to any signed-in user (the composer must show which mailbox a send will go
-  // from); every change is admin-only, because these hold outbound credentials.
+  // The FULL state — SMTP and IMAP hostnames and usernames included — so it sits behind the
+  // `mailboxes` gate, reads and writes alike. The composer does not call this: it calls
+  // `GET /senders` below, which answers with names and addresses only, so closing the mailbox
+  // editor cannot take the From picker down with it.
 
-  app.get("/settings/senders", { preHandler: requireAuth }, async () =>
+  /**
+   * **The From picker — names and addresses, nothing else.**
+   *
+   * Added on 2026-09-07 with the gates. Three screens inside Mail-outs need to know which mailbox
+   * a send will leave from, and until now all three called the editor's endpoint, which answers
+   * with `smtpHost`, `smtpUser`, `imapHost` and `imapUser`. Closing the `mailboxes` gate would
+   * then have taken the composer down with the editor — and leaving it open means every letter
+   * anyone composes ships the firm's mail credentials to the browser to fill a dropdown.
+   *
+   * So the picker is its own read, on the Mail-outs gate. `GET /settings/senders` keeps the full
+   * state and the mailbox gate. This is the first of the narrow reference reads §9 records as
+   * stage 1.5, done here because a gate would otherwise be broken by it.
+   */
+  app.get("/senders", { config: mailouts }, async () => service.listSenderOptions());
+
+  app.get("/settings/senders", { config: mailboxes }, async () =>
     service.listSenderAccounts(),
   );
 
   app.post(
     "/settings/senders",
-    { preHandler: requireAdmin, schema: { body: senderAccountInput } },
+    { config: mailboxes, schema: { body: senderAccountInput } },
     async (request, reply) =>
       reply.status(201).send(await service.createSenderAccount(request.body)),
   );
 
   app.patch(
     "/settings/senders/:id",
-    { preHandler: requireAdmin, schema: { params: idParams, body: senderAccountInput } },
+    { config: mailboxes, schema: { params: idParams, body: senderAccountInput } },
     async (request) => service.updateSenderAccount(request.params.id, request.body),
   );
 
   app.post(
     "/settings/senders/:id/default",
-    { preHandler: requireAdmin, schema: { params: idParams } },
+    { config: mailboxes, schema: { params: idParams } },
     async (request) => service.makeSenderAccountDefault(request.params.id),
   );
 
   app.post(
     "/settings/senders/:id/invoice-sender",
-    { preHandler: requireAdmin, schema: { params: idParams } },
+    { config: mailboxes, schema: { params: idParams } },
     async (request) => service.makeInvoiceSender(request.params.id),
   );
 
   app.delete(
     "/settings/senders/:id",
-    { preHandler: requireAdmin, schema: { params: idParams } },
+    { config: mailboxes, schema: { params: idParams } },
     async (request) => service.deleteSenderAccount(request.params.id),
   );
 
@@ -278,7 +305,7 @@ export async function registerRoutes(instance: FastifyInstance) {
   // admin's own address. Admin-only — it opens an outbound connection with stored credentials.
   app.post(
     "/settings/senders/:id/test",
-    { preHandler: requireAdmin, schema: { params: idParams, body: senderTestInput } },
+    { config: mailboxes, schema: { params: idParams, body: senderTestInput } },
     async (request) =>
       service.testSenderAccount(request.currentUser!, request.params.id, request.body),
   );
@@ -291,14 +318,14 @@ export async function registerRoutes(instance: FastifyInstance) {
    */
   // Behind auth like every other upload — the letter embeds its own copy, so nothing public
   // needs to reach this.
-  app.get("/settings/mail-logo", { preHandler: requireAuth }, async (_request, reply) => {
+  app.get("/settings/mail-logo", { config: mailouts }, async (_request, reply) => {
     const file = await service.getMailLogoFile();
     reply.header("Content-Type", file.mime);
     reply.header("Cache-Control", "private, max-age=60");
     return reply.send(readFileStream(file.path));
   });
 
-  app.put("/settings/mail-logo", { preHandler: requireAdmin }, async (request) => {
+  app.put("/settings/mail-logo", { config: mailboxes }, async (request) => {
     const part = await request.file();
     if (!part) throw new ValidationError("Choose an image file");
     return service.setMailLogo(request.currentUser!, {
@@ -308,14 +335,14 @@ export async function registerRoutes(instance: FastifyInstance) {
     });
   });
 
-  app.delete("/settings/mail-logo", { preHandler: requireAdmin }, async () =>
+  app.delete("/settings/mail-logo", { config: mailboxes }, async () =>
     service.removeMailLogo(),
   );
 
   /** The firm's postal address — one address for the firm, never per mailbox. */
   app.patch(
     "/settings/firm-mail",
-    { preHandler: requireAdmin, schema: { body: updateFirmMailInput } },
+    { config: mailboxes, schema: { body: updateFirmMailInput } },
     async (request) => service.updateFirmMail(request.body),
   );
 }

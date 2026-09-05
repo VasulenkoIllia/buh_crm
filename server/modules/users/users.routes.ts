@@ -3,7 +3,8 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { inviteUserInput, updateProfileInput, updateUserInput } from "@shared/schema/user.js";
 import { uuid } from "@shared/schema/common.js";
-import { createSession, requireAdmin, requireAuth } from "../../core/auth.js";
+import { createSession } from "../../core/auth.js";
+import { gate, own, shared } from "../../core/access.js";
 import { ValidationError } from "../../core/errors.js";
 import { readFileStream } from "../../core/files.js";
 import { toPublicUser } from "../auth/index.js";
@@ -15,14 +16,14 @@ export async function registerRoutes(instance: FastifyInstance) {
   const app = instance.withTypeProvider<ZodTypeProvider>();
   // ── Team (admin) ──────────────────────────────────────────────────────────
 
-  app.get("/", { preHandler: requireAdmin }, async () => {
+  app.get("/", { config: gate("team") }, async () => {
     const users = await service.listUsers();
     return users.map(toPublicUser);
   });
 
   app.post(
     "/invites",
-    { preHandler: requireAdmin, schema: { body: inviteUserInput } },
+    { config: gate("team"), schema: { body: inviteUserInput } },
     async (request, reply) => {
       const user = await service.inviteUser(request.body, request.currentUser!);
       return reply.status(201).send(toPublicUser(user));
@@ -31,7 +32,7 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   app.post(
     "/:id/resend-invite",
-    { preHandler: requireAdmin, schema: { params: idParams } },
+    { config: gate("team"), schema: { params: idParams } },
     async (request) => {
       const user = await service.resendInvite(request.params.id, request.currentUser!);
       return toPublicUser(user);
@@ -40,7 +41,7 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   app.patch(
     "/:id",
-    { preHandler: requireAdmin, schema: { params: idParams, body: updateUserInput } },
+    { config: gate("team"), schema: { params: idParams, body: updateUserInput } },
     async (request) => {
       const user = await service.updateUser(
         request.params.id,
@@ -55,7 +56,7 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   app.patch(
     "/me",
-    { preHandler: requireAuth, schema: { body: updateProfileInput } },
+    { config: own(), schema: { body: updateProfileInput } },
     async (request, reply) => {
       const user = await service.updateProfile(request.currentUser!, request.body);
       if (request.body.newPassword) {
@@ -66,7 +67,7 @@ export async function registerRoutes(instance: FastifyInstance) {
     },
   );
 
-  app.put("/me/avatar", { preHandler: requireAuth }, async (request) => {
+  app.put("/me/avatar", { config: own() }, async (request) => {
     const part = await request.file();
     if (!part) throw new ValidationError("Avatar file is required");
     const buffer = await part.toBuffer();
@@ -81,7 +82,7 @@ export async function registerRoutes(instance: FastifyInstance) {
   // avatar bytes — auth required, streamed from the uploads volume
   app.get(
     "/:id/avatar",
-    { preHandler: requireAuth, schema: { params: idParams } },
+    { config: shared(), schema: { params: idParams } },
     async (request, reply) => {
       const file = await service.getAvatarFile(request.params.id);
       reply.header("Content-Type", file.mime);

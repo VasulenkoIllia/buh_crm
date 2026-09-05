@@ -479,6 +479,26 @@ export function deleteEntry(id: string) {
   return prisma.timeEntry.delete({ where: { id } });
 }
 
+/**
+ * The journal for a changed or deleted interval of somebody's working time.
+ *
+ * Values are SNAPSHOTTED rather than joined: `entryId` is nulled when the row itself goes, and a
+ * log that cannot say what was lost is not worth keeping. Same shape as `SecretAuditLog`.
+ */
+export function recordTimeEntryAudit(data: {
+  entryId: string | null;
+  taskId: string;
+  userId: string;
+  byUserId: string;
+  action: "updated" | "deleted";
+  wasSeconds: number | null;
+  wasComment: string | null;
+  nowSeconds?: number | null;
+  nowComment?: string | null;
+}) {
+  return prisma.timeEntryAuditLog.create({ data });
+}
+
 // ── the generation sweeps (scheduler job #1) ─────────────────────────────────
 
 /** What every generated task needs: the default priority and the fixed entry column. */

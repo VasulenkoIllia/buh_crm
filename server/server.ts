@@ -15,6 +15,7 @@ import {
   runMeetingReminders,
   runNotificationSweep,
 } from "./modules/notifications/index.js";
+import { closedGateCount, unenforceableGates } from "./core/access.js";
 import { generatePeriodInvoices } from "./modules/payments/index.js";
 import { generateInternalTasks, generateSubscriptionTasks } from "./modules/tasks/index.js";
 
@@ -24,6 +25,25 @@ async function main() {
   await ensureUploadsDir();
   await ensureBaseData();
   await ensureBootstrapAdmin(app.log);
+
+  /**
+   * **Rows that say `closed` while nothing can enforce them.**
+   *
+   * Seeding real access states is the one irreversible step of the access rollout: roll back to an
+   * image that predates a gate and its policy rows survive, so the firm believes an area is shut
+   * while it is quietly open. Nothing else would ever report that — a stale row looks exactly like
+   * a current one — so the server says so on the way up, every boot, at `error` level.
+   */
+  const orphaned = await unenforceableGates();
+  if (orphaned.length > 0) {
+    app.log.error(
+      { gates: orphaned },
+      "access policy rows name gates this build cannot enforce — those areas are OPEN. Deploy a " +
+        "build that knows them, or delete the rows.",
+    );
+  }
+  const closedGates = await closedGateCount();
+  app.log.info({ closedGates }, "access policy loaded");
 
   // S6 job #1: subscription + internal templates → tasks on the rhythm day; catch-up = same sweep.
   // Each sweep is fault-isolated — one failing (e.g. a transient DB error) must not skip the other;

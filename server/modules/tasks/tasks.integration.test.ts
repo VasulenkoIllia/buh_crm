@@ -59,6 +59,7 @@ async function makeClient(first: string): Promise<string> {
 
 beforeAll(async () => {
   app = await buildApp();
+  await prisma.timeEntryAuditLog.deleteMany();
   await prisma.timeEntry.deleteMany();
   await prisma.subtask.deleteMany();
   await prisma.taskAssignee.deleteMany();
@@ -91,6 +92,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await prisma.timeEntryAuditLog.deleteMany();
   await prisma.timeEntry.deleteMany();
   await prisma.subtask.deleteMany();
   await prisma.taskAssignee.deleteMany();
@@ -1701,15 +1703,32 @@ describe("tasks", () => {
     expect(stop.statusCode).toBe(200);
     expect((await app.inject({ method: "GET", url: "/api/tasks/timer/active", headers: { cookie: userCookie } })).json()).toBeNull();
 
-    // plain users can't touch entries; admin has full management
+    /**
+     * **Own entry or an admin, and every change journalled** (2026-09-07, permissions §8).
+     *
+     * This block used to assert that a plain user got 403 on their OWN row: editing time was
+     * admin-only, so somebody who mistyped their minutes had to find an admin. That is a rule
+     * people route around. What is worth protecting is somebody ELSE'S record of their working
+     * time, which is an ownership question — and it could only open because the journal below
+     * ships in the same release.
+     */
     const entry = await prisma.timeEntry.findFirstOrThrow({ where: { taskId: taskB, userId } });
-    const userEdit = await app.inject({
+    const ownEdit = await app.inject({
       method: "PATCH",
       url: `/api/tasks/time/${entry.id}`,
       headers: { cookie: userCookie },
-      payload: { minutes: 30 },
+      payload: { minutes: 20, comment: "Mistyped my own minutes" },
     });
-    expect(userEdit.statusCode).toBe(403);
+    expect(ownEdit.statusCode).toBe(200);
+    const ownJournal = await prisma.timeEntryAuditLog.findFirstOrThrow({
+      where: { entryId: entry.id, action: "updated" },
+    });
+    expect(ownJournal).toMatchObject({
+      byUserId: userId,
+      userId,
+      nowSeconds: 1200,
+      nowComment: "Mistyped my own minutes",
+    });
 
     const adminEdit = await app.inject({
       method: "PATCH",
@@ -1720,6 +1739,12 @@ describe("tasks", () => {
     expect(adminEdit.statusCode).toBe(200);
     const edited = adminEdit.json().timeEntries.find((e: { id: string }) => e.id === entry.id);
     expect(edited.seconds).toBe(1800);
+    // the admin's correction is journalled too, and says what it replaced
+    expect(
+      await prisma.timeEntryAuditLog.findFirst({
+        where: { entryId: entry.id, byUserId: adminId },
+      }),
+    ).toMatchObject({ wasSeconds: 1200, nowSeconds: 1800, userId });
 
     const manual = await app.inject({
       method: "POST",
@@ -1732,13 +1757,50 @@ describe("tasks", () => {
     expect(manualEntry).toMatchObject({ seconds: 2700, createdById: adminId, userId });
     expect(manual.json().trackedSeconds).toBe(1800 + 2700);
 
+    /**
+     * Somebody ELSE'S entry is still refused — the half of the old rule that was worth keeping.
+     * The manual entry above belongs to the plain user, so here the admin adds one of their own
+     * for the plain user to fail on.
+     */
+    const adminsOwn = await app.inject({
+      method: "POST",
+      url: `/api/tasks/${taskB}/time`,
+      headers: { cookie: adminCookie },
+      payload: { userId: adminId, minutes: 15, comment: "My own call", date: "2026-07-20" },
+    });
+    expect(adminsOwn.statusCode).toBe(201);
+    const adminEntry = adminsOwn
+      .json()
+      .timeEntries.find((e: { userId: string }) => e.userId === adminId);
+    const otherEdit = await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/time/${adminEntry.id}`,
+      headers: { cookie: userCookie },
+      payload: { minutes: 90 },
+    });
+    expect(otherEdit.statusCode).toBe(403);
+    expect(otherEdit.json().error.code).toBe("forbidden");
+    const otherDelete = await app.inject({
+      method: "DELETE",
+      url: `/api/tasks/time/${adminEntry.id}`,
+      headers: { cookie: userCookie },
+    });
+    expect(otherDelete.statusCode).toBe(403);
+
     const removed = await app.inject({
       method: "DELETE",
       url: `/api/tasks/time/${manualEntry.id}`,
       headers: { cookie: adminCookie },
     });
     expect(removed.statusCode).toBe(200);
-    expect(removed.json().trackedSeconds).toBe(1800);
+    expect(removed.json().trackedSeconds).toBe(1800 + 900);
+    /**
+     * A deleted entry keeps a readable history: `entryId` is null because the row it named is
+     * gone, and the snapshot is the only remaining record of what it held.
+     */
+    expect(
+      await prisma.timeEntryAuditLog.findFirstOrThrow({ where: { action: "deleted" } }),
+    ).toMatchObject({ entryId: null, wasSeconds: 2700, byUserId: adminId, userId });
   });
 
   // ── dragging a card up and down inside its column (2026-08-26) ────────────

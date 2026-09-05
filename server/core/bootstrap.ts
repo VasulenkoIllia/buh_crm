@@ -1,6 +1,7 @@
 import argon2 from "argon2";
 import { NOTIFICATION_TRIGGERS } from "@shared/notifications.js";
 import { prisma } from "./db.js";
+import { ensureAccessPolicies } from "./access.js";
 import { config } from "./config.js";
 
 // Startup bootstrap — makes a fresh (production) database usable out of the box:
@@ -63,6 +64,16 @@ export async function ensureBaseData() {
   });
 
   await ensureNotificationPolicies();
+
+  /**
+   * One access row per (gate, role), from the registry in `shared/access.ts`.
+   *
+   * Seeded like the policies above, and never rewritten: a gate the firm has closed stays closed
+   * across every deploy, and a gate a later release adds arrives at its own default rather than
+   * shut. The rows it writes on the first boot after the access release reproduce exactly what the
+   * 46 `requireAdmin` guards were doing the day before.
+   */
+  await ensureAccessPolicies();
 
   await ensureDefaultMailbox();
 }

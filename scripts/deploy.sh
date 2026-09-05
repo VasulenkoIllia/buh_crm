@@ -139,6 +139,18 @@ docker compose exec -T db psql -U "$PG_USER" -d "$PG_DB" -c \
           (select coalesce(sum("unreported"), 0) from "JobHealth") owed,
           (select max("lastOkAt") from "JobHealth") last_success;'
 
+# Access (S14). `policies 0` means the boot seeding did not run and EVERY area is wide open, which
+# looks identical to a firm that has deliberately opened everything — only this line tells them
+# apart. `closed` is what the firm has actually shut, and it is the number to check after a
+# rollback: rolling back to an image that predates a gate leaves its rows saying `closed` while
+# nothing enforces them, so an area the firm believes is shut is quietly open. The app also says so
+# in its boot log, at error level.
+docker compose exec -T db psql -U "$PG_USER" -d "$PG_DB" -c \
+  'select (select count(*) from "AccessPolicy") policies,
+          (select count(*) from "AccessPolicy" where state <> '"'"'open'"'"') closed_or_readonly,
+          (select count(*) from "AccessOverride") personal_exceptions,
+          (select count(*) from "UserRoleAuditLog") role_changes;'
+
 # ── 5. prune orphaned uploads (reset only) ───────────────────────────────────
 # After the rebuild, so the container is running the image that HAS the script. The APP wrote
 # those files, so they belong to the container's user and a host-side `rm` gets Permission denied

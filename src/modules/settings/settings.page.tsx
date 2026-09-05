@@ -2,7 +2,8 @@ import { Suspense, lazy, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ArrowDown, ArrowUp, Trash2 } from "lucide-react";
 import type { Priority, SourceOption } from "@shared/schema/settings";
-import { useAuth } from "@/app/auth";
+import type { GateKey } from "@shared/access";
+import { useAccess, useCanOpen } from "@/app/auth";
 import { ApiError } from "@/shared/lib/api";
 import { Button, IconButton } from "@/shared/ui/button";
 import { firmZoneAbbr } from "@/shared/lib/tz";
@@ -28,6 +29,10 @@ import { NotificationPolicySection } from "@/modules/notifications";
 const SystemStatusSection = lazy(() =>
   import("./system-status").then((m) => ({ default: m.SystemStatusSection })),
 );
+// the access grid is a table nobody opens most days — lazy for the same reason System is
+const AccessSection = lazy(() =>
+  import("./access-section").then((m) => ({ default: m.AccessSection })),
+);
 
 /**
  * Grouped by WHAT IS BEING CONFIGURED, not by which module owns the code.
@@ -37,14 +42,18 @@ const SystemStatusSection = lazy(() =>
  * boring: the firm's own identity, the option lists every form offers, invoice numbering, and
  * notifications. Anyone looking for a setting can guess which of the four it is in.
  */
-const TABS = [
+type Tab = "firm" | "lists" | "invoices" | "notifications" | "system" | "access";
+
+const TABS: { value: Tab; label: string; gate?: GateKey }[] = [
   { value: "firm" as const, label: "Firm" },
   { value: "lists" as const, label: "Lists" },
   { value: "invoices" as const, label: "Invoices" },
-  { value: "notifications" as const, label: "Notifications" },
+  { value: "notifications" as const, label: "Notifications", gate: "notification_rules" as const },
   { value: "system" as const, label: "System" },
+  // whoever manages people manages their access — the tab is the Team gate, never its own switch
+  { value: "access" as const, label: "Access", gate: "team" as const },
 ];
-type Tab = (typeof TABS)[number]["value"];
+
 
 /**
  * One line each, and one line is the point — the same lesson `mailouts.page.tsx` records.
@@ -58,12 +67,14 @@ const BLURB: Record<Tab, string> = {
   lists: "The options the forms offer: task priorities, and where a client or lead came from.",
   invoices: "How invoice numbers are built, and what the next one will look like.",
   notifications: "Which notifications the firm raises at all, and by which channel.",
+  access: "What each person may open, and what they may change. Nothing else in the app decides it.",
   system:
     "Whether the work the CRM does on its own — overnight and in the background — is happening.",
 };
 
 export function SettingsPage() {
-  const { user } = useAuth();
+  const canOpen = useCanOpen("settings");
+  const access = useAccess();
   const { data, isLoading, error } = useSettings();
   /**
    * The tab lives in the URL so it can be LINKED. Notifications point people at settings, and a
@@ -72,7 +83,9 @@ export function SettingsPage() {
    */
   const [params, setParams] = useSearchParams();
   const raw = params.get("tab");
-  const tab: Tab = TABS.some((t) => t.value === raw) ? (raw as Tab) : "firm";
+  // a tab whose gate is closed leaves the strip; a link pointing at it lands on Firm
+  const tabs = TABS.filter((t) => !t.gate || access(t.gate) !== "closed");
+  const tab: Tab = tabs.some((t) => t.value === raw) ? (raw as Tab) : "firm";
   const setTab = (next: Tab) =>
     setParams(
       (prev) => {
@@ -85,8 +98,13 @@ export function SettingsPage() {
       { replace: true },
     );
 
-  if (user?.role !== "admin") {
-    return <p className="text-[13px] text-muted">Only admins can change settings.</p>;
+  /**
+   * The screen is the `settings` gate now, not the admin role — seeded `closed` for a plain user,
+   * which is what `RequireAdmin` on the route did. `RequireGate` already bounced them; this is the
+   * belt to that braces, for a gate closed while the screen is open.
+   */
+  if (!canOpen) {
+    return <p className="text-[13px] text-muted">This area is closed for your account.</p>;
   }
   if (isLoading) return <p className="text-[13px] text-muted">Loading…</p>;
   if (error || !data)
@@ -99,7 +117,7 @@ export function SettingsPage() {
         <span className="text-[13px] text-muted-400">{BLURB[tab]}</span>
       </div>
 
-      <Tabs className="mb-4" value={tab} onChange={setTab} options={TABS} />
+      <Tabs className="mb-4" value={tab} onChange={setTab} options={tabs} />
 
       {/* the forms stay in a narrow column — a name field the width of the screen is not a
           better name field. Notifications is the exception and takes the full width. */}
@@ -148,6 +166,11 @@ export function SettingsPage() {
       {tab === "system" && (
         <Suspense fallback={<p className="text-[13px] text-muted">Loading…</p>}>
           <SystemStatusSection />
+        </Suspense>
+      )}
+      {tab === "access" && (
+        <Suspense fallback={<p className="text-[13px] text-muted">Loading…</p>}>
+          <AccessSection />
         </Suspense>
       )}
     </div>

@@ -1,4 +1,4 @@
-import type { Prisma } from "../../generated/prisma/client.js";
+import type { Prisma, UserRole } from "../../generated/prisma/client.js";
 import { prisma } from "../../core/db.js";
 
 export function listUsers() {
@@ -68,4 +68,14 @@ export function findFileById(id: string) {
 
 export function deleteFileRow(id: string) {
   return prisma.file.delete({ where: { id } });
+}
+
+/** Who changed whose role, from what to what. See `updateUser` for why this exists. */
+export function recordRoleChange(data: {
+  userId: string;
+  byUserId: string;
+  fromRole: UserRole;
+  toRole: UserRole;
+}) {
+  return prisma.userRoleAuditLog.create({ data });
 }

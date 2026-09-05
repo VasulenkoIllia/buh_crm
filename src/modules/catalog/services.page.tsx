@@ -5,8 +5,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { rhythmValid } from "@shared/schema/catalog";
 import type { Service, TaskTemplate } from "@shared/schema/catalog";
-import { useAuth } from "@/app/auth";
-import { useUsers } from "@/modules/users";
+import { useCanEdit } from "@/app/auth";
+import { useAssignees } from "@/modules/tasks";
 import { ApiError } from "@/shared/lib/api";
 import { CATEGORY_PALETTE } from "@/shared/lib/colors";
 import { cn } from "@/shared/lib/cn";
@@ -78,8 +78,15 @@ function ruleSummary(
 }
 
 export function ServicesPage() {
-  const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  /**
+   * Editing the catalog is the `services` gate, not the admin role.
+   *
+   * `isAdmin` is kept as the variable name through the tree below so the diff stays readable —
+   * what changed is where the answer comes from. It is seeded `read_only` for a plain user, which
+   * is exactly what the role check did, and the firm can now open it without anybody becoming an
+   * administrator of everything else.
+   */
+  const isAdmin = useCanEdit("services");
   const { data: services, isLoading, error } = useCatalog();
   const updateService = useUpdateService();
   const deleteService = useDeleteService();
@@ -842,7 +849,15 @@ function TaskTemplateModal({
 }) {
   const add = useAddTemplate();
   const update = useUpdateTemplate();
-  const { data: users } = useUsers();
+  /**
+   * The assignee picker reads the TASKS directory, not `GET /api/users`.
+   *
+   * It called the admin-only team endpoint unconditionally on mount and never failed, because
+   * every button that opens this modal was admin-gated too. That is no longer true — the firm can
+   * open Services to a bookkeeper — and the two endpoints answer the same question anyway:
+   * `/api/tasks/assignees` is the directory every other picker in the app already uses.
+   */
+  const { data: users } = useAssignees();
   // one-time service = job presets: always "once", no rhythm (self-heals stray legacy rows)
   const isOneTime = service.type === "one_time";
   // internal templates also carry a description + default assignees (seeded onto generated tasks)

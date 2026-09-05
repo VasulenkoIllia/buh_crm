@@ -36,6 +36,7 @@ import type {
   MailoutPreviewRow,
   MailoutTarget,
   MailSenderAccountDto,
+  MailSenderOptions,
   MailSenderState,
   LetterPreview,
   PreviewLetterInput,
@@ -469,6 +470,25 @@ function toSenderAccount(account: SenderAccount, firm: FirmProfile): MailSenderA
       ? `${account.smtpHost}:${account.smtpPort}${account.smtpUser ? ` as ${account.smtpUser}` : ""}`
       : `${config.SMTP_HOST}:${config.SMTP_PORT} (the server's own mailbox)`,
     checks: accountChecks(account, firm),
+  };
+}
+
+/**
+ * The From picker's read — the mailboxes a letter may leave from, by name and address.
+ *
+ * Deliberately NOT `listSenderAccounts()` with fields dropped at the call site: the credentials
+ * must not leave the server at all for a dropdown. See the route for why this exists.
+ */
+export async function listSenderOptions(): Promise<MailSenderOptions> {
+  const accounts = await repo.listSenderAccounts();
+  return {
+    accounts: accounts.map((a) => ({
+      id: a.id,
+      name: a.name,
+      fromEmail: a.fromEmail,
+      isDefault: a.isDefault,
+      active: a.active,
+    })),
   };
 }
 

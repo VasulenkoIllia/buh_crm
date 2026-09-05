@@ -13,7 +13,7 @@ import {
   Trash2,
 } from "lucide-react";
 import type { MailSenderAccountDto, SenderTestResult } from "@shared/schema/mailouts";
-import { useAuth } from "@/app/auth";
+import { useCanEdit } from "@/app/auth";
 import { cn } from "@/shared/lib/cn";
 import { Button, IconButton } from "@/shared/ui/button";
 import { SenderAccountModal } from "./sender-account-modal";
@@ -38,8 +38,13 @@ import {
  * where nine fields are the point rather than the noise.
  */
 export function SenderSettings() {
-  const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  /**
+   * Rewriting the credentials the firm's mail leaves from is the `mailboxes` gate, not the admin
+   * role. Seeded `read_only` for a plain user — which is exactly what the role check did, down to
+   * the sentence at the bottom of this screen — and now a switch the firm can close, which is the
+   * thing worth doing here: one of these mailboxes decides where invoices come from.
+   */
+  const isAdmin = useCanEdit("mailboxes");
   const { data, isLoading } = useMailSenders();
   const [editing, setEditing] = useState<MailSenderAccountDto | null>(null);
   const [creating, setCreating] = useState(false);
@@ -91,7 +96,7 @@ export function SenderSettings() {
         </div>
       )}
 
-      {!isAdmin && <p className="text-[12px] text-faint">Only an admin can change these.</p>}
+      {!isAdmin && <p className="text-[12px] text-faint">You can read these but not change them.</p>}
 
       <SenderAccountModal
         open={creating}

@@ -9,6 +9,7 @@ import type {
   MailoutDetail,
   MailoutList,
   MailoutPreview,
+  MailSenderOptions,
   MailSenderState,
   PreviewLetterInput,
   SenderTestResult,
@@ -198,6 +199,26 @@ export function useSetSubscription(clientId: string) {
 }
 
 // ── sender mailboxes ─────────────────────────────────────────────────────────
+
+/**
+ * **The From picker's read — names and addresses, nothing else.**
+ *
+ * The composer, the template editor and the campaign editor all need to know which mailbox a send
+ * will leave from. They used to call `useMailSenders()` below, which answers with the mailbox
+ * EDITOR's payload: SMTP and IMAP hostnames, usernames, the lot. Two consequences, both real —
+ * closing the `mailboxes` gate would have taken the composer down with the editor, and leaving it
+ * open ships the firm's mail credentials to every browser that opens a compose window.
+ *
+ * So the picker has its own endpoint, on the Mail-outs gate. `useMailSenders` stays for the Sender
+ * screen, which is what the mailbox gate is actually about.
+ */
+export function useSenderOptions() {
+  return useQuery({
+    queryKey: [...SENDER_KEY, "options"],
+    queryFn: () => api<MailSenderOptions>("/api/mailouts/senders"),
+    staleTime: 5 * 60 * 1000,
+  });
+}
 
 export function useMailSenders() {
   return useQuery({

@@ -11,11 +11,14 @@ import {
   validatorCompiler,
   type ZodTypeProvider,
 } from "fastify-type-provider-zod";
-import { config, isDev, isProd } from "./core/config.js";
+import { config, isDev, isProd, isTest } from "./core/config.js";
 import { SESSION_COOKIE } from "./core/auth.js";
 import { loadFirmName } from "./core/firm.js";
 import { staticCacheControl } from "./core/static-cache.js";
 import { errorHandler } from "./core/errors.js";
+import { accessHook, anonymous } from "./core/access.js";
+import { collectRouteInventory, type RouteRecord } from "./core/route-inventory.js";
+import { accessModule } from "./modules/access/index.js";
 import { authModule } from "./modules/auth/index.js";
 import { catalogModule } from "./modules/catalog/index.js";
 import { clientsModule } from "./modules/clients/index.js";
@@ -30,6 +33,13 @@ import { usersModule } from "./modules/users/index.js";
 
 // Build the Fastify instance: core plugins + module registration.
 // Modules are Fastify plugins registered here explicitly (no autoload magic).
+
+declare module "fastify" {
+  interface FastifyInstance {
+    /** every route this build answers — see core/route-inventory.ts */
+    routeInventory: RouteRecord[];
+  }
+}
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
@@ -114,7 +124,16 @@ export async function buildApp() {
    * session to be counted by.
    */
   await app.register(rateLimit, {
-    max: 300,
+    /**
+     * Raised out of the way under test, exactly as the credential routes do it
+     * (`auth.routes.ts`: `isTest ? 1000 : 10`). What the suite checks about this plugin is that the
+     * budget belongs to a SESSION rather than an address, and it checks it by comparing
+     * `x-ratelimit-remaining` between two cookies — which a higher ceiling does not affect. What a
+     * 300 ceiling DOES affect is any suite that walks the whole API: the access matrix fires some
+     * 900 requests through one session, and a 429 halfway through would look like an access
+     * failure and be debugged as one.
+     */
+    max: isTest ? 100_000 : 300,
     timeWindow: "1 minute",
     keyGenerator: (request) => {
       const raw = request.cookies?.[SESSION_COOKIE];
@@ -153,7 +172,22 @@ export async function buildApp() {
     return deny();
   });
 
-  app.get("/health", async () => ({
+  /**
+   * **The inventory collector, and the one hook that decides access.**
+   *
+   * Both sit here, at the root, before a single module is registered — `onRoute` fires only for
+   * routes added after it in the same context, and an access hook per module could never be "the
+   * whole truth" the way one at the root is. The collector doubles as the guard against a route
+   * that declares nothing: it throws, so the server does not start.
+   *
+   * `onRequest` rather than `preHandler` is deliberate. It runs BEFORE body parsing, so somebody
+   * whose gate is closed is refused before a 25 MB multipart upload is read off the wire.
+   */
+  const routes = collectRouteInventory(app);
+  app.decorate("routeInventory", routes);
+  app.addHook("onRequest", accessHook);
+
+  app.get("/health", { config: anonymous() }, async () => ({
     status: "ok",
     app: config.APP_NAME,
     timestamp: new Date().toISOString(),
@@ -171,6 +205,7 @@ export async function buildApp() {
   await app.register(meetingsModule, { prefix: "/api/calendar" }); // S8
   await app.register(notificationsModule, { prefix: "/api/notifications" }); // S9
   await app.register(mailoutsModule, { prefix: "/api/mailouts" }); // S10
+  await app.register(accessModule, { prefix: "/api/access" }); // S14 — who may open what
 
   // ── Serve the built SPA in production (single-container: API + web) ────────
   // Vite builds the frontend into ./dist; this app serves it and falls back to

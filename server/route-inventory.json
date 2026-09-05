@@ -1,0 +1,1166 @@
+[
+  {
+    "method": "GET",
+    "url": "/api/access",
+    "access": "gate:team"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/access",
+    "access": "gate:team",
+    "derived": true
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/access/",
+    "access": "gate:team",
+    "derived": true
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/access/overrides/:userId/:gate",
+    "access": "gate:team"
+  },
+  {
+    "method": "PUT",
+    "url": "/api/access/overrides/:userId/:gate",
+    "access": "gate:team"
+  },
+  {
+    "method": "PUT",
+    "url": "/api/access/policies/:gate/:role",
+    "access": "gate:team"
+  },
+  {
+    "method": "POST",
+    "url": "/api/auth/accept-invite",
+    "access": "anonymous"
+  },
+  {
+    "method": "POST",
+    "url": "/api/auth/forgot-password",
+    "access": "anonymous"
+  },
+  {
+    "method": "POST",
+    "url": "/api/auth/login",
+    "access": "anonymous"
+  },
+  {
+    "method": "POST",
+    "url": "/api/auth/logout",
+    "access": "anonymous"
+  },
+  {
+    "method": "GET",
+    "url": "/api/auth/me",
+    "access": "own"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/auth/me",
+    "access": "own",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/auth/reset-password",
+    "access": "anonymous"
+  },
+  {
+    "method": "GET",
+    "url": "/api/calendar",
+    "access": "gate:calendar"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/calendar",
+    "access": "gate:calendar",
+    "derived": true
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/calendar/",
+    "access": "gate:calendar",
+    "derived": true
+  },
+  {
+    "method": "GET",
+    "url": "/api/calendar/conflicts",
+    "access": "gate:calendar"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/calendar/conflicts",
+    "access": "gate:calendar",
+    "derived": true
+  },
+  {
+    "method": "GET",
+    "url": "/api/calendar/for",
+    "access": "gate:calendar"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/calendar/for",
+    "access": "gate:calendar",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/calendar/meetings",
+    "access": "gate:calendar"
+  },
+  {
+    "method": "GET",
+    "url": "/api/calendar/meetings/:id",
+    "access": "gate:calendar"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/calendar/meetings/:id",
+    "access": "gate:calendar",
+    "derived": true
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/calendar/meetings/:id",
+    "access": "gate:calendar"
+  },
+  {
+    "method": "GET",
+    "url": "/api/catalog",
+    "access": "shared"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/catalog",
+    "access": "shared",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/catalog",
+    "access": "gate:services"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/catalog/",
+    "access": "shared",
+    "derived": true
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/catalog/:id",
+    "access": "gate:services"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/catalog/:id",
+    "access": "gate:services"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/catalog/:id/position",
+    "access": "gate:services"
+  },
+  {
+    "method": "POST",
+    "url": "/api/catalog/:id/tasks",
+    "access": "gate:services"
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/catalog/:id/tasks/:templateId",
+    "access": "gate:services"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/catalog/:id/tasks/:templateId",
+    "access": "gate:services"
+  },
+  {
+    "method": "GET",
+    "url": "/api/clients",
+    "access": "shared"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/clients",
+    "access": "shared",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/clients",
+    "access": "gate:clients"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/clients/",
+    "access": "shared",
+    "derived": true
+  },
+  {
+    "method": "GET",
+    "url": "/api/clients/:id",
+    "access": "shared"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/clients/:id",
+    "access": "shared",
+    "derived": true
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/clients/:id",
+    "access": "gate:clients"
+  },
+  {
+    "method": "POST",
+    "url": "/api/clients/:id/archive",
+    "access": "gate:clients"
+  },
+  {
+    "method": "GET",
+    "url": "/api/clients/:id/files",
+    "access": "gate:clients"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/clients/:id/files",
+    "access": "gate:clients",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/clients/:id/files",
+    "access": "gate:clients"
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/clients/:id/files/:fileId",
+    "access": "gate:clients"
+  },
+  {
+    "method": "GET",
+    "url": "/api/clients/:id/files/:fileId",
+    "access": "gate:clients"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/clients/:id/files/:fileId",
+    "access": "gate:clients",
+    "derived": true
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/clients/:id/pin",
+    "access": "gate:clients"
+  },
+  {
+    "method": "PUT",
+    "url": "/api/clients/:id/pin",
+    "access": "gate:clients"
+  },
+  {
+    "method": "POST",
+    "url": "/api/clients/:id/restore",
+    "access": "gate:clients"
+  },
+  {
+    "method": "GET",
+    "url": "/api/clients/:id/secrets",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/clients/:id/secrets",
+    "access": "gate:secrets",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/clients/:id/secrets",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/clients/:id/secrets/:secretId",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/clients/:id/secrets/:secretId",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "POST",
+    "url": "/api/clients/:id/secrets/:secretId/reveal",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "GET",
+    "url": "/api/clients/:id/secrets/audit",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/clients/:id/secrets/audit",
+    "access": "gate:secrets",
+    "derived": true
+  },
+  {
+    "method": "GET",
+    "url": "/api/clients/:id/secrets/grant",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/clients/:id/secrets/grant",
+    "access": "gate:secrets",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/clients/:id/secrets/unlock",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "POST",
+    "url": "/api/clients/:id/subscriptions",
+    "access": "gate:clients"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/clients/:id/subscriptions/:subId",
+    "access": "gate:clients"
+  },
+  {
+    "method": "POST",
+    "url": "/api/clients/:id/subscriptions/:subId/pause",
+    "access": "gate:clients"
+  },
+  {
+    "method": "POST",
+    "url": "/api/clients/:id/subscriptions/:subId/resume",
+    "access": "gate:clients"
+  },
+  {
+    "method": "GET",
+    "url": "/api/invoices",
+    "access": "gate:billing"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/invoices",
+    "access": "gate:billing",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/invoices",
+    "access": "gate:billing"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/invoices/",
+    "access": "gate:billing",
+    "derived": true
+  },
+  {
+    "method": "GET",
+    "url": "/api/invoices/:id",
+    "access": "gate:billing"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/invoices/:id",
+    "access": "gate:billing",
+    "derived": true
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/invoices/:id",
+    "access": "gate:billing:admin"
+  },
+  {
+    "method": "GET",
+    "url": "/api/invoices/:id/audit",
+    "access": "gate:billing:admin"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/invoices/:id/audit",
+    "access": "gate:billing:admin",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/invoices/:id/cancel",
+    "access": "gate:billing:admin"
+  },
+  {
+    "method": "POST",
+    "url": "/api/invoices/:id/delivery",
+    "access": "gate:billing"
+  },
+  {
+    "method": "POST",
+    "url": "/api/invoices/:id/payments",
+    "access": "gate:billing"
+  },
+  {
+    "method": "POST",
+    "url": "/api/invoices/bulk-delivery",
+    "access": "gate:billing"
+  },
+  {
+    "method": "POST",
+    "url": "/api/invoices/bulk-tidy",
+    "access": "gate:billing"
+  },
+  {
+    "method": "POST",
+    "url": "/api/invoices/mark-paid",
+    "access": "gate:billing"
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/invoices/payments/:paymentId",
+    "access": "gate:billing:admin"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/invoices/payments/:paymentId",
+    "access": "gate:billing:admin"
+  },
+  {
+    "method": "GET",
+    "url": "/api/leads",
+    "access": "shared"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/leads",
+    "access": "shared",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/leads",
+    "access": "gate:leads"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/leads/",
+    "access": "shared",
+    "derived": true
+  },
+  {
+    "method": "GET",
+    "url": "/api/leads/:id",
+    "access": "shared"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/leads/:id",
+    "access": "shared",
+    "derived": true
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/leads/:id",
+    "access": "gate:leads"
+  },
+  {
+    "method": "POST",
+    "url": "/api/leads/:id/archive",
+    "access": "gate:leads"
+  },
+  {
+    "method": "POST",
+    "url": "/api/leads/:id/convert",
+    "access": "gate:leads"
+  },
+  {
+    "method": "POST",
+    "url": "/api/leads/:id/mark-lost",
+    "access": "gate:leads"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/leads/:id/position",
+    "access": "gate:leads"
+  },
+  {
+    "method": "POST",
+    "url": "/api/leads/:id/reopen",
+    "access": "gate:leads"
+  },
+  {
+    "method": "POST",
+    "url": "/api/leads/:id/restore",
+    "access": "gate:leads"
+  },
+  {
+    "method": "GET",
+    "url": "/api/leads/stages",
+    "access": "gate:leads"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/leads/stages",
+    "access": "gate:leads",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/leads/stages",
+    "access": "gate:leads:admin"
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/leads/stages/:id",
+    "access": "gate:leads:admin"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/leads/stages/:id",
+    "access": "gate:leads:admin"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/leads/stages/:id/position",
+    "access": "gate:leads:admin"
+  },
+  {
+    "method": "GET",
+    "url": "/api/mailouts",
+    "access": "gate:mailouts"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/mailouts",
+    "access": "gate:mailouts",
+    "derived": true
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/mailouts/",
+    "access": "gate:mailouts",
+    "derived": true
+  },
+  {
+    "method": "GET",
+    "url": "/api/mailouts/:id",
+    "access": "gate:mailouts"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/mailouts/:id",
+    "access": "gate:mailouts",
+    "derived": true
+  },
+  {
+    "method": "GET",
+    "url": "/api/mailouts/campaigns",
+    "access": "gate:mailouts"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/mailouts/campaigns",
+    "access": "gate:mailouts",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/mailouts/campaigns",
+    "access": "gate:mailouts"
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/mailouts/campaigns/:id",
+    "access": "gate:mailouts"
+  },
+  {
+    "method": "GET",
+    "url": "/api/mailouts/campaigns/:id",
+    "access": "gate:mailouts"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/mailouts/campaigns/:id",
+    "access": "gate:mailouts",
+    "derived": true
+  },
+  {
+    "method": "PUT",
+    "url": "/api/mailouts/campaigns/:id",
+    "access": "gate:mailouts"
+  },
+  {
+    "method": "POST",
+    "url": "/api/mailouts/campaigns/:id/active",
+    "access": "gate:mailouts"
+  },
+  {
+    "method": "GET",
+    "url": "/api/mailouts/clients/:clientId",
+    "access": "gate:mailouts"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/mailouts/clients/:clientId",
+    "access": "gate:mailouts",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/mailouts/clients/:clientId/addresses/revive",
+    "access": "gate:mailouts"
+  },
+  {
+    "method": "GET",
+    "url": "/api/mailouts/clients/:clientId/letters/:letterId",
+    "access": "gate:mailouts"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/mailouts/clients/:clientId/letters/:letterId",
+    "access": "gate:mailouts",
+    "derived": true
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/mailouts/clients/:clientId/subscription",
+    "access": "gate:mailouts"
+  },
+  {
+    "method": "POST",
+    "url": "/api/mailouts/preview",
+    "access": "gate:mailouts"
+  },
+  {
+    "method": "POST",
+    "url": "/api/mailouts/preview/letter",
+    "access": "gate:mailouts"
+  },
+  {
+    "method": "POST",
+    "url": "/api/mailouts/send",
+    "access": "gate:mailouts"
+  },
+  {
+    "method": "GET",
+    "url": "/api/mailouts/senders",
+    "access": "gate:mailouts"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/mailouts/senders",
+    "access": "gate:mailouts",
+    "derived": true
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/mailouts/settings/firm-mail",
+    "access": "gate:mailboxes"
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/mailouts/settings/mail-logo",
+    "access": "gate:mailboxes"
+  },
+  {
+    "method": "GET",
+    "url": "/api/mailouts/settings/mail-logo",
+    "access": "gate:mailouts"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/mailouts/settings/mail-logo",
+    "access": "gate:mailouts",
+    "derived": true
+  },
+  {
+    "method": "PUT",
+    "url": "/api/mailouts/settings/mail-logo",
+    "access": "gate:mailboxes"
+  },
+  {
+    "method": "GET",
+    "url": "/api/mailouts/settings/senders",
+    "access": "gate:mailboxes"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/mailouts/settings/senders",
+    "access": "gate:mailboxes",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/mailouts/settings/senders",
+    "access": "gate:mailboxes"
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/mailouts/settings/senders/:id",
+    "access": "gate:mailboxes"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/mailouts/settings/senders/:id",
+    "access": "gate:mailboxes"
+  },
+  {
+    "method": "POST",
+    "url": "/api/mailouts/settings/senders/:id/default",
+    "access": "gate:mailboxes"
+  },
+  {
+    "method": "POST",
+    "url": "/api/mailouts/settings/senders/:id/invoice-sender",
+    "access": "gate:mailboxes"
+  },
+  {
+    "method": "POST",
+    "url": "/api/mailouts/settings/senders/:id/test",
+    "access": "gate:mailboxes"
+  },
+  {
+    "method": "GET",
+    "url": "/api/mailouts/templates",
+    "access": "gate:mailouts"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/mailouts/templates",
+    "access": "gate:mailouts",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/mailouts/templates",
+    "access": "gate:mailouts"
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/mailouts/templates/:id",
+    "access": "gate:mailouts"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/mailouts/templates/:id",
+    "access": "gate:mailouts"
+  },
+  {
+    "method": "GET",
+    "url": "/api/mailouts/unsubscribe/:token",
+    "access": "anonymous"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/mailouts/unsubscribe/:token",
+    "access": "anonymous",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/mailouts/unsubscribe/:token",
+    "access": "anonymous"
+  },
+  {
+    "method": "GET",
+    "url": "/api/notifications",
+    "access": "own"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/notifications",
+    "access": "own",
+    "derived": true
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/notifications/",
+    "access": "own",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/notifications/:id/read",
+    "access": "own"
+  },
+  {
+    "method": "GET",
+    "url": "/api/notifications/policies",
+    "access": "gate:notification_rules"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/notifications/policies",
+    "access": "gate:notification_rules",
+    "derived": true
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/notifications/policies/:trigger",
+    "access": "gate:notification_rules"
+  },
+  {
+    "method": "GET",
+    "url": "/api/notifications/preferences",
+    "access": "own"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/notifications/preferences",
+    "access": "own",
+    "derived": true
+  },
+  {
+    "method": "PUT",
+    "url": "/api/notifications/preferences",
+    "access": "own"
+  },
+  {
+    "method": "POST",
+    "url": "/api/notifications/read-all",
+    "access": "own"
+  },
+  {
+    "method": "GET",
+    "url": "/api/settings",
+    "access": "shared"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/settings",
+    "access": "shared",
+    "derived": true
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/settings/",
+    "access": "shared",
+    "derived": true
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/settings/firm",
+    "access": "gate:settings"
+  },
+  {
+    "method": "GET",
+    "url": "/api/settings/firm/logo",
+    "access": "shared"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/settings/firm/logo",
+    "access": "shared",
+    "derived": true
+  },
+  {
+    "method": "PUT",
+    "url": "/api/settings/firm/logo",
+    "access": "gate:settings"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/settings/priorities/:id",
+    "access": "gate:settings"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/settings/priorities/swap",
+    "access": "gate:settings"
+  },
+  {
+    "method": "POST",
+    "url": "/api/settings/sources",
+    "access": "gate:settings"
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/settings/sources/:id",
+    "access": "gate:settings"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/settings/sources/:id",
+    "access": "gate:settings"
+  },
+  {
+    "method": "GET",
+    "url": "/api/settings/system",
+    "access": "gate:settings"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/settings/system",
+    "access": "gate:settings",
+    "derived": true
+  },
+  {
+    "method": "GET",
+    "url": "/api/tasks",
+    "access": "gate:tasks"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/tasks",
+    "access": "gate:tasks",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/tasks",
+    "access": "gate:tasks"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/tasks/",
+    "access": "gate:tasks",
+    "derived": true
+  },
+  {
+    "method": "GET",
+    "url": "/api/tasks/:id",
+    "access": "gate:tasks"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/tasks/:id",
+    "access": "gate:tasks",
+    "derived": true
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/tasks/:id",
+    "access": "gate:tasks"
+  },
+  {
+    "method": "POST",
+    "url": "/api/tasks/:id/archive",
+    "access": "gate:tasks"
+  },
+  {
+    "method": "POST",
+    "url": "/api/tasks/:id/comments",
+    "access": "gate:tasks"
+  },
+  {
+    "method": "GET",
+    "url": "/api/tasks/:id/files",
+    "access": "gate:tasks"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/tasks/:id/files",
+    "access": "gate:tasks",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/tasks/:id/files",
+    "access": "gate:tasks"
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/tasks/:id/files/:fileId",
+    "access": "gate:tasks"
+  },
+  {
+    "method": "GET",
+    "url": "/api/tasks/:id/files/:fileId",
+    "access": "gate:tasks"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/tasks/:id/files/:fileId",
+    "access": "gate:tasks",
+    "derived": true
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/tasks/:id/position",
+    "access": "gate:tasks"
+  },
+  {
+    "method": "POST",
+    "url": "/api/tasks/:id/restore",
+    "access": "gate:tasks"
+  },
+  {
+    "method": "PUT",
+    "url": "/api/tasks/:id/subtasks",
+    "access": "gate:tasks"
+  },
+  {
+    "method": "POST",
+    "url": "/api/tasks/:id/time",
+    "access": "gate:tasks:admin"
+  },
+  {
+    "method": "GET",
+    "url": "/api/tasks/assignees",
+    "access": "shared"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/tasks/assignees",
+    "access": "shared",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/tasks/bulk-archive",
+    "access": "gate:tasks"
+  },
+  {
+    "method": "GET",
+    "url": "/api/tasks/columns",
+    "access": "gate:tasks"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/tasks/columns",
+    "access": "gate:tasks",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/tasks/columns",
+    "access": "gate:tasks:admin"
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/tasks/columns/:id",
+    "access": "gate:tasks:admin"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/tasks/columns/:id",
+    "access": "gate:tasks:admin"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/tasks/columns/:id/position",
+    "access": "gate:tasks:admin"
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/tasks/comments/:commentId",
+    "access": "gate:tasks"
+  },
+  {
+    "method": "GET",
+    "url": "/api/tasks/targets",
+    "access": "gate:tasks"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/tasks/targets",
+    "access": "gate:tasks",
+    "derived": true
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/tasks/time/:entryId",
+    "access": "gate:tasks"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/tasks/time/:entryId",
+    "access": "gate:tasks"
+  },
+  {
+    "method": "GET",
+    "url": "/api/tasks/timer/active",
+    "access": "own"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/tasks/timer/active",
+    "access": "own",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/tasks/timer/start",
+    "access": "gate:tasks"
+  },
+  {
+    "method": "POST",
+    "url": "/api/tasks/timer/stop",
+    "access": "own"
+  },
+  {
+    "method": "GET",
+    "url": "/api/users",
+    "access": "gate:team"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/users",
+    "access": "gate:team",
+    "derived": true
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/users/",
+    "access": "gate:team",
+    "derived": true
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/users/:id",
+    "access": "gate:team"
+  },
+  {
+    "method": "GET",
+    "url": "/api/users/:id/avatar",
+    "access": "shared"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/users/:id/avatar",
+    "access": "shared",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/users/:id/resend-invite",
+    "access": "gate:team"
+  },
+  {
+    "method": "POST",
+    "url": "/api/users/invites",
+    "access": "gate:team"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/users/me",
+    "access": "own"
+  },
+  {
+    "method": "PUT",
+    "url": "/api/users/me/avatar",
+    "access": "own"
+  },
+  {
+    "method": "GET",
+    "url": "/health",
+    "access": "anonymous"
+  },
+  {
+    "method": "HEAD",
+    "url": "/health",
+    "access": "anonymous",
+    "derived": true
+  }
+]

@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useAccess } from "@/app/auth";
 import { Download, Trash2 } from "lucide-react";
 import type { Client } from "@shared/schema/client";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
@@ -35,12 +36,12 @@ const TABS = [
   { key: "profile", label: "Profile" },
   { key: "companies", label: "Companies" },
   { key: "people", label: "People" },
-  { key: "services", label: "Services" },
-  { key: "tasks", label: "Tasks" },
-  { key: "meetings", label: "Meetings" },
-  { key: "invoices", label: "Invoices" },
-  { key: "mailouts", label: "Mailouts" },
-  { key: "secrets", label: "Secrets" },
+  { key: "services", label: "Services", gate: "services" },
+  { key: "tasks", label: "Tasks", gate: "tasks" },
+  { key: "meetings", label: "Meetings", gate: "calendar" },
+  { key: "invoices", label: "Invoices", gate: "billing" },
+  { key: "mailouts", label: "Mailouts", gate: "mailouts" },
+  { key: "secrets", label: "Secrets", gate: "secrets" },
   { key: "files", label: "Files" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
@@ -61,6 +62,22 @@ export function ClientCardPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [peopleOpen, setPeopleOpen] = useState(false);
   const [tab, setTab] = useState<TabKey>("profile");
+  const access = useAccess();
+
+  /**
+   * **A tab whose module is closed is hidden, and the card still opens.**
+   *
+   * Six of these tabs are other modules' work seen from here. Closing one of those modules must
+   * take its tab away — not show it empty, and never refuse the whole client. The count badge
+   * simply does not render, because the count came from the same closed module.
+   *
+   * Stage 1 governs screens and changes, not fields: Profile, Companies, People and Files are the
+   * client record itself, and they follow the `clients` gate that let this page open at all.
+   */
+  const tabs = TABS.filter((t) => !("gate" in t) || access(t.gate) !== "closed");
+  // a gate closed mid-session leaves `tab` pointing at a panel that is gone — fall back rather
+  // than render nothing at all
+  const activeTab = tabs.some((t) => t.key === tab) ? tab : "profile";
 
   if (isLoading) return <p className="text-[13px] text-muted">Loading…</p>;
   if (error || !client)
@@ -144,9 +161,9 @@ export function ClientCardPage() {
           one that does, which is the opposite of what was asked for. */}
       <Tabs
         className="mb-[18px] mt-3.5"
-        value={tab}
+        value={activeTab}
         onChange={setTab}
-        options={TABS.map((t) => {
+        options={tabs.map((t) => {
           const key = TAB_COUNT[t.key];
           const n = key ? client.counts?.[key] : undefined;
           return { value: t.key, label: t.label, count: n ? n : undefined };
@@ -154,23 +171,23 @@ export function ClientCardPage() {
       />
 
       {/* company view (multi-company clients) */}
-      {tab === "profile" && <ProfileTab client={client} />}
-      {tab === "companies" && <CompaniesTab client={client} />}
-      {tab === "people" && <PeopleTab client={client} onManage={() => setPeopleOpen(true)} />}
-      {tab === "secrets" && <SecretsTab clientId={client.id} />}
-      {tab === "tasks" && (
+      {activeTab === "profile" && <ProfileTab client={client} />}
+      {activeTab === "companies" && <CompaniesTab client={client} />}
+      {activeTab === "people" && <PeopleTab client={client} onManage={() => setPeopleOpen(true)} />}
+      {activeTab === "secrets" && <SecretsTab clientId={client.id} />}
+      {activeTab === "tasks" && (
         <EntityTasks target={{ kind: "client", id: client.id, label: client.displayName }} />
       )}
-      {tab === "invoices" && <EntityInvoices client={client} />}
-      {tab === "meetings" && <EntityMeetings target={{ kind: "client", id: client.id }} />}
-      {tab === "services" && <ServicesTab client={client} />}
+      {activeTab === "invoices" && <EntityInvoices client={client} />}
+      {activeTab === "meetings" && <EntityMeetings target={{ kind: "client", id: client.id }} />}
+      {activeTab === "services" && <ServicesTab client={client} />}
       {/* Keyed by client: the route reuses this page when moving between two cards, so without it
           the Mailouts tab would carry its page number across — landing on page 3 of a client who
           has five letters, which renders a blank panel that explains nothing. */}
-      {tab === "mailouts" && (
+      {activeTab === "mailouts" && (
         <ClientMailouts key={client.id} clientId={client.id} clientName={client.displayName} />
       )}
-      {tab === "files" && <FilesTab clientId={client.id} />}
+      {activeTab === "files" && <FilesTab clientId={client.id} />}
       {editOpen && (
         <ClientFormModal open={editOpen} onClose={() => setEditOpen(false)} client={client} />
       )}

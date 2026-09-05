@@ -62,6 +62,25 @@ export async function updateUser(id: string, input: UpdateUserInput, actor: User
   }
 
   const updated = await repo.updateUser(id, input);
+
+  /**
+   * **A role change is journalled.**
+   *
+   * The permissions module calls this its only irreducible rule — whoever can change a role can
+   * grant themselves every gate — and until 2026-09-07 the rule declared most important had no
+   * record of ever having been exercised. Written after the update, so a refused change writes
+   * nothing, and only when the role actually MOVED: saving the form with the role untouched is
+   * not a role change and should not read like one.
+   */
+  if (input.role && input.role !== user.role) {
+    await repo.recordRoleChange({
+      userId: id,
+      byUserId: actor.id,
+      fromRole: user.role,
+      toRole: input.role,
+    });
+  }
+
   if (input.status === "blocked") {
     // blocking invalidates sessions immediately (spec: users.md)
     await destroyAllUserSessions(id);

@@ -11,7 +11,7 @@ import {
   useCampaign,
   useCreateCampaign,
   useDeleteCampaign,
-  useMailSenders,
+  useSenderOptions,
   useTemplates,
   useUpdateCampaign,
 } from "./mailouts.api";
@@ -43,7 +43,7 @@ export function CampaignModal({
   presetTargets?: PresetTarget[];
 }) {
   const templates = useTemplates();
-  const senders = useMailSenders();
+  const senders = useSenderOptions();
   const existing = useCampaign(open && campaign ? campaign.id : null);
   const create = useCreateCampaign();
   const update = useUpdateCampaign();

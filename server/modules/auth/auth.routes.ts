@@ -6,9 +6,10 @@ import {
   loginInput,
   resetPasswordInput,
 } from "@shared/schema/user.js";
-import { createSession, destroySession, requireAuth } from "../../core/auth.js";
+import { createSession, destroySession } from "../../core/auth.js";
+import { anonymous, own } from "../../core/access.js";
 import { isTest } from "../../core/config.js";
-import { toPublicUser } from "./auth.schema.js";
+import { toSessionUser } from "./auth.schema.js";
 import * as service from "./auth.service.js";
 
 export async function registerRoutes(instance: FastifyInstance) {
@@ -16,34 +17,34 @@ export async function registerRoutes(instance: FastifyInstance) {
   // stricter limit on credential endpoints
   const authLimit = { rateLimit: { max: isTest ? 1000 : 10, timeWindow: "1 minute" } };
 
-  app.post("/login", { config: authLimit, schema: { body: loginInput } }, async (request, reply) => {
+  app.post("/login", { config: { ...authLimit, ...anonymous() }, schema: { body: loginInput } }, async (request, reply) => {
     const user = await service.login(request.body);
     await createSession(request, reply, user.id);
-    return toPublicUser(user);
+    return toSessionUser(user);
   });
 
-  app.post("/logout", async (request, reply) => {
+  app.post("/logout", { config: anonymous() }, async (request, reply) => {
     await destroySession(request, reply);
     return { ok: true };
   });
 
-  app.get("/me", { preHandler: requireAuth }, async (request) => {
-    return toPublicUser(request.currentUser!);
+  app.get("/me", { config: own() }, async (request) => {
+    return toSessionUser(request.currentUser!);
   });
 
   app.post(
     "/accept-invite",
-    { config: authLimit, schema: { body: acceptInviteInput } },
+    { config: { ...authLimit, ...anonymous() }, schema: { body: acceptInviteInput } },
     async (request, reply) => {
       const user = await service.acceptInvite(request.body);
       await createSession(request, reply, user.id); // auto-login after activation
-      return toPublicUser(user);
+      return toSessionUser(user);
     },
   );
 
   app.post(
     "/forgot-password",
-    { config: authLimit, schema: { body: forgotPasswordInput } },
+    { config: { ...authLimit, ...anonymous() }, schema: { body: forgotPasswordInput } },
     async (request) => {
       await service.requestPasswordReset(request.body.email);
       return { ok: true };
@@ -52,7 +53,7 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   app.post(
     "/reset-password",
-    { config: authLimit, schema: { body: resetPasswordInput } },
+    { config: { ...authLimit, ...anonymous() }, schema: { body: resetPasswordInput } },
     async (request) => {
       await service.resetPassword(request.body);
       return { ok: true };

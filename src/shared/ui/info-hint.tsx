@@ -39,11 +39,26 @@ const WIDTH = 280;
 export function InfoHint({
   children,
   label = "More information",
+  tone = "default",
   className,
 }: {
   children: ReactNode;
   /** what the icon announces to a screen reader before the hint itself is read out */
   label?: string;
+  /**
+   * `attention` marks an (i) whose contents have become RELEVANT — the same amber this app already
+   * means "look at this" by (`JOB_TONE_COLORS.warn`, the System tab).
+   *
+   * Added 2026-09-07 for the access screen, and it is the answer to a real tension. Hidden text is
+   * unread text, so a CONSEQUENCE normally may not live in here at all (see the rules above). What
+   * makes it acceptable there is that the icon stops being quiet at exactly the moment the
+   * consequence becomes true, so a reader's eye is taken to the rows that have one — instead of
+   * every row carrying a paragraph nobody reads twice.
+   *
+   * Use it only where something in the SCREEN'S STATE decides it. A permanently amber (i) is just
+   * a loud (i), and it would teach people to ignore the colour.
+   */
+  tone?: "default" | "attention";
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -125,7 +140,10 @@ export function InfoHint({
         aria-label={label}
         aria-expanded={open}
         aria-describedby={open ? id : undefined}
-        className="flex h-4 w-4 items-center justify-center rounded-full text-[#b6bcc5] transition-colors hover:text-primary-link focus-visible:text-primary-link focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+        className={cn(
+          "flex h-4 w-4 items-center justify-center rounded-full transition-colors hover:text-primary-link focus-visible:text-primary-link focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+          tone === "attention" ? "text-[#b5651d]" : "text-[#b6bcc5]",
+        )}
         onClick={() => setOpen((v) => !v)}
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}

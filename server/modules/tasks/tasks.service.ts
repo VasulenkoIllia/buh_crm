@@ -873,9 +873,34 @@ export async function addTimeEntry(admin: User, taskId: string, input: AddTimeEn
   return getTask(taskId);
 }
 
-export async function updateTimeEntry(entryId: string, input: UpdateTimeEntryInput) {
+/**
+ * **Own entry, or an admin — and every change is journalled.**
+ *
+ * Editing time used to be admin-only, which meant a person who mistyped their own minutes had to
+ * find an admin to fix it. That is a rule people route around, and it is not what the restriction
+ * was ever for: the thing worth protecting is somebody ELSE'S record of their working time, which
+ * is an ownership question, not a role one. It follows `deleteComment` below, the one ownership
+ * check that already worked.
+ *
+ * It could not open without the journal, and the journal ships in the same release. Before it,
+ * neither of these two functions received an actor at all, there was no audit table under any
+ * spelling, and an edit did not change `source` — so a doctored row was indistinguishable from an
+ * untouched one, and any dispute about billed hours was unresolvable in principle.
+ */
+function ownEntryOrAdmin(entry: { userId: string }, actor: User) {
+  if (entry.userId !== actor.id && actor.role !== "admin") {
+    throw new ForbiddenError("Only an admin can change someone else's time");
+  }
+}
+
+export async function updateTimeEntry(
+  entryId: string,
+  input: UpdateTimeEntryInput,
+  actor: User,
+) {
   const entry = await repo.findEntry(entryId);
   if (!entry) throw new NotFoundError("Time entry not found");
+  ownEntryOrAdmin(entry, actor);
   if (!entry.stoppedAt) {
     throw new ValidationError("The timer is still running — stop it before editing");
   }
@@ -886,14 +911,39 @@ export async function updateTimeEntry(entryId: string, input: UpdateTimeEntryInp
       : {}),
     ...(input.comment !== undefined ? { comment: input.comment } : {}),
   });
+  await repo.recordTimeEntryAudit({
+    entryId,
+    taskId: entry.taskId,
+    userId: entry.userId,
+    byUserId: actor.id,
+    action: "updated",
+    wasSeconds: entry.seconds,
+    wasComment: entry.comment,
+    nowSeconds: seconds ?? entry.seconds,
+    nowComment: input.comment ?? entry.comment,
+  });
   return getTask(entry.taskId);
 }
 
-/** Admin cleanup — also unblocks a stuck running timer (deleting it force-stops). */
-export async function removeTimeEntry(entryId: string) {
+/** Own entry or an admin — also unblocks a stuck running timer (deleting it force-stops). */
+export async function removeTimeEntry(entryId: string, actor: User) {
   const entry = await repo.findEntry(entryId);
   if (!entry) throw new NotFoundError("Time entry not found");
+  ownEntryOrAdmin(entry, actor);
   await repo.deleteEntry(entryId);
+  // after the delete, and with `entryId: null`: the row it named is gone, and the snapshot below
+  // is the only remaining record of what it held
+  await repo.recordTimeEntryAudit({
+    entryId: null,
+    taskId: entry.taskId,
+    userId: entry.userId,
+    byUserId: actor.id,
+    action: "deleted",
+    wasSeconds: entry.seconds,
+    wasComment: entry.comment,
+    nowSeconds: null,
+    nowComment: null,
+  });
   return getTask(entry.taskId);
 }
 

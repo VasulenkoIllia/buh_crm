@@ -48,6 +48,12 @@ DELETE FROM "EmailTemplate";
 -- this file to every table the database has.
 DELETE FROM "PaymentAuditLog";
 DELETE FROM "Payment";
+-- Who edited or deleted an interval of somebody's working time. It goes with the entries it
+-- describes, exactly as "PaymentAuditLog" and "SecretAuditLog" go with theirs: after a reset the
+-- tasks it names do not exist, so a journal of edits to them records nothing anybody can read.
+-- ("UserRoleAuditLog" is NOT here — it is about the team, and the team survives a reset. It is
+-- named in the KEPT list in server/schema-invariants.test.ts, which makes that a decision.)
+DELETE FROM "TimeEntryAuditLog";
 DELETE FROM "TimeEntry";
 DELETE FROM "Subtask";
 DELETE FROM "TaskAssignee";

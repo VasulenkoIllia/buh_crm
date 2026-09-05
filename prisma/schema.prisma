@@ -25,6 +25,16 @@ enum UserStatus {
   blocked
 }
 
+/// What a gate is worth to somebody: reachable and writable, reachable and read-only, or not
+/// reachable at all. Three, always — two could not reproduce what the app already did on the day
+/// this shipped (Settings and the services catalog were readable by everyone and writable by an
+/// admin), and reproducing that exactly was the condition for changing nothing on deploy day.
+enum AccessState {
+  open
+  read_only
+  closed
+}
+
 enum AuthTokenType {
   invite
   email_confirm
@@ -226,6 +236,10 @@ model User {
   clientsUnsubscribed      ClientMailPreference[]   @relation("MailPreferenceUnsubscribedBy")
   deadEmailAddresses       DeadEmailAddress[]
   clientPins               ClientPin[]
+  accessOverrides          AccessOverride[]
+  timeEntryAudit           TimeEntryAuditLog[]      @relation("TimeEntryAuditBy")
+  roleChangesMade          UserRoleAuditLog[]       @relation("RoleAuditBy")
+  roleChangesReceived      UserRoleAuditLog[]       @relation("RoleAuditTarget")
 }
 
 model AuthToken {
@@ -311,6 +325,7 @@ model FirmProfile {
    * /**
    * /**
    * /**
+   * /**
    * When the nightly notification sweep runs, as `HH:MM` in the firm's own timezone.
    * Was hardcoded at 07:00, which was a guess about when this firm's day starts. The hour is the
    * firm's to choose; the CONSTRAINT is not. It must be later than 03:20, because the task sweep
@@ -334,6 +349,7 @@ model FirmProfile {
   // fields could only ever describe one of them.
   //
   /**
+   * /**
    * /**
    * /**
    * /**
@@ -445,6 +461,7 @@ model MailSenderAccount {
    * /**
    * /**
    * /**
+   * /**
    * /** null = this mailbox is not read for bounces
    */
   imapHost       String?
@@ -465,6 +482,7 @@ model MailSenderAccount {
   // Never `\Seen`, never a moved message: this mailbox belongs to a person, and flagging their
   // mail to track our own progress would hide a bounce from them — or theirs from us.
   /**
+   * /**
    * /**
    * /**
    * /**
@@ -1711,4 +1729,101 @@ model JobEvent {
   /// the screen reads "newest first, this job" and "newest first, everything"
   @@index([job, at])
   @@index([at])
+}
+
+/// **The role default for one gate.** Seeded by `ensureBaseData` from the registry in
+/// `shared/access.ts` and never rewritten afterwards — a gate the firm has closed stays closed
+/// across every deploy, and a gate a later release adds arrives at its own default.
+///
+/// Not wiped by `--reset`: it is firm configuration, like `FirmProfile` and `NotificationPolicy`.
+/// A reset that silently re-opened every closed area would be the worst kind of failure, because
+/// nothing would say so.
+model AccessPolicy {
+  /// the registry key from shared/access.ts
+  gate   String
+  role   UserRole
+  state  AccessState
+  /// Ships inert with the value "*" on every row and nothing reads it. It is here because it is in
+  /// the composite primary key, and adding a column to a composite primary key later is the one
+  /// stage-2 change that would NOT be additive — a migration plus a rewrite of every lookup. One
+  /// column, carried unused, is what keeps per-action rules cheap when they come.
+  action String      @default("*")
+
+  updatedAt DateTime @updatedAt
+
+  @@id([gate, role, action])
+}
+
+/// **One person, different from their role.** Sparse: an absent row means "follow the role".
+///
+/// It carries a state rather than a "closed" marker, so a firm can also RE-OPEN a gate for one
+/// person whose role is closed out. That is the request which always arrives second, and allowing
+/// it now costs nothing.
+model AccessOverride {
+  userId String      @db.Uuid
+  gate   String
+  action String      @default("*")
+  state  AccessState
+
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, gate, action])
+  @@index([userId])
+}
+
+/// **What was done to a recorded interval of somebody's working time, and by whom.**
+///
+/// It ships in the same release that lets a person edit their OWN entry — not after it. Before
+/// this table, `updateTimeEntry` and `removeTimeEntry` did not receive an actor at all, there was
+/// no journal under any spelling, and an edit did not change `source`: a doctored row was
+/// indistinguishable from an untouched one. Opening time entries without this would make a whole
+/// class of dispute permanently unresolvable.
+///
+/// Follows `SecretAuditLog`: the numbers are snapshotted, so a deleted entry still has a readable
+/// history after its row is gone.
+model TimeEntryAuditLog {
+  id         String               @id @default(uuid()) @db.Uuid
+  /// null once the entry itself is deleted — the snapshot below is what survives
+  entryId    String?              @db.Uuid
+  taskId     String               @db.Uuid
+  /// whose time it was
+  userId     String               @db.Uuid
+  byUserId   String               @db.Uuid
+  action     TimeEntryAuditAction
+  /// the values BEFORE the change, for a delete the values that were lost
+  wasSeconds Int?
+  wasComment String?
+  /// the values after — null for a delete
+  nowSeconds Int?
+  nowComment String?
+  createdAt  DateTime             @default(now())
+
+  byUser User @relation("TimeEntryAuditBy", fields: [byUserId], references: [id])
+
+  @@index([taskId, createdAt])
+  @@index([entryId])
+}
+
+enum TimeEntryAuditAction {
+  updated
+  deleted
+}
+
+/// **A role change is journalled.** The rule the permissions module calls its only irreducible one
+/// had, until this table, no record of ever having been exercised: whoever can change a role can
+/// grant themselves every gate, and nothing said who had.
+model UserRoleAuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  byUserId  String   @db.Uuid
+  fromRole  UserRole
+  toRole    UserRole
+  createdAt DateTime @default(now())
+
+  user   User @relation("RoleAuditTarget", fields: [userId], references: [id], onDelete: Cascade)
+  byUser User @relation("RoleAuditBy", fields: [byUserId], references: [id])
+
+  @@index([userId, createdAt])
 }

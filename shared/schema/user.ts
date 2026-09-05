@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { uuid } from "./common.js";
 import { userRole, userStatus } from "./enums.js";
+import { accessMapSchema } from "../access.js";
 
 export const userSchema = z.object({
   id: uuid,
@@ -26,6 +27,22 @@ export const publicUserSchema = userSchema.pick({
   avatarFileId: true,
 });
 export type PublicUser = z.infer<typeof publicUserSchema>;
+
+/**
+ * The signed-in person plus what they may open.
+ *
+ * Only `GET /api/auth/me` and `POST /api/auth/login` answer with this; every other endpoint that
+ * returns a user (the team list, an invite) keeps `PublicUser`, because access is the CALLER'S
+ * question and nobody else's.
+ *
+ * The SPA reads `access` to hide a sidebar item, a client-card tab or a row action. That is a
+ * convenience, never the authority: the hook in `server/core/access.ts` refuses the request
+ * regardless, and the me-query's five-minute `staleTime` means somebody closed out mid-session
+ * keeps the stale sidebar until it refetches. What must not happen is that the screen behind it
+ * fails as a generic error — hence the `module_closed` code.
+ */
+export const sessionUserSchema = publicUserSchema.extend({ access: accessMapSchema });
+export type SessionUser = z.infer<typeof sessionUserSchema>;
 
 // ── Auth & user-management DTOs ──────────────────────────────────────────────
 

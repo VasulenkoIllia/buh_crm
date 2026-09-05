@@ -9,7 +9,7 @@ import {
   updatePriorityInput,
   updateSourceInput,
 } from "@shared/schema/settings.js";
-import { requireAdmin, requireAuth } from "../../core/auth.js";
+import { gate, shared } from "../../core/access.js";
 import { ValidationError } from "../../core/errors.js";
 import { readFileStream } from "../../core/files.js";
 import * as service from "./settings.service.js";
@@ -20,11 +20,11 @@ export async function registerRoutes(instance: FastifyInstance) {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
   // everyone (forms elsewhere read priorities/sources/firm from here)
-  app.get("/", { preHandler: requireAuth }, async () => {
+  app.get("/", { config: shared() }, async () => {
     return service.getSettings();
   });
 
-  app.get("/firm/logo", { preHandler: requireAuth }, async (_request, reply) => {
+  app.get("/firm/logo", { config: shared() }, async (_request, reply) => {
     const file = await service.getLogoFile();
     reply.header("Content-Type", file.mime);
     reply.header("Cache-Control", "private, max-age=300");
@@ -36,7 +36,7 @@ export async function registerRoutes(instance: FastifyInstance) {
   // static route — registered alongside /priorities/:id (static segments win routing)
   app.patch(
     "/priorities/swap",
-    { preHandler: requireAdmin, schema: { body: swapPrioritiesInput } },
+    { config: gate("settings"), schema: { body: swapPrioritiesInput } },
     async (request) => {
       return service.swapPriorities(request.body.aId, request.body.bId);
     },
@@ -44,7 +44,7 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   app.patch(
     "/priorities/:id",
-    { preHandler: requireAdmin, schema: { params: idParams, body: updatePriorityInput } },
+    { config: gate("settings"), schema: { params: idParams, body: updatePriorityInput } },
     async (request) => {
       return service.updatePriority(request.params.id, request.body);
     },
@@ -52,7 +52,7 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   app.post(
     "/sources",
-    { preHandler: requireAdmin, schema: { body: createSourceInput } },
+    { config: gate("settings"), schema: { body: createSourceInput } },
     async (request, reply) => {
       const source = await service.createSource(request.body);
       return reply.status(201).send(source);
@@ -61,7 +61,7 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   app.patch(
     "/sources/:id",
-    { preHandler: requireAdmin, schema: { params: idParams, body: updateSourceInput } },
+    { config: gate("settings"), schema: { params: idParams, body: updateSourceInput } },
     async (request) => {
       return service.updateSource(request.params.id, request.body);
     },
@@ -73,7 +73,7 @@ export async function registerRoutes(instance: FastifyInstance) {
    */
   app.delete(
     "/sources/:id",
-    { preHandler: requireAdmin, schema: { params: idParams } },
+    { config: gate("settings"), schema: { params: idParams } },
     async (request) => {
       return service.removeSource(request.params.id);
     },
@@ -81,7 +81,7 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   app.patch(
     "/firm",
-    { preHandler: requireAdmin, schema: { body: updateFirmInput } },
+    { config: gate("settings"), schema: { body: updateFirmInput } },
     async (request) => {
       return service.updateFirm(request.body);
     },
@@ -92,11 +92,11 @@ export async function registerRoutes(instance: FastifyInstance) {
    * internal plumbing rather than anything a bookkeeper needs — and an error message is the kind
    * of string that quotes a host or a query back at you.
    */
-  app.get("/system", { preHandler: requireAdmin }, async () => {
+  app.get("/system", { config: gate("settings") }, async () => {
     return service.getSystemHealth();
   });
 
-  app.put("/firm/logo", { preHandler: requireAdmin }, async (request) => {
+  app.put("/firm/logo", { config: gate("settings") }, async (request) => {
     const part = await request.file();
     if (!part) throw new ValidationError("Logo file is required");
     const buffer = await part.toBuffer();

@@ -144,6 +144,14 @@ describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
      *     reset wipes clients; it does not un-run last night's sweeps, and clearing it would make
      *     every job on the System tab read "Has not run yet" — false, on the one screen whose
      *     whole value is being believed.
+     *   • AccessPolicy, AccessOverride — who may open what. Firm configuration in the same sense
+     *     as FirmProfile and NotificationPolicy, and the one whose loss would be INVISIBLE: a
+     *     reset that silently re-opened every closed area looks exactly like a reset that worked.
+     *   • UserRoleAuditLog — who granted whom which role. It is about the TEAM, and the team
+     *     survives a reset; wiping it would erase the only record that the rule the access module
+     *     calls irreducible was ever exercised. (TimeEntryAuditLog is NOT kept: it describes
+     *     edits to client-work time entries, which the reset wipes — same call as PaymentAuditLog
+     *     and SecretAuditLog, and it is in the script.)
      *   • _prisma_migrations — Prisma owns its own ledger.
      */
     const KEPT = new Set([
@@ -156,6 +164,9 @@ describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
       "NotificationPreference",
       "JobHealth",
       "JobEvent",
+      "AccessPolicy",
+      "AccessOverride",
+      "UserRoleAuditLog",
       "_prisma_migrations",
     ]);
 

@@ -9,7 +9,7 @@ import {
   updateServiceInput,
   updateTaskTemplateInput,
 } from "@shared/schema/catalog.js";
-import { requireAdmin, requireAuth } from "../../core/auth.js";
+import { gate, shared } from "../../core/access.js";
 import * as service from "./catalog.service.js";
 
 const idParams = z.object({ id: uuid });
@@ -19,13 +19,13 @@ export async function registerRoutes(instance: FastifyInstance) {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
   // the whole team reads the catalog (dropdowns, chips); only admins change it
-  app.get("/", { preHandler: requireAuth }, async () => {
+  app.get("/", { config: shared() }, async () => {
     return service.listServices();
   });
 
   app.post(
     "/",
-    { preHandler: requireAdmin, schema: { body: createServiceInput } },
+    { config: gate("services"), schema: { body: createServiceInput } },
     async (request, reply) => {
       const created = await service.createService(request.body);
       return reply.status(201).send(created);
@@ -34,7 +34,7 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   app.patch(
     "/:id",
-    { preHandler: requireAdmin, schema: { params: idParams, body: updateServiceInput } },
+    { config: gate("services"), schema: { params: idParams, body: updateServiceInput } },
     async (request) => {
       return service.updateService(request.params.id, request.body);
     },
@@ -47,13 +47,13 @@ export async function registerRoutes(instance: FastifyInstance) {
    */
   app.patch(
     "/:id/position",
-    { preHandler: requireAdmin, schema: { params: idParams, body: moveServiceInput } },
+    { config: gate("services"), schema: { params: idParams, body: moveServiceInput } },
     async (request) => service.moveService(request.params.id, request.body),
   );
 
   app.delete(
     "/:id",
-    { preHandler: requireAdmin, schema: { params: idParams } },
+    { config: gate("services"), schema: { params: idParams } },
     async (request) => {
       return service.removeService(request.params.id);
     },
@@ -61,7 +61,7 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   app.post(
     "/:id/tasks",
-    { preHandler: requireAdmin, schema: { params: idParams, body: createTaskTemplateInput } },
+    { config: gate("services"), schema: { params: idParams, body: createTaskTemplateInput } },
     async (request, reply) => {
       const updated = await service.addTemplate(request.params.id, request.body);
       return reply.status(201).send(updated);
@@ -71,7 +71,7 @@ export async function registerRoutes(instance: FastifyInstance) {
   app.patch(
     "/:id/tasks/:templateId",
     {
-      preHandler: requireAdmin,
+      config: gate("services"),
       schema: { params: templateParams, body: updateTaskTemplateInput },
     },
     async (request) => {
@@ -81,7 +81,7 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   app.delete(
     "/:id/tasks/:templateId",
-    { preHandler: requireAdmin, schema: { params: templateParams } },
+    { config: gate("services"), schema: { params: templateParams } },
     async (request) => {
       return service.removeTemplate(request.params.id, request.params.templateId);
     },

@@ -9,6 +9,7 @@ import { isPastBusinessDate } from "@shared/dates.js";
 import { overlapping, spanEndMs } from "@shared/meetings.js";
 import type { User } from "../../generated/prisma/client.js";
 import { config } from "../../core/config.js";
+import { stateFor } from "../../core/access.js";
 import { dateToUtc, isoDayInTz, todayBusinessMs, zonedDayStart } from "../../core/dates.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
 import { clientLabel, personName } from "../../core/names.js";
@@ -70,15 +71,30 @@ function windowOf(query: CalendarQuery) {
   };
 }
 
-export async function getCalendar(query: CalendarQuery) {
+/**
+ * **The one place in the app where a gate is read outside the access hook.**
+ *
+ * The calendar draws two things: meetings, which are its own, and a projection of task deadlines,
+ * which are the Tasks module's. With `tasks` closed for the caller, refusing the whole request
+ * would take the meetings down with the overlay — so the overlay is simply not projected. That is
+ * a decision about what to DRAW, not about who may call, which is why it belongs here rather than
+ * in the hook; §11 of the module sanctions exactly this one exception and no other, and
+ * `meetings.integration.test.ts` holds it.
+ *
+ * Services otherwise never consult a gate. Completing a billable job still issues its invoice when
+ * Billing is closed for the person who pressed the button: money the system decided to bill does
+ * not depend on who happened to be at the keyboard.
+ */
+export async function getCalendar(query: CalendarQuery, viewer: Pick<User, "id" | "role">) {
   const { from, to, fromDay, toDay } = windowOf(query);
   const todayMs = todayBusinessMs(config.TZ);
+  const showsDeadlines = query.deadlines && (await stateFor(viewer, "tasks")) !== "closed";
 
   const [meetings, deadlines] = await Promise.all([
     query.meetings
       ? repo.listMeetings({ from, to, userId: query.userId, clientId: query.clientId })
       : Promise.resolve([]),
-    query.deadlines
+    showsDeadlines
       ? listDeadlinesInRange({
           from: fromDay,
           to: toDay,
