@@ -16,9 +16,20 @@ export async function registerRoutes(instance: FastifyInstance) {
   //
   // There is no `userId` anywhere in this half of the API, by design: a notification is addressed
   // to a person, and an endpoint that could name one would be an endpoint that could read theirs.
-  app.get("/", { preHandler: requireAuth }, async (request) => {
-    return service.tray(request.currentUser!.id);
-  });
+  // `limit` is the tray's "Show more": 20 by default, and the service clamps it to 100 so a
+  // hand-written query string cannot ask for the whole table.
+  app.get(
+    "/",
+    {
+      schema: {
+        querystring: z.object({ limit: z.coerce.number().int().min(1).max(100).optional() }),
+      },
+      preHandler: requireAuth,
+    },
+    async (request) => {
+      return service.tray(request.currentUser!.id, request.query.limit);
+    },
+  );
 
   app.post(
     "/:id/read",

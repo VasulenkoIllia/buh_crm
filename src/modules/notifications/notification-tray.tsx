@@ -79,9 +79,12 @@ export function NotificationTray() {
   );
 }
 
+const PAGE = 20;
+
 function TrayPanel({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate();
-  const { data, isLoading } = useNotifications();
+  const [limit, setLimit] = useState(PAGE);
+  const { data, isLoading } = useNotifications(limit);
   const dismiss = useDismissNotification();
   const dismissAll = useDismissAllNotifications();
   const items = data?.items ?? [];
@@ -146,6 +149,20 @@ function TrayPanel({ onClose }: { onClose: () => void }) {
             </div>
           </div>
         ))}
+        {/*
+          The tray was a hard cap of twenty, and on the first production forecast one admin would
+          have woken to 24 unread with no screen able to reach four of them. Still the tray, still
+          unread only, still newest first — just not a wall any more.
+        */}
+        {data && data.unread > items.length && (
+          <button
+            type="button"
+            className="w-full px-3.5 py-2.5 text-[11.5px] font-medium text-primary-link hover:bg-divider"
+            onClick={() => setLimit((n) => n + PAGE)}
+          >
+            Show {Math.min(PAGE, data.unread - items.length)} more
+          </button>
+        )}
       </div>
     </div>
   );

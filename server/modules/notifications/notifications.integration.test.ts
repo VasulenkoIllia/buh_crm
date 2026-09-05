@@ -463,6 +463,37 @@ describe("the tray", () => {
     expect(res.json().items).toHaveLength(2);
   });
 
+  /**
+   * The failure this guards was not hypothetical: the first production forecast (2026-09-06)
+   * showed one admin waking to 24 unread, of which the tray could render 20 and no screen could
+   * reach the other four.
+   */
+  it("pages past the first twenty instead of hiding them", async () => {
+    const many = Array.from({ length: 25 }, (_, i) => ({
+      userId: mateId,
+      trigger: "task_assigned",
+      reason: "assignee" as const,
+      text: `row ${i}`,
+      dedupKey: `task_assigned:page-${i}`,
+      createdAt: new Date(Date.now() - i * 60_000),
+    }));
+    await prisma.notification.createMany({ data: many });
+
+    const first = (await asMate.get("/api/notifications")).json();
+    expect(first.unread).toBe(25);
+    expect(first.items).toHaveLength(20);
+
+    const more = (await asMate.get("/api/notifications?limit=40")).json();
+    expect(more.items, "every unread row is reachable").toHaveLength(25);
+    // newest first, still
+    expect(more.items[0].text).toBe("row 0");
+    expect(more.items[24].text).toBe("row 24");
+
+    // and a hand-written limit cannot ask for the table
+    const huge = await asMate.get("/api/notifications?limit=99999");
+    expect(huge.statusCode, "an out-of-range limit is refused").toBe(400);
+  });
+
   it("dismissing stamps the row read instead of destroying it", async () => {
     await taskAssignedToMate();
     const [row] = await rowsFor(mateId);

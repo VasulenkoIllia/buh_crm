@@ -49,11 +49,18 @@ export interface PolicyRow {
  * (`src/modules/tasks/tasks.api.ts` — `refetchInterval: 60_000`). One precedent, one cadence:
  * a bell that refreshed faster than the timer would be a second answer to "how live is this app".
  */
-export function useNotifications() {
+/**
+ * `limit` is the tray's "Show more". It is part of the query KEY, so asking for more replaces the
+ * cached page rather than living beside it — one list, one poll, no merging.
+ */
+export function useNotifications(limit = 20) {
   return useQuery({
-    queryKey: TRAY_KEY,
-    queryFn: () => api<NotificationTray>("/api/notifications"),
+    queryKey: [...TRAY_KEY, limit] as const,
+    queryFn: () => api<NotificationTray>(`/api/notifications?limit=${limit}`),
     refetchInterval: 60_000,
+    // while a bigger page is being fetched the current one stays on screen, so "Show more" grows
+    // the list instead of blanking it
+    placeholderData: (previous) => previous,
   });
 }
 
@@ -75,19 +82,30 @@ export function useNotifications() {
  */
 export function useNotificationChime() {
   const { data } = useNotifications();
-  /** ids already accounted for. `null` until the first fetch — see rule 1. */
-  const seen = useRef<Set<string> | null>(null);
+  /** the newest instant already accounted for. `null` until the first fetch — see rule 1. */
+  const newest = useRef<string | null>(null);
 
   useEffect(() => {
     if (!data) return;
-    const ids = new Set(data.items.map((n) => n.id));
-    if (seen.current === null) {
-      seen.current = ids; // the first answer is a baseline, never an event
+    const top = data.items.reduce<string | null>(
+      (max, n) => (max === null || n.createdAt > max ? n.createdAt : max),
+      null,
+    );
+    if (newest.current === null) {
+      newest.current = top ?? ""; // the first answer is a baseline, never an event
       return;
     }
-    const arrived = data.items.filter((n) => !seen.current!.has(n.id));
-    seen.current = ids;
-    if (arrived.some((n) => n.sound)) playChime(); // rule 2: `some`, not `forEach`
+    /**
+     * Compared by TIME, not by "an id I have not seen".
+     *
+     * The id version was correct until "Show more" existed: pressing it brings back twenty OLDER
+     * rows, none of which had been seen, and every one of them would have chimed. What makes a
+     * sound is a row NEWER than the newest one already accounted for — which is what "something
+     * arrived" means, and is true however the page is resized.
+     */
+    const since = newest.current;
+    if (top !== null && top > since) newest.current = top;
+    if (data.items.some((n) => n.sound && n.createdAt > since)) playChime();
   }, [data]);
 }
 

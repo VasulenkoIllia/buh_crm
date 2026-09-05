@@ -6,12 +6,27 @@ import type { SetPreferenceInput, UpdatePolicyInput } from "@shared/schema/notif
 import { NotFoundError } from "../../core/errors.js";
 import * as repo from "./notifications.repository.js";
 
-/** The tray shows twenty and no paging. Anything older is found through the thing it was about. */
-const TRAY_SIZE = 20;
+/**
+ * Twenty at a time — a PAGE now, not a ceiling.
+ *
+ * It was a hard cap, and §6.1 chose that deliberately: no paging, no history screen, anything
+ * older found through the task it was about. The first real production forecast broke it on day
+ * one (2026-09-06): one admin would have woken to 24 unread, of which the tray could render 20
+ * and NO screen could reach the other four. A badge that counts rows a person cannot open is a
+ * badge that teaches them to ignore it.
+ *
+ * "Show more" is the smallest fix that keeps the original decision intact — still the tray, still
+ * unread only, still newest first, and still no second screen. `LIMIT n ORDER BY createdAt DESC`
+ * on `(userId, readAt)` stays an index walk at every page (measured at 120 000 rows), and the cap
+ * keeps a hand-written `?limit=` from asking for the table.
+ */
+const TRAY_PAGE = 20;
+const TRAY_MAX = 100;
 
-export async function tray(userId: string) {
+export async function tray(userId: string, limit = TRAY_PAGE) {
+  const take = Math.min(Math.max(limit, 1), TRAY_MAX);
   const [items, unread] = await Promise.all([
-    repo.listUnread(userId, TRAY_SIZE),
+    repo.listUnread(userId, take),
     repo.countUnread(userId),
   ]);
   return {
