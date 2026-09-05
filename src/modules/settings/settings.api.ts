@@ -12,7 +12,7 @@ import type {
 } from "@shared/schema/settings";
 import { api } from "@/shared/lib/api";
 import { SETTINGS_KEY, SYSTEM_HEALTH_KEY } from "@/shared/lib/query-keys";
-import type { JobHealthRow } from "@shared/system-jobs";
+import type { JobEventRow, JobHealthRow } from "@shared/system-jobs";
 
 /**
  * The System tab's data.
@@ -34,6 +34,7 @@ export interface SystemHealthResponse {
   bootedAt: string;
   now: string;
   jobs: JobHealthRow[];
+  events: JobEventRow[];
 }
 
 export function useSettings() {

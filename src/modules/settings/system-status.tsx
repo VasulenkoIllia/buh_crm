@@ -6,6 +6,7 @@ import {
   isHealthy,
   isSystemJobKey,
   jobStatus,
+  type JobEventRow,
   type JobHealthRow,
   type JobStatus,
   type SystemJobKey,
@@ -95,6 +96,8 @@ export function SystemStatusSection() {
         );
       })}
 
+      <Activity events={data.events} now={now} />
+
       {unknown.length > 0 && (
         <section>
           <h3 className="mb-2 text-[12px] font-bold text-ink-700 uppercase">Not recognised</h3>
@@ -130,6 +133,82 @@ export function SystemStatusSection() {
         </section>
       )}
     </div>
+  );
+}
+
+/**
+ * What has actually happened, newest first.
+ *
+ * The status lines above answer "is it working". This is the second question, and it arrives the
+ * moment the first one says yes: *what has it been doing, and has anything gone wrong?* Without
+ * it the screen states a verdict and shows none of the evidence, which is a thing to be believed
+ * rather than a thing to be read (user, 2026-09-06).
+ *
+ * Only runs worth a line are here — a job that woke, found nothing and went back to sleep is not
+ * one of them. That is decided on the server, at write time, so this list is short by construction
+ * and not by truncation.
+ */
+function Activity({ events, now }: { events: JobEventRow[]; now: Date }) {
+  if (events.length === 0) {
+    return (
+      <section>
+        <h3 className="mb-2 text-[12px] font-bold text-ink-700 uppercase">Recent activity</h3>
+        <div className="rounded-(--radius-panel) border border-border bg-surface px-3.5 py-3 shadow-(--shadow-card)">
+          <p className="text-[12px] text-muted">
+            Nothing yet. A line appears here whenever a job does something — creates tasks,
+            issues invoices, sends notifications — or fails trying. An empty list on a new
+            server is normal; the nightly jobs have not run yet.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section>
+      <h3 className="mb-2 text-[12px] font-bold text-ink-700 uppercase">Recent activity</h3>
+      <div className="overflow-hidden rounded-(--radius-panel) border border-border bg-surface shadow-(--shadow-card)">
+        {events.map((e, i) => {
+          const spec = isSystemJobKey(e.job) ? SYSTEM_JOBS[e.job] : null;
+          const bad = !e.ok;
+          const warn = e.ok && e.skipped > 0;
+          return (
+            <div
+              key={e.id}
+              className={cn(
+                "flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-3.5 py-2",
+                i > 0 && "border-t border-divider",
+              )}
+            >
+              <span className="w-[92px] flex-none text-[12px] text-muted-400 tabular-nums">
+                {relative(new Date(e.at), now)}
+              </span>
+              <span className="text-[12.5px] font-medium">{spec?.label ?? e.job}</span>
+              <span
+                className="text-[12px]"
+                style={{
+                  color: bad
+                    ? JOB_TONE_COLORS.bad.fg
+                    : warn
+                      ? JOB_TONE_COLORS.warn.fg
+                      : undefined,
+                }}
+              >
+                {bad
+                  ? // the error itself, not "failed" — the reader is already looking at a red line
+                    (e.error ?? "Failed")
+                  : e.note}
+                {warn ? ` · ${plural(e.skipped, "item")} skipped` : ""}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <p className="mt-1.5 text-[12px] text-muted">
+        Runs that did nothing are left out on purpose — the reminder job wakes every minute, and
+        listing those would bury everything else. Kept for 90 days.
+      </p>
+    </section>
   );
 }
 

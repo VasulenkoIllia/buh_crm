@@ -18,6 +18,7 @@ registerJob({
     const removed = await deleteExpiredSessions();
     return {
       note: removed > 0 ? `${plural(removed, "expired sign-in")} removed` : "Nothing to clear",
+      did: removed,
     };
   },
 });

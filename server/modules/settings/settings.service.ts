@@ -13,7 +13,7 @@ import { deleteFileBytes, saveFileBytes } from "../../core/files.js";
 import { ValidationError } from "../../core/errors.js";
 import * as repo from "./settings.repository.js";
 import { config } from "../../core/config.js";
-import { processBootedAt, readJobHealth } from "../../core/job-health.js";
+import { processBootedAt, readJobEvents, readJobHealth } from "../../core/job-health.js";
 
 const MAX_LOGO_SIZE = 5 * 1024 * 1024; // 5 MB
 // raster only — no SVG (can carry inline scripts → stored XSS; same rule as avatars)
@@ -184,10 +184,26 @@ export async function getLogoFile() {
  * on a container started twenty minutes ago is not late, it is simply not 3am yet.
  */
 export async function getSystemHealth() {
-  const rows = await readJobHealth();
+  const [rows, events] = await Promise.all([readJobHealth(), readJobEvents()]);
   return {
     bootedAt: processBootedAt().toISOString(),
     now: new Date().toISOString(),
+    /**
+     * What has actually happened, newest first — the second question anybody asks once the first
+     * one says "working". Only runs that failed, skipped work, or did something are here; a job
+     * waking up and finding nothing to do is summarised by its own row and would otherwise bury
+     * this list under half a million lines a year.
+     */
+    events: events.map((e) => ({
+      id: e.id,
+      job: e.job,
+      at: e.at.toISOString(),
+      ok: e.ok,
+      durationMs: e.durationMs,
+      note: e.note,
+      skipped: e.skipped,
+      error: e.error,
+    })),
     jobs: rows.map((r) => ({
       name: r.name,
       lastOkAt: r.lastOkAt?.toISOString() ?? null,

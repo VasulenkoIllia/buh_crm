@@ -63,6 +63,7 @@ async function runOnce(job: SchedulerJob, log: FastifyBaseLogger): Promise<void>
       durationMs: Date.now() - started,
       note: outcome?.note,
       skipped: outcome?.skipped,
+      did: outcome?.did,
     });
   } catch (err) {
     await recordJobRun(job.name, {

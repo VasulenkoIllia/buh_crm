@@ -81,20 +81,31 @@ export const SYSTEM_JOBS: Record<SystemJobKey, SystemJobSpec> = {
   },
   "read-bounces": {
     area: "mail",
-    label: "Delivery reports",
+    // NOT "delivery reports" — that was the protocol's word for it, and on a screen with a Reports
+    // section in the sidebar it read as something the CRM produces and sends somebody (user,
+    // 2026-09-06). Nothing here is sent anywhere: a letter that cannot be delivered comes BACK
+    // into the firm's own mailbox, and this is the job that opens it.
+    label: "Letters that came back",
     cadence: "Every fifteen minutes",
-    whenOk: "Reads each mailbox back and marks the addresses that refused a letter.",
+    whenOk:
+      "Opens the mailbox letters bounce back into, ties each one to the letter it failed, and " +
+      "marks the address as bad so nothing is sent to it again.",
     whenBad:
-      "Dead addresses stay on the lists and keep being written to, which is what damages a " +
-      "sending domain's reputation.",
+      "Mailouts keep reporting letters as delivered when they were not, and dead addresses stay " +
+      "on the lists and keep being written to — which is what damages a sending domain's " +
+      "reputation until real letters start landing in spam.",
     staleAfterMinutes: 2 * HOUR,
   },
   "stalled-send-sweep": {
     area: "mail",
-    label: "Abandoned sends",
+    label: "Mailouts that stopped halfway",
     cadence: "Every ten minutes, and on every restart",
-    whenOk: "Closes out sends that died mid-flight, usually because of a deploy.",
-    whenBad: "A send that died reads as still in progress, forever, and nobody re-sends it.",
+    whenOk:
+      "Finds mailouts that were interrupted mid-send — nearly always by a restart — and marks " +
+      "what did not go out as failed, so it can be sent again.",
+    whenBad:
+      "An interrupted mailout reads as still sending, forever. Nobody re-sends it, because " +
+      "nothing says it stopped.",
     staleAfterMinutes: 2 * HOUR,
   },
   "notification-sweep": {
@@ -174,6 +185,18 @@ export interface JobHealthRow {
   lastNote: string | null;
   /** the last error, for whoever has to fix it. Never the headline. */
   lastError: string | null;
+}
+
+/** One line in the history: a run that failed, skipped work, or did something. */
+export interface JobEventRow {
+  id: string;
+  job: string;
+  at: string;
+  ok: boolean;
+  durationMs: number;
+  note: string | null;
+  skipped: number;
+  error: string | null;
 }
 
 export function jobStatus(

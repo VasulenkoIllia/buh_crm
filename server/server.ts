@@ -7,6 +7,7 @@ import { ensureUploadsDir } from "./core/files.js";
 import { sweepCron } from "@shared/notifications.js";
 import { prisma } from "./core/db.js";
 import { registerJob, startScheduler, stopScheduler } from "./core/scheduler.js";
+import { purgeOldJobEvents } from "./core/job-health.js";
 import { plural } from "@shared/text.js";
 import { runDueCampaigns, sweepBounces, sweepStalledSends } from "./modules/mailouts/index.js";
 import {
@@ -43,7 +44,7 @@ async function main() {
     }
     if (label === "catch-up" && created > 0)
       app.log.info({ created }, "scheduled tasks caught up");
-    return { note: `${plural(created, "task")} created`, skipped };
+    return { note: `${plural(created, "task")} created`, skipped, did: created };
   };
   registerJob({
     name: "subscription-task-generation",
@@ -61,7 +62,7 @@ async function main() {
     // silently stops being billed is visible somewhere a person looks
     if (failed > 0)
       app.log.error({ failed, label }, "period invoice sweep skipped subscriptions");
-    return { note: `${plural(created, "invoice")} issued`, skipped: failed };
+    return { note: `${plural(created, "invoice")} issued`, skipped: failed, did: created };
   };
   registerJob({
     name: "period-invoice-generation",
@@ -84,7 +85,7 @@ async function main() {
     const { fired, failed } = await runDueCampaigns();
     if (fired > 0) app.log.info({ fired, label }, "campaigns sent");
     if (failed > 0) app.log.error({ failed, label }, "campaign runs failed — still due");
-    return { note: `${plural(fired, "campaign")} sent`, skipped: failed };
+    return { note: `${plural(fired, "campaign")} sent`, skipped: failed, did: fired };
   };
   registerJob({
     name: "campaign-sends",
@@ -124,7 +125,11 @@ async function main() {
       }
       // an unreadable mailbox is a SKIP, not a crash: the other mailboxes were read fine, and
       // `ops_mailbox_broken` already tells somebody which one it was
-      return { note: `${plural(matched, "delivery report")} applied`, skipped: unreadable };
+      return {
+        note: matched > 0 ? `${plural(matched, "letter")} came back` : "Nothing came back",
+        skipped: unreadable,
+        did: matched,
+      };
     },
   });
 
@@ -140,7 +145,9 @@ async function main() {
     const { closed } = await sweepStalledSends();
     if (closed > 0) app.log.warn({ closed, label }, "abandoned mailout rows closed as failed");
     return {
-      note: closed > 0 ? `${plural(closed, "abandoned send")} closed` : "Nothing abandoned",
+      note:
+        closed > 0 ? `${plural(closed, "interrupted mailout")} closed` : "Nothing interrupted",
+      did: closed,
     };
   };
   registerJob({
@@ -208,6 +215,7 @@ async function main() {
       return {
         note: `${plural(scanned, "thing")} checked, ${plural(raised, "notification")} sent`,
         skipped: failed,
+        did: raised,
       };
     },
   });
@@ -243,6 +251,7 @@ async function main() {
         note:
           raised > 0 ? `${plural(raised, "reminder")} sent` : "No meeting was due a reminder",
         skipped: failed,
+        did: raised,
       };
     },
   });
@@ -258,8 +267,14 @@ async function main() {
     run: async () => {
       const { purged } = await purgeOldNotifications();
       if (purged > 0) app.log.info({ purged }, "read notifications purged");
+      // the System tab's own history is housekept by the same job, on the same schedule and the
+      // same ninety days — one retention rule is easier to defend than two
+      const events = await purgeOldJobEvents();
+      if (events.purged > 0) app.log.info({ purged: events.purged }, "old job events purged");
+      const total = purged + events.purged;
       return {
-        note: purged > 0 ? `${plural(purged, "old notification")} removed` : "Nothing to clear",
+        note: total > 0 ? `${plural(total, "old record")} removed` : "Nothing to clear",
+        did: total,
       };
     },
   });

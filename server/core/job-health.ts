@@ -31,6 +31,14 @@ export interface JobOutcome {
    * isolate per item on purpose, so one client's bad row cannot stop the firm's billing run.
    */
   skipped?: number;
+  /**
+   * How many things the run actually DID — tasks created, letters matched, rows purged.
+   *
+   * It decides whether the run is worth a line in the history. The reminder job wakes 1 440 times
+   * a day and almost always did nothing; recording those would bury the handful of lines a person
+   * wants. Zero or absent means "this run is summarised by `lastNote` and needs no entry".
+   */
+  did?: number;
 }
 
 /** A job's `run()` may return nothing, as most do, or say what it did. */
@@ -71,6 +79,7 @@ export async function recordJobRun(
     durationMs: number;
     note?: string | null;
     skipped?: number;
+    did?: number;
     error?: string | null;
   },
 ): Promise<void> {
@@ -79,14 +88,25 @@ export async function recordJobRun(
   // a run that threw is a whole failed run, and is worth telling somebody about as one item
   const owed = result.ok ? skipped : Math.max(skipped, 1);
 
+  const error = result.error ? redactError(result.error) : null;
+
   const shared = {
     lastDurationMs: result.durationMs,
     lastSkipped: skipped,
     lastNote: result.note ?? null,
-    lastError: result.error ? redactError(result.error) : null,
+    lastError: error,
   } satisfies Partial<Prisma.JobHealthUncheckedCreateInput>;
 
   try {
+    /**
+     * A run earns a line in the history when it failed, skipped work, or did something. Everything
+     * else is a job quietly doing nothing, which `JobHealth` already summarises in one row.
+     *
+     * Written in the same try as the health row and after it, because the health row is the one
+     * that must not be lost: it answers "is this thing alive", and the history is context.
+     */
+    const eventful = !result.ok || skipped > 0 || (result.did ?? 0) > 0;
+
     await prisma.jobHealth.upsert({
       where: { name },
       create: {
@@ -105,6 +125,19 @@ export async function recordJobRun(
         ...(owed > 0 ? { unreported: { increment: owed } } : {}),
       },
     });
+
+    if (eventful) {
+      await prisma.jobEvent.create({
+        data: {
+          job: name,
+          ok: result.ok,
+          durationMs: result.durationMs,
+          note: result.note ?? null,
+          skipped,
+          error,
+        },
+      });
+    }
   } catch (err) {
     // The job itself already succeeded, or already logged its own failure; losing a health row
     // must not turn that into an incident. But total silence would hide the one cause worth
@@ -182,7 +215,28 @@ export function readJobHealth() {
   return prisma.jobHealth.findMany({ orderBy: { name: "asc" } });
 }
 
-/** Tests only — the table is process-wide state, so a suite must be able to start clean. */
+/** The history, newest first. Bounded by `take`, because a screen is not an export. */
+export function readJobEvents(take = 60) {
+  return prisma.jobEvent.findMany({ orderBy: { at: "desc" }, take });
+}
+
+/**
+ * How long the history is kept.
+ *
+ * The same ninety days the notification retention uses — one number for "how long this product
+ * remembers operational detail" is easier to defend than two, and the reasoning that produced it
+ * has not changed (docs/modules/notifications.md §8.2).
+ */
+export const EVENT_RETENTION_DAYS = 90;
+
+export async function purgeOldJobEvents(): Promise<{ purged: number }> {
+  const cutoff = new Date(Date.now() - EVENT_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  const { count } = await prisma.jobEvent.deleteMany({ where: { at: { lt: cutoff } } });
+  return { purged: count };
+}
+
+/** Tests only — the tables are process-wide state, so a suite must be able to start clean. */
 export async function resetJobHealth(): Promise<void> {
   await prisma.jobHealth.deleteMany({});
+  await prisma.jobEvent.deleteMany({});
 }

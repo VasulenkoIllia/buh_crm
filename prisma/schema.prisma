@@ -310,6 +310,7 @@ model FirmProfile {
    * /**
    * /**
    * /**
+   * /**
    * When the nightly notification sweep runs, as `HH:MM` in the firm's own timezone.
    * Was hardcoded at 07:00, which was a guess about when this firm's day starts. The hour is the
    * firm's to choose; the CONSTRAINT is not. It must be later than 03:20, because the task sweep
@@ -333,6 +334,7 @@ model FirmProfile {
   // fields could only ever describe one of them.
   //
   /**
+   * /**
    * /**
    * /**
    * /**
@@ -442,6 +444,7 @@ model MailSenderAccount {
    * /**
    * /**
    * /**
+   * /**
    * /** null = this mailbox is not read for bounces
    */
   imapHost       String?
@@ -462,6 +465,7 @@ model MailSenderAccount {
   // Never `\Seen`, never a moved message: this mailbox belongs to a person, and flagging their
   // mail to track our own progress would hide a bounce from them — or theirs from us.
   /**
+   * /**
    * /**
    * /**
    * /**
@@ -1677,4 +1681,34 @@ model JobHealth {
   /// `ops_sweep_failed`; zeroing it is what stops one bad night being reported every morning after.
   unreported     Int       @default(0)
   updatedAt      DateTime  @updatedAt
+}
+
+/// One row per background-job run that ACTUALLY DID SOMETHING — or failed trying.
+///
+/// `JobHealth` answers "is it working?". This answers "what has been happening?", which is the
+/// second question anybody asks the moment the first one says yes (user, 2026-09-06).
+///
+/// Deliberately NOT every run. The reminder job wakes 1 440 times a day and almost always has
+/// nothing to do; writing that down would bury the twelve lines a person actually wants under
+/// half a million that say "nothing". A run is recorded when it failed, skipped work, or did
+/// something — so a quiet system writes almost nothing here, and everything it does write is
+/// worth reading.
+model JobEvent {
+  id         String   @id @default(uuid()) @db.Uuid
+  /// the job's own name from `registerJob`, matching JobHealth.name and shared/system-jobs.ts
+  job        String
+  at         DateTime @default(now())
+  /// false = the run threw. A run that finished having skipped items is still `true`.
+  ok         Boolean
+  durationMs Int
+  /// what it did, in the firm's language — "14 tasks created"
+  note       String?
+  /// items it finished WITHOUT doing
+  skipped    Int      @default(0)
+  /// the error text, already redacted and capped by `recordJobRun`
+  error      String?
+
+  /// the screen reads "newest first, this job" and "newest first, everything"
+  @@index([job, at])
+  @@index([at])
 }

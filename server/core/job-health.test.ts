@@ -11,8 +11,12 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { SYSTEM_JOBS, SYSTEM_JOB_KEYS } from "@shared/system-jobs.js";
+import { prisma } from "./db.js";
 import {
+  EVENT_RETENTION_DAYS,
   drainSweepFailures,
+  purgeOldJobEvents,
+  readJobEvents,
   readJobHealth,
   recordJobRun,
   resetJobHealth,
@@ -208,3 +212,79 @@ function silentLog() {
     typeof import("./scheduler.js").startScheduler
   >[0];
 }
+
+describe("the history, which is what the screen shows under the statuses", () => {
+  beforeEach(async () => {
+    await resetJobHealth();
+  });
+
+  it("keeps a run that DID something", async () => {
+    await recordJobRun("subscription-task-generation", {
+      ok: true,
+      durationMs: 30,
+      note: "14 tasks created",
+      did: 14,
+    });
+    const [e] = await readJobEvents();
+    expect(e).toMatchObject({
+      job: "subscription-task-generation",
+      ok: true,
+      note: "14 tasks created",
+    });
+  });
+
+  it("keeps a run that failed, and one that skipped work", async () => {
+    await recordJobRun("campaign-sends", { ok: false, durationMs: 1, error: "smtp down" });
+    await recordJobRun("read-bounces", {
+      ok: true,
+      durationMs: 1,
+      skipped: 2,
+      note: "partly read",
+    });
+    const events = await readJobEvents();
+    expect(events).toHaveLength(2);
+    expect(events.map((e) => e.ok).sort()).toEqual([false, true]);
+  });
+
+  it("writes NOTHING for a job that woke up and found nothing to do", async () => {
+    // the reminder job does this 1 440 times a day. Recording it would bury every line that matters
+    // under half a million that say "nothing", which is how a history stops being read.
+    for (let i = 0; i < 50; i++) {
+      await recordJobRun("meeting-reminders", {
+        ok: true,
+        durationMs: 2,
+        note: "No meeting was due a reminder",
+        did: 0,
+      });
+    }
+    expect(await readJobEvents()).toEqual([]);
+    // and the status line still knows it is alive, which is the whole division of labour
+    expect((await readJobHealth())[0].lastOkAt).not.toBeNull();
+  });
+
+  it("redacts a password in the history too, not only in the status line", async () => {
+    await recordJobRun("campaign-sends", {
+      ok: false,
+      durationMs: 1,
+      error: "postgresql://buh_crm:s3cr3t@db:5432/x unreachable",
+    });
+    expect((await readJobEvents())[0].error).not.toContain("s3cr3t");
+  });
+
+  it("purges history past the retention line, and keeps what is inside it", async () => {
+    await recordJobRun("campaign-sends", { ok: true, durationMs: 1, note: "recent", did: 1 });
+    const old = new Date(Date.now() - (EVENT_RETENTION_DAYS + 1) * 24 * 60 * 60 * 1000);
+    await recordJobRun("read-bounces", { ok: true, durationMs: 1, note: "ancient", did: 1 });
+    // by NOTE, not by position: both rows were written in the same millisecond, so which one
+    // `orderBy: { at: "desc" }` puts first is not defined — and aging the wrong one would have
+    // made this test pass for the wrong reason
+    const ancient = (await readJobEvents()).find((e) => e.note === "ancient")!;
+    await prisma.jobEvent.update({ where: { id: ancient.id }, data: { at: old } });
+
+    const { purged } = await purgeOldJobEvents();
+    expect(purged).toBe(1);
+    const left = await readJobEvents();
+    expect(left).toHaveLength(1);
+    expect(left[0].note).toBe("recent");
+  });
+});
