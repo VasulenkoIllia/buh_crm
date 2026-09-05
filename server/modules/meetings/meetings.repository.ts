@@ -122,8 +122,20 @@ export function createMeeting(data: Prisma.MeetingUncheckedCreateInput) {
   return prisma.meeting.create({ data, select: { id: true } });
 }
 
+/**
+ * Returns the two stamps the caller has to key a notification on.
+ *
+ * It selected only the id, which is why `meeting_cancelled` first keyed itself on the DAY — the
+ * exact instant was not available. That made cancel → restore → cancel in one day silent the
+ * second time, and disagreed with how `task_cancelled` keys the identical event (audit
+ * 2026-09-06). Two more columns cost nothing and remove the whole class.
+ */
 export function updateMeeting(id: string, data: Prisma.MeetingUncheckedUpdateInput) {
-  return prisma.meeting.update({ where: { id }, data, select: { id: true } });
+  return prisma.meeting.update({
+    where: { id },
+    data,
+    select: { id: true, cancelledAt: true, updatedAt: true },
+  });
 }
 
 /** Full replace — the form always sends the complete list. */
@@ -173,5 +185,9 @@ export function countActiveUsers(ids: string[]) {
  * `updateTask`, which would also touch workflow fields this module has no business setting.
  */
 export function setTaskDeadline(taskId: string, deadline: Date) {
-  return prisma.task.update({ where: { id: taskId }, data: { deadline }, select: { id: true } });
+  return prisma.task.update({
+    where: { id: taskId },
+    data: { deadline },
+    select: { id: true },
+  });
 }

@@ -18,6 +18,7 @@ import {
   useUpdateSource,
   useUploadLogo,
 } from "./settings.api";
+import { SWEEP_EARLIEST_HOUR } from "@shared/notifications";
 import { NotificationPolicySection } from "@/modules/notifications";
 
 /**
@@ -454,7 +455,7 @@ function NotificationScheduleSection({
             className="w-32"
             defaultValue={sweepAt}
             disabled={update.isPending}
-            min="04:00"
+            min={`${String(SWEEP_EARLIEST_HOUR).padStart(2, "0")}:00`}
             onBlur={(e) => {
               const v = e.target.value;
               if (v && v !== sweepAt) update.mutate({ notifySweepAt: v });

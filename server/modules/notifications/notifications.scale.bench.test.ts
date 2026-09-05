@@ -4,7 +4,7 @@ import { buildApp } from "../../app.js";
 import { ensureBaseData } from "../../core/bootstrap.js";
 import { prisma } from "../../core/db.js";
 import { notify } from "../../core/notify.js";
-import { purgeOldNotifications } from "./notifications.sweep.js";
+import { purgeOldNotifications, runMeetingReminders } from "./notifications.sweep.js";
 
 /**
  * Scale check for the bell (opt-in), in the shape `server/scale.bench.test.ts` established.
@@ -175,5 +175,34 @@ describe.runIf(RUN)("the bell at three years of a busy firm", () => {
     });
 
     await timed("retention purge over the whole table", () => purgeOldNotifications());
+
+    /**
+     * The per-minute job's read, at a volume that makes the planner choose properly.
+     *
+     * On a nine-row table Postgres picks a sequential scan and is right to, which tells you
+     * nothing — so this seeds a year of meetings first. `meeting-reminders` runs 1 440 times a
+     * day; a scan here is the one query in this module that would be felt.
+     */
+    const base = Date.now();
+    await prisma.meeting.createMany({
+      data: Array.from({ length: 20_000 }, (_, i) => ({
+        title: `Scale meeting ${i}`,
+        startAt: new Date(base + (i - 10_000) * 60_000),
+        durationMinutes: 30,
+        remindMinutesBefore: i % 4 === 0 ? 15 : null,
+      })),
+    });
+    await prisma.$executeRawUnsafe(`ANALYZE "Meeting"`);
+
+    const reminderPlan = await plan(
+      `SELECT id FROM "Meeting" WHERE "cancelledAt" IS NULL AND "remindMinutesBefore" IS NOT NULL
+       AND "startAt" > now() AND "startAt" <= now() + interval '60 minutes'`,
+    );
+    console.log(`  reminder plan: ${reminderPlan.split("\n")[0]}`);
+    expect(reminderPlan, "the per-minute reminder read must not seq-scan").not.toMatch(
+      /Seq Scan on "?Meeting/i,
+    );
+    await timed("meeting reminder pass over 20 000 meetings", () => runMeetingReminders());
+    await prisma.meeting.deleteMany({ where: { title: { startsWith: "Scale meeting" } } });
   });
 });

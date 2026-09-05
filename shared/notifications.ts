@@ -396,7 +396,6 @@ export const NOTIFICATION_TRIGGER_KEYS = Object.keys(
  * throwing — a bad string in one column must not stop the server from booting.
  */
 export const SWEEP_EARLIEST_HOUR = 4;
-export const DEFAULT_SWEEP_AT = "07:00";
 
 export function sweepCron(at: string | null | undefined): string {
   const m = /^(\d{1,2}):(\d{2})$/.exec((at ?? "").trim());

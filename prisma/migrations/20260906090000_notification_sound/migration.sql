@@ -10,7 +10,13 @@
 -- later migration ever needs to write `'sound'::"NotificationChannel"`, it must be a separate one.
 
 -- AlterEnum
-ALTER TYPE "NotificationChannel" ADD VALUE 'sound';
+--
+-- `IF NOT EXISTS` because this is the ONE statement in the S9 migrations that is not re-runnable
+-- on its own. `prisma migrate deploy` never re-applies a recorded migration, so this cannot bite
+-- in a normal deploy — but a deploy that fails partway and is finished by hand does re-run SQL,
+-- and this project has been there before (the stale `DELETE FROM "Reminder"` that broke a reset on
+-- the server). One keyword, and the file is safe to paste into psql twice. (audit 2026-09-06)
+ALTER TYPE "NotificationChannel" ADD VALUE IF NOT EXISTS 'sound';
 
 -- AlterTable: what the notification was FOR, beside `emailedAt`. Decided at write time by the
 -- same precedence as the other channels, so the tray hands the browser a boolean instead of

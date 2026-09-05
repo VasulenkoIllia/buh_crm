@@ -375,7 +375,7 @@ export async function updateMeeting(id: string, input: UpdateMeetingInput, actor
     attachedTaskId = created.id;
   }
 
-  await repo.updateMeeting(id, {
+  const updated = await repo.updateMeeting(id, {
     ...(attachedTaskId ? { taskId: attachedTaskId } : {}),
     ...(input.title !== undefined ? { title: input.title } : {}),
     ...(input.personId !== undefined ? { personId: input.personId } : {}),
@@ -452,7 +452,9 @@ export async function updateMeeting(id: string, input: UpdateMeetingInput, actor
    */
   if (input.cancelled === true && !existing.cancelledAt) {
     await notify("meeting_cancelled", {
-      dedup: `${id}:${new Date().toISOString().slice(0, 10)}`,
+      // the exact instant it was called off, exactly as `task_cancelled` keys the same event.
+      // A day-wide key made cancel → restore → cancel in one day silent the second time.
+      dedup: `${id}:${updated.cancelledAt?.toISOString() ?? "cancelled"}`,
       actorId: actor.id,
       meetingId: id,
       taskId: linkedTask ?? undefined,
@@ -465,7 +467,9 @@ export async function updateMeeting(id: string, input: UpdateMeetingInput, actor
   }
   if (input.cancelled === false && existing.cancelledAt) {
     await notify("meeting_restored", {
-      dedup: `${id}:${new Date().toISOString().slice(0, 10)}`,
+      // a restore clears `cancelledAt`, so there is no instant of its own — `updatedAt` is the
+      // one, which is what `task_reopened` uses for the identical reason
+      dedup: `${id}:${updated.updatedAt.toISOString()}`,
       actorId: actor.id,
       meetingId: id,
       vars: { actor: personName(actor), meeting: title },

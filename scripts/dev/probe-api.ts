@@ -176,12 +176,19 @@ async function main() {
   else bad(`the badge said ${tray.unread}`);
   if (tray.items.length === 20) ok("the tray renders 20 and no more");
   else bad(`the tray returned ${tray.items.length} rows`);
-  if (tray.unread > tray.items.length) {
+  /**
+   * This used to report the unreachable rows as a finding, and kept reporting it after the fix
+   * landed — a probe that cries wolf is worse than no probe, which is the second time that has
+   * been true in this file. It now checks the FIX: every unread row must be reachable by paging.
+   */
+  const paged = await (await call(`/api/notifications?limit=100`, staffCookie)).json();
+  if (paged.items.length === paged.unread)
+    ok(`"Show more" reaches every one of the ${paged.unread} unread rows`);
+  else
     bad(
-      `80 unread rows are counted in the badge and reachable by NO screen — there is no paging ` +
-        `and no history. The only way out is "Mark all read", which discards them unseen.`,
+      `${paged.unread - paged.items.length} unread rows are counted in the badge and reachable ` +
+        `by no screen`,
     );
-  }
 
   const markAll = await call("/api/notifications/read-all", staffCookie, { method: "POST" });
   const body = await markAll.json();

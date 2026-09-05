@@ -98,7 +98,7 @@ export function MeetingModal({
    * No reminder unless somebody asks for one (user, 2026-09-06). A booking made without a thought
    * about it behaves exactly as every booking did before this field existed.
    */
-  const [remind, setRemind] = useState<number | null>(null);
+  const [remind, setRemind] = useState<(typeof REMINDER_CHOICES)[number] | null>(null);
   const [link, setLink] = useState("");
   const [description, setDescription] = useState("");
   const [participants, setParticipants] = useState<string[]>([]);
@@ -142,7 +142,11 @@ export function MeetingModal({
       setPersonId(existing.personId);
       setStart(splitInstant(existing.startAt));
       setDuration(existing.durationMinutes);
-      setRemind(existing.remindMinutesBefore ?? null);
+      setRemind(
+        (REMINDER_CHOICES as readonly number[]).includes(existing.remindMinutesBefore ?? -1)
+          ? (existing.remindMinutesBefore as (typeof REMINDER_CHOICES)[number])
+          : null,
+      );
       setLink(existing.link ?? "");
       setDescription(existing.description ?? "");
       setParticipants(existing.participantIds);
@@ -218,7 +222,7 @@ export function MeetingModal({
             personId,
             startAt,
             durationMinutes: duration,
-            remindMinutesBefore: remind as 5 | 15 | 30 | 60 | null,
+            remindMinutesBefore: remind,
             link: link || null,
             description: description || null,
             participantIds: participants,
@@ -240,7 +244,7 @@ export function MeetingModal({
           personId: target?.kind === "client" ? personId : null,
           startAt,
           durationMinutes: duration,
-          remindMinutesBefore: remind as 5 | 15 | 30 | 60 | null,
+          remindMinutesBefore: remind,
           link: link || null,
           description: description || null,
           participantIds: participants,

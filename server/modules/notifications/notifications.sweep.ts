@@ -9,6 +9,7 @@
  * `tasks.generation.ts`: one bad row must not cost the firm the other fifteen notifications, and
  * the sweep is idempotent through `dedupKey`, so whatever failed is retried tomorrow.
  */
+import { REMINDER_CHOICES } from "@shared/schema/calendar.js";
 import { config } from "../../core/config.js";
 import { addDays, isoDayInTz, todayInTz, toUtc, zonedDayStart } from "../../core/dates.js";
 import { clientLabel } from "../../core/names.js";
@@ -224,8 +225,13 @@ export async function runNotificationSweep(): Promise<SweepResult> {
   return out;
 }
 
-/** The longest reminder the form offers, so the query never looks further ahead than it must. */
-const WIDEST_REMINDER_MINUTES = 60;
+/**
+ * The widest window the query has to look at — DERIVED from the choices the form offers, never
+ * typed beside them. Written as its own 60 it was a silent trap: adding a two-hour reminder to
+ * `REMINDER_CHOICES` would have left the window at an hour, and that reminder would have fired
+ * sixty minutes before instead of a hundred and twenty, with nothing to show for it.
+ */
+const WIDEST_REMINDER_MINUTES = Math.max(...REMINDER_CHOICES);
 
 /**
  * The reminder pass — the module's second job, and the only frequent one.
