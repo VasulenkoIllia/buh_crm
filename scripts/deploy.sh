@@ -139,6 +139,15 @@ if $RESET; then
   }
 fi
 
+# Notifications raise NOTHING on a deploy: the event triggers wait for somebody to act, and the
+# 07:00 sweep defines no catch-up, so it does not run on boot. The first burst is at the next
+# 07:00 — and it is the largest this module will produce, because that sweep meets every overdue
+# task the firm has ever accumulated. This says how big it will be while there is still time to
+# turn a channel off.
+say "What the first 07:00 sweep will raise"
+docker compose exec -T app npx tsx scripts/notification-forecast.ts 2>&1 | sed -n '2,12p' || \
+  echo "   (forecast unavailable — harmless, the deploy has already succeeded)"
+
 say "Done — $(git log -1 --format='%h %s')"
 echo "   rollback, if needed:"
 echo "     docker compose exec -T db psql -U $PG_USER -d $PG_DB < $DUMP"
