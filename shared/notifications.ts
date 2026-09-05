@@ -53,6 +53,10 @@ export type NotificationTriggerKey =
   | "meeting_invited"
   | "meeting_today"
   | "meeting_moved"
+  | "meeting_cancelled"
+  | "meeting_restored"
+  | "meeting_uninvited"
+  | "meeting_soon"
   | "invoice_overdue"
   | "ops_mailbox_broken"
   | "ops_sweep_failed"
@@ -246,6 +250,66 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     defaultRecipients: ["participant"],
     defaultInApp: true,
     defaultEmail: true,
+    defaultSound: true,
+    mandatory: false,
+  },
+  meeting_cancelled: {
+    group: "meetings",
+    title: "{actor} cancelled: {meeting}",
+    when: "A meeting is called off.",
+    why: "Turning up to a meeting that is not happening is the one outcome worse than missing it.",
+    source: "event",
+    /**
+     * Participants AND the task's assignees. They start out as the same people — `openTaskFor`
+     * assigns a meeting's task to whoever is coming — but a task can be handed on afterwards, and
+     * the person now holding "prepare for Tuesday's review" is the one who needs to hear that
+     * Tuesday's review is off. The task is deliberately NOT cancelled with the meeting: whether
+     * the preparation is still worth doing is a person's call, not the system's (user,
+     * 2026-09-06).
+     */
+    defaultRecipients: ["participant", "assignee"],
+    defaultInApp: true,
+    defaultEmail: true,
+    defaultSound: true,
+    mandatory: false,
+  },
+  meeting_restored: {
+    group: "meetings",
+    title: "{actor} put it back on: {meeting}",
+    when: "A cancelled meeting is reinstated.",
+    why: "Somebody who rearranged their day around the cancellation has to hear it is back.",
+    source: "event",
+    defaultRecipients: ["participant"],
+    defaultInApp: true,
+    defaultEmail: true,
+    defaultSound: false,
+    mandatory: false,
+  },
+  meeting_uninvited: {
+    group: "meetings",
+    title: "{actor} took you off: {meeting}",
+    when: "You are removed from a meeting's participants.",
+    why: "The meeting simply vanishes from your calendar, and nothing else would say why.",
+    source: "event",
+    // `participant` cannot find them — they are not one any more — so the emitter is called once
+    // per removed person, addressed to them by `self`.
+    defaultRecipients: ["self"],
+    defaultInApp: true,
+    defaultEmail: false,
+    defaultSound: false,
+    mandatory: false,
+  },
+  meeting_soon: {
+    group: "meetings",
+    title: "Starts {when}: {meeting}",
+    when: "Shortly before a meeting that was booked with a reminder.",
+    why: "`meeting_today` is for planning the day; this is for the five minutes before you are late.",
+    source: "sweep",
+    defaultRecipients: ["participant"],
+    defaultInApp: true,
+    // a letter fifteen minutes ahead arrives after the moment it was for, and lands in an inbox
+    // nobody is watching. The chime is the point of this one.
+    defaultEmail: false,
     defaultSound: true,
     mandatory: false,
   },

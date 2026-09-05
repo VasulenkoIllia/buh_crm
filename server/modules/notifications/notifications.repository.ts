@@ -146,6 +146,25 @@ export function tasksWithDeadlineIn(range: {
   });
 }
 
+/**
+ * Meetings close enough to remind about, with the reminder still ahead of the start.
+ *
+ * The window is asked for in SQL and narrowed in memory, because "startAt minus this row's own
+ * `remindMinutesBefore` is now" compares a column to another column plus the clock, which Prisma
+ * cannot express. The widest reminder is an hour, so the query never looks further than that — a
+ * handful of rows at any moment, on the `(cancelledAt, startAt)` index that already exists.
+ */
+export function meetingsToRemind(now: Date, widestMinutes: number) {
+  return prisma.meeting.findMany({
+    where: {
+      cancelledAt: null,
+      remindMinutesBefore: { not: null },
+      startAt: { gt: now, lte: new Date(now.getTime() + widestMinutes * 60_000) },
+    },
+    select: { id: true, title: true, startAt: true, remindMinutesBefore: true },
+  });
+}
+
 export function meetingsStartingBetween(from: Date, to: Date) {
   return prisma.meeting.findMany({
     where: { startAt: { gte: from, lt: to }, cancelledAt: null },

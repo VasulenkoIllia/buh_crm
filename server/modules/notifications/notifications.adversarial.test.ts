@@ -7,7 +7,7 @@ import { prisma } from "../../core/db.js";
 import { testOutbox } from "../../core/email.js";
 import { notify } from "../../core/notify.js";
 import * as repo from "./notifications.repository.js";
-import { purgeOldNotifications } from "./notifications.sweep.js";
+import { purgeOldNotifications, runMeetingReminders } from "./notifications.sweep.js";
 
 /**
  * The adversarial pass: what a person would do to this on purpose, and what a real day does to it
@@ -527,6 +527,120 @@ describe("the sweep's schedule is the firm's, and refuses what would break it", 
     expect(found, "a task due INSIDE the window must not be skipped").toContain(inTwo);
     expect(found).toContain(inThree);
     expect(found, "and one beyond it is not warned yet").not.toContain(inTen);
+  });
+});
+
+// ── 4d. the whole life of a meeting ──────────────────────────────────────────
+
+describe("a meeting's lifecycle is covered end to end", () => {
+  const soon = (minutes: number) => new Date(Date.now() + minutes * 60_000);
+
+  /**
+   * Meetings, unlike notifications, are not cleared by the outer `beforeEach` — and the reminder
+   * pass looks at an hour-wide window, so one case's leftovers are the next case's extra reminder.
+   * Found by exactly that: a test asserting "reminds once" saw two.
+   */
+  beforeEach(async () => {
+    await prisma.meetingParticipant.deleteMany();
+    await prisma.meeting.deleteMany();
+  });
+
+  async function meeting(over: Record<string, unknown> = {}) {
+    return prisma.meeting.create({
+      data: {
+        title: "Client review",
+        startAt: soon(120),
+        durationMinutes: 30,
+        createdById: ada,
+        ...over,
+      },
+    });
+  }
+  const withPeople = async (id: string, users: string[]) => {
+    for (const userId of users) {
+      await prisma.meetingParticipant.create({ data: { meetingId: id, userId } });
+    }
+  };
+
+  it("reminds only inside the window, and only about meetings that asked", async () => {
+    const asked = await meeting({ startAt: soon(10), remindMinutesBefore: 15 }); // window open
+    const early = await meeting({ startAt: soon(50), remindMinutesBefore: 15 }); // too far off
+    const silent = await meeting({ startAt: soon(10) }); // no reminder requested
+    const off = await meeting({
+      startAt: soon(10),
+      remindMinutesBefore: 15,
+      cancelledAt: new Date(),
+    });
+    for (const m of [asked, early, silent, off]) await withPeople(m.id, [bo]);
+
+    const { raised } = await runMeetingReminders();
+    expect(raised).toBe(1);
+
+    const rows = await rowsOf(bo);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].trigger).toBe("meeting_soon");
+    expect(rows[0].text, "it counts down to THIS meeting").toMatch(/Starts in \d+ minutes/);
+    expect(rows[0].sound, "the chime is the point of this one").toBe(true);
+  });
+
+  it("reminds again when the meeting moves, and only once when it does not", async () => {
+    const m = await meeting({ startAt: soon(10), remindMinutesBefore: 15 });
+    await withPeople(m.id, [bo]);
+
+    await runMeetingReminders();
+    await runMeetingReminders(); // a second pass a minute later
+    expect(await rowsOf(bo), "the same instant reminds once").toHaveLength(1);
+
+    /**
+     * Keyed on the meeting ALONE this would be the bug: somebody who moved a meeting would have
+     * been reminded about the hour it used to be at, and never about the one it moved to.
+     */
+    await prisma.meeting.update({ where: { id: m.id }, data: { startAt: soon(12) } });
+    await runMeetingReminders();
+    expect(await rowsOf(bo), "a new start time is a new reminder").toHaveLength(2);
+  });
+
+  it("tells the participants AND the task's assignee when a meeting is called off", async () => {
+    // the task is handed to Cy after the meeting was booked — the case `participant` alone misses
+    const task = await taskFor("Prepare the review", [cy]);
+    const m = await meeting({ taskId: task.id });
+    await withPeople(m.id, [bo]);
+
+    await notify("meeting_cancelled", {
+      dedup: `${m.id}:2026-09-06`,
+      actorId: ada,
+      meetingId: m.id,
+      taskId: task.id,
+      vars: { actor: "Ada", meeting: m.title },
+      sub: "Was Tue 8 Sept · its task is still open",
+    });
+
+    expect((await rowsOf(bo))[0].reason, "a participant hears as a participant").toBe(
+      "participant",
+    );
+    expect((await rowsOf(cy))[0].reason, "whoever holds the task now hears too").toBe(
+      "assignee",
+    );
+    // the task is deliberately left alone — whether the preparation still matters is a person's call
+    expect(
+      (await prisma.task.findUniqueOrThrow({ where: { id: task.id } })).cancelledAt,
+    ).toBeNull();
+  });
+
+  it("tells somebody they were taken off, which no other role can reach", async () => {
+    const m = await meeting();
+    await withPeople(m.id, [cy]); // Bo has already been removed by the time this fires
+    await notify("meeting_uninvited", {
+      dedup: `${m.id}:${bo}`,
+      actorId: ada,
+      selfUserId: bo,
+      vars: { actor: "Ada", meeting: m.title },
+    });
+
+    const rows = await rowsOf(bo);
+    expect(rows, "the `participant` role cannot find them — `self` can").toHaveLength(1);
+    expect(rows[0].reason).toBe("self");
+    expect(await rowsOf(cy), "and it is addressed to one person, not the room").toHaveLength(0);
   });
 });
 

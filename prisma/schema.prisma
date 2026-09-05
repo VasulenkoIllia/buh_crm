@@ -308,6 +308,7 @@ model FirmProfile {
   // ── Notifications (S9.2) ──────────────────────────────────────────────────
   /**
    * /**
+   * /**
    * When the nightly notification sweep runs, as `HH:MM` in the firm's own timezone.
    * Was hardcoded at 07:00, which was a guess about when this firm's day starts. The hour is the
    * firm's to choose; the CONSTRAINT is not. It must be later than 03:20, because the task sweep
@@ -331,6 +332,7 @@ model FirmProfile {
   // fields could only ever describe one of them.
   //
   /**
+   * /**
    * /**
    * /**
    * /**
@@ -436,6 +438,7 @@ model MailSenderAccount {
    * /**
    * /**
    * /**
+   * /**
    * /** null = this mailbox is not read for bounces
    */
   imapHost       String?
@@ -456,6 +459,7 @@ model MailSenderAccount {
   // Never `\Seen`, never a moved message: this mailbox belongs to a person, and flagging their
   // mail to track our own progress would hide a bounce from them — or theirs from us.
   /**
+   * /**
    * /**
    * /**
    * /**
@@ -1129,27 +1133,35 @@ model PaymentAuditLog {
 // ── Calendar ─────────────────────────────────────────────────────────────────
 
 model Meeting {
-  id              String    @id @default(uuid()) @db.Uuid
-  title           String
-  clientId        String?   @db.Uuid // client OR lead OR internal (both null)
-  leadId          String?   @db.Uuid
+  id                  String    @id @default(uuid()) @db.Uuid
+  title               String
+  clientId            String?   @db.Uuid // client OR lead OR internal (both null)
+  leadId              String?   @db.Uuid
   /// WHO at the client, when it is worth saying. An optional refinement of `clientId` and never a
   /// replacement for it: the meeting still belongs to the client, so the rollups are untouched,
   /// and SetNull means a contact who leaves takes nothing with them (user, 2026-08-28).
-  personId        String?   @db.Uuid
-  serviceId       String?   @db.Uuid
-  startAt         DateTime
-  durationMinutes Int
-  link            String? // video-call URL, or a dial-in — free text on purpose
-  description     String?
+  personId            String?   @db.Uuid
+  serviceId           String?   @db.Uuid
+  startAt             DateTime
+  durationMinutes     Int
+  link                String? // video-call URL, or a dial-in — free text on purpose
+  /**
+   * Minutes before the start to remind whoever is coming. NULL = no reminder, and that is the
+   * default: a meeting booked before this existed had none, and a booking made without thinking
+   * about it should behave the same way.
+   * A property of the MEETING, set by whoever books it — but it still obeys each person's own
+   * `meeting_soon` preference, so an organiser cannot make a colleague's machine chime.
+   */
+  remindMinutesBefore Int?
+  description         String?
   /// the organiser: who booked it. Null only for rows that predate the field.
-  createdById     String?   @db.Uuid
+  createdById         String?   @db.Uuid
   /// the task opened alongside the meeting, when one was asked for (S8). SetNull, not Cascade:
   /// deleting the task must not take the meeting's record of what was agreed with it.
-  taskId          String?   @unique @db.Uuid
-  cancelledAt     DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  taskId              String?   @unique @db.Uuid
+  cancelledAt         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   client       Client?              @relation(fields: [clientId], references: [id])
   lead         Lead?                @relation(fields: [leadId], references: [id])

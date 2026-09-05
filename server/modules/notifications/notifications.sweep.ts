@@ -224,6 +224,64 @@ export async function runNotificationSweep(): Promise<SweepResult> {
   return out;
 }
 
+/** The longest reminder the form offers, so the query never looks further ahead than it must. */
+const WIDEST_REMINDER_MINUTES = 60;
+
+/**
+ * The reminder pass — the module's second job, and the only frequent one.
+ *
+ * It runs every minute, because a five-minute reminder cannot be honoured by a job that wakes
+ * every five: it would fire anywhere between five and ten minutes early, or not at all. The cost
+ * is one indexed query a minute over a window an hour wide, which is a handful of rows in a
+ * ten-person firm — far less than the IMAP connection the bounce reader opens every fifteen.
+ *
+ * Idempotent like everything else here: the dedup key carries the meeting's START TIME, so a
+ * meeting that is moved reminds again for its new time, and one that is not reminds once. That
+ * matters more than it looks — keyed on the meeting alone, a rescheduled meeting would have
+ * reminded people about the hour it used to be at and never about the one it moved to.
+ *
+ * If the process is down through the reminder minute, the next run still fires as long as the
+ * meeting has not started: a reminder eight minutes before a fifteen-minute setting is late but
+ * useful, and silence is not.
+ */
+export async function runMeetingReminders(): Promise<SweepResult> {
+  const out: SweepResult = { raised: 0, skipped: 0 };
+  const now = new Date();
+  const due = (await repo.meetingsToRemind(now, WIDEST_REMINDER_MINUTES)).filter(
+    (m) => m.startAt.getTime() - (m.remindMinutesBefore ?? 0) * 60_000 <= now.getTime(),
+  );
+
+  await each(
+    due,
+    (meeting) =>
+      notify("meeting_soon", {
+        // the meeting AND its instant — see the note above
+        dedup: `${meeting.id}:${meeting.startAt.toISOString()}`,
+        meetingId: meeting.id,
+        vars: {
+          meeting: meeting.title,
+          when: minutesAway(meeting.startAt, now),
+        },
+        sub: new Intl.DateTimeFormat("en-GB", {
+          timeZone: config.TZ,
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        }).format(meeting.startAt),
+        link: { type: "meeting", id: meeting.id },
+      }),
+    out,
+  );
+  return out;
+}
+
+/** "in 15 minutes" / "in a minute" — rounded up, so it never says less time than there is. */
+function minutesAway(startAt: Date, now: Date): string {
+  const mins = Math.ceil((startAt.getTime() - now.getTime()) / 60_000);
+  if (mins <= 1) return "in a minute";
+  return `in ${mins} minutes`;
+}
+
 /**
  * Read notifications are purged after 90 days. Unread rows are NEVER purged, at any age — a
  * notification nobody has seen has not done its job yet.

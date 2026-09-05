@@ -26,6 +26,7 @@ export function toMeetingDto(m: repo.MeetingRecord) {
     serviceId: m.serviceId,
     startAt: m.startAt.toISOString(),
     durationMinutes: m.durationMinutes,
+    remindMinutesBefore: m.remindMinutesBefore,
     link: m.link,
     description: m.description,
     participantIds: m.participants.map((p) => p.userId),
@@ -270,6 +271,7 @@ export async function createMeeting(input: CreateMeetingInput, actor: User) {
     serviceId: input.serviceId ?? null,
     startAt,
     durationMinutes: input.durationMinutes,
+    remindMinutesBefore: input.remindMinutesBefore ?? null,
     link: input.link ?? null,
     description: input.description ?? null,
     createdById: actor.id,
@@ -380,6 +382,9 @@ export async function updateMeeting(id: string, input: UpdateMeetingInput, actor
     ...(input.serviceId !== undefined ? { serviceId: input.serviceId } : {}),
     ...(input.startAt !== undefined ? { startAt: new Date(input.startAt) } : {}),
     ...(input.durationMinutes !== undefined ? { durationMinutes: input.durationMinutes } : {}),
+    ...(input.remindMinutesBefore !== undefined
+      ? { remindMinutesBefore: input.remindMinutesBefore }
+      : {}),
     ...(input.link !== undefined ? { link: input.link } : {}),
     ...(input.description !== undefined ? { description: input.description } : {}),
     // cancelling is reversible: a meeting called off and put back on is one row, not two
@@ -405,8 +410,69 @@ export async function updateMeeting(id: string, input: UpdateMeetingInput, actor
   }
 
   const title = input.title ?? existing.title;
+  const startAt = movedTo ?? existing.startAt;
+
   // somebody added to the list now is being invited, exactly as on create
-  if (participantIds) await notifyInvited(id, title, movedTo ?? existing.startAt, actor);
+  if (participantIds) await notifyInvited(id, title, startAt, actor);
+
+  /**
+   * Somebody taken OFF the list, told once each.
+   *
+   * The `participant` role cannot find them — they are not one any more — so the emitter is called
+   * per person with `self`. Without this the meeting simply disappears from their calendar and
+   * nothing anywhere says why.
+   */
+  if (participantIds) {
+    const removed = existing.participants
+      .map((p) => p.userId)
+      .filter((userId) => !participantIds!.includes(userId));
+    for (const userId of removed) {
+      await notify("meeting_uninvited", {
+        // once per person per meeting. Removing, re-adding and removing again tells them once —
+        // rare enough to accept, and the alternative is a key that grows on every edit.
+        dedup: `${id}:${userId}`,
+        actorId: actor.id,
+        selfUserId: userId,
+        vars: { actor: personName(actor), meeting: title },
+        sub: meetingWhen(startAt),
+        link: { type: "meeting", id },
+      });
+    }
+  }
+
+  /**
+   * Called off, and put back on. Both are lifecycle events of the record and both were silent:
+   * you were told when a meeting MOVED but not when it stopped existing, which is the worse of
+   * the two — you turn up.
+   *
+   * `meeting_cancelled` also reaches the linked task's ASSIGNEES, who start out as the
+   * participants but need not stay them. The task is deliberately left open: whether the
+   * preparation is still worth doing is a person's call, not the system's (user, 2026-09-06), and
+   * the second line says the task is still there so nobody has to discover it.
+   */
+  if (input.cancelled === true && !existing.cancelledAt) {
+    await notify("meeting_cancelled", {
+      dedup: `${id}:${new Date().toISOString().slice(0, 10)}`,
+      actorId: actor.id,
+      meetingId: id,
+      taskId: linkedTask ?? undefined,
+      vars: { actor: personName(actor), meeting: title },
+      sub: linkedTask
+        ? `Was ${meetingWhen(startAt)} · its task is still open`
+        : `Was ${meetingWhen(startAt)}`,
+      link: { type: "meeting", id },
+    });
+  }
+  if (input.cancelled === false && existing.cancelledAt) {
+    await notify("meeting_restored", {
+      dedup: `${id}:${new Date().toISOString().slice(0, 10)}`,
+      actorId: actor.id,
+      meetingId: id,
+      vars: { actor: personName(actor), meeting: title },
+      sub: meetingWhen(startAt),
+      link: { type: "meeting", id },
+    });
+  }
 
   // Turning up to a moved meeting is the failure this prevents, so the dedup key is the new
   // INSTANT: a meeting pushed twice tells people twice, and a save that did not move it is silent.

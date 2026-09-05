@@ -2,7 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle } from "lucide-react";
 import type { Meeting } from "@shared/schema/calendar";
-import { DEFAULT_MEETING_MINUTES, MEETING_DURATION_PRESETS } from "@shared/schema/calendar";
+import {
+  DEFAULT_MEETING_MINUTES,
+  MEETING_DURATION_PRESETS,
+  REMINDER_CHOICES,
+} from "@shared/schema/calendar";
 import { useCatalog } from "@/modules/catalog";
 import { ClientFormModal, useClient } from "@/modules/clients";
 import { LeadFormModal, useLead } from "@/modules/leads";
@@ -90,6 +94,11 @@ export function MeetingModal({
   // 15 minutes: most meetings this firm books are short check-ins, and a preset that is usually
   // wrong costs a correction every single time (user, 2026-08-06)
   const [duration, setDuration] = useState(DEFAULT_MEETING_MINUTES);
+  /**
+   * No reminder unless somebody asks for one (user, 2026-09-06). A booking made without a thought
+   * about it behaves exactly as every booking did before this field existed.
+   */
+  const [remind, setRemind] = useState<number | null>(null);
   const [link, setLink] = useState("");
   const [description, setDescription] = useState("");
   const [participants, setParticipants] = useState<string[]>([]);
@@ -133,6 +142,7 @@ export function MeetingModal({
       setPersonId(existing.personId);
       setStart(splitInstant(existing.startAt));
       setDuration(existing.durationMinutes);
+      setRemind(existing.remindMinutesBefore ?? null);
       setLink(existing.link ?? "");
       setDescription(existing.description ?? "");
       setParticipants(existing.participantIds);
@@ -208,13 +218,17 @@ export function MeetingModal({
             personId,
             startAt,
             durationMinutes: duration,
+            remindMinutesBefore: remind as 5 | 15 | 30 | 60 | null,
             link: link || null,
             description: description || null,
             participantIds: participants,
             // only ever ATTACHES one; the server refuses to replace a task already worked on
             task:
               withTask && !existing?.taskId
-                ? { mode: taskMode, subscriptionId: taskMode === "service" ? subscriptionId : null }
+                ? {
+                    mode: taskMode,
+                    subscriptionId: taskMode === "service" ? subscriptionId : null,
+                  }
                 : undefined,
           },
         });
@@ -226,6 +240,7 @@ export function MeetingModal({
           personId: target?.kind === "client" ? personId : null,
           startAt,
           durationMinutes: duration,
+          remindMinutesBefore: remind as 5 | 15 | 30 | 60 | null,
           link: link || null,
           description: description || null,
           participantIds: participants,
@@ -301,7 +316,8 @@ export function MeetingModal({
                 const note = existing.taskId
                   ? "\n\nIts task stays on the board — close that separately if the work is off too."
                   : "";
-                if (!window.confirm(`Call this meeting off? It leaves the calendar.${note}`)) return;
+                if (!window.confirm(`Call this meeting off? It leaves the calendar.${note}`))
+                  return;
                 await update.mutateAsync({ id: meetingId!, input: { cancelled: true } });
                 onClose();
               }}
@@ -320,10 +336,12 @@ export function MeetingModal({
     >
       <div className="space-y-3.5">
         {error && (
-          <p className={cn(
-            "rounded-(--radius-card) border border-[#f0c9c9] bg-[#fdf5f5] px-3 py-2",
-            "text-[13px] text-danger-text",
-          )}>
+          <p
+            className={cn(
+              "rounded-(--radius-card) border border-[#f0c9c9] bg-[#fdf5f5] px-3 py-2",
+              "text-[13px] text-danger-text",
+            )}
+          >
             {error}
           </p>
         )}
@@ -482,6 +500,39 @@ export function MeetingModal({
           </div>
         </FormField>
 
+        {/*
+          Under Duration because both are about the clock, and above "Who's coming" because that is
+          who it reaches. Pills rather than a select: four choices and an off, all visible at once,
+          the same shape the duration presets above already use.
+        */}
+        <FormField label="Remind whoever is coming">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              className={pillCls(remind === null)}
+              onClick={() => setRemind(null)}
+            >
+              No reminder
+            </button>
+            {REMINDER_CHOICES.map((m) => (
+              <button
+                key={m}
+                type="button"
+                className={pillCls(remind === m)}
+                onClick={() => setRemind(m)}
+              >
+                {m} min before
+              </button>
+            ))}
+          </div>
+          {remind !== null && (
+            <p className="mt-1.5 text-[12px] text-muted-400">
+              Everyone coming gets a notification {remind} minutes before — unless they have
+              turned this off in their own profile.
+            </p>
+          )}
+        </FormField>
+
         <FormField label="Who's coming">
           <AssigneePicker
             users={team ?? []}
@@ -598,7 +649,6 @@ export function MeetingModal({
             />
           </FormField>
         </div>
-
       </div>
     </Modal>
   );

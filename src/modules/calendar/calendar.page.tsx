@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
+import { Bell, CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import type { DeadlineItem, Meeting } from "@shared/schema/calendar";
 import { useAssignees } from "@/modules/tasks";
 import { cn } from "@/shared/lib/cn";
@@ -606,6 +606,10 @@ function TimeGrid({
                         (item.clientName ?? item.leadName)
                           ? ` · ${item.clientName ?? item.leadName}`
                           : ""
+                      }${
+                        item.remindMinutesBefore
+                          ? ` · reminder ${item.remindMinutesBefore} min before`
+                          : ""
                       }`}
                       className="absolute overflow-hidden rounded-[6px] border border-[#c3cdf3] bg-[#e8ecfb] px-1.5 py-0.5 text-left leading-tight"
                     >
@@ -613,9 +617,15 @@ function TimeGrid({
                         three lines in it rendered as clipped nonsense. The time leads, because in
                         a column of boxes that is what you scan for. */}
                       {pos.compact ? (
-                        <div className="truncate text-[11px] text-primary-link">
-                          <span className="font-semibold">{fmtTime(item.startAt)}</span>{" "}
-                          {item.title}
+                        // the one-line card, which is MOST of them — this firm books short
+                        // check-ins, so leaving the bell off the compact variant meant leaving it
+                        // off the common case (caught in testing)
+                        <div className="flex items-center gap-1 truncate text-[11px] text-primary-link">
+                          <span className="font-semibold">{fmtTime(item.startAt)}</span>
+                          {item.remindMinutesBefore !== null && (
+                            <Bell size={9} className="shrink-0" aria-hidden />
+                          )}
+                          <span className="truncate">{item.title}</span>
                         </div>
                       ) : (
                         <>
@@ -624,8 +634,13 @@ function TimeGrid({
                             {fmtRange(item.startAt, item.durationMinutes)}
                             {pos.clippedEnd && " ↓"}
                           </div>
-                          <div className="truncate text-[11px] font-semibold text-primary-link">
-                            {item.title}
+                          <div className="flex items-center gap-1 truncate text-[11px] font-semibold text-primary-link">
+                            {/* a reminder is invisible otherwise until somebody opens the form —
+                                and "did I set one?" is the question you ask the day before */}
+                            {item.remindMinutesBefore !== null && (
+                              <Bell size={9} className="shrink-0" aria-hidden />
+                            )}
+                            <span className="truncate">{item.title}</span>
                           </div>
                           {(item.clientName ?? item.leadName) && (
                             <div className="truncate text-[10px] text-muted-400">

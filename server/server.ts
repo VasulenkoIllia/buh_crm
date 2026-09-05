@@ -8,7 +8,11 @@ import { prisma } from "./core/db.js";
 import { registerJob, startScheduler, stopScheduler } from "./core/scheduler.js";
 import { recordSweepFailure } from "./core/sweep-health.js";
 import { runDueCampaigns, sweepBounces, sweepStalledSends } from "./modules/mailouts/index.js";
-import { purgeOldNotifications, runNotificationSweep } from "./modules/notifications/index.js";
+import {
+  purgeOldNotifications,
+  runMeetingReminders,
+  runNotificationSweep,
+} from "./modules/notifications/index.js";
 import { generatePeriodInvoices } from "./modules/payments/index.js";
 import { generateInternalTasks, generateSubscriptionTasks } from "./modules/tasks/index.js";
 
@@ -182,6 +186,34 @@ async function main() {
         if (skipped > 0) app.log.error({ skipped }, "notification sweep skipped items");
       } catch (err) {
         app.log.error({ err }, "notification sweep failed");
+      }
+    },
+  });
+
+  /**
+   * The module's second job, and the only frequent one: a reminder a few minutes before a meeting
+   * that was booked with one.
+   *
+   * EVERY MINUTE, and it has to be. A five-minute reminder cannot be honoured by a job that wakes
+   * every five — it would fire between five and ten minutes early, or miss entirely. The cost is
+   * one indexed query over an hour-wide window, which is a handful of rows here.
+   *
+   * No `catchUp`, for the same reason the nightly sweep has none: a reminder for a meeting that
+   * has already started is not a reminder. The pass itself skips anything past its start.
+   *
+   * One more entry on the "no leader election" list for the day a second container exists — but
+   * the writes are idempotent through `dedupKey`, so a double run costs queries, not two chimes.
+   */
+  registerJob({
+    name: "meeting-reminders",
+    cronExpr: "* * * * *",
+    run: async () => {
+      try {
+        const { raised, skipped } = await runMeetingReminders();
+        if (raised > 0) app.log.info({ raised }, "meeting reminders raised");
+        if (skipped > 0) app.log.error({ skipped }, "meeting reminder pass skipped items");
+      } catch (err) {
+        app.log.error({ err }, "meeting reminder pass failed");
       }
     },
   });

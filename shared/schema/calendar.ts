@@ -33,6 +33,8 @@ export const meetingSchema = z.object({
   serviceId: uuid.nullable(),
   startAt: z.iso.datetime(),
   durationMinutes: z.number().int().positive(),
+  /** minutes before the start to remind, or null for no reminder */
+  remindMinutesBefore: z.number().int().nullable(),
   /** free text, not `z.url()`: a dial-in number or an internal tool is a legitimate answer */
   link: z.string().nullable(),
   description: z.string().nullable(),
@@ -76,6 +78,19 @@ export const meetingTaskInput = z.object({
 });
 export type MeetingTaskInput = z.infer<typeof meetingTaskInput>;
 
+/**
+ * How long before the start to remind whoever is coming. `null` = no reminder, which is the
+ * default: a booking made without thinking about it must behave exactly as it did before this
+ * existed (user, 2026-09-06).
+ *
+ * A fixed set rather than a free number — five choices are a decision somebody makes in a second,
+ * and an open integer is a field people mistype 150 into.
+ */
+export const REMINDER_CHOICES = [5, 15, 30, 60] as const;
+export const remindMinutesBefore = z
+  .union([z.literal(5), z.literal(15), z.literal(30), z.literal(60)])
+  .nullable();
+
 const meetingFields = z.object({
   title: z.string().trim().min(1, "Required").max(200),
   clientId: uuid.nullable().optional(),
@@ -92,7 +107,12 @@ const meetingFields = z.object({
   personId: uuid.nullable().optional(),
   serviceId: uuid.nullable().optional(),
   startAt: z.iso.datetime(),
-  durationMinutes: z.number().int().min(5).max(24 * 60),
+  durationMinutes: z
+    .number()
+    .int()
+    .min(5)
+    .max(24 * 60),
+  remindMinutesBefore: remindMinutesBefore.optional(),
   link: optionalText,
   description: optionalText,
   /** the team members expected there; the organiser is added server-side if left out */
