@@ -66,6 +66,7 @@ import {
   type SmtpAccount,
 } from "../../core/email.js";
 import { explainSendError } from "../../core/send-error.js";
+import { notify } from "../../core/notify.js";
 import { imapAuth, verifyImap, type ImapAccount } from "../../core/imap.js";
 import { deliveryState, type DeliveryState } from "@shared/delivery.js";
 import { readBounces } from "./bounce-reader.js";
@@ -1420,7 +1421,7 @@ async function dispatch(
   // Deliver after the response. `void` is the point: a hundred SMTP round-trips cannot happen
   // inside a request, and the log is what reports the outcome.
   if (going.length > 0) {
-    void deliver(mailout.id, letter, account, firm).catch((err) => {
+    void deliver(mailout.id, letter, account, firm, provenance.actorId ?? null).catch((err) => {
       console.error(`[mailouts] delivery run failed for mailout=${mailout.id}:`, err);
     });
   }
@@ -1598,6 +1599,8 @@ async function deliver(
   letter: Letter,
   account: SenderAccount,
   firm: FirmProfile,
+  /** who pressed Send — null for a campaign the scheduler fired, which nobody was watching */
+  senderId: string | null,
 ) {
   const recipients = await repo.listRecipients(mailoutId);
   const queued = recipients.filter((r) => r.status === "queued");
@@ -1633,8 +1636,11 @@ async function deliver(
     for (const row of queued) {
       await repo.markRecipient(row.id, { status: "failed", reason }).catch(() => {});
     }
+    await notifyFailures(mailoutId, letter, senderId, queued.length);
     return;
   }
+
+  let failures = 0;
 
   // Sequential on purpose: a burst of parallel connections is what gets a sending domain
   // rate-limited or greylisted, and there is no deadline here — the log is already visible.
@@ -1645,6 +1651,7 @@ async function deliver(
         status: "failed",
         reason: "Client archived mid-send",
       });
+      failures++;
       continue;
     }
 
@@ -1657,6 +1664,7 @@ async function deliver(
         status: "failed",
         reason: "Company removed mid-send",
       });
+      failures++;
       continue;
     }
 
@@ -1669,6 +1677,7 @@ async function deliver(
         status: "failed",
         reason: "No unsubscribe token — refused to send commercial mail without one",
       });
+      failures++;
       continue;
     }
 
@@ -1721,8 +1730,41 @@ async function deliver(
             markErr,
           ),
         );
+      failures++;
     }
   }
+
+  await notifyFailures(mailoutId, letter, senderId, failures);
+}
+
+/**
+ * A run that closed with failures, told to the person who started it.
+ *
+ * Delivery happens AFTER the response returns — that is the whole design, a hundred SMTP
+ * round-trips cannot live inside a request — so by the time a failure is known the sender has
+ * closed the screen. The log said so; nobody reads the log.
+ *
+ * They are not the "actor" of a failure and so are not dropped from the recipient set: §5.4 is
+ * about never being told about your OWN action, and nobody performs the act of a letter bouncing.
+ */
+async function notifyFailures(
+  mailoutId: string,
+  letter: Letter,
+  senderId: string | null,
+  failures: number,
+) {
+  if (failures === 0) return;
+  await notify("ops_mailout_errors", {
+    // the RUN, not the day: one send, one notification, however often the sweep re-reads it
+    dedup: mailoutId,
+    authorId: senderId,
+    vars: {
+      failed: `${failures} ${failures === 1 ? "letter was" : "letters were"}`,
+      mailout: letter.subject,
+    },
+    sub: "Open the mailout to see which addresses failed",
+    link: { type: "mailout", id: mailoutId },
+  });
 }
 
 // ── the log ──────────────────────────────────────────────────────────────────

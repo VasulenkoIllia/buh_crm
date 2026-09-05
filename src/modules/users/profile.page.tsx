@@ -1,4 +1,5 @@
-import { useRef, useState } from "react";
+import { Suspense, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -8,6 +9,8 @@ import { ApiError } from "@/shared/lib/api";
 import { UserAvatar } from "@/shared/ui/avatar";
 import { Button } from "@/shared/ui/button";
 import { FormField, Input } from "@/shared/ui/field";
+import { Tabs } from "@/shared/ui/tabs";
+import { NotificationPreferences } from "@/modules/notifications";
 import { useUpdateProfile, useUploadAvatar } from "./users.api";
 
 const nameSchema = z.object({
@@ -28,16 +31,76 @@ const passwordSchema = z
   });
 type PasswordValues = z.infer<typeof passwordSchema>;
 
+/**
+ * Three tabs, in the shape the Settings and Mailouts screens use.
+ *
+ * Who you are · how you get in · what reaches you. The password form is its own tab rather than a
+ * third card under the name: it is the one thing here somebody arrives wanting to do, and it
+ * should not be found by scrolling past an avatar picker.
+ */
+const TABS = [
+  { value: "account" as const, label: "Account" },
+  { value: "password" as const, label: "Password" },
+  { value: "notifications" as const, label: "Notifications" },
+];
+type Tab = (typeof TABS)[number]["value"];
+
+/** One line each — a two-line one would move the tabs on that tab and no other. */
+const BLURB: Record<Tab, string> = {
+  account: "Your name and picture, as the rest of the team sees them.",
+  password: "Set a new one. You will need your current password to do it.",
+  notifications: "Which of the firm's notifications reach you, and whether by email too.",
+};
+
 export function ProfilePage() {
   const { user } = useAuth();
+  // the tab lives in the URL, so it survives a refresh and can be linked to
+  const [params, setParams] = useSearchParams();
+  const raw = params.get("tab");
+  const tab: Tab = TABS.some((t) => t.value === raw) ? (raw as Tab) : "account";
+  const setTab = (next: Tab) =>
+    setParams(
+      (prev) => {
+        const out = new URLSearchParams(prev);
+        out.set("tab", next);
+        return out;
+      },
+      { replace: true }, // tab clicks are not history
+    );
+
   if (!user) return null;
 
   return (
-    <div className="max-w-lg space-y-6">
-      <h1 className="text-[20px] font-semibold">Profile</h1>
-      <AvatarSection />
-      <NameSection defaults={{ firstName: user.firstName, lastName: user.lastName }} />
-      <PasswordSection />
+    <div className="mx-auto max-w-[960px]">
+      <div className="mb-3.5 flex min-h-9 flex-wrap items-center gap-3.5">
+        <h1 className="text-[20px] font-semibold">Profile</h1>
+        <span className="text-[13px] text-muted-400">{BLURB[tab]}</span>
+      </div>
+
+      <Tabs className="mb-4" value={tab} onChange={setTab} options={TABS} />
+
+      {tab === "account" && (
+        <div className="max-w-lg space-y-6">
+          <AvatarSection />
+          <NameSection defaults={{ firstName: user.firstName, lastName: user.lastName }} />
+        </div>
+      )}
+      {tab === "password" && (
+        <div className="max-w-lg">
+          <PasswordSection />
+        </div>
+      )}
+      {/* the personal contour (S9). Full width, unlike the forms: two channel switches per
+          trigger do not fit a form column. */}
+      {tab === "notifications" && (
+        // the tab is already called Notifications; a heading repeating it inside the panel is
+        // the same word twice on one screen
+        <div className="rounded-(--radius-panel) border border-border bg-surface p-5 shadow-(--shadow-card)">
+          <Suspense fallback={<p className="text-[13px] text-muted">Loading…</p>}>
+            <NotificationPreferences />
+          </Suspense>
+        </div>
+      )}
     </div>
   );
 }

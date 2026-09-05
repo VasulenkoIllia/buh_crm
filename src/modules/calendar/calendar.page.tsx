@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import type { DeadlineItem, Meeting } from "@shared/schema/calendar";
 import { useAssignees } from "@/modules/tasks";
@@ -8,7 +8,7 @@ import { userLabel } from "@/shared/ui/avatar";
 import { Button } from "@/shared/ui/button";
 import { Segmented } from "@/shared/ui/segmented";
 import { FilterChips } from "@/shared/ui/tabs";
-import { useCalendar } from "./calendar.api";
+import { useCalendar, useMeeting } from "./calendar.api";
 import { MeetingModal } from "./meeting-modal";
 import {
   DAY_END_HOUR,
@@ -70,13 +70,43 @@ export function CalendarPage() {
   const [justSaved, setJustSaved] = useState<string | null>(null);
 
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data: team } = useAssignees();
+
+  /**
+   * `?meeting=<id>` — where a notification's Open lands (S9).
+   *
+   * The param is CONSUMED, not merely read: it opens the meeting, moves the view to the day it is
+   * actually on, and then removes itself from the URL. Left in place it would reopen the modal
+   * every time the person navigated back to the calendar, and — worse — a meeting notification
+   * about a move would keep dragging the view to that day.
+   *
+   * `replace` so the back button goes where the person came from rather than to the same link.
+   */
+  const meetingParam = searchParams.get("meeting");
+  const { data: linkedMeeting } = useMeeting(meetingParam ?? undefined);
+  useEffect(() => {
+    if (!meetingParam || !linkedMeeting) return;
+    setFormOpen({ id: meetingParam });
+    setAnchor(new Date(linkedMeeting.startAt));
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("meeting");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [meetingParam, linkedMeeting, setSearchParams]);
+
   const { from, to, days } = windowFor(mode, anchor);
   const { data, isLoading, error } = useCalendar({ from, to, userId, ...lanes });
 
   const step = (dir: 1 | -1) =>
     setAnchor((a) =>
-      mode === "month" ? new Date(a.getFullYear(), a.getMonth() + dir, 1) : addDays(a, dir * (mode === "week" ? 7 : 1)),
+      mode === "month"
+        ? new Date(a.getFullYear(), a.getMonth() + dir, 1)
+        : addDays(a, dir * (mode === "week" ? 7 : 1)),
     );
 
   const meetingsByDay = groupBy(data?.meetings ?? [], (m) => dayOfMeeting(m.startAt));
@@ -97,7 +127,12 @@ export function CalendarPage() {
       ? anchor.toLocaleDateString("en-GB", { month: "long", year: "numeric" })
       : mode === "week"
         ? `${days[0].toLocaleDateString("en-GB", { day: "2-digit", month: "short" })} – ${days[6].toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}`
-        : anchor.toLocaleDateString("en-GB", { weekday: "long", day: "2-digit", month: "long", year: "numeric" });
+        : anchor.toLocaleDateString("en-GB", {
+            weekday: "long",
+            day: "2-digit",
+            month: "long",
+            year: "numeric",
+          });
 
   return (
     <div className="mx-auto max-w-[1320px]">
@@ -110,7 +145,11 @@ export function CalendarPage() {
           <IconButton label="Next" onClick={() => step(1)}>
             <ChevronRight size={16} />
           </IconButton>
-          <Button variant="secondary" size="sm" onClick={() => setAnchor(dayFromIso(firmToday()))}>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setAnchor(dayFromIso(firmToday()))}
+          >
             Today
           </Button>
         </div>
@@ -406,7 +445,10 @@ function TimeGrid({
   }, []);
 
   const todayIso = firmToday();
-  const hours = Array.from({ length: DAY_END_HOUR - DAY_START_HOUR }, (_, i) => DAY_START_HOUR + i);
+  const hours = Array.from(
+    { length: DAY_END_HOUR - DAY_START_HOUR },
+    (_, i) => DAY_START_HOUR + i,
+  );
   const anyDeadlines = days.some((d) => (deadlinesByDay[isoDay(d)] ?? []).length > 0);
 
   /**
@@ -518,86 +560,87 @@ function TimeGrid({
           working hours so the ordinary case looks ordinary, and anything early or late is a scroll
           away rather than clamped to an edge or off the bottom of the page. */}
       <div ref={scrollRef} className="max-h-[62vh] overflow-y-auto">
-      <div
-        className="relative grid"
-        style={{ gridTemplateColumns: `56px repeat(${days.length}, minmax(0,1fr))` }}
-      >
-        <div>
-          {hours.map((h) => (
-            <div
-              key={h}
-              className="h-[52px] border-b border-[#f4f6f8] pr-2 pt-1 text-right text-[11px] text-faint"
-            >
-              {String(h).padStart(2, "0")}:00
-            </div>
-          ))}
-        </div>
-        {days.map((d) => {
-          const key = isoDay(d);
-          const laid = columnsFor(meetingsByDay[key] ?? []);
-          return (
-            <div key={key} className="relative border-l border-[#f2f4f7]">
-              {hours.map((h) => (
-                <button
-                  key={h}
-                  type="button"
-                  aria-label={`New meeting at ${String(h).padStart(2, "0")}:00`}
-                  onClick={() => onPickSlot(slotInstant(key, h))}
-                  className="block h-[52px] w-full border-b border-[#f4f6f8] hover:bg-[#f7f9fc]"
-                />
-              ))}
-              {laid.map(({ item, column, columns }) => {
-                const pos = placeInGrid(item.startAt, item.durationMinutes);
-                return (
+        <div
+          className="relative grid"
+          style={{ gridTemplateColumns: `56px repeat(${days.length}, minmax(0,1fr))` }}
+        >
+          <div>
+            {hours.map((h) => (
+              <div
+                key={h}
+                className="h-[52px] border-b border-[#f4f6f8] pr-2 pt-1 text-right text-[11px] text-faint"
+              >
+                {String(h).padStart(2, "0")}:00
+              </div>
+            ))}
+          </div>
+          {days.map((d) => {
+            const key = isoDay(d);
+            const laid = columnsFor(meetingsByDay[key] ?? []);
+            return (
+              <div key={key} className="relative border-l border-[#f2f4f7]">
+                {hours.map((h) => (
                   <button
-                    key={item.id}
+                    key={h}
                     type="button"
-                    data-meeting-id={item.id}
-                    onClick={() => onOpenMeeting(item.id)}
-                    style={{
-                      top: `${pos.topPct}%`,
-                      height: `${pos.heightPct}%`,
-                      left: `${(column / columns) * 100}%`,
-                      width: `${100 / columns}%`,
-                    }}
-                    title={`${fmtRange(item.startAt, item.durationMinutes)} · ${item.title}${
-                      item.clientName ?? item.leadName
-                        ? ` · ${item.clientName ?? item.leadName}`
-                        : ""
-                    }`}
-                    className="absolute overflow-hidden rounded-[6px] border border-[#c3cdf3] bg-[#e8ecfb] px-1.5 py-0.5 text-left leading-tight"
-                  >
-                    {/* A short meeting gets ONE line — the box is only tall enough for one, and
+                    aria-label={`New meeting at ${String(h).padStart(2, "0")}:00`}
+                    onClick={() => onPickSlot(slotInstant(key, h))}
+                    className="block h-[52px] w-full border-b border-[#f4f6f8] hover:bg-[#f7f9fc]"
+                  />
+                ))}
+                {laid.map(({ item, column, columns }) => {
+                  const pos = placeInGrid(item.startAt, item.durationMinutes);
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      data-meeting-id={item.id}
+                      onClick={() => onOpenMeeting(item.id)}
+                      style={{
+                        top: `${pos.topPct}%`,
+                        height: `${pos.heightPct}%`,
+                        left: `${(column / columns) * 100}%`,
+                        width: `${100 / columns}%`,
+                      }}
+                      title={`${fmtRange(item.startAt, item.durationMinutes)} · ${item.title}${
+                        (item.clientName ?? item.leadName)
+                          ? ` · ${item.clientName ?? item.leadName}`
+                          : ""
+                      }`}
+                      className="absolute overflow-hidden rounded-[6px] border border-[#c3cdf3] bg-[#e8ecfb] px-1.5 py-0.5 text-left leading-tight"
+                    >
+                      {/* A short meeting gets ONE line — the box is only tall enough for one, and
                         three lines in it rendered as clipped nonsense. The time leads, because in
                         a column of boxes that is what you scan for. */}
-                    {pos.compact ? (
-                      <div className="truncate text-[11px] text-primary-link">
-                        <span className="font-semibold">{fmtTime(item.startAt)}</span> {item.title}
-                      </div>
-                    ) : (
-                      <>
-                        <div className="truncate text-[10px] font-medium text-muted">
-                          {pos.clippedStart && "↑ "}
-                          {fmtRange(item.startAt, item.durationMinutes)}
-                          {pos.clippedEnd && " ↓"}
-                        </div>
-                        <div className="truncate text-[11px] font-semibold text-primary-link">
+                      {pos.compact ? (
+                        <div className="truncate text-[11px] text-primary-link">
+                          <span className="font-semibold">{fmtTime(item.startAt)}</span>{" "}
                           {item.title}
                         </div>
-                        {(item.clientName ?? item.leadName) && (
-                          <div className="truncate text-[10px] text-muted-400">
-                            {item.clientName ?? item.leadName}
+                      ) : (
+                        <>
+                          <div className="truncate text-[10px] font-medium text-muted">
+                            {pos.clippedStart && "↑ "}
+                            {fmtRange(item.startAt, item.durationMinutes)}
+                            {pos.clippedEnd && " ↓"}
                           </div>
-                        )}
-                      </>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          );
-        })}
-      </div>
+                          <div className="truncate text-[11px] font-semibold text-primary-link">
+                            {item.title}
+                          </div>
+                          {(item.clientName ?? item.leadName) && (
+                            <div className="truncate text-[10px] text-muted-400">
+                              {item.clientName ?? item.leadName}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

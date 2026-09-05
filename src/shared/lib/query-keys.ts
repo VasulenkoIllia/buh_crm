@@ -16,5 +16,6 @@ export const SETTINGS_KEY = ["settings"] as const;
 export const USERS_KEY = ["users"] as const;
 export const CALENDAR_KEY = ["calendar"] as const;
 export const MAILOUTS_KEY = ["mailouts"] as const;
+export const NOTIFICATIONS_KEY = ["notifications"] as const;
 // the signed-in user's own key stays with the auth provider that owns it (`ME_QUERY_KEY`
 // in app/auth.tsx) — shared/ must not reach up into app/

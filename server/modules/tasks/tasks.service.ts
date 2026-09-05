@@ -20,8 +20,14 @@ import { MAX_FILE_SIZE, deleteFileBytes, saveFileBytes } from "../../core/files.
 import type { Prisma, User } from "../../generated/prisma/client.js";
 import { config } from "../../core/config.js";
 import { dateToUtc, todayBusinessMs } from "../../core/dates.js";
-import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../../core/errors.js";
-import { clientLabel } from "../../core/names.js";
+import {
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  ValidationError,
+} from "../../core/errors.js";
+import { clientLabel, personName } from "../../core/names.js";
+import { notify } from "../../core/notify.js";
 import { issueJobInvoice } from "../payments/index.js";
 import * as repo from "./tasks.repository.js";
 
@@ -49,10 +55,7 @@ function toTaskInvoice(invoice: NonNullable<repo.TaskRecord["invoice"]>, todayMs
   };
 }
 
-export function toTaskDto(
-  task: repo.TaskRecord,
-  todayMs: number = todayBusinessMs(config.TZ),
-) {
+export function toTaskDto(task: repo.TaskRecord, todayMs: number = todayBusinessMs(config.TZ)) {
   return {
     id: task.id,
     title: task.title,
@@ -133,7 +136,9 @@ export async function listTaskTargets() {
   ]);
   const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
   return [
-    ...clients.map((c) => ({ id: c.id, name: clientLabel(c), kind: "client" as const })).sort(byName),
+    ...clients
+      .map((c) => ({ id: c.id, name: clientLabel(c), kind: "client" as const }))
+      .sort(byName),
     ...leads.map((l) => ({ id: l.id, name: l.name, kind: "lead" as const })).sort(byName),
   ];
 }
@@ -236,7 +241,11 @@ export async function listTasks(query: TaskListQuery) {
    */
   if (query.withinDays && (query.status === "done" || query.status === "cancelled")) {
     const since = new Date(today - (query.withinDays - 1) * 86_400_000);
-    and.push(query.status === "done" ? { completedAt: { gte: since } } : { cancelledAt: { gte: since } });
+    and.push(
+      query.status === "done"
+        ? { completedAt: { gte: since } }
+        : { cancelledAt: { gte: since } },
+    );
   }
   /**
    * Free text over what the ROW SHOWS: the title, and the client or lead the work is for. The
@@ -280,7 +289,8 @@ export async function listTasks(query: TaskListQuery) {
   // filter would only ever search the rows the board happened to load. Same business-date rule
   // as `isTaskOverdue`: the whole deadline day must have passed. Overdue is open work by
   // definition, so asking for it alongside status=done correctly yields nothing.
-  if (query.overdue) and.push({ done: false, cancelledAt: null, deadline: { lt: new Date(today) } });
+  if (query.overdue)
+    and.push({ done: false, cancelledAt: null, deadline: { lt: new Date(today) } });
   // An archived client's — or lead's — work leaves everyone's board. The data stays untouched, so
   // restoring them brings the tasks back; their invoices deliberately stay in Billing.
   //
@@ -387,7 +397,10 @@ export async function moveTask(taskId: string, input: MoveTaskInput) {
 
 export async function createTask(input: CreateTaskInput, actor: User) {
   await assertAssignable(input.assignees);
-  const { priorityId, columnId } = await resolvePriorityColumn(input.priorityId, input.statusColumnId);
+  const { priorityId, columnId } = await resolvePriorityColumn(
+    input.priorityId,
+    input.statusColumnId,
+  );
 
   let clientId: string | null = null;
   let leadId: string | null = null;
@@ -478,7 +491,23 @@ export async function createTask(input: CreateTaskInput, actor: User) {
       createdById: actor.id,
     });
   }
+
+  // AFTER the writes, never inside them: a notification for work that then rolls back cannot be
+  // taken back out of somebody's tray. `notify` resolves the assignees itself and never throws.
+  await notify("task_assigned", {
+    dedup: task.id,
+    actorId: actor.id,
+    taskId: task.id,
+    vars: { actor: personName(actor), task: task.title },
+    sub: clientLine(task),
+    link: { type: "task", id: task.id },
+  });
   return getTask(task.id);
+}
+
+/** The quiet second line of a tray row: which client's work this is, when it is a client's at all. */
+function clientLine(task: { client?: { firstName: string; lastName: string | null } | null }) {
+  return task.client ? clientLabel(task.client) : null;
 }
 
 export async function updateTask(id: string, input: UpdateTaskInput, actor: User) {
@@ -530,7 +559,7 @@ export async function updateTask(id: string, input: UpdateTaskInput, actor: User
     );
   }
 
-  await repo.updateTask(id, {
+  const updated = await repo.updateTask(id, {
     ...(input.title !== undefined ? { title: input.title } : {}),
     ...(input.priorityId !== undefined ? { priorityId: input.priorityId } : {}),
     ...(input.statusColumnId !== undefined ? { statusColumnId: input.statusColumnId } : {}),
@@ -555,6 +584,8 @@ export async function updateTask(id: string, input: UpdateTaskInput, actor: User
   });
   if (input.assignees) await repo.setAssignees(id, input.assignees);
 
+  await notifyTaskChanges(task, updated, input, actor);
+
   // one-time job billed on completion: issue the invoice the moment it's marked done
   if (input.done === true && task.kind === "once" && !hasLiveInvoice(task) && task.clientId) {
     const amount = input.amount !== undefined ? input.amount : task.amount;
@@ -578,6 +609,73 @@ export async function updateTask(id: string, input: UpdateTaskInput, actor: User
   return getTask(id);
 }
 
+/**
+ * The four lifecycle facts an edit can carry, raised from the diff `updateTask` has already made.
+ *
+ * All of them are LIFECYCLE events of the record — the rule that decided the whole registry: a
+ * lifecycle event fires once per record and changes what somebody does next, while a step of
+ * ordinary work (a card moved between columns, a subtask ticked, a priority changed) fires dozens
+ * of times a day and IS the work. Those are excluded on purpose.
+ *
+ * Every dedup key names a STATE, not a call: re-saving the same deadline, or the same completion,
+ * notifies nobody a second time, while a genuine reopen-and-redo does.
+ */
+async function notifyTaskChanges(
+  before: repo.TaskRecord,
+  after: repo.TaskRecord,
+  input: UpdateTaskInput,
+  actor: User,
+) {
+  const shared = {
+    actorId: actor.id,
+    taskId: after.id,
+    vars: { actor: personName(actor), task: after.title },
+    sub: clientLine(after),
+    link: { type: "task", id: after.id },
+  };
+
+  // somebody joining a task mid-flight is news to THEM; the unique key means the people who were
+  // already on it are not told twice
+  if (input.assignees) {
+    await notify("task_assigned", { ...shared, dedup: after.id });
+  }
+
+  if (input.deadline !== undefined && !sameInstant(before.deadline, after.deadline)) {
+    await notify("task_deadline_changed", {
+      ...shared,
+      dedup: `${after.id}:${after.deadline?.toISOString() ?? "none"}`,
+      vars: { ...shared.vars, deadline: after.deadline ? isoDay(after.deadline) : "no date" },
+    });
+  }
+
+  // "completed by someone other than its author" needs no check here: the recipient role IS
+  // `author`, and the emitter drops the actor from every recipient set.
+  if (input.done === true && !before.done && after.completedAt) {
+    await notify("task_done", {
+      ...shared,
+      dedup: `${after.id}:${after.completedAt.toISOString()}`,
+    });
+  }
+  if (input.done === false && before.done) {
+    await notify("task_reopened", {
+      ...shared,
+      dedup: `${after.id}:${after.updatedAt.toISOString()}`,
+    });
+  }
+  if (input.cancelled === true && !before.cancelledAt && after.cancelledAt) {
+    await notify("task_cancelled", {
+      ...shared,
+      dedup: `${after.id}:${after.cancelledAt.toISOString()}`,
+    });
+  }
+}
+
+const sameInstant = (a: Date | null, b: Date | null) =>
+  (a?.getTime() ?? null) === (b?.getTime() ?? null);
+
+/** A deadline is a DAY stored at UTC midnight (`dateToUtc`), so it reads back the same way. */
+const isoDay = (d: Date) => d.toISOString().slice(0, 10);
+
 export async function setSubtasks(id: string, input: SetSubtasksInput) {
   liveTaskOr404(await repo.findTask(id));
   await repo.setSubtasks(id, input.subtasks);
@@ -587,8 +685,20 @@ export async function setSubtasks(id: string, input: SetSubtasksInput) {
 // ── comments (any authenticated user; delete = own comment or admin) ───────────
 
 export async function addComment(taskId: string, input: CreateTaskCommentInput, actor: User) {
-  liveTaskOr404(await repo.findTask(taskId));
-  await repo.addComment(taskId, actor.id, input.body);
+  const task = liveTaskOr404(await repo.findTask(taskId));
+  const comment = await repo.addComment(taskId, actor.id, input.body);
+
+  // The comment id is the dedup key because it is the thing: one comment, one notification. The
+  // `participant` role is resolved from who has already written here (core/notify.ts), which is
+  // the one query that changes when comments become chat threads.
+  await notify("task_comment", {
+    dedup: comment.id,
+    actorId: actor.id,
+    taskId,
+    vars: { actor: personName(actor), task: task.title },
+    sub: input.body.length > 90 ? `${input.body.slice(0, 90)}…` : input.body,
+    link: { type: "task", id: taskId },
+  });
   return getTask(taskId);
 }
 
@@ -612,7 +722,8 @@ export async function deleteComment(commentId: string, actor: User) {
  * otherwise something still owed to a client could leave the board with no trace of why.
  */
 /** Closed business: finished, or called off. Open work must never be able to vanish. */
-const archivableState = (t: { done: boolean; cancelledAt: Date | null }) => t.done || !!t.cancelledAt;
+const archivableState = (t: { done: boolean; cancelledAt: Date | null }) =>
+  t.done || !!t.cancelledAt;
 
 export async function archiveTask(id: string, actor: User) {
   const task = liveTaskOr404(await repo.findTask(id));
@@ -662,16 +773,23 @@ export async function bulkArchive(input: BulkArchiveTasksInput, actor: User) {
     (t) => !t.archivedAt && !t.client?.archivedAt && !t.lead?.archivedAt && archivableState(t),
   );
   if (eligible.length > 0) {
-    await repo.archiveTasks(eligible.map((t) => t.id), actor.id);
+    await repo.archiveTasks(
+      eligible.map((t) => t.id),
+      actor.id,
+    );
   }
   return { changed: eligible.length, skipped: input.taskIds.length - eligible.length };
 }
 
 // ── timer ────────────────────────────────────────────────────────────────────
 
-const elapsedSeconds = (from: Date) => Math.max(1, Math.floor((Date.now() - from.getTime()) / 1000));
+const elapsedSeconds = (from: Date) =>
+  Math.max(1, Math.floor((Date.now() - from.getTime()) / 1000));
 
-function toTimerDto(entry: { id: string; taskId: string; startedAt: Date }, task: { id: string; title: string }) {
+function toTimerDto(
+  entry: { id: string; taskId: string; startedAt: Date },
+  task: { id: string; title: string },
+) {
   return {
     entryId: entry.id,
     taskId: task.id,
@@ -695,7 +813,8 @@ export async function startTimer(actor: User, input: StartTimerInput) {
   const task = liveTaskOr404(await repo.findTask(input.taskId));
   // a completed task is a snapshot — no tracking new time on finished work (reopen first)
   if (task.done) throw new ValidationError("Task is completed — reopen it to track time");
-  if (task.cancelledAt) throw new ValidationError("Task is cancelled — restore it to track time");
+  if (task.cancelledAt)
+    throw new ValidationError("Task is cancelled — restore it to track time");
 
   const running = await repo.findRunningEntry(actor.id);
   if (running && running.taskId === input.taskId) {

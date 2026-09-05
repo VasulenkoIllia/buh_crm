@@ -4,7 +4,9 @@ import { config } from "./core/config.js";
 import { disconnectDb } from "./core/db.js";
 import { ensureUploadsDir } from "./core/files.js";
 import { registerJob, startScheduler, stopScheduler } from "./core/scheduler.js";
+import { recordSweepFailure } from "./core/sweep-health.js";
 import { runDueCampaigns, sweepBounces, sweepStalledSends } from "./modules/mailouts/index.js";
+import { purgeOldNotifications, runNotificationSweep } from "./modules/notifications/index.js";
 import { generatePeriodInvoices } from "./modules/payments/index.js";
 import { generateInternalTasks, generateSubscriptionTasks } from "./modules/tasks/index.js";
 
@@ -25,6 +27,9 @@ async function main() {
         created += (await gen()).created;
       } catch (err) {
         app.log.error({ err, sweep: gen.name }, "task generation sweep failed");
+        // ALSO recorded, not only logged: nobody reads the log, and a subscription that quietly
+        // stops producing tasks looks exactly like a subscription with nothing due (S9).
+        recordSweepFailure("subscription-task-generation");
       }
     }
     if (label === "catch-up" && created > 0)
@@ -45,10 +50,13 @@ async function main() {
       if (created > 0) app.log.info({ created, label }, "period invoices issued");
       // per-subscription failures are isolated inside the sweep; surface them so a client
       // that silently stops being billed is visible in the logs
-      if (failed > 0)
+      if (failed > 0) {
         app.log.error({ failed, label }, "period invoice sweep skipped subscriptions");
+        recordSweepFailure("period-invoice-generation", failed);
+      }
     } catch (err) {
       app.log.error({ err }, "period invoice sweep failed");
+      recordSweepFailure("period-invoice-generation");
     }
   };
   registerJob({
@@ -72,9 +80,13 @@ async function main() {
     try {
       const { fired, failed } = await runDueCampaigns();
       if (fired > 0) app.log.info({ fired, label }, "campaigns sent");
-      if (failed > 0) app.log.error({ failed, label }, "campaign runs failed — still due");
+      if (failed > 0) {
+        app.log.error({ failed, label }, "campaign runs failed — still due");
+        recordSweepFailure("campaign-sends", failed);
+      }
     } catch (err) {
       app.log.error({ err }, "campaign sweep failed");
+      recordSweepFailure("campaign-sends");
     }
   };
   registerJob({
@@ -126,6 +138,53 @@ async function main() {
     cronExpr: "*/10 * * * *",
     run: () => closeStalledSends("run"),
     catchUp: () => closeStalledSends("boot"),
+  });
+
+  /**
+   * S9 job: the five triggers that are facts about the PASSAGE OF TIME rather than about somebody
+   * doing something — a deadline arriving, a meeting being today, an invoice going past its due
+   * day, a timer nobody stopped, a mailbox that stopped answering.
+   *
+   * 07:00, not 03:00 with the others: before the working day, and AFTER the 03:05 task sweep and
+   * the 03:20 invoice sweep, so the day's generated work already exists when deadlines are
+   * scanned. It is also when the night's sweep failures are reported, which is the only reason a
+   * person hears about one.
+   *
+   * `catchUp` is deliberately NOT defined, and this is the only job in the app that has none.
+   * Unlike an invoice, a missed notification has no value the next morning: "your meeting is
+   * today" is wrong by then, and `task_overdue` is raised by the next ordinary run anyway. Every
+   * other job here defines `catchUp`; this one states why it does not.
+   *
+   * Note for the day a second app container exists: the in-process jobs have no leader election,
+   * so this would double-run. Its writes are idempotent through `dedupKey`, so the cost is
+   * duplicated queries and not duplicated mail — but it is one more entry on that list.
+   */
+  registerJob({
+    name: "notification-sweep",
+    cronExpr: "0 7 * * *",
+    run: async () => {
+      try {
+        const { raised, skipped } = await runNotificationSweep();
+        if (raised > 0) app.log.info({ raised }, "notifications raised");
+        if (skipped > 0) app.log.error({ skipped }, "notification sweep skipped items");
+      } catch (err) {
+        app.log.error({ err }, "notification sweep failed");
+      }
+    },
+  });
+
+  /**
+   * Housekeeping, in the shape `sessions:cleanup` already uses: read notifications older than 90
+   * days go. Unread rows are never purged at any age — a notification nobody has seen has not
+   * done its job yet. This is the first retention rule in the product (S9 §8.2).
+   */
+  registerJob({
+    name: "notifications:retention",
+    cronExpr: "10 4 * * *", // just after the session purge, on the same quiet hour
+    run: async () => {
+      const { purged } = await purgeOldNotifications();
+      if (purged > 0) app.log.info({ purged }, "read notifications purged");
+    },
   });
 
   await app.listen({ port: config.PORT, host: "0.0.0.0" });

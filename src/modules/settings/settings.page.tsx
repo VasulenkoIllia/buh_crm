@@ -1,4 +1,5 @@
-import { useRef, useState } from "react";
+import { Suspense, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { ArrowDown, ArrowUp, Trash2 } from "lucide-react";
 import type { Priority, SourceOption } from "@shared/schema/settings";
 import { useAuth } from "@/app/auth";
@@ -6,6 +7,7 @@ import { ApiError } from "@/shared/lib/api";
 import { Button, IconButton } from "@/shared/ui/button";
 import { firmZoneAbbr } from "@/shared/lib/tz";
 import { FormField, Input, Select } from "@/shared/ui/field";
+import { Tabs } from "@/shared/ui/tabs";
 import {
   useCreateSource,
   useSettings,
@@ -16,10 +18,60 @@ import {
   useUpdateSource,
   useUploadLogo,
 } from "./settings.api";
+import { NotificationPolicySection } from "@/modules/notifications";
+
+/**
+ * Grouped by WHAT IS BEING CONFIGURED, not by which module owns the code.
+ *
+ * Six sections stacked in one column read as a pile — and the pile only got worse when the
+ * sixteen notification triggers joined it (user, 2026-09-05). The grouping is deliberately
+ * boring: the firm's own identity, the option lists every form offers, invoice numbering, and
+ * notifications. Anyone looking for a setting can guess which of the four it is in.
+ */
+const TABS = [
+  { value: "firm" as const, label: "Firm" },
+  { value: "lists" as const, label: "Lists" },
+  { value: "invoices" as const, label: "Invoices" },
+  { value: "notifications" as const, label: "Notifications" },
+];
+type Tab = (typeof TABS)[number]["value"];
+
+/**
+ * One line each, and one line is the point — the same lesson `mailouts.page.tsx` records.
+ *
+ * These sit between the tabs and the panel, so a two-line blurb on a single tab would push that
+ * tab's content down and no other's, and a screen that moves when you switch tabs reads as a
+ * different screen each time.
+ */
+const BLURB: Record<Tab, string> = {
+  firm: "The firm's name, logo and clock — what every screen and every letter is stamped with.",
+  lists: "The options the forms offer: task priorities, and where a client or lead came from.",
+  invoices: "How invoice numbers are built, and what the next one will look like.",
+  notifications: "Which notifications the firm raises at all, and by which channel.",
+};
 
 export function SettingsPage() {
   const { user } = useAuth();
   const { data, isLoading, error } = useSettings();
+  /**
+   * The tab lives in the URL so it can be LINKED. Notifications point people at settings, and a
+   * link that lands on the wrong tab is a link that has not arrived. It also survives a refresh,
+   * which `useState` would not.
+   */
+  const [params, setParams] = useSearchParams();
+  const raw = params.get("tab");
+  const tab: Tab = TABS.some((t) => t.value === raw) ? (raw as Tab) : "firm";
+  const setTab = (next: Tab) =>
+    setParams(
+      (prev) => {
+        const out = new URLSearchParams(prev);
+        out.set("tab", next);
+        return out;
+      },
+      // replace, not push: eight tab clicks must not put eight entries between here and the
+      // screen somebody actually came from
+      { replace: true },
+    );
 
   if (user?.role !== "admin") {
     return <p className="text-[13px] text-muted">Only admins can change settings.</p>;
@@ -29,16 +81,50 @@ export function SettingsPage() {
     return <p className="text-[13px] text-danger-text">Failed to load settings.</p>;
 
   return (
-    <div className="max-w-2xl space-y-6">
-      <h1 className="text-[20px] font-semibold">Settings</h1>
-      <PrioritiesSection priorities={data.priorities} />
-      <SourcesSection sources={data.sources} />
-      <NumberingSection
-        prefix={data.firm.invoicePrefix}
-        digits={data.firm.invoiceCounterDigits}
-      />
-      <FirmSection name={data.firm.name} hasLogo={!!data.firm.logoFileId} />
-      <TimezoneSection timezone={data.firm.timezone} />
+    <div className="mx-auto max-w-[960px]">
+      <div className="mb-3.5 flex min-h-9 flex-wrap items-center gap-3.5">
+        <h1 className="text-[20px] font-semibold">Settings</h1>
+        <span className="text-[13px] text-muted-400">{BLURB[tab]}</span>
+      </div>
+
+      <Tabs className="mb-4" value={tab} onChange={setTab} options={TABS} />
+
+      {/* the forms stay in a narrow column — a name field the width of the screen is not a
+          better name field. Notifications is the exception and takes the full width. */}
+      {tab === "firm" && (
+        <div className="max-w-2xl space-y-6">
+          <FirmSection name={data.firm.name} hasLogo={!!data.firm.logoFileId} />
+          <TimezoneSection timezone={data.firm.timezone} />
+        </div>
+      )}
+      {tab === "lists" && (
+        <div className="max-w-2xl space-y-6">
+          <PrioritiesSection priorities={data.priorities} />
+          <SourcesSection sources={data.sources} />
+        </div>
+      )}
+      {tab === "invoices" && (
+        <div className="max-w-2xl space-y-6">
+          <NumberingSection
+            prefix={data.firm.invoicePrefix}
+            digits={data.firm.invoiceCounterDigits}
+          />
+        </div>
+      )}
+      {/*
+        The global notification contour (S9). Still this screen and still the same admin gate —
+        what changed is that it is no longer stacked under five unrelated forms. Lazy through the
+        barrel, because that barrel is also the app shell's route to the bell.
+      */}
+      {tab === "notifications" && (
+        // the tab is already called Notifications; a heading repeating it inside the panel is
+        // the same word twice on one screen
+        <div className="rounded-(--radius-panel) border border-border bg-surface p-5 shadow-(--shadow-card)">
+          <Suspense fallback={<p className="text-[13px] text-muted">Loading…</p>}>
+            <NotificationPolicySection />
+          </Suspense>
+        </div>
+      )}
     </div>
   );
 }
@@ -108,9 +194,7 @@ function PrioritiesSection({ priorities }: { priorities: Priority[] }) {
                 type="button"
                 disabled={index === 0 || busy}
                 className="rounded p-1 text-muted hover:bg-divider disabled:opacity-30"
-                onClick={() =>
-                  swap.mutate({ aId: priority.id, bId: priorities[index - 1].id })
-                }
+                onClick={() => swap.mutate({ aId: priority.id, bId: priorities[index - 1].id })}
                 aria-label="Move up"
               >
                 <ArrowUp size={14} />
@@ -119,9 +203,7 @@ function PrioritiesSection({ priorities }: { priorities: Priority[] }) {
                 type="button"
                 disabled={index === priorities.length - 1 || busy}
                 className="rounded p-1 text-muted hover:bg-divider disabled:opacity-30"
-                onClick={() =>
-                  swap.mutate({ aId: priority.id, bId: priorities[index + 1].id })
-                }
+                onClick={() => swap.mutate({ aId: priority.id, bId: priorities[index + 1].id })}
                 aria-label="Move down"
               >
                 <ArrowDown size={14} />
@@ -221,7 +303,12 @@ function SourcesSection({ sources }: { sources: SourceOption[] }) {
           onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && void add()}
         />
-        <Button variant="secondary" size="sm" disabled={create.isPending} onClick={() => void add()}>
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={create.isPending}
+          onClick={() => void add()}
+        >
           Add
         </Button>
       </div>
@@ -256,7 +343,9 @@ function NumberingSection({ prefix, digits }: { prefix: string; digits: number }
             value={localPrefix}
             placeholder="INV"
             maxLength={10}
-            onChange={(e) => setLocalPrefix(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
+            onChange={(e) =>
+              setLocalPrefix(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))
+            }
           />
         </FormField>
         <FormField label="Counter digits" htmlFor="inv-digits">

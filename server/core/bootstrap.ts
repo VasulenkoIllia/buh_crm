@@ -1,4 +1,5 @@
 import argon2 from "argon2";
+import { NOTIFICATION_TRIGGERS } from "@shared/notifications.js";
 import { prisma } from "./db.js";
 import { config } from "./config.js";
 
@@ -61,7 +62,63 @@ export async function ensureBaseData() {
     create: { id: 1, name: config.APP_NAME },
   });
 
+  await ensureNotificationPolicies();
+
   await ensureDefaultMailbox();
+}
+
+/**
+ * One policy row per trigger in the registry.
+ *
+ * Seeded exactly as Priority and SourceOption are, and for the same reason: the app cannot work
+ * without them, and the emitter reads the row BEFORE it does anything else — a trigger with no row
+ * notifies nobody. Adding a trigger is therefore a constant in shared/notifications.ts plus this
+ * boot, with no migration.
+ *
+ * What the firm owns and what the registry owns are DIFFERENT FIELDS, and the split is the whole
+ * design:
+ *
+ *   • `enabled`, `inApp`, `email`, `defaultInApp`, `defaultEmail` — the firm's. Seeded once and
+ *     never touched again, because §9's rollout is "ship all sixteen on, then silence what proves
+ *     noisy from the Settings screen" and the next deploy must not undo that.
+ *   • `roles` — the REGISTRY's, and re-seeded on every boot. There is no UI for it (§6.3), so the
+ *     constant is the only thing that can be said to define it. Leaving it alone was a silent
+ *     failure, found in testing on 2026-09-05: `ops_mailout_errors` was seeded `["custom"]`, the
+ *     registry was later corrected to `["author", "custom"]` — and on any database seeded before
+ *     that correction the trigger stayed enabled, showed "Goes to: custom" on the Settings screen,
+ *     and notified NOBODY, because `customUserIds` is empty. A trigger that is on and reaches no
+ *     one is the worst of both states, and nothing surfaces it.
+ *   • `customUserIds` — the firm's, always. "Which bookkeeper hears about overdue invoices" is
+ *     their answer, never the constant's, and re-seeding it would erase it.
+ *   • `mandatory` — left alone deliberately. It is seeded false everywhere and reserved for the
+ *     security package; a hand-set `true` is somebody forcing a critical alert through, and a
+ *     deploy quietly undoing that is worse than the drift. A registry change to it therefore does
+ *     NOT reach an existing database — say so in the change log if that day comes.
+ *
+ * `notifications.integration.test.ts` holds `roles` to the registry, so the two cannot drift again.
+ */
+async function ensureNotificationPolicies() {
+  for (const [trigger, spec] of Object.entries(NOTIFICATION_TRIGGERS)) {
+    await prisma.notificationPolicy.upsert({
+      where: { trigger },
+      update: { roles: spec.defaultRecipients },
+      create: {
+        trigger,
+        enabled: true,
+        mandatory: spec.mandatory,
+        roles: spec.defaultRecipients,
+        customUserIds: [],
+        // both channels are ALLOWED for every trigger — what differs is which one is on by
+        // default. Disallowing a channel is an admin decision, not a shipped one.
+        inApp: true,
+        email: true,
+        sound: true,
+        defaultInApp: spec.defaultInApp,
+        defaultEmail: spec.defaultEmail,
+        defaultSound: spec.defaultSound,
+      },
+    });
+  }
 }
 
 /**
@@ -138,7 +195,9 @@ export async function ensureBootstrapAdmin(
     return { created: false };
   }
   if (password.length < 8) {
-    log.error("BOOTSTRAP_ADMIN_PASSWORD must be at least 8 characters — first admin NOT created.");
+    log.error(
+      "BOOTSTRAP_ADMIN_PASSWORD must be at least 8 characters — first admin NOT created.",
+    );
     return { created: false };
   }
 

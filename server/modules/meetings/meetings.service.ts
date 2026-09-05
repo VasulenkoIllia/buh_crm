@@ -11,7 +11,8 @@ import type { User } from "../../generated/prisma/client.js";
 import { config } from "../../core/config.js";
 import { dateToUtc, isoDayInTz, todayBusinessMs, zonedDayStart } from "../../core/dates.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
-import { clientLabel } from "../../core/names.js";
+import { clientLabel, personName } from "../../core/names.js";
+import { notify } from "../../core/notify.js";
 import { createTask, listDeadlinesInRange } from "../tasks/index.js";
 import * as repo from "./meetings.repository.js";
 
@@ -291,7 +292,40 @@ export async function createMeeting(input: CreateMeetingInput, actor: User) {
     );
     await repo.updateMeeting(created.id, { taskId: task.id });
   }
+
+  // after the writes, and never inside them — a booking that rolls back must not leave an
+  // invitation in somebody's tray. The organiser is dropped by the emitter: they were there.
+  await notifyInvited(created.id, input.title, startAt, actor);
   return getMeeting(created.id);
+}
+
+/**
+ * "You are in a meeting you did not book" — the definition of news, and the reason the dedup key
+ * is the MEETING: a participant list edited three times invites each new person exactly once, and
+ * nobody twice.
+ */
+function notifyInvited(meetingId: string, title: string, startAt: Date, actor: User) {
+  return notify("meeting_invited", {
+    dedup: meetingId,
+    actorId: actor.id,
+    meetingId,
+    vars: { actor: personName(actor), meeting: title },
+    sub: meetingWhen(startAt),
+    link: { type: "meeting", id: meetingId },
+  });
+}
+
+/** The one place a meeting instant is written into notification text, so the two triggers agree. */
+function meetingWhen(startAt: Date): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: config.TZ,
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(startAt);
 }
 
 /** Move a meeting's task to the meeting's new day. Never touches anything else on the task. */
@@ -368,6 +402,23 @@ export async function updateMeeting(id: string, input: UpdateMeetingInput, actor
   const linkedTask = attachedTaskId ?? existing.taskId;
   if (movedTo && linkedTask && movedTo.getTime() !== existing.startAt.getTime()) {
     await retimeTask(linkedTask, movedTo);
+  }
+
+  const title = input.title ?? existing.title;
+  // somebody added to the list now is being invited, exactly as on create
+  if (participantIds) await notifyInvited(id, title, movedTo ?? existing.startAt, actor);
+
+  // Turning up to a moved meeting is the failure this prevents, so the dedup key is the new
+  // INSTANT: a meeting pushed twice tells people twice, and a save that did not move it is silent.
+  if (movedTo && movedTo.getTime() !== existing.startAt.getTime()) {
+    await notify("meeting_moved", {
+      dedup: `${id}:${movedTo.toISOString()}`,
+      actorId: actor.id,
+      meetingId: id,
+      vars: { meeting: title, when: meetingWhen(movedTo) },
+      sub: `Was ${meetingWhen(existing.startAt)}`,
+      link: { type: "meeting", id },
+    });
   }
   return getMeeting(id);
 }

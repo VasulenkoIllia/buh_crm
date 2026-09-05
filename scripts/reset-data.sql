@@ -59,6 +59,14 @@ DELETE FROM "SubscriptionPeriod";
 DELETE FROM "Subscription";
 DELETE FROM "MeetingParticipant";
 DELETE FROM "Meeting";
+
+-- Notifications (S9). The TRAY goes: it is transient, and a reset firm has nothing to be notified
+-- about — every row in it points at a task, meeting or invoice that is about to stop existing.
+-- "NotificationPreference" and "NotificationPolicy" are NOT here: preferences belong to users, who
+-- survive a reset, and the policy is firm configuration like FirmProfile and MailSenderAccount.
+-- Both are named in the KEPT list in server/schema-invariants.test.ts, which is what makes that a
+-- decision rather than an omission.
+DELETE FROM "Notification";
 -- ("Reminder" was here. Migration 20260811090000_mailouts dropped that table — it was a
 -- design-phase stub nothing ever wrote to. Left in, this line failed with 42P01 and took the
 -- whole reset, and therefore the deploy, down with it.)

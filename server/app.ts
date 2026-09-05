@@ -22,6 +22,7 @@ import { clientsModule } from "./modules/clients/index.js";
 import { leadsModule } from "./modules/leads/index.js";
 import { mailoutsModule } from "./modules/mailouts/index.js";
 import { meetingsModule } from "./modules/meetings/index.js";
+import { notificationsModule } from "./modules/notifications/index.js";
 import { paymentsModule } from "./modules/payments/index.js";
 import { settingsModule } from "./modules/settings/index.js";
 import { tasksModule } from "./modules/tasks/index.js";
@@ -94,7 +95,10 @@ export async function buildApp() {
     // session for a forged request to ride. Its unguessable token is the credential, so this check
     // can only reject a legitimate unsubscribe whose Origin is the webmail the client is reading
     // in. Opting out is declared on the route itself, next to the reasoning.
-    if ((request.routeOptions?.config as { skipOriginCheck?: boolean } | undefined)?.skipOriginCheck) {
+    if (
+      (request.routeOptions?.config as { skipOriginCheck?: boolean } | undefined)
+        ?.skipOriginCheck
+    ) {
       return;
     }
     const origin = request.headers.origin;
@@ -129,6 +133,7 @@ export async function buildApp() {
   await app.register(tasksModule, { prefix: "/api/tasks" }); // S6
   await app.register(paymentsModule, { prefix: "/api/invoices" }); // S7
   await app.register(meetingsModule, { prefix: "/api/calendar" }); // S8
+  await app.register(notificationsModule, { prefix: "/api/notifications" }); // S9
   await app.register(mailoutsModule, { prefix: "/api/mailouts" }); // S10
 
   // ── Serve the built SPA in production (single-container: API + web) ────────

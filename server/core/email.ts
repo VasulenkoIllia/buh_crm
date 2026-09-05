@@ -21,6 +21,15 @@ import { explainSendError } from "./send-error.js";
 export interface EmailTemplates {
   invite: { inviteUrl: string; invitedBy: string };
   passwordReset: { resetUrl: string };
+  /**
+   * A staff notification (S9). Deliberately routed through THIS door rather than the mailouts
+   * pipeline: that one's guarantees are built for CLIENT mail and mostly do not apply — a
+   * colleague cannot unsubscribe from being assigned work, staff addresses are firm-controlled and
+   * validated at invite, and `Mailout`/`MailoutRecipient` are the client-facing record which must
+   * not receive staff rows. Keeping them apart keeps the client mail log clean by construction
+   * rather than by discipline (docs/modules/notifications.md §7.1).
+   */
+  notification: { title: string; sub: string | null; url: string | null };
 }
 
 export type EmailTemplateName = keyof EmailTemplates;
@@ -73,6 +82,22 @@ function render<T extends EmailTemplateName>(
           `Someone requested a password reset for your account.\n\n` +
           `If it wasn't you, ignore this email and nothing will change.`,
         cta: { label: "Set a new password", url: d.resetUrl },
+        facts: [],
+      };
+    }
+    /**
+     * An internal one-liner, and shaped like one: the trigger's own line IS the subject, because
+     * a notification that needs a covering sentence is a notification that failed to say what
+     * happened. The shell `dress()` puts round it already nulls the logo, the signature block and
+     * the legal footer — that is the client brand, and it is wrong on staff mail.
+     */
+    case "notification": {
+      const d = data as EmailTemplates["notification"];
+      return {
+        subject: d.title,
+        heading: d.title,
+        body: d.sub ?? "",
+        cta: d.url ? { label: "Open in the CRM", url: d.url } : null,
         facts: [],
       };
     }

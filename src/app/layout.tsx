@@ -3,7 +3,6 @@ import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   Archive,
   BarChart3,
-  Bell,
   Calendar,
   CircleDollarSign,
   Kanban,
@@ -19,6 +18,7 @@ import { useAuth, useLogout } from "./auth";
 import { cn } from "@/shared/lib/cn";
 import { UserAvatar } from "@/shared/ui/avatar";
 import { useSettings } from "@/modules/settings";
+import { NotificationTray } from "@/modules/notifications";
 import { TimerBar } from "@/modules/tasks";
 import { FirmClock } from "./firm-clock";
 
@@ -94,11 +94,7 @@ function SidebarBrand() {
   return (
     <div className="flex items-center gap-2.5 px-5 py-5">
       {data?.firm.logoFileId && (
-        <img
-          src="/api/settings/firm/logo"
-          alt=""
-          className="h-6 w-6 rounded object-contain"
-        />
+        <img src="/api/settings/firm/logo" alt="" className="h-6 w-6 rounded object-contain" />
       )}
       <span className="text-[15px] font-semibold tracking-wide">
         {data?.firm.name ?? "buh_crm"}
@@ -114,13 +110,7 @@ function HeaderActions() {
 
   return (
     <div className="flex items-center gap-1.5">
-      <button
-        type="button"
-        className="relative rounded-full p-2 text-muted hover:bg-divider"
-        aria-label="Notifications"
-      >
-        <Bell size={18} />
-      </button>
+      <NotificationTray />
       {user && (
         <Link
           to="/profile"

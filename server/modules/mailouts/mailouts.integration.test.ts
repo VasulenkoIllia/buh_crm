@@ -30,6 +30,26 @@ async function settled(mailoutId: string) {
   throw new Error("delivery did not settle");
 }
 
+/**
+ * A run that closed with failures notifies the person who started it (S9 `ops_mailout_errors`),
+ * and it does so a few microtasks AFTER the last recipient row is marked — delivery is
+ * fire-and-forget by design. `settled()` therefore returns before the notification exists, and
+ * without this the letter lands in the NEXT test's outbox and fails an assertion there instead.
+ */
+async function notified(mailoutId: string) {
+  for (let i = 0; i < 60; i++) {
+    const row = await prisma.notification.findFirst({
+      // `emailedAt`, not merely the row: the letter is sent AFTER the insert, so waiting on the
+      // row alone still lets the notification mail land in the next test's outbox. This stamp is
+      // the last thing the notification does.
+      where: { dedupKey: `ops_mailout_errors:${mailoutId}`, emailedAt: { not: null } },
+    });
+    if (row) return row;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  throw new Error("the sender was never told the run failed");
+}
+
 beforeAll(async () => {
   app = await buildApp();
   // The same order `api-contract.test.ts` proves out. This suite used to start at the mail tables,
@@ -149,6 +169,28 @@ afterAll(async () => {
 
 beforeEach(() => {
   testOutbox.length = 0;
+});
+
+/**
+ * The one S9 policy row this suite depends on.
+ *
+ * `ensureBaseData()` seeds all sixteen on boot, and the test files share one database — so this
+ * usually exists already because some earlier suite called it. "Usually" is the problem: without
+ * the row the emitter correctly does nothing, and the failure would surface here as "the sender
+ * was never told", in a suite that is not about notifications at all.
+ */
+beforeAll(async () => {
+  await prisma.notificationPolicy.upsert({
+    where: { trigger: "ops_mailout_errors" },
+    update: {},
+    create: {
+      trigger: "ops_mailout_errors",
+      roles: ["author", "custom"],
+      customUserIds: [],
+      defaultInApp: true,
+      defaultEmail: true,
+    },
+  });
 });
 
 const letter = (over: Record<string, unknown> = {}) => ({
@@ -948,6 +990,14 @@ describe("when the sending account is unusable", () => {
     const rows = await settled(res.json().id); // would time out if they stayed queued
     expect(rows[0].status).toBe("failed");
     expect(rows[0].reason).toMatch(/sender account unusable/i);
+
+    // and the person who pressed Send finds out. They are NOT the actor of a delivery failure —
+    // nobody performs one — which is why the emitter's "never notify the actor" rule leaves the
+    // one person who needs this in the recipient set.
+    const told = await notified(res.json().id);
+    // "was" for one, "were" for several — the count is pluralised by the emitter, which has the
+    // number. What this case cares about is that the sender was told at all.
+    expect(told.text).toMatch(/(was|were) not delivered/i);
   });
 });
 

@@ -48,8 +48,15 @@ export type InvoiceStatus = z.infer<typeof invoiceStatus>;
 export const invoiceDelivery = z.enum(["created", "sent"]);
 export type InvoiceDelivery = z.infer<typeof invoiceDelivery>;
 
-export const notificationKind = z.enum(["task", "meeting", "invoice", "system"]);
-export type NotificationKind = z.infer<typeof notificationKind>;
+/**
+ * The notification CHANNELS. The trigger keys are deliberately NOT here: they live in
+ * `shared/notifications.ts`, which is zero-dependency because the UI reads it, and duplicating the
+ * sixteen keys into a zod enum would be the drift the registry exists to prevent.
+ * (`NotificationKind` — task/meeting/invoice/system — was removed in S9: it was a CATEGORY, and a
+ * category cannot be configured.)
+ */
+export const notificationChannel = z.enum(["in_app", "email", "sound"]);
+export type NotificationChannelName = z.infer<typeof notificationChannel>;
 
 /**
  * The CAN-SPAM line (S10). `commercial` mail honours unsubscribe and must carry the firm's postal

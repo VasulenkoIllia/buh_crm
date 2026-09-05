@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Pencil, Plus, Power, Send, Trash2 } from "lucide-react";
 import type { EmailTemplate } from "@shared/schema/mailouts";
 import { cn } from "@/shared/lib/cn";
@@ -60,7 +61,23 @@ const ACTION: Record<Tab, string | null> = {
 };
 
 export function MailoutsPage() {
-  const [tab, setTab] = useState<Tab>("log");
+  /**
+   * The tab lives in the URL so it can be LINKED. A broken mailbox raises a notification whose
+   * `Open` has to land on Sender — on the Sent log it would be a link that technically arrived
+   * and practically did not (S9, 2026-09-05).
+   */
+  const [params, setParams] = useSearchParams();
+  const rawTab = params.get("tab");
+  const tab: Tab = TABS.some((t) => t.value === rawTab) ? (rawTab as Tab) : "log";
+  const setTab = (next: Tab) =>
+    setParams(
+      (prev) => {
+        const out = new URLSearchParams(prev);
+        out.set("tab", next);
+        return out;
+      },
+      { replace: true }, // tab clicks are not history
+    );
   const [composing, setComposing] = useState(false);
   const [openMailout, setOpenMailout] = useState<string | null>(null);
   // the tab-level "new" buttons live in the header now, so the tabs own a signal rather than a button

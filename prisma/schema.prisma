@@ -86,11 +86,29 @@ enum SecretAuditAction {
   unlock_failed
 }
 
-enum NotificationKind {
-  task
-  meeting
-  invoice
-  system
+/// How the emitter finds the people a trigger concerns. Mirrors `RecipientRole` in
+/// shared/notifications.ts, which is the source both the emitter and the settings screens read.
+/// `mentioned` and `client_owner` are reserved: nothing seeds them, and the emitter resolves them
+/// to nobody until @-mentions and the roles package exist.
+enum RecipientRole {
+  assignee
+  author
+  participant
+  mentioned
+  admin
+  custom
+  self
+  client_owner
+}
+
+/// `sound` is a THIRD channel rather than a switch of its own, because it obeys exactly the same
+/// two rules the other two do: the firm decides whether it is allowed at all, and each person
+/// decides whether they want it. Modelling it any other way would have meant a second, parallel
+/// set of settings screens for one boolean.
+enum NotificationChannel {
+  in_app
+  email
+  sound
 }
 
 /**
@@ -179,32 +197,33 @@ model User {
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
 
-  avatarFile               File?                  @relation("UserAvatar", fields: [avatarFileId], references: [id])
+  avatarFile               File?                    @relation("UserAvatar", fields: [avatarFileId], references: [id])
   authTokens               AuthToken[]
   sessions                 Session[]
   taskAssignments          TaskAssignee[]
-  tasksCreated             Task[]                 @relation("TaskCreatedBy")
-  tasksCancelled           Task[]                 @relation("TaskCancelledBy")
-  secretsCreated           ClientSecret[]         @relation("SecretCreatedBy")
-  secretAudit              SecretAuditLog[]       @relation("SecretAuditBy")
-  taskComments             TaskComment[]          @relation("TaskCommentAuthor")
+  tasksCreated             Task[]                   @relation("TaskCreatedBy")
+  tasksCancelled           Task[]                   @relation("TaskCancelledBy")
+  secretsCreated           ClientSecret[]           @relation("SecretCreatedBy")
+  secretAudit              SecretAuditLog[]         @relation("SecretAuditBy")
+  taskComments             TaskComment[]            @relation("TaskCommentAuthor")
   timeEntries              TimeEntry[]
-  timeEntriesCreated       TimeEntry[]            @relation("TimeEntryCreatedBy")
+  timeEntriesCreated       TimeEntry[]              @relation("TimeEntryCreatedBy")
   meetingParticipants      MeetingParticipant[]
-  meetingsOrganised        Meeting[]              @relation("MeetingCreatedBy")
+  meetingsOrganised        Meeting[]                @relation("MeetingCreatedBy")
   notifications            Notification[]
-  paymentsCreated          Payment[]              @relation("PaymentCreatedBy")
+  notificationPrefs        NotificationPreference[]
+  paymentsCreated          Payment[]                @relation("PaymentCreatedBy")
   paymentAuditLogs         PaymentAuditLog[]
-  invoicesCreated          Invoice[]              @relation("InvoiceCreatedBy")
-  invoicesSent             Invoice[]              @relation("InvoiceSentBy")
-  invoicesCancelled        Invoice[]              @relation("InvoiceCancelledBy")
-  invoicesArchived         Invoice[]              @relation("InvoiceTidiedBy")
-  uploadedFiles            File[]                 @relation("FileUploadedBy")
-  subscriptionPeriods      SubscriptionPeriod[]   @relation("SubscriptionPeriodCreatedBy")
-  subscriptionPeriodsEnded SubscriptionPeriod[]   @relation("SubscriptionPeriodEndedBy")
-  mailoutsSent             Mailout[]              @relation("MailoutCreatedBy")
-  campaignsCreated         Campaign[]             @relation("CampaignCreatedBy")
-  clientsUnsubscribed      ClientMailPreference[] @relation("MailPreferenceUnsubscribedBy")
+  invoicesCreated          Invoice[]                @relation("InvoiceCreatedBy")
+  invoicesSent             Invoice[]                @relation("InvoiceSentBy")
+  invoicesCancelled        Invoice[]                @relation("InvoiceCancelledBy")
+  invoicesArchived         Invoice[]                @relation("InvoiceTidiedBy")
+  uploadedFiles            File[]                   @relation("FileUploadedBy")
+  subscriptionPeriods      SubscriptionPeriod[]     @relation("SubscriptionPeriodCreatedBy")
+  subscriptionPeriodsEnded SubscriptionPeriod[]     @relation("SubscriptionPeriodEndedBy")
+  mailoutsSent             Mailout[]                @relation("MailoutCreatedBy")
+  campaignsCreated         Campaign[]               @relation("CampaignCreatedBy")
+  clientsUnsubscribed      ClientMailPreference[]   @relation("MailPreferenceUnsubscribedBy")
   deadEmailAddresses       DeadEmailAddress[]
   clientPins               ClientPin[]
 }
@@ -249,7 +268,6 @@ model Priority {
 
 /**
  * A column of the leads pipeline.
- *
  * Was a Prisma enum until 2026-08-28. An enum cannot be reordered, renamed or added to by the firm
  * that uses it — the board could not be dragged, and every change meant a migration. It is a table
  * now, for the same reasons and in the same shape as `TaskColumn`, so both boards are one idea.
@@ -295,6 +313,8 @@ model FirmProfile {
   // fields could only ever describe one of them.
   //
   /**
+   * /**
+   * /**
    * /**
    * /**
    * /**
@@ -394,6 +414,8 @@ model MailSenderAccount {
    * /**
    * /**
    * /**
+   * /**
+   * /**
    * /** null = this mailbox is not read for bounces
    */
   imapHost       String?
@@ -414,6 +436,8 @@ model MailSenderAccount {
   // Never `\Seen`, never a moved message: this mailbox belongs to a person, and flagging their
   // mail to track our own progress would hide a bounce from them — or theirs from us.
   /**
+   * /**
+   * /**
    * /**
    * /**
    * /**
@@ -1136,22 +1160,114 @@ model MeetingParticipant {
 
 // ── Notifications ────────────────────────────────────────────────────────────
 
+/**
+ * One row in one person's bell tray.
+ * `trigger` is the registry key, not a category: a category cannot be configured, and every screen
+ * in this module configures triggers. `NotificationKind` (task/meeting/invoice/system) was that
+ * category and is gone.
+ */
 model Notification {
-  id        String           @id @default(uuid()) @db.Uuid
-  userId    String           @db.Uuid
-  kind      NotificationKind
-  text      String
-  sub       String?
-  linkType  String? // e.g. "task" | "meeting" | "invoice"
-  linkId    String?          @db.Uuid
-  dedupKey  String? // scheduler triggers: no re-notify on re-scan
-  read      Boolean          @default(false)
-  createdAt DateTime         @default(now())
+  id      String        @id @default(uuid()) @db.Uuid
+  /// Nullable like the other four actor columns (Payment.createdById, PaymentAuditLog.byUserId,
+  /// TaskComment.authorId, File.uploadedById): a client-facing notification — a portal, a chat —
+  /// has no User. Nothing in this module writes such a row today.
+  userId  String?       @db.Uuid
+  /// the registry key from shared/notifications.ts
+  trigger String
+  /// which role put this row here. Without it "notify me where I am the assignee but not where I
+  /// merely commented" cannot be expressed, because both are the same trigger.
+  reason  RecipientRole
+
+  text     String
+  sub      String?
+  linkType String? // free text: "task" | "meeting" | "invoice", and "thread" later with no migration
+  linkId   String? @db.Uuid
+
+  /**
+   * `${trigger}:${ctx.dedup}` — built by the emitter, never composed at a call site.
+   * NOT NULL, and load-bearing: `catchUp` re-runs each sweep in full on EVERY boot, a mail is sent
+   * only when this insert succeeds, and Postgres treats NULLs as distinct. A nullable key would
+   * therefore insert — and mail — the whole firm on every restart.
+   */
+  dedupKey String
+
+  /// an instant, not a flag: a state with a WHEN is stored as a timestamp here (sentAt,
+  /// completedAt, cancelledAt). Also what the 90-day retention purge counts from.
+  readAt    DateTime?
+  /// null = never mailed. Not a status enum, for the same reason Invoice.sentAt is not.
+  emailedAt DateTime?
+  /**
+   * Whether this row was meant to make a sound when it arrived.
+   * DECIDED AT WRITE TIME, by the same precedence the other two channels go through, and stored —
+   * so the tray hands the browser a boolean instead of re-deriving policy and preferences on
+   * every 60-second poll, for every user. It is a record of what this notification was for, in
+   * the same way `emailedAt` is.
+   */
+  sound     Boolean   @default(false)
+  createdAt DateTime  @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupKey])
+  /// the badge count and the tray page
+  @@index([userId, readAt])
+  /// the retention purge
+  @@index([readAt])
+}
+
+/**
+ * The GLOBAL contour: one row per trigger, seeded from the registry by `ensureBaseData`, exactly
+ * as Priority and SourceOption are. Seeding upserts on the key, so a new registry entry appears on
+ * the next boot and an edited row is never overwritten.
+ * A policy row is DATA, which is the whole point: a noisy trigger is switched off from the
+ * Settings screen without a deploy.
+ */
+model NotificationPolicy {
+  /// the registry key
+  trigger   String  @id
+  enabled   Boolean @default(true)
+  /// a personal off cannot override it. Seeded false everywhere; reserved for the security package.
+  mandatory Boolean @default(false)
+
+  /**
+   * Array columns, not a join table. The precedent that applies is `Subscription.rhythmOverrides`
+   * (sparse, read whole, never queried across rows), not `TaskAssignee` (joined and filtered
+   * constantly): a policy row is read as a unit by the emitter and never searched by role.
+   */
+  roles         RecipientRole[]
+  /// used only when `roles` contains `custom`
+  customUserIds String[]        @db.Uuid
+
+  /// whether the channel is ALLOWED at all
+  inApp Boolean @default(true)
+  email Boolean @default(true)
+  /// an office is a shared room: the firm can silence the chime for everybody
+  sound Boolean @default(true)
+
+  /// what a user with no preference row gets
+  defaultInApp Boolean @default(true)
+  defaultEmail Boolean @default(false)
+  defaultSound Boolean @default(false)
+
+  updatedAt DateTime @updatedAt
+}
+
+/**
+ * The PERSONAL contour, and SPARSE on purpose: an absent row means "follow the policy default".
+ * A row per user per trigger per channel would freeze every user at the default in force on the
+ * day their account was made, and a later change to `defaultEmail` would reach nobody. With sparse
+ * rows a changed default reaches everyone who has not made an explicit choice — which, in a
+ * ten-person firm, is most people.
+ */
+model NotificationPreference {
+  userId  String              @db.Uuid
+  trigger String
+  channel NotificationChannel
+  enabled Boolean
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, dedupKey])
-  @@index([userId, read])
+  @@id([userId, trigger, channel])
 }
 
 // ── Mailouts ─────────────────────────────────────────────────────────────────

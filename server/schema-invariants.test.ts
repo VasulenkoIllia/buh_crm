@@ -135,6 +135,11 @@ describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
      *     counter, the mailbox it sends from). They are not client data, and rebuilding them by
      *     hand after every reset lost real setup (user, 2026-08-26). The letters that WERE sent
      *     from the mailbox are still wiped — see the DELETEs above them in the script.
+     *   • NotificationPreference — a user's own choices about their bell, and users survive.
+     *     Populating them again from the defaults would silently un-mute everything they muted.
+     *   • NotificationPolicy — firm configuration, like FirmProfile above: which triggers the firm
+     *     has switched off is a decision they made, not client data. (The TRAY is wiped — see the
+     *     DELETE in the script.)
      *   • _prisma_migrations — Prisma owns its own ledger.
      */
     const KEPT = new Set([
@@ -143,6 +148,8 @@ describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
       "AuthToken",
       "FirmProfile",
       "MailSenderAccount",
+      "NotificationPolicy",
+      "NotificationPreference",
       "_prisma_migrations",
     ]);
 
