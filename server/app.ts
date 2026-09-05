@@ -60,7 +60,43 @@ export async function buildApp() {
   app.setSerializerCompiler(serializerCompiler);
   app.setErrorHandler(errorHandler);
 
-  await app.register(helmet);
+  /**
+   * Helmet's defaults, plus the two origins Cloudflare's own analytics needs.
+   *
+   * The site is proxied through Cloudflare (docs/deployment.md), and when Web Analytics is on
+   * there, Cloudflare INJECTS `beacon.min.js` into every page it serves. Helmet's default
+   * `script-src 'self'` then refuses it, which is the console error people see: the app is
+   * unharmed, the analytics simply never run.
+   *
+   * Named origins, not a wildcard, and only the two that beacon actually uses — the script itself
+   * and the endpoint it reports to. Everything else stays at helmet's default.
+   *
+   * **This is a deliberate widening, and it is reversible from the other end.** A third-party
+   * script on every page of a CRM holding clients' financial records is a real surface, however
+   * reputable the party. Turning Web Analytics off in the Cloudflare dashboard removes the
+   * injection, the console error AND the need for these two lines — and is the stricter choice if
+   * the numbers are not being read (raised with the user, 2026-09-06).
+   */
+  const CLOUDFLARE_ANALYTICS = {
+    script: "https://static.cloudflareinsights.com",
+    report: "https://cloudflareinsights.com",
+  };
+  const defaults = helmet.contentSecurityPolicy.getDefaultDirectives();
+  await app.register(helmet, {
+    contentSecurityPolicy: {
+      directives: {
+        ...defaults,
+        "script-src": [
+          ...((defaults["script-src"] as string[] | undefined) ?? ["'self'"]),
+          CLOUDFLARE_ANALYTICS.script,
+        ],
+        "connect-src": [
+          ...((defaults["connect-src"] as string[] | undefined) ?? ["'self'"]),
+          CLOUDFLARE_ANALYTICS.report,
+        ],
+      },
+    },
+  });
   await app.register(cookie, { secret: config.SESSION_SECRET });
   /**
    * The budget belongs to a SESSION, not to an address.

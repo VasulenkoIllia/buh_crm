@@ -18,6 +18,37 @@ describe("app", () => {
     expect(res.json()).toMatchObject({ status: "ok", app: "buh_crm" });
   });
 
+  /**
+   * The Content-Security-Policy, and specifically the ONE place it is widened.
+   *
+   * Cloudflare injects its analytics beacon into every page it proxies when Web Analytics is on,
+   * and helmet's default `script-src 'self'` refuses it — a console error on every load. Two named
+   * origins are allowed for it. This case exists so the widening stays exactly that size: a
+   * wildcard or an extra host slipping into `script-src` on a CRM holding clients' financial
+   * records is worth failing a build over.
+   */
+  it("allows Cloudflare's beacon and nothing else beyond helmet's defaults", async () => {
+    const res = await app.inject({ method: "GET", url: "/health" });
+    const csp = String(res.headers["content-security-policy"]);
+    const directive = (name: string) =>
+      csp
+        .split(";")
+        .map((d) => d.trim())
+        .find((d) => d.startsWith(`${name} `))
+        ?.slice(name.length + 1)
+        .split(" ") ?? [];
+
+    expect(directive("script-src")).toEqual([
+      "'self'",
+      "https://static.cloudflareinsights.com",
+    ]);
+    expect(directive("connect-src")).toEqual(["'self'", "https://cloudflareinsights.com"]);
+    expect(directive("default-src"), "everything else stays at the default").toEqual([
+      "'self'",
+    ]);
+    expect(csp, "no wildcard may reach script-src").not.toMatch(/script-src[^;]*\*/);
+  });
+
   it("unknown route returns 404", async () => {
     const res = await app.inject({ method: "GET", url: "/nope" });
     expect(res.statusCode).toBe(404);
