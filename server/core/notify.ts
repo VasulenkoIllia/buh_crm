@@ -60,6 +60,30 @@ interface Recipient {
 }
 
 /**
+ * Which of these people have already been told something about this record.
+ *
+ * Exported because a caller sometimes has to know BEFORE it decides what to raise. Re-inviting
+ * somebody to a meeting they were removed from is the case: `meeting_invited` is once per meeting
+ * per person, so the plain key is already spent for them and the re-invite would be swallowed as a
+ * duplicate. The room and the returning colleague need different keys, and only the caller knows
+ * which is which.
+ */
+export async function notifiedAbout(
+  trigger: NotificationTriggerKey,
+  linkId: string,
+  userIds: string[],
+): Promise<Set<string>> {
+  if (userIds.length === 0) return new Set();
+  const rows = await prisma.notification.findMany({
+    // `linkId` rather than the dedup key: the key's shape is the caller's business, and matching
+    // on a prefix of it would tie this to how one trigger happens to spell itself today
+    where: { trigger, linkId, userId: { in: userIds } },
+    select: { userId: true },
+  });
+  return new Set(rows.map((r) => r.userId).filter((id): id is string => id !== null));
+}
+
+/**
  * `participant`, DERIVED — one named function, one query.
  *
  * Today a task's participants are whoever has written in its comments. When comments become chat
@@ -211,7 +235,17 @@ interface ChannelChoice {
  * behave this way, and retrofitting it after people have tuned their preferences would change
  * behaviour under them — which is why it is here before any parser exists.
  */
-function decide(
+/**
+ * Exported so the FORECAST can ask the same question the emitter answers.
+ *
+ * `scripts/notification-forecast.ts` counted letters off `policy.defaultEmail` alone, ignoring
+ * every personal preference — so it over-reported for anybody who had turned email off and
+ * under-reported for anybody who had turned it on. It is the number an operator reads when
+ * deciding whether to silence a channel before the first sweep, which is exactly the moment for it
+ * to be right (audit, 2026-09-06). One definition, two callers — the same fix `notificationPath`
+ * got in round two.
+ */
+export function decide(
   policy: {
     mandatory: boolean;
     inApp: boolean;

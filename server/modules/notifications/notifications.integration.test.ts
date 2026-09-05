@@ -528,10 +528,11 @@ describe("retention", () => {
     const read = await prisma.notification.create({
       data: {
         userId: mateId,
-        trigger: "task_assigned",
-        reason: "assignee",
+        // occurrence-scoped: a record-scoped row is never purged, whatever its age (S9 §19)
+        trigger: "task_comment",
+        reason: "participant",
         text: "Old and seen",
-        dedupKey: "task_assigned:old-read",
+        dedupKey: "task_comment:old-read",
         createdAt: old,
         readAt: old,
       },
@@ -539,10 +540,10 @@ describe("retention", () => {
     const unread = await prisma.notification.create({
       data: {
         userId: mateId,
-        trigger: "task_assigned",
-        reason: "assignee",
+        trigger: "task_comment",
+        reason: "participant",
         text: "Old and never seen",
-        dedupKey: "task_assigned:old-unread",
+        dedupKey: "task_comment:old-unread",
         createdAt: old,
       },
     });

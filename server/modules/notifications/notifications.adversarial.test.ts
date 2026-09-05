@@ -5,7 +5,7 @@ import { buildApp } from "../../app.js";
 import { ensureBaseData } from "../../core/bootstrap.js";
 import { prisma } from "../../core/db.js";
 import { testOutbox } from "../../core/email.js";
-import { notify } from "../../core/notify.js";
+import { notify, notifiedAbout } from "../../core/notify.js";
 import * as repo from "./notifications.repository.js";
 import {
   purgeOldNotifications,
@@ -421,11 +421,23 @@ describe("settings that are legal but strange", () => {
 // ── 4a2. a quiet morning and a broken one must not look the same ─────────────
 
 describe("the sweep says what kind of nothing it did", () => {
-  it("reports a pass that looked at nothing", async () => {
+  /**
+   * Asserted RELATIVELY, not against an empty world: these suites share one database, so
+   * "scanned === 0" is a statement about the other files rather than about this one. What the
+   * report has to guarantee is that a pass which wrote nothing distinguishes itself from a pass
+   * that could not.
+   */
+  it("separates a pass that wrote nothing from one that failed", async () => {
     const r = await runNotificationSweep();
-    expect(r.scanned, "nothing to look at").toBe(0);
-    expect(r.raised).toBe(0);
-    expect(r.failed, "and nothing went wrong, which is a different thing").toBe(0);
+    expect(r.failed, "a quiet pass reports no failures").toBe(0);
+    /**
+     * Not an equality: there is a fourth outcome the counters deliberately do not name — an item
+     * looked at that had NOBODY to tell, because its assignee is blocked or the policy resolves to
+     * an empty room. `raised: 0` beside a non-zero `scanned` already says "it looked at things and
+     * told no one", which is the fact worth having; a fifth counter for it would be precision
+     * nobody acts on.
+     */
+    expect(r.raised + r.alreadyRaised).toBeLessThanOrEqual(r.scanned);
   });
 
   it("counts a re-run as ALREADY RAISED, never as nothing and never as a failure", async () => {
@@ -694,6 +706,71 @@ describe("a meeting's lifecycle is covered end to end", () => {
     ).toBeNull();
   });
 
+  /**
+   * Removed, then put back. `meeting_invited` is once per meeting per person, so their key was
+   * already spent and the re-invite was swallowed as a duplicate — leaving "you were taken off" as
+   * the last thing the system ever said to them, by then untrue. Worse than silence, because they
+   * act on it (audit, 2026-09-06).
+   */
+  it("tells somebody they are back on, not just that they were taken off", async () => {
+    const m = await meeting();
+    await withPeople(m.id, [bo]);
+    await notify("meeting_invited", {
+      dedup: m.id,
+      actorId: ada,
+      meetingId: m.id,
+      vars: { actor: "Ada", meeting: m.title },
+      link: { type: "meeting", id: m.id },
+    });
+    await notify("meeting_uninvited", {
+      dedup: `${m.id}:${bo}`,
+      actorId: ada,
+      selfUserId: bo,
+      vars: { actor: "Ada", meeting: m.title },
+      link: { type: "meeting", id: m.id },
+    });
+
+    // the plain key is spent, so the re-invite has to carry the moment of the edit
+    const swallowed = await notify("meeting_invited", {
+      dedup: m.id,
+      actorId: ada,
+      meetingId: m.id,
+      vars: { actor: "Ada", meeting: m.title },
+    });
+    expect(swallowed.written, "which is exactly why the old key cannot be reused").toBe(0);
+
+    const told = await notify("meeting_invited", {
+      dedup: `${m.id}:${bo}:${new Date().toISOString()}`,
+      actorId: ada,
+      selfUserId: bo,
+      vars: { actor: "Ada", meeting: m.title },
+      sub: "Back on",
+      link: { type: "meeting", id: m.id },
+    });
+    expect(told.written, "on a fresh key they hear about it").toBe(1);
+
+    // by presence, not by position: `rowsOf` has no `orderBy`, so "the last one" is whatever
+    // Postgres felt like returning
+    const rows = await rowsOf(bo);
+    expect(
+      rows.map((r) => r.sub),
+      "and the untrue one is no longer the only thing they have",
+    ).toContain("Back on");
+  });
+
+  it("finds who has been told about a record, so a caller can pick the right key", async () => {
+    const m = await meeting();
+    await notify("meeting_uninvited", {
+      dedup: `${m.id}:${bo}`,
+      actorId: ada,
+      selfUserId: bo,
+      vars: { actor: "Ada", meeting: m.title },
+      link: { type: "meeting", id: m.id },
+    });
+    const who = await notifiedAbout("meeting_uninvited", m.id, [bo, cy]);
+    expect([...who]).toEqual([bo]);
+  });
+
   it("tells somebody they were taken off, which no other role can reach", async () => {
     const m = await meeting();
     await withPeople(m.id, [cy]); // Bo has already been removed by the time this fires
@@ -763,13 +840,52 @@ describe("a notification's life after it is written", () => {
     expect(await prisma.notification.count({ where: { userId: temp } })).toBe(0);
   });
 
+  /**
+   * The purge deletes the row, and for a `record`-scoped trigger that row IS the memory that stops
+   * a second raise. Ninety days on, `task_overdue` and `invoice_overdue` came back and mailed
+   * again — while the spec promised in words that they fire once per record, for good (audit,
+   * 2026-09-06). Which rows may go is decided by the registry, so this asserts both halves.
+   */
+  it("never purges a row that is the only thing stopping a second raise", async () => {
+    const old = new Date(Date.now() - 200 * 86_400_000);
+    const row = (trigger: string, id: string) =>
+      prisma.notification.create({
+        data: {
+          userId: bo,
+          trigger,
+          reason: "assignee" as const,
+          text: id,
+          dedupKey: `${trigger}:${id}`,
+          createdAt: old,
+          readAt: old,
+        },
+      });
+    // one of each kind, both read and both far past the cutoff
+    await row("task_overdue", "record-scoped");
+    await row("task_comment", "occurrence-scoped");
+
+    await purgeOldNotifications();
+    const left = (await rowsOf(bo)).map((r) => r.text).sort();
+    expect(left, "the occurrence goes, the record stays").toEqual(["record-scoped"]);
+
+    // and the proof of what that row is FOR: the trigger still refuses to raise again
+    const again = await notify("task_overdue", {
+      dedup: "record-scoped",
+      taskId: (await taskFor("x", [bo])).id,
+      vars: { task: "x" },
+    });
+    expect(again.written, "the memory survived, so nothing is raised twice").toBe(0);
+    expect(again.duplicate).toBe(1);
+  });
+
   it("purges at the 90-day line and not a day earlier", async () => {
     const day = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000);
+    // an OCCURRENCE-scoped trigger, because a record-scoped one is never purged at any age
     const mk = (id: string, readAt: Date | null) =>
       prisma.notification.create({
         data: {
           userId: bo,
-          trigger: "task_assigned",
+          trigger: "task_comment",
           reason: "assignee",
           text: id,
           dedupKey: `task_assigned:${id}`,

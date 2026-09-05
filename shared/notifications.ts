@@ -78,8 +78,21 @@ export interface NotificationTriggerSpec {
   defaultEmail: boolean;
   /** a chime when it arrives, for the person who is at their desk right now */
   defaultSound: boolean;
-  /** a personal off cannot override it. Seeded false for all 16; reserved for the security package */
+  /** a personal off cannot override it. Seeded false everywhere; reserved for the security package */
   mandatory: boolean;
+  /**
+   * What the dedup key identifies, and therefore whether the ROW may ever be deleted.
+   *
+   * `occurrence` — the key carries an instant or a naturally one-off id (a comment, a mailout run,
+   * a specific start time). The same key can never come round again, so the row is free to be
+   * purged once it is old and read.
+   *
+   * `record` — the key is a bare record id, and the row IS the memory that stops a second raise.
+   * `task_overdue:{taskId}` promises "once per task, for good"; delete the row and the next sweep
+   * raises and mails it again. The retention purge did exactly that, ninety days later, to the
+   * three triggers people would least expect to repeat (audit, 2026-09-06).
+   */
+  dedupScope: "record" | "occurrence";
 }
 
 /**
@@ -128,6 +141,7 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     defaultInApp: true,
     defaultEmail: true,
     defaultSound: true,
+    dedupScope: "record",
     mandatory: false,
   },
   task_comment: {
@@ -140,6 +154,7 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     defaultInApp: true,
     defaultEmail: false,
     defaultSound: true,
+    dedupScope: "occurrence",
     mandatory: false,
   },
   task_deadline_changed: {
@@ -152,6 +167,7 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     defaultInApp: true,
     defaultEmail: false,
     defaultSound: false,
+    dedupScope: "occurrence",
     mandatory: false,
   },
   task_deadline_near: {
@@ -167,6 +183,7 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     defaultInApp: true,
     defaultEmail: true,
     defaultSound: false,
+    dedupScope: "record",
     mandatory: false,
   },
   task_overdue: {
@@ -179,6 +196,7 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     defaultInApp: true,
     defaultEmail: true,
     defaultSound: false,
+    dedupScope: "record",
     mandatory: false,
   },
   task_done: {
@@ -191,6 +209,7 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     defaultInApp: true,
     defaultEmail: false,
     defaultSound: false,
+    dedupScope: "occurrence",
     mandatory: false,
   },
   task_reopened: {
@@ -203,6 +222,7 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     defaultInApp: true,
     defaultEmail: false,
     defaultSound: false,
+    dedupScope: "occurrence",
     mandatory: false,
   },
   task_cancelled: {
@@ -215,6 +235,7 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     defaultInApp: true,
     defaultEmail: false,
     defaultSound: false,
+    dedupScope: "occurrence",
     mandatory: false,
   },
   meeting_invited: {
@@ -223,10 +244,13 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     when: "You are added to a meeting's participants.",
     why: "A meeting booked in your diary by someone else is the definition of news.",
     source: "event",
-    defaultRecipients: ["participant"],
+    // `self` as well as `participant`: somebody removed and then put back has a spent
+    // once-per-meeting key, so the re-invite is addressed to them alone on a fresh one.
+    defaultRecipients: ["participant", "self"],
     defaultInApp: true,
     defaultEmail: true,
     defaultSound: true,
+    dedupScope: "record",
     mandatory: false,
   },
   meeting_today: {
@@ -239,6 +263,7 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     defaultInApp: true,
     defaultEmail: true,
     defaultSound: false,
+    dedupScope: "occurrence",
     mandatory: false,
   },
   meeting_moved: {
@@ -251,6 +276,7 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     defaultInApp: true,
     defaultEmail: true,
     defaultSound: true,
+    dedupScope: "occurrence",
     mandatory: false,
   },
   meeting_cancelled: {
@@ -271,6 +297,7 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     defaultInApp: true,
     defaultEmail: true,
     defaultSound: true,
+    dedupScope: "occurrence",
     mandatory: false,
   },
   meeting_restored: {
@@ -283,6 +310,7 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     defaultInApp: true,
     defaultEmail: true,
     defaultSound: false,
+    dedupScope: "occurrence",
     mandatory: false,
   },
   meeting_uninvited: {
@@ -297,6 +325,7 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     defaultInApp: true,
     defaultEmail: false,
     defaultSound: false,
+    dedupScope: "record",
     mandatory: false,
   },
   meeting_soon: {
@@ -311,6 +340,7 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     // nobody is watching. The chime is the point of this one.
     defaultEmail: false,
     defaultSound: true,
+    dedupScope: "occurrence",
     mandatory: false,
   },
   invoice_overdue: {
@@ -323,6 +353,7 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     defaultInApp: true,
     defaultEmail: true,
     defaultSound: false,
+    dedupScope: "record",
     mandatory: false,
   },
   ops_mailbox_broken: {
@@ -335,6 +366,7 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     defaultInApp: true,
     defaultEmail: true,
     defaultSound: false,
+    dedupScope: "record",
     mandatory: false,
   },
   ops_sweep_failed: {
@@ -347,6 +379,7 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     defaultInApp: true,
     defaultEmail: true,
     defaultSound: false,
+    dedupScope: "occurrence",
     mandatory: false,
   },
   ops_mailout_errors: {
@@ -365,6 +398,7 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     defaultInApp: true,
     defaultEmail: true,
     defaultSound: false,
+    dedupScope: "record",
     mandatory: false,
   },
   timer_left_running: {
@@ -377,6 +411,7 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     defaultInApp: true,
     defaultEmail: false,
     defaultSound: false,
+    dedupScope: "record",
     mandatory: false,
   },
 };

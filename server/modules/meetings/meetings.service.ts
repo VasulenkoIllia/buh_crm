@@ -12,7 +12,7 @@ import { config } from "../../core/config.js";
 import { dateToUtc, isoDayInTz, todayBusinessMs, zonedDayStart } from "../../core/dates.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
 import { clientLabel, personName } from "../../core/names.js";
-import { notify } from "../../core/notify.js";
+import { notify, notifiedAbout } from "../../core/notify.js";
 import { createTask, listDeadlinesInRange } from "../tasks/index.js";
 import * as repo from "./meetings.repository.js";
 
@@ -412,8 +412,38 @@ export async function updateMeeting(id: string, input: UpdateMeetingInput, actor
   const title = input.title ?? existing.title;
   const startAt = movedTo ?? existing.startAt;
 
-  // somebody added to the list now is being invited, exactly as on create
-  if (participantIds) await notifyInvited(id, title, startAt, actor);
+  /**
+   * Somebody added to the list now is being invited, exactly as on create — the plain key means a
+   * person already on the meeting is not told twice.
+   *
+   * Except for the one case that key cannot express: a person REMOVED and then put back. Their
+   * `meeting_invited` row from the first time is still there, so the re-invite is swallowed as a
+   * duplicate — and the last thing the system ever said to them is that they were taken off, which
+   * is by then untrue. Worse than silence, because they act on it (audit, 2026-09-06).
+   *
+   * So they are told again, on a key carrying the moment of this edit. Everybody else keeps the
+   * once-per-meeting guarantee.
+   */
+  if (participantIds) {
+    const before = existing.participants.map((p) => p.userId);
+    const added = participantIds.filter((userId) => !before.includes(userId));
+
+    await notifyInvited(id, title, startAt, actor);
+
+    // whoever among the newcomers we once told had been REMOVED. Their `meeting_invited` key is
+    // spent, so they need one carrying the moment of this edit.
+    const returning = await notifiedAbout("meeting_uninvited", id, added);
+    for (const userId of returning) {
+      await notify("meeting_invited", {
+        dedup: `${id}:${userId}:${updated.updatedAt.toISOString()}`,
+        actorId: actor.id,
+        selfUserId: userId,
+        vars: { actor: personName(actor), meeting: title },
+        sub: `Back on — ${meetingWhen(startAt)}`,
+        link: { type: "meeting", id },
+      });
+    }
+  }
 
   /**
    * Somebody taken OFF the list, told once each.

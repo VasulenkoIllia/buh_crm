@@ -15,6 +15,7 @@ import {
   type NotificationTriggerKey,
 } from "@shared/notifications";
 import type { PreferenceChange } from "@shared/schema/notification";
+import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
 import { InfoHint } from "@/shared/ui/info-hint";
 import { chimeStatus, playChime, type ChimeResult } from "./chime";
@@ -63,6 +64,13 @@ export function NotificationPreferences() {
   const apply = (changes: PreferenceChange[]) => {
     if (changes.length > 0) void save.mutateAsync({ changes }).catch(() => {});
   };
+  /**
+   * The catch above is idiomatic — react-query holds the error and it only stops an unhandled
+   * rejection. What was missing is this line. A switch that failed to save flicked back on the
+   * next render with no explanation, and "the settings do not work" is the only conclusion
+   * available (audit, 2026-09-06).
+   */
+  const saveError = save.error instanceof ApiError ? save.error.message : null;
 
   return (
     <div className="space-y-1.5">
@@ -123,6 +131,8 @@ export function NotificationPreferences() {
           )}
         </span>
       </div>
+
+      {saveError && <p className="mb-3 text-[12px] text-danger-text">{saveError}</p>}
 
       {GROUP_ORDER.map((group) => {
         const rows = rowsIn(group);

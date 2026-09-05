@@ -57,10 +57,19 @@ export function markAllRead(userId: string) {
 /**
  * Retention: read rows older than the cutoff go; unread rows never do, at any age — a
  * notification nobody has seen has not done its job yet.
+ *
+ * And `record`-scoped rows never do either, whatever their age. That is not a caveat, it is the
+ * point: for `task_overdue`, `invoice_overdue` and seven others the dedup key is a bare record id,
+ * so **the row IS the memory that stops a second raise**. Deleting it at ninety days handed those
+ * triggers straight back to the next sweep, which raised and mailed them again — while §13
+ * promised in words that they fire "once per record, for good" (audit, 2026-09-06).
+ *
+ * Which rows those are is decided by the registry, not by a list here, so a new trigger cannot be
+ * added without answering the question.
  */
-export function purgeReadBefore(cutoff: Date) {
+export function purgeReadBefore(cutoff: Date, purgeableTriggers: string[]) {
   return prisma.notification.deleteMany({
-    where: { readAt: { not: null, lt: cutoff } },
+    where: { readAt: { not: null, lt: cutoff }, trigger: { in: purgeableTriggers } },
   });
 }
 

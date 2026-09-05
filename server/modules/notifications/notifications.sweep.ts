@@ -9,6 +9,7 @@
  * `tasks.generation.ts`: one bad row must not cost the firm the other fifteen notifications, and
  * the sweep is idempotent through `dedupKey`, so whatever failed is retried tomorrow.
  */
+import { NOTIFICATION_TRIGGERS } from "@shared/notifications.js";
 import { REMINDER_CHOICES } from "@shared/schema/calendar.js";
 import { config } from "../../core/config.js";
 import { addDays, isoDayInTz, todayInTz, toUtc, zonedDayStart } from "../../core/dates.js";
@@ -153,7 +154,10 @@ export async function runNotificationSweep(): Promise<SweepResult> {
     await repo.meetingsStartingBetween(dayStart, dayEnd),
     (meeting) =>
       notify("meeting_today", {
-        dedup: meeting.id,
+        // the meeting AND its instant. Keyed on the id alone — as this was until the audit —
+        // a meeting moved after its morning notice never got a second one, which is the same
+        // defect `meeting_moved` and `meeting_cancelled` were already re-keyed to avoid.
+        dedup: `${meeting.id}:${meeting.startAt.toISOString()}`,
         meetingId: meeting.id,
         vars: {
           meeting: meeting.title,
@@ -325,8 +329,16 @@ function minutesAway(startAt: Date, now: Date): string {
  */
 export const RETENTION_DAYS = 90;
 
+/**
+ * Only the triggers whose key names an OCCASION rather than a record — see `dedupScope` in the
+ * registry. Everything else keeps its row forever, because that row is what stops a second raise.
+ */
+const PURGEABLE = Object.entries(NOTIFICATION_TRIGGERS)
+  .filter(([, spec]) => spec.dedupScope === "occurrence")
+  .map(([trigger]) => trigger);
+
 export async function purgeOldNotifications(): Promise<{ purged: number }> {
   const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000);
-  const { count } = await repo.purgeReadBefore(cutoff);
+  const { count } = await repo.purgeReadBefore(cutoff, PURGEABLE);
   return { purged: count };
 }

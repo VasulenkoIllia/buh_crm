@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Bell } from "lucide-react";
 import { notificationPath } from "@shared/notifications";
+import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
 import {
   useDismissAllNotifications,
@@ -80,6 +81,14 @@ export function NotificationTray() {
 }
 
 const PAGE = 20;
+/**
+ * The route refuses anything above this (`notifications.routes.ts`), so the button has to stop
+ * here too. It did not: it added twenty each click without a ceiling, and the sixth click sent a
+ * limit the server rejects. The panel does not empty — `placeholderData` keeps the last good page
+ * — so the symptom was quieter and worse: "Show more" simply stopped working and the reader
+ * assumed they had misclicked (audit, 2026-09-06).
+ */
+const MAX = 100;
 
 function TrayPanel({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate();
@@ -88,6 +97,21 @@ function TrayPanel({ onClose }: { onClose: () => void }) {
   const dismiss = useDismissNotification();
   const dismissAll = useDismissAllNotifications();
   const items = data?.items ?? [];
+
+  /**
+   * `.catch(() => {})` on the mutations below is idiomatic and not the defect: react-query keeps
+   * the error on the mutation object, and the catch only stops an unhandled rejection. What was
+   * missing is THIS — anything that renders it. A dismiss that failed looked exactly like one that
+   * worked until the next poll put the row back, and the reader's conclusion is that the tray is
+   * broken (audit, 2026-09-06). The policy screen in the same module already did this; the tray
+   * and the profile did not.
+   */
+  const failure =
+    dismiss.error instanceof ApiError
+      ? dismiss.error.message
+      : dismissAll.error instanceof ApiError
+        ? dismissAll.error.message
+        : null;
 
   const openRow = (id: string, linkType: string | null, linkId: string | null) => {
     const path = notificationPath(linkType, linkId);
@@ -117,6 +141,12 @@ function TrayPanel({ onClose }: { onClose: () => void }) {
           </button>
         )}
       </div>
+
+      {failure && (
+        <p className="border-b border-divider bg-danger-soft px-3.5 py-2 text-[11.5px] text-danger-text">
+          {failure}
+        </p>
+      )}
 
       {isLoading && <Empty>Loading…</Empty>}
       {!isLoading && items.length === 0 && <Empty>No new notifications</Empty>}
@@ -154,14 +184,21 @@ function TrayPanel({ onClose }: { onClose: () => void }) {
           have woken to 24 unread with no screen able to reach four of them. Still the tray, still
           unread only, still newest first — just not a wall any more.
         */}
-        {data && data.unread > items.length && (
+        {data && data.unread > items.length && limit < MAX && (
           <button
             type="button"
             className="w-full px-3.5 py-2.5 text-[11.5px] font-medium text-primary-link hover:bg-divider"
-            onClick={() => setLimit((n) => n + PAGE)}
+            onClick={() => setLimit((n) => Math.min(n + PAGE, MAX))}
           >
-            Show {Math.min(PAGE, data.unread - items.length)} more
+            Show {Math.min(PAGE, data.unread - items.length, MAX - limit)} more
           </button>
+        )}
+        {/* the honest end of the list, rather than a button that does nothing */}
+        {data && data.unread > items.length && limit >= MAX && (
+          <p className="border-t border-divider px-3.5 py-2.5 text-center text-[11px] text-faint">
+            {data.unread - items.length} older still unread — open them from the task, meeting
+            or invoice they are about.
+          </p>
         )}
       </div>
     </div>
