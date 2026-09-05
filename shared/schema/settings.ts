@@ -32,6 +32,10 @@ export const firmProfileSchema = z.object({
    * machine happens to be set to (decision 2026-08-06).
    */
   timezone: z.string().min(1),
+  /** when the nightly notification sweep runs, `HH:MM` in the firm's own zone (S9.2) */
+  notifySweepAt: z.string(),
+  /** how many days ahead `task_deadline_near` warns; 1 = "due tomorrow" */
+  notifyDeadlineDays: z.number().int(),
 });
 export type FirmProfile = z.infer<typeof firmProfileSchema>;
 
@@ -47,7 +51,10 @@ export type SettingsResponse = z.infer<typeof settingsResponse>;
 /** Priorities are a fixed set of 4 — editable, not addable/removable. */
 export const updatePriorityInput = z.object({
   name: z.string().min(1).max(30).optional(),
-  color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Must be a hex color").optional(),
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/, "Must be a hex color")
+    .optional(),
   order: z.number().int().min(0).optional(),
   /** only true is accepted — the default moves, it can't be turned off */
   isDefault: z.literal(true).optional(),
@@ -75,5 +82,21 @@ export const updateFirmInput = z.object({
   name: z.string().min(1).max(80).optional(),
   invoicePrefix: z.string().min(1).max(10).optional(),
   invoiceCounterDigits: z.number().int().min(3).max(6).optional(),
+  /**
+   * When the nightly notification sweep runs, `HH:MM` in the firm's own zone.
+   *
+   * Refused before 04:00, and that is a real constraint rather than a preference: the task sweep
+   * runs at 03:05 and the invoice sweep at 03:20, so an earlier notification sweep would scan
+   * deadlines before the day's generated work exists and warn nobody about it.
+   */
+  notifySweepAt: z
+    .string()
+    .regex(/^([0-9]|[01][0-9]|2[0-3]):[0-5][0-9]$/, "Use HH:MM")
+    .refine((v) => Number(v.split(":")[0]) >= 4, {
+      message: "Not before 04:00 — the task and invoice sweeps have to run first",
+    })
+    .optional(),
+  /** how many days ahead `task_deadline_near` warns. 1 = "due tomorrow". */
+  notifyDeadlineDays: z.number().int().min(1).max(30).optional(),
 });
 export type UpdateFirmInput = z.infer<typeof updateFirmInput>;

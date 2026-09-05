@@ -6,7 +6,9 @@ import type {
 } from "@shared/schema/settings.js";
 import type { FirmProfile, User } from "../../generated/prisma/client.js";
 import { ConflictError, NotFoundError } from "../../core/errors.js";
+import { sweepCron } from "@shared/notifications.js";
 import { rememberFirmName } from "../../core/firm.js";
+import { rescheduleJob } from "../../core/scheduler.js";
 import { deleteFileBytes, saveFileBytes } from "../../core/files.js";
 import { ValidationError } from "../../core/errors.js";
 import * as repo from "./settings.repository.js";
@@ -34,6 +36,8 @@ export function toFirmDto(firm: FirmProfile) {
     currency: firm.currency as "USD",
     // from the environment, not the row: one source of truth, the same one the sweeps use
     timezone: config.TZ,
+    notifySweepAt: firm.notifySweepAt,
+    notifyDeadlineDays: firm.notifyDeadlineDays,
   };
 }
 
@@ -109,6 +113,18 @@ export async function updateFirm(input: UpdateFirmInput) {
   const firm = await repo.updateFirmProfile(input);
   // letters print this name and read it from memory, so a rename has to say so
   rememberFirmName(firm.name);
+
+  /**
+   * The sweep is a running cron task, registered once at boot. Writing the row is not enough —
+   * without this the new time would take effect at the next restart, which for a setting somebody
+   * just watched themselves save is indistinguishable from it not working.
+   *
+   * Only when the time actually changed: rescheduling drops and recreates the task, and doing that
+   * on every unrelated firm-profile save (a rename, a logo) is churn for nothing.
+   */
+  if (input.notifySweepAt !== undefined) {
+    rescheduleJob("notification-sweep", sweepCron(firm.notifySweepAt));
+  }
   return toFirmDto(firm);
 }
 

@@ -3,6 +3,8 @@ import { ensureBaseData, ensureBootstrapAdmin } from "./core/bootstrap.js";
 import { config } from "./core/config.js";
 import { disconnectDb } from "./core/db.js";
 import { ensureUploadsDir } from "./core/files.js";
+import { sweepCron } from "@shared/notifications.js";
+import { prisma } from "./core/db.js";
 import { registerJob, startScheduler, stopScheduler } from "./core/scheduler.js";
 import { recordSweepFailure } from "./core/sweep-health.js";
 import { runDueCampaigns, sweepBounces, sweepStalledSends } from "./modules/mailouts/index.js";
@@ -145,9 +147,9 @@ async function main() {
    * doing something — a deadline arriving, a meeting being today, an invoice going past its due
    * day, a timer nobody stopped, a mailbox that stopped answering.
    *
-   * 07:00, not 03:00 with the others: before the working day, and AFTER the 03:05 task sweep and
-   * the 03:20 invoice sweep, so the day's generated work already exists when deadlines are
-   * scanned. It is also when the night's sweep failures are reported, which is the only reason a
+   * After the working day starts, and AFTER the 03:05 task sweep and the 03:20 invoice sweep, so
+   * the day's generated work already exists when deadlines are scanned — which is why the setting
+   * refuses anything before 04:00. It is also when the night's sweep failures are reported, which is the only reason a
    * person hears about one.
    *
    * `catchUp` is deliberately NOT defined, and this is the only job in the app that has none.
@@ -159,9 +161,20 @@ async function main() {
    * so this would double-run. Its writes are idempotent through `dedupKey`, so the cost is
    * duplicated queries and not duplicated mail — but it is one more entry on that list.
    */
+  /**
+   * The hour comes from the FIRM now, not from this file. Read once at boot; the settings screen
+   * reschedules the job when somebody changes it, so a restart is never needed for it to take.
+   */
+  const firmSweepAt = (
+    await prisma.firmProfile.findUnique({
+      where: { id: 1 },
+      select: { notifySweepAt: true },
+    })
+  )?.notifySweepAt;
+
   registerJob({
     name: "notification-sweep",
-    cronExpr: "0 7 * * *",
+    cronExpr: sweepCron(firmSweepAt),
     run: async () => {
       try {
         const { raised, skipped } = await runNotificationSweep();

@@ -6,6 +6,7 @@ import { ensureBaseData } from "../../core/bootstrap.js";
 import { prisma } from "../../core/db.js";
 import { testOutbox } from "../../core/email.js";
 import { notify } from "../../core/notify.js";
+import * as repo from "./notifications.repository.js";
 import { purgeOldNotifications } from "./notifications.sweep.js";
 
 /**
@@ -460,6 +461,72 @@ describe("sound is a third channel, not a switch of its own", () => {
     await raise(task.id, task.id);
     expect((await rowsOf(bo))[0].sound).toBe(true);
     expect((await rowsOf(cy))[0].sound).toBe(false);
+  });
+});
+
+// ── 4c. the two numbers the firm owns ────────────────────────────────────────
+
+describe("the sweep's schedule is the firm's, and refuses what would break it", () => {
+  it("turns the firm's HH:MM into a cron expression", async () => {
+    const { sweepCron, isValidSweepAt } = await import("@shared/notifications.js");
+    expect(sweepCron("07:00")).toBe("0 7 * * *");
+    expect(sweepCron("08:30")).toBe("30 8 * * *");
+    expect(sweepCron("23:59")).toBe("59 23 * * *");
+
+    /**
+     * Before 04:00 the task sweep (03:05) and the invoice sweep (03:20) have not finished, so
+     * deadlines would be scanned before the day's generated work exists and nobody warned about
+     * it. The screen refuses it; `sweepCron` falls back rather than throwing, because a bad string
+     * in one column must not stop the server from booting.
+     */
+    for (const bad of ["03:30", "00:00", "not a time", "", "25:00"]) {
+      expect(isValidSweepAt(bad), `${bad} must be refused`).toBe(false);
+      expect(sweepCron(bad), `${bad} falls back`).toBe("0 7 * * *");
+    }
+    expect(isValidSweepAt("04:00")).toBe(true);
+  });
+
+  it("warns about everything inside the window, not only the far edge of it", async () => {
+    /**
+     * The hole an exact-day comparison would leave: with a three-day lead, a task due in TWO days
+     * is never equal to `today + 3` on any morning, so it would never be warned at all. The sweep
+     * asks for a range for exactly this reason.
+     */
+    const { todayInTz, toUtc, addDays } = await import("../../core/dates.js");
+    const { config } = await import("../../core/config.js");
+    const today = todayInTz(config.TZ);
+
+    const due = async (days: number) => {
+      const priority = await prisma.priority.findFirstOrThrow({ where: { isDefault: true } });
+      const column = await prisma.taskColumn.findFirstOrThrow({ where: { isFixed: true } });
+      const t = await prisma.task.create({
+        data: {
+          title: `due in ${days}`,
+          kind: "free",
+          priorityId: priority.id,
+          statusColumnId: column.id,
+          deadline: toUtc(addDays(today, days)),
+        },
+      });
+      await prisma.taskAssignee.create({ data: { taskId: t.id, userId: bo } });
+      return t.id;
+    };
+    const inOne = await due(1);
+    const inTwo = await due(2);
+    const inThree = await due(3);
+    const inTen = await due(10);
+
+    const found = (
+      await repo.tasksWithDeadlineIn({
+        gte: toUtc(addDays(today, 1)),
+        lte: toUtc(addDays(today, 3)),
+      })
+    ).map((t) => t.id);
+
+    expect(found).toContain(inOne);
+    expect(found, "a task due INSIDE the window must not be skipped").toContain(inTwo);
+    expect(found).toContain(inThree);
+    expect(found, "and one beyond it is not warned yet").not.toContain(inTen);
   });
 });
 

@@ -100,6 +100,18 @@ export function clearPreference(userId: string, trigger: string, channel: Notifi
   return prisma.notificationPreference.deleteMany({ where: { userId, trigger, channel } });
 }
 
+/**
+ * The two schedule settings, straight off the firm singleton. Here rather than in the settings
+ * module because the sweep needs them and modules may not import each other — the same rule the
+ * emitter lives in `core/` for.
+ */
+export function findFirmNotificationSettings() {
+  return prisma.firmProfile.findUnique({
+    where: { id: 1 },
+    select: { notifySweepAt: true, notifyDeadlineDays: true },
+  });
+}
+
 // ── what the sweep scans ─────────────────────────────────────────────────────
 
 /**
@@ -108,7 +120,12 @@ export function clearPreference(userId: string, trigger: string, channel: Notifi
  * `archivedAt`/`cancelledAt`/`done` are all excluded for the same reason: none of them is work
  * anybody still has to do, and a reminder about finished work teaches people to ignore the bell.
  */
-export function tasksWithDeadlineIn(range: { gte?: Date; lt?: Date; equals?: Date }) {
+export function tasksWithDeadlineIn(range: {
+  gte?: Date;
+  lte?: Date;
+  lt?: Date;
+  equals?: Date;
+}) {
   return prisma.task.findMany({
     where: {
       deadline: range,

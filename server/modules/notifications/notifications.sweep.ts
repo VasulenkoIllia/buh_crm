@@ -16,6 +16,22 @@ import { notify } from "../../core/notify.js";
 import { drainSweepFailures } from "../../core/sweep-health.js";
 import * as repo from "./notifications.repository.js";
 
+/** "tomorrow" / "in 3 days" — how far off one particular deadline is, in whole days. */
+function dueIn(deadline: Date | null, todayUtc: Date): string {
+  if (!deadline) return "soon";
+  const days = Math.round((deadline.getTime() - todayUtc.getTime()) / 86_400_000);
+  if (days <= 0) return "today";
+  return days === 1 ? "tomorrow" : `in ${days} days`;
+}
+
+/**
+ * How far ahead the firm wants to be warned. Read per sweep rather than cached: this runs once a
+ * day, so a query costs nothing, and a cached value would go stale the moment somebody changed it.
+ */
+async function firmDeadlineLeadDays(): Promise<number> {
+  return (await repo.findFirmNotificationSettings())?.notifyDeadlineDays ?? 1;
+}
+
 export interface SweepResult {
   raised: number;
   skipped: number;
@@ -48,18 +64,39 @@ export async function runNotificationSweep(): Promise<SweepResult> {
   // A deadline is a calendar DAY pinned to UTC midnight (`dateToUtc`), so it is compared against
   // `toUtc(day)` and never against a real instant. Getting this backwards is the silent kind of
   // timezone bug the calendar cost two days to find.
+  /**
+   * A RANGE, never an exact day.
+   *
+   * With `equals: today + N` a task created INSIDE the window would never be warned at all: the
+   * sweep only ever looks at that one day, and a deadline nearer than it is never equal to it. At
+   * the default of one day the two are identical, which is why it read as `equals` until the lead
+   * time became a setting (S9.2).
+   *
+   * Each task is still warned ONCE, because the dedup key is the task — so widening the window
+   * warns about everything newly inside it, on the first morning it is, and never again.
+   */
+  const leadDays = Math.min(Math.max(await firmDeadlineLeadDays(), 1), 30);
   await each(
-    await repo.tasksWithDeadlineIn({ equals: tomorrowUtc }),
+    await repo.tasksWithDeadlineIn({
+      gte: tomorrowUtc,
+      lte: toUtc(addDays(today, leadDays)),
+    }),
     (task) =>
       notify("task_deadline_near", {
         // the TASK, not the day: one warning per task, ever. Keyed by the day, a task nobody
         // touched would be announced again every morning it stayed due.
         dedup: task.id,
         taskId: task.id,
-        vars: { task: task.title },
+        // the distance to THIS task's deadline, not the width of the window. "Due in 5 days" on a
+        // task that is due in three is technically the setting and practically a lie.
+        vars: { task: task.title, when: dueIn(task.deadline, todayUtc) },
         // the client, or nothing. "Due tomorrow" as the second line repeats the first one
         // word for word on every INTERNAL task, which have no client (spotted in testing).
-        sub: task.client ? clientLabel(task.client) : null,
+        sub: task.client
+          ? clientLabel(task.client)
+          : task.deadline
+            ? `Due ${task.deadline.toISOString().slice(0, 10)}`
+            : null,
         link: { type: "task", id: task.id },
       }),
     out,

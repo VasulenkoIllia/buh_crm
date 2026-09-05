@@ -117,6 +117,14 @@ export function SettingsPage() {
         barrel, because that barrel is also the app shell's route to the bell.
       */}
       {tab === "notifications" && (
+        <div className="mb-6 max-w-2xl">
+          <NotificationScheduleSection
+            sweepAt={data.firm.notifySweepAt}
+            leadDays={data.firm.notifyDeadlineDays}
+          />
+        </div>
+      )}
+      {tab === "notifications" && (
         // the tab is already called Notifications; a heading repeating it inside the panel is
         // the same word twice on one screen
         <div className="rounded-(--radius-panel) border border-border bg-surface p-5 shadow-(--shadow-card)">
@@ -416,6 +424,70 @@ function TimezoneSection({ timezone }: { timezone: string }) {
           </span>
         </div>
       </div>
+    </Section>
+  );
+}
+
+/**
+ * The two numbers the FIRM owns about its notifications: when the nightly pass runs, and how far
+ * ahead it warns about a deadline.
+ *
+ * On the Notifications tab and not beside the timezone, even though both are clocks: this is the
+ * only place somebody comes looking for "why did that arrive at seven".
+ */
+function NotificationScheduleSection({
+  sweepAt,
+  leadDays,
+}: {
+  sweepAt: string;
+  leadDays: number;
+}) {
+  const update = useUpdateFirm();
+  const serverError = update.error instanceof ApiError ? update.error.message : null;
+
+  return (
+    <Section title="When notifications are raised">
+      <div className="flex flex-wrap items-end gap-6">
+        <FormField label="Nightly pass runs at">
+          <Input
+            type="time"
+            className="w-32"
+            defaultValue={sweepAt}
+            disabled={update.isPending}
+            min="04:00"
+            onBlur={(e) => {
+              const v = e.target.value;
+              if (v && v !== sweepAt) update.mutate({ notifySweepAt: v });
+            }}
+          />
+        </FormField>
+        <FormField label="Warn this many days before a deadline">
+          <Input
+            type="number"
+            className="w-24"
+            min={1}
+            max={30}
+            defaultValue={leadDays}
+            disabled={update.isPending}
+            onBlur={(e) => {
+              const v = Number(e.target.value);
+              if (v >= 1 && v <= 30 && v !== leadDays) update.mutate({ notifyDeadlineDays: v });
+            }}
+          />
+        </FormField>
+      </div>
+      {serverError && <p className="mt-2 text-[12px] text-danger-text">{serverError}</p>}
+      <p className="mt-3 text-[12px] text-muted">
+        The pass looks for deadlines coming up, meetings today, invoices past their due day and
+        timers left running overnight — once a day, in{" "}
+        <b className="font-medium text-ink-700">{firmZoneAbbr(new Date())}</b>. It cannot run
+        before 04:00: the task and invoice sweeps at 03:05 and 03:20 have to finish first, or
+        the day&rsquo;s generated work would not exist yet to warn anybody about.
+      </p>
+      <p className="mt-2 text-[12px] text-faint">
+        Changing the warning window only affects tasks not yet warned about — each task is
+        warned once, ever.
+      </p>
     </Section>
   );
 }

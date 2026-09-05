@@ -305,6 +305,24 @@ model FirmProfile {
   invoiceCounter       Int     @default(0)
   currency             String  @default("USD")
 
+  // ── Notifications (S9.2) ──────────────────────────────────────────────────
+  /**
+   * /**
+   * When the nightly notification sweep runs, as `HH:MM` in the firm's own timezone.
+   * Was hardcoded at 07:00, which was a guess about when this firm's day starts. The hour is the
+   * firm's to choose; the CONSTRAINT is not. It must be later than 03:20, because the task sweep
+   * (03:05) and the invoice sweep (03:20) have to have run first — otherwise deadlines are scanned
+   * before the day's generated work exists, and nobody is warned about it.
+   */
+  notifySweepAt      String @default("07:00")
+  /**
+   * How many days ahead `task_deadline_near` warns. 1 = "due tomorrow", the original behaviour.
+   * The sweep reads it as a RANGE (tomorrow … today + N), never as an exact day. With an exact day
+   * a task created INSIDE the window would never be warned at all: the sweep only ever looks at
+   * `today + N`, and a deadline nearer than that is never equal to it.
+   */
+  notifyDeadlineDays Int    @default(1)
+
   // ── Mailouts (S10) ────────────────────────────────────────────────────────
   //
   // Only the firm-wide part lives here. Everything about a SENDER — From, signature, SMTP
@@ -313,6 +331,7 @@ model FirmProfile {
   // fields could only ever describe one of them.
   //
   /**
+   * /**
    * /**
    * /**
    * /**
@@ -416,6 +435,7 @@ model MailSenderAccount {
    * /**
    * /**
    * /**
+   * /**
    * /** null = this mailbox is not read for bounces
    */
   imapHost       String?
@@ -436,6 +456,7 @@ model MailSenderAccount {
   // Never `\Seen`, never a moved message: this mailbox belongs to a person, and flagging their
   // mail to track our own progress would hide a bounce from them — or theirs from us.
   /**
+   * /**
    * /**
    * /**
    * /**

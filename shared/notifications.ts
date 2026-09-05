@@ -152,8 +152,11 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
   },
   task_deadline_near: {
     group: "tasks",
-    title: "Due tomorrow: {task}",
-    when: "The deadline is tomorrow, checked once a day on the firm clock.",
+    // `{when}` is "tomorrow", "in 3 days" — supplied by the sweep, which knows what the firm set.
+    // It said "Due tomorrow" outright until the lead time became a setting (S9.2), at which point
+    // the line would have been a lie on every firm that changed it.
+    title: "Due {when}: {task}",
+    when: "The deadline is close — how close is set by the firm, and checked once a day.",
     why: "One day's warning is the difference between finishing work and explaining it.",
     source: "sweep",
     defaultRecipients: ["assignee"],
@@ -317,6 +320,34 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
 export const NOTIFICATION_TRIGGER_KEYS = Object.keys(
   NOTIFICATION_TRIGGERS,
 ) as NotificationTriggerKey[];
+
+/**
+ * The nightly sweep's time, as the firm writes it, turned into the cron expression the scheduler
+ * wants — in ONE place, because `server.ts` builds it at boot and the settings screen rebuilds it
+ * on every save, and two copies of "minute hour * * *" would eventually disagree.
+ *
+ * The floor is 04:00, and it is not arbitrary: the task sweep runs at 03:05 and the invoice sweep
+ * at 03:20, so an earlier notification sweep would scan deadlines before the day's generated work
+ * exists and warn nobody about it. Anything unparseable falls back to the default rather than
+ * throwing — a bad string in one column must not stop the server from booting.
+ */
+export const SWEEP_EARLIEST_HOUR = 4;
+export const DEFAULT_SWEEP_AT = "07:00";
+
+export function sweepCron(at: string | null | undefined): string {
+  const m = /^(\d{1,2}):(\d{2})$/.exec((at ?? "").trim());
+  const [h, min] = m ? [Number(m[1]), Number(m[2])] : [7, 0];
+  const valid = m !== null && h >= SWEEP_EARLIEST_HOUR && h <= 23 && min >= 0 && min <= 59;
+  return valid ? `${min} ${h} * * *` : "0 7 * * *";
+}
+
+/** Is this something the settings screen may accept? Same rule, said as a question. */
+export function isValidSweepAt(at: string): boolean {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(at.trim());
+  if (!m) return false;
+  const [h, min] = [Number(m[1]), Number(m[2])];
+  return h >= SWEEP_EARLIEST_HOUR && h <= 23 && min >= 0 && min <= 59;
+}
 
 /**
  * Where a notification points — the ONE definition of it.
