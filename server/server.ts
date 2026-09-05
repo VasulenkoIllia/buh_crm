@@ -2,6 +2,7 @@ import { buildApp } from "./app.js";
 import { ensureBaseData, ensureBootstrapAdmin } from "./core/bootstrap.js";
 import { config } from "./core/config.js";
 import { disconnectDb } from "./core/db.js";
+import { closeTransports } from "./core/email.js";
 import { ensureUploadsDir } from "./core/files.js";
 import { sweepCron } from "@shared/notifications.js";
 import { prisma } from "./core/db.js";
@@ -179,13 +180,31 @@ async function main() {
   registerJob({
     name: "notification-sweep",
     cronExpr: sweepCron(firmSweepAt),
+    /**
+     * Reports UNCONDITIONALLY, and that is the point of the shape.
+     *
+     * It used to log only `if (raised > 0)`, so a morning with nothing due and a morning where
+     * every single insert failed both produced no output whatsoever — indistinguishable, on the
+     * one run of the day that matters most (audit, 2026-09-06). A pass that looked at forty things
+     * and wrote none of them now says exactly that.
+     *
+     * `recordSweepFailure` closes the loop the same way `runBilling` above does: the module
+     * notifies somebody about its own failure instead of only writing it down. The honest caveat
+     * is that THIS sweep is what drains that register, so its own failure is reported by the next
+     * morning's run rather than today's — better than the log alone, and not as good as a place
+     * on screen. That place is the next piece of work.
+     */
     run: async () => {
       try {
-        const { raised, skipped } = await runNotificationSweep();
-        if (raised > 0) app.log.info({ raised }, "notifications raised");
-        if (skipped > 0) app.log.error({ skipped }, "notification sweep skipped items");
+        const { scanned, raised, alreadyRaised, failed } = await runNotificationSweep();
+        app.log.info({ scanned, raised, alreadyRaised, failed }, "notification sweep finished");
+        if (failed > 0) {
+          app.log.error({ failed, scanned }, "notification sweep could not raise everything");
+          recordSweepFailure("notification-sweep", failed);
+        }
       } catch (err) {
         app.log.error({ err }, "notification sweep failed");
+        recordSweepFailure("notification-sweep");
       }
     },
   });
@@ -207,13 +226,21 @@ async function main() {
   registerJob({
     name: "meeting-reminders",
     cronExpr: "* * * * *",
+    /**
+     * This one is quiet on purpose: it runs 1 440 times a day, and a line each would bury every
+     * other message in the log. So it speaks only when it did something or could not — which is
+     * the opposite choice from the nightly pass above, and for the opposite reason.
+     */
     run: async () => {
       try {
-        const { raised, skipped } = await runMeetingReminders();
-        if (raised > 0) app.log.info({ raised }, "meeting reminders raised");
-        if (skipped > 0) app.log.error({ skipped }, "meeting reminder pass skipped items");
+        const { scanned, raised, alreadyRaised, failed } = await runMeetingReminders();
+        if (raised > 0 || failed > 0) {
+          app.log.info({ scanned, raised, alreadyRaised, failed }, "meeting reminders");
+        }
+        if (failed > 0) recordSweepFailure("meeting-reminders", failed);
       } catch (err) {
         app.log.error({ err }, "meeting reminder pass failed");
+        recordSweepFailure("meeting-reminders");
       }
     },
   });
@@ -238,6 +265,7 @@ async function main() {
   const shutdown = async (signal: string) => {
     app.log.info({ signal }, "shutting down");
     await stopScheduler();
+    closeTransports(); // pooled SMTP sockets are real connections somebody else is holding open
     await app.close();
     await disconnectDb();
     process.exit(0);

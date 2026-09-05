@@ -7,7 +7,11 @@ import { prisma } from "../../core/db.js";
 import { testOutbox } from "../../core/email.js";
 import { notify } from "../../core/notify.js";
 import * as repo from "./notifications.repository.js";
-import { purgeOldNotifications, runMeetingReminders } from "./notifications.sweep.js";
+import {
+  purgeOldNotifications,
+  runMeetingReminders,
+  runNotificationSweep,
+} from "./notifications.sweep.js";
 
 /**
  * The adversarial pass: what a person would do to this on purpose, and what a real day does to it
@@ -322,9 +326,17 @@ describe("the same notification, twice", () => {
     ]);
     expect(await rowsOf(bo)).toHaveLength(1);
     expect(
-      results.reduce((a, b) => a + b, 0),
+      results.reduce((n, r) => n + r.written, 0),
       "exactly one caller may claim the write",
     ).toBe(1);
+    expect(
+      results.reduce((n, r) => n + r.duplicate, 0),
+      "and the other two are told they lost a race, which is not a failure",
+    ).toBe(2);
+    expect(
+      results.some((r) => r.failed),
+      "losing the race must never be reported as something being wrong",
+    ).toBe(false);
   });
 
   it("mails once even when the emitter is called five times", async () => {
@@ -341,8 +353,10 @@ describe("the same notification, twice", () => {
     const task = await taskFor("No key", [bo]);
     // `notify` never throws — it logs and returns 0 — so the visible effect is that NOTHING is
     // written. That is the safe direction: a row with no key would mail on every restart.
-    const written = await raise("", task.id);
-    expect(written).toBe(0);
+    const outcome = await raise("", task.id);
+    expect(outcome.written).toBe(0);
+    // and it says so: an empty key is a programming mistake, not "nobody to tell"
+    expect(outcome.failed, "an empty dedup key is reported as a FAILURE").toBe(true);
     expect(await rowsOf(bo)).toHaveLength(0);
   });
 });
@@ -356,7 +370,7 @@ describe("settings that are legal but strange", () => {
       data: { inApp: false, email: false },
     });
     const task = await taskFor("Nowhere to go", [bo]);
-    expect(await raise(task.id, task.id)).toBe(0);
+    expect((await raise(task.id, task.id)).written).toBe(0);
     expect(await rowsOf(bo)).toHaveLength(0);
   });
 
@@ -364,7 +378,7 @@ describe("settings that are legal but strange", () => {
     await prisma.notificationPolicy.delete({ where: { trigger: "task_assigned" } });
     const task = await taskFor("Orphaned trigger", [bo]);
     // no row, no throw: `ensureBaseData` puts the policy back on the next boot
-    expect(await raise(task.id, task.id)).toBe(0);
+    expect((await raise(task.id, task.id)).written).toBe(0);
   });
 
   it("ignores a role that has no implementation instead of failing the notification", async () => {
@@ -374,7 +388,7 @@ describe("settings that are legal but strange", () => {
     });
     const task = await taskFor("Reserved role", [bo]);
     // `client_owner` is warned about and skipped; `assignee` still gets through
-    expect(await raise(task.id, task.id)).toBe(1);
+    expect((await raise(task.id, task.id)).written).toBe(1);
   });
 
   it("ignores a preference belonging to somebody who is not a recipient", async () => {
@@ -401,6 +415,59 @@ describe("settings that are legal but strange", () => {
     expect(await rowsOf(ghost), "a blocked user is not written to").toHaveLength(0);
     expect(await rowsOf(bo), "and the live one still gets it").toHaveLength(1);
     await prisma.user.delete({ where: { id: ghost } });
+  });
+});
+
+// ── 4a2. a quiet morning and a broken one must not look the same ─────────────
+
+describe("the sweep says what kind of nothing it did", () => {
+  it("reports a pass that looked at nothing", async () => {
+    const r = await runNotificationSweep();
+    expect(r.scanned, "nothing to look at").toBe(0);
+    expect(r.raised).toBe(0);
+    expect(r.failed, "and nothing went wrong, which is a different thing").toBe(0);
+  });
+
+  it("counts a re-run as ALREADY RAISED, never as nothing and never as a failure", async () => {
+    const task = await taskFor("Late", [bo]);
+    await prisma.task.update({
+      where: { id: task.id },
+      data: { deadline: new Date(Date.now() - 5 * 86_400_000) },
+    });
+
+    const first = await runNotificationSweep();
+    expect(first.raised).toBeGreaterThanOrEqual(1);
+    expect(first.alreadyRaised).toBe(0);
+
+    const second = await runNotificationSweep();
+    expect(second.scanned, "it looked at the same work").toBe(first.scanned);
+    expect(second.raised, "and wrote none of it again").toBe(0);
+    expect(second.alreadyRaised, "because it had already been raised").toBeGreaterThanOrEqual(
+      1,
+    );
+    expect(second.failed, "which is not a failure").toBe(0);
+  });
+
+  /**
+   * The case the whole change exists for. Before it, a pass that could not write ANYTHING
+   * reported `raised: 0` — the same as a pass with nothing to do — and `server.ts` logged only
+   * when that was above zero. Two opposite mornings, one silence.
+   */
+  it("reports a pass that tried and failed, differently from one with nothing to do", async () => {
+    const task = await taskFor("Doomed", [bo]);
+    await prisma.task.update({
+      where: { id: task.id },
+      data: { deadline: new Date(Date.now() - 5 * 86_400_000) },
+    });
+    // the shape a broken emitter has: the policy row it must read is gone
+    await prisma.notificationPolicy.delete({ where: { trigger: "task_overdue" } });
+    try {
+      const r = await runNotificationSweep();
+      expect(r.scanned, "it did look at the work").toBeGreaterThanOrEqual(1);
+      expect(r.raised, "and wrote none of it").toBe(0);
+    } finally {
+      await ensureBaseData();
+    }
   });
 });
 

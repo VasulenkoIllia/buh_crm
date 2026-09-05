@@ -246,23 +246,47 @@ function decide(
 }
 
 /**
- * Raise a notification. Returns the number of rows written; 0 is normal and never an error.
+ * What one `notify()` call did.
+ *
+ * It used to return a bare number, and that number meant two opposite things: "there was nobody to
+ * tell" and "everything I tried to do failed". The nightly sweep added those zeros up and logged
+ * only `if (raised > 0)` — so a morning with nothing due and a morning where every insert failed
+ * produced byte-for-byte the same output: none at all (audit, 2026-09-06).
+ *
+ * Three numbers, three different meanings, and the caller can now tell a quiet morning from a
+ * broken one.
+ */
+export interface NotifyOutcome {
+  /** rows actually written — what the bare number used to be */
+  written: number;
+  /** recipients who already had this exact notification. The NORMAL outcome of a re-run. */
+  duplicate: number;
+  /** the emitter itself failed. Not the same as having nobody to tell, which is `written: 0`. */
+  failed: boolean;
+}
+
+const NOTHING_TO_DO: NotifyOutcome = { written: 0, duplicate: 0, failed: false };
+
+/**
+ * Raise a notification. Never throws — the write that caused it has already committed, and
+ * failing the request afterwards would report a failure that did not happen.
  */
 export async function notify(
   trigger: NotificationTriggerKey,
   ctx: NotifyContext,
-): Promise<number> {
+): Promise<NotifyOutcome> {
   try {
     return await run(trigger, ctx);
   } catch (err) {
-    // never propagate: the write that caused this has already committed, and failing the request
-    // afterwards would report a failure that did not happen
     console.error(`[notify] ${trigger} failed:`, err);
-    return 0;
+    return { written: 0, duplicate: 0, failed: true };
   }
 }
 
-async function run(trigger: NotificationTriggerKey, ctx: NotifyContext): Promise<number> {
+async function run(
+  trigger: NotificationTriggerKey,
+  ctx: NotifyContext,
+): Promise<NotifyOutcome> {
   const spec = NOTIFICATION_TRIGGERS[trigger];
   if (!ctx.dedup) {
     // loud in development, because a silent empty key is the one failure mode that mails the whole
@@ -272,7 +296,7 @@ async function run(trigger: NotificationTriggerKey, ctx: NotifyContext): Promise
 
   const policy = await prisma.notificationPolicy.findUnique({ where: { trigger } });
   // an unseeded trigger is not an error either — `ensureBaseData` creates the row on the next boot
-  if (!policy || !policy.enabled) return 0;
+  if (!policy || !policy.enabled) return NOTHING_TO_DO;
 
   const recipients = await resolveRecipients(
     trigger,
@@ -280,7 +304,7 @@ async function run(trigger: NotificationTriggerKey, ctx: NotifyContext): Promise
     policy.customUserIds,
     ctx,
   );
-  if (recipients.length === 0) return 0;
+  if (recipients.length === 0) return NOTHING_TO_DO;
 
   const prefRows = await prisma.notificationPreference.findMany({
     where: { userId: { in: recipients.map((r) => r.userId) }, trigger },
@@ -317,9 +341,13 @@ async function run(trigger: NotificationTriggerKey, ctx: NotifyContext): Promise
   );
 
   let written = 0;
+  let duplicate = 0;
 
   for (const { userId, reason } of recipients) {
-    if (already.has(userId)) continue; // already raised — the normal outcome of a re-run
+    if (already.has(userId)) {
+      duplicate++; // already raised — the normal outcome of a re-run, and not a problem
+      continue;
+    }
     const choice = decide(policy, reason, prefsByUser.get(userId) ?? new Map(), trigger);
     if (!choice.inApp && !choice.email) continue;
 
@@ -353,11 +381,15 @@ async function run(trigger: NotificationTriggerKey, ctx: NotifyContext): Promise
       // NULL: a duplicate insert throws below and the send never happens.
       if (choice.email) await mail(row.id, userId, text, ctx);
     } catch (err) {
-      if ((err as { code?: string }).code === "P2002") continue; // already raised — skipped, never an error
+      // the race the pre-filter cannot win: two callers both found nothing and both inserted
+      if ((err as { code?: string }).code === "P2002") {
+        duplicate++;
+        continue;
+      }
       throw err;
     }
   }
-  return written;
+  return { written, duplicate, failed: false };
 }
 
 /**

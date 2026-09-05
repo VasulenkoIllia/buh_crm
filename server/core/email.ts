@@ -105,10 +105,7 @@ function render<T extends EmailTemplateName>(
   throw new Error(`Unknown email template: ${template}`);
 }
 
-function dress(
-  to: string,
-  content: ReturnType<typeof render>,
-): { html: string; text: string } {
+function dress(to: string, content: ReturnType<typeof render>): { html: string; text: string } {
   const shell = {
     heading: content.heading,
     body: content.body,
@@ -156,8 +153,52 @@ export interface SmtpAccount {
 
 const transporters = new Map<string, Transporter>();
 
+/**
+ * Close every pooled connection on shutdown.
+ *
+ * A pool holds real sockets open. The process exits explicitly so nothing would hang either way,
+ * but leaving a provider to time out three authenticated sessions on every deploy is rude and
+ * shows up in their logs as an error that is ours.
+ */
+export function closeTransports(): void {
+  for (const t of transporters.values()) t.close();
+  transporters.clear();
+}
+
+/**
+ * How many letters may be in flight at once, and how fast.
+ *
+ * Without a pool, nodemailer opens a connection PER MESSAGE — a hundred-recipient mailout is a
+ * hundred handshakes, and the notification path is worse: `notify()` fires a detached send per
+ * recipient, so a morning sweep raising forty overdue tasks opened roughly forty connections at
+ * the same moment. Against Mailpit that is invisible. Against a real provider it is what a
+ * rate-limiter is for, and the failure would have looked exactly like success from inside the app,
+ * because every one of those sends is `void`ed (audit, 2026-09-06).
+ *
+ * The numbers are deliberately timid. Three connections and five letters a second is more than a
+ * ten-person firm produces in a burst, and comfortably under what every provider allows — these
+ * are the two to raise if one ever complains, not the pool itself. `maxMessages` reconnects before
+ * a server that caps a session does it for us, mid-send.
+ */
+const POOL = {
+  maxConnections: 3,
+  maxMessages: 50,
+  /** at most `rateLimit` messages per `rateDelta` ms */
+  rateDelta: 1_000,
+  rateLimit: 5,
+} as const;
+
+/** Tests only — the pool settings are a guarantee, and a guarantee nobody checks is a comment. */
+export function buildTransportForTest(account: SmtpAccount) {
+  return buildTransport(account) as Transporter & {
+    transporter: { constructor: { name: string }; options: Record<string, unknown> };
+  };
+}
+
 function buildTransport(account: SmtpAccount): Transporter {
   return nodemailer.createTransport({
+    pool: true,
+    ...POOL,
     host: account.host,
     port: account.port,
     secure: account.secure,

@@ -13,7 +13,7 @@ import { REMINDER_CHOICES } from "@shared/schema/calendar.js";
 import { config } from "../../core/config.js";
 import { addDays, isoDayInTz, todayInTz, toUtc, zonedDayStart } from "../../core/dates.js";
 import { clientLabel } from "../../core/names.js";
-import { notify } from "../../core/notify.js";
+import { notify, type NotifyOutcome } from "../../core/notify.js";
 import { drainSweepFailures } from "../../core/sweep-health.js";
 import * as repo from "./notifications.repository.js";
 
@@ -33,29 +33,55 @@ async function firmDeadlineLeadDays(): Promise<number> {
   return (await repo.findFirmNotificationSettings())?.notifyDeadlineDays ?? 1;
 }
 
+/**
+ * Three numbers rather than two, because two could not tell a quiet morning from a broken one.
+ *
+ * `scanned` is the one that makes the difference: a pass that looked at nothing and a pass that
+ * looked at forty things and failed every one both used to report `raised: 0`, and the job logged
+ * only when that was above zero. So they were both silence (audit, 2026-09-06).
+ */
 export interface SweepResult {
+  /** items the pass looked at */
+  scanned: number;
+  /** notifications actually written */
   raised: number;
-  skipped: number;
+  /** already raised on an earlier run — the NORMAL outcome of a re-run, never a problem */
+  alreadyRaised: number;
+  /** items the emitter could not process. This is the number that means something is wrong. */
+  failed: number;
 }
+
+export const emptySweep = (): SweepResult => ({
+  scanned: 0,
+  raised: 0,
+  alreadyRaised: 0,
+  failed: 0,
+});
 
 /** One item's worth of work, isolated: a thrown error costs this row and nothing else. */
 async function each<T>(
   items: T[],
-  fn: (item: T) => Promise<number>,
+  fn: (item: T) => Promise<NotifyOutcome>,
   out: SweepResult,
 ): Promise<void> {
   for (const item of items) {
+    out.scanned++;
     try {
-      out.raised += await fn(item);
+      const outcome = await fn(item);
+      out.raised += outcome.written;
+      out.alreadyRaised += outcome.duplicate;
+      // `notify` swallows its own errors and says so rather than throwing — a failure it reports
+      // counts exactly like one it threw
+      if (outcome.failed) out.failed++;
     } catch (err) {
-      out.skipped++;
+      out.failed++;
       console.error("[notifications] sweep item failed:", err);
     }
   }
 }
 
 export async function runNotificationSweep(): Promise<SweepResult> {
-  const out: SweepResult = { raised: 0, skipped: 0 };
+  const out = emptySweep();
   const today = todayInTz(config.TZ);
   const todayUtc = toUtc(today);
   const tomorrowUtc = toUtc(addDays(today, 1));
@@ -251,7 +277,7 @@ const WIDEST_REMINDER_MINUTES = Math.max(...REMINDER_CHOICES);
  * useful, and silence is not.
  */
 export async function runMeetingReminders(): Promise<SweepResult> {
-  const out: SweepResult = { raised: 0, skipped: 0 };
+  const out = emptySweep();
   const now = new Date();
   const due = (await repo.meetingsToRemind(now, WIDEST_REMINDER_MINUTES)).filter(
     (m) => m.startAt.getTime() - (m.remindMinutesBefore ?? 0) * 60_000 <= now.getTime(),

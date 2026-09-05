@@ -198,12 +198,14 @@ async function main() {
   let n = 0;
   const t0 = Date.now();
   for (const t of many) {
-    n += await notify("task_overdue", {
-      dedup: t.id,
-      taskId: t.id,
-      vars: { task: t.title },
-      link: { type: "task", id: t.id },
-    });
+    n += (
+      await notify("task_overdue", {
+        dedup: t.id,
+        taskId: t.id,
+        vars: { task: t.title },
+        link: { type: "task", id: t.id },
+      })
+    ).written;
   }
   const per = (Date.now() - t0) / Math.max(n, 1);
   console.log(
@@ -219,12 +221,14 @@ async function main() {
   const t1b = Date.now();
   let again = 0;
   for (const t of many) {
-    again += await notify("task_overdue", {
-      dedup: t.id,
-      taskId: t.id,
-      vars: { task: t.title },
-      link: { type: "task", id: t.id },
-    });
+    again += (
+      await notify("task_overdue", {
+        dedup: t.id,
+        taskId: t.id,
+        vars: { task: t.title },
+        link: { type: "task", id: t.id },
+      })
+    ).written;
   }
   if (again === 0) ok(`re-run wrote nothing (${Date.now() - t1b}ms for 40 checks)`);
   else bad(`re-run wrote ${again} rows`);

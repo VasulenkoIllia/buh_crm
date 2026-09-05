@@ -91,7 +91,9 @@ async function main() {
   if (clean) return wipe();
   if (sweepOnly) {
     const r = await runNotificationSweep();
-    console.log(`sweep raised ${r.raised}, skipped ${r.skipped}`);
+    console.log(
+      `sweep scanned ${r.scanned}, raised ${r.raised}, already ${r.alreadyRaised}, failed ${r.failed}`,
+    );
     return;
   }
   if (assignOne) {
@@ -232,7 +234,10 @@ async function main() {
   recordSweepFailure("period-invoice-generation", 2);
 
   const swept = await runNotificationSweep();
-  console.log(`sweep              raised ${swept.raised}, skipped ${swept.skipped}`);
+  console.log(
+    `sweep              scanned ${swept.scanned}, raised ${swept.raised}, ` +
+      `already ${swept.alreadyRaised}, failed ${swept.failed}`,
+  );
 
   /**
    * The mailbox is put back straight away. The NOTIFICATION stays — its dedup key is the error
