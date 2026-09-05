@@ -16,6 +16,9 @@ import { recordSweepFailure } from "../../server/core/sweep-health.js";
 import * as tasks from "../../server/modules/tasks/tasks.service.js";
 import * as meetings from "../../server/modules/meetings/meetings.service.js";
 import { runNotificationSweep } from "../../server/modules/notifications/notifications.sweep.js";
+import { refuseOnProduction } from "./guard.js";
+
+refuseOnProduction("scripts/dev/seed-notifications.ts");
 
 const TAG = "[test]";
 const clean = process.argv.includes("--clean");

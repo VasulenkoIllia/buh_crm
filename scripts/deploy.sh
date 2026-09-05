@@ -112,6 +112,20 @@ docker compose exec -T db psql -U "$PG_USER" -d "$PG_DB" -c \
           (select count(*) from "Mailout") mailouts,
           (select count(*) from "ClientMailPreference" where "unsubscribedAt" is not null) unsubscribed;'
 
+# Notifications (S9). The same reason the mailbox line above exists: `policies 0` means not one
+# notification can ever fire, and the app would look perfectly healthy while nobody hears about
+# anything. The rows are seeded by `ensureBaseData()` on boot, so a zero here means the boot
+# seeding did not run — check `docker compose logs app`.
+#
+# `off` is shown beside it because a firm that has deliberately silenced triggers and a module
+# that is quietly broken look identical from the outside, and only this number tells them apart.
+docker compose exec -T db psql -U "$PG_USER" -d "$PG_DB" -c \
+  'select (select count(*) from "NotificationPolicy") policies,
+          (select count(*) from "NotificationPolicy" where not enabled) off,
+          (select count(*) from "NotificationPolicy" where "defaultEmail") mail_by_default,
+          (select count(*) from "Notification" where "readAt" is null) unread,
+          (select count(*) from "NotificationPreference") personal_choices;'
+
 # ── 5. prune orphaned uploads (reset only) ───────────────────────────────────
 # After the rebuild, so the container is running the image that HAS the script. The APP wrote
 # those files, so they belong to the container's user and a host-side `rm` gets Permission denied

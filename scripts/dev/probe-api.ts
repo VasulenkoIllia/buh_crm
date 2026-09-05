@@ -7,6 +7,9 @@
  */
 import argon2 from "argon2";
 import { prisma } from "../../server/core/db.js";
+import { refuseOnProduction } from "./guard.js";
+
+refuseOnProduction("scripts/dev/probe-api.ts");
 
 const API = "http://localhost:3000";
 const findings: string[] = [];

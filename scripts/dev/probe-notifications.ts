@@ -7,6 +7,9 @@
 import { prisma } from "../../server/core/db.js";
 import { notify } from "../../server/core/notify.js";
 import argon2 from "argon2";
+import { refuseOnProduction } from "./guard.js";
+
+refuseOnProduction("scripts/dev/probe-notifications.ts");
 
 const MAILPIT = "http://localhost:8025";
 

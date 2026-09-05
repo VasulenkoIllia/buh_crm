@@ -11,6 +11,9 @@
  */
 import { prisma } from "../../server/core/db.js";
 import { send } from "../../server/modules/mailouts/mailouts.service.js";
+import { refuseOnProduction } from "./guard.js";
+
+refuseOnProduction("scripts/dev/probe-mailout-errors.ts");
 
 const findings: string[] = [];
 const ok = (s: string) => console.log(`  OK    ${s}`);
