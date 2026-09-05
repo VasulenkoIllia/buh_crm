@@ -58,6 +58,16 @@ describe("what the System screen says about a job", () => {
     expect(jobStatus(undefined, spec, NOW, new Date(ago(40 * 60)))).toBe("overdue");
   });
 
+  it("does not blame a job for the time the SERVER was down", () => {
+    // an hour of downtime, then a restart a minute ago. The per-minute job has a 30-minute window
+    // and last ran before the outage — but it has not had one chance to run yet, and showing a red
+    // error the instant a server comes back is how a screen loses its reader on day one.
+    const beforeOutage = row({ name: "meeting-reminders", lastOkAt: ago(60) });
+    expect(jobStatus(beforeOutage, minute, NOW, new Date(ago(1)))).toBe("working");
+    // and once the process HAS been up longer than the window, it is late for real
+    expect(jobStatus(beforeOutage, minute, NOW, new Date(ago(45)))).toBe("overdue");
+  });
+
   it("holds each job to ITS OWN window, not one shared number", () => {
     const twoHours = row({ lastOkAt: ago(120) });
     const booted = new Date(ago(600));

@@ -78,10 +78,8 @@ export function SystemStatusSection() {
         if (inArea.length === 0) return null;
         return (
           <section key={area.key}>
-            <h3 className="mb-2 text-[12px] font-bold text-muted-400 uppercase">
-              {area.label}
-            </h3>
-            <div className="overflow-hidden rounded-(--radius-card) border border-border">
+            <h3 className="mb-2 text-[12px] font-bold text-ink-700 uppercase">{area.label}</h3>
+            <div className="overflow-hidden rounded-(--radius-panel) border border-border bg-surface shadow-(--shadow-card)">
               {inArea.map((s, i) => (
                 <JobRow
                   key={s.key}
@@ -99,14 +97,12 @@ export function SystemStatusSection() {
 
       {unknown.length > 0 && (
         <section>
-          <h3 className="mb-2 text-[12px] font-bold text-muted-400 uppercase">
-            Not recognised
-          </h3>
+          <h3 className="mb-2 text-[12px] font-bold text-ink-700 uppercase">Not recognised</h3>
           <p className="mb-2 text-[12px] text-muted">
             These ran on the server but are not in the list this screen knows about — usually a
             job that was renamed or removed. Harmless, and safe to ignore unless one is failing.
           </p>
-          <div className="overflow-hidden rounded-(--radius-card) border border-border">
+          <div className="overflow-hidden rounded-(--radius-panel) border border-border bg-surface shadow-(--shadow-card)">
             {unknown.map((j, i) => (
               <div
                 key={j.name}
@@ -115,7 +111,7 @@ export function SystemStatusSection() {
                   i > 0 && "border-t border-divider",
                 )}
               >
-                <span className="font-mono text-[12px] text-muted">{j.name}</span>
+                <span className="font-mono text-[12px] text-ink">{j.name}</span>
                 <span
                   className="text-[12px]"
                   style={{
@@ -157,7 +153,7 @@ function Summary({
     <div
       className={cn(
         "rounded-(--radius-card) border px-3.5 py-3",
-        ok ? "border-border bg-surface" : "border-transparent",
+        ok ? "border-border bg-surface shadow-(--shadow-card)" : "border-transparent",
       )}
       style={ok ? undefined : { backgroundColor: tone.bg, borderColor: tone.fg }}
     >
@@ -230,7 +226,7 @@ function JobRow({
         </InfoHint>
       </div>
 
-      <p className="mt-1 text-[12px] text-muted-400">
+      <p className="mt-1 text-[12px] text-muted">
         {last
           ? `${failedLast ? "Last tried" : "Last ran"} ${relative(new Date(last), now)}`
           : "Has not run yet"}

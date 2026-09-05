@@ -182,17 +182,28 @@ export function jobStatus(
   now: Date,
   bootedAt: Date,
 ): JobStatus {
-  const sinceBootMin = (now.getTime() - bootedAt.getTime()) / 60_000;
+  /**
+   * The staleness clock starts at the LATER of "when it last ran" and "when this process booted".
+   *
+   * A job cannot run while the server is down, so counting downtime against it blames the wrong
+   * thing. Without this, an hour of downtime made the per-minute reminder job red the instant the
+   * server came back — before it had had a single chance to run — and the first thing anybody saw
+   * on a fresh start was an error that was not one. The server being down is a real problem, but
+   * it is a different problem, and it is not news to whoever just restarted it.
+   *
+   * It is also the rule the never-run branch below already used. Two clocks for the same question
+   * was the inconsistency that let this through.
+   */
+  const since = (at: number) => (now.getTime() - Math.max(at, bootedAt.getTime())) / 60_000;
 
-  // never run: late only once the process has been up long enough that it SHOULD have run
   if (!row?.lastOkAt && !row?.lastFailedAt) {
-    return sinceBootMin > spec.staleAfterMinutes ? "overdue" : "waiting";
+    return since(0) > spec.staleAfterMinutes ? "overdue" : "waiting";
   }
   if (row.failStreak > 0) return "failing";
 
   const lastOk = row.lastOkAt ? new Date(row.lastOkAt).getTime() : 0;
   if (!lastOk) return "failing";
-  if ((now.getTime() - lastOk) / 60_000 > spec.staleAfterMinutes) return "overdue";
+  if (since(lastOk) > spec.staleAfterMinutes) return "overdue";
   return row.lastSkipped > 0 ? "skipping" : "working";
 }
 
