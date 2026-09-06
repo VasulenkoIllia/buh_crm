@@ -81,8 +81,6 @@ export type UpdateSourceInput = z.infer<typeof updateSourceInput>;
 
 export const updateFirmInput = z.object({
   name: z.string().min(1).max(80).optional(),
-  invoicePrefix: z.string().min(1).max(10).optional(),
-  invoiceCounterDigits: z.number().int().min(3).max(6).optional(),
   /**
    * When the nightly notification sweep runs, `HH:MM` in the firm's own zone.
    *
@@ -101,3 +99,21 @@ export const updateFirmInput = z.object({
   notifyDeadlineDays: z.number().int().min(1).max(30).optional(),
 });
 export type UpdateFirmInput = z.infer<typeof updateFirmInput>;
+
+/**
+ * **Invoice numbering is saved on its own, and stays admin-only whoever holds Settings.**
+ *
+ * The prefix is frozen into `Invoice.number` the moment an invoice is issued, and no route can
+ * edit that field afterwards — so one careless change mid-year leaves the accounting year split
+ * across two series with nothing able to repair it (recorded as an open question in
+ * `modules/permissions.md` §16, answered here on 2026-09-06).
+ *
+ * While it rode on `updateFirmInput`, opening the Settings gate to a bookkeeper meant handing over
+ * the firm's name, its option lists AND that one irreversible field together. Splitting the route
+ * is what makes that switch usable: everything else on Settings follows the gate, this does not.
+ */
+export const updateNumberingInput = z.object({
+  invoicePrefix: z.string().min(1).max(10).optional(),
+  invoiceCounterDigits: z.number().int().min(3).max(6).optional(),
+});
+export type UpdateNumberingInput = z.infer<typeof updateNumberingInput>;

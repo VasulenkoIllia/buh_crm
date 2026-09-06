@@ -131,6 +131,16 @@ export async function registerRoutes(instance: FastifyInstance) {
     async (request) => service.removeTimeEntry(request.params.entryId, request.currentUser!),
   );
 
+  /**
+   * What has been done to this task's recorded time. Not admin-only: the time log itself is open
+   * to everyone who can open the task, and its history is the same information a day later.
+   */
+  app.get(
+    "/:id/time/audit",
+    { config: tasks, schema: { params: idParams } },
+    async (request) => service.listTimeAudit(request.params.id),
+  );
+
   // ── tasks ──────────────────────────────────────────────────────────────────
   app.get(
     "/",

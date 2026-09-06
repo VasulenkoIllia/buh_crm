@@ -131,6 +131,22 @@ const INTENDED_CHANGES: Record<string, { before: Answer; after: Answer; why: str
     after: "admin-only",
     why: "new: the access screen itself, behind the Team gate",
   },
+  "PATCH /api/settings/numbering": {
+    before: "nobody",
+    after: "admin-only",
+    why:
+      "new: invoice numbering, split off PATCH /settings/firm so the Settings gate can be opened " +
+      "without handing over the one field nothing can repair. Admin-only either way, which is " +
+      "what it was while it rode on the firm route",
+  },
+  "GET /api/tasks/:id/time/audit": {
+    before: "nobody",
+    after: "everyone",
+    why:
+      "new: what has been done to this task's recorded time. TimeEntryAuditLog was the " +
+      "justification for letting people correct their own hours and nothing could read it — a " +
+      "journal nobody can open settles no dispute",
+  },
   "GET /api/mailouts/senders": {
     before: "nobody",
     after: "everyone",

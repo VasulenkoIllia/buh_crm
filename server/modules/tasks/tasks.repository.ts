@@ -485,6 +485,20 @@ export function deleteEntry(id: string) {
  * Values are SNAPSHOTTED rather than joined: `entryId` is nulled when the row itself goes, and a
  * log that cannot say what was lost is not worth keeping. Same shape as `SecretAuditLog`.
  */
+/**
+ * What has been done to this task's recorded time, newest first.
+ *
+ * Capped at 50: it is a history on a modal, not a report, and a task that has accumulated more
+ * than fifty corrections has a different problem than a short list.
+ */
+export function listTimeEntryAudit(taskId: string) {
+  return prisma.timeEntryAuditLog.findMany({
+    where: { taskId },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  });
+}
+
 export function recordTimeEntryAudit(data: {
   entryId: string | null;
   taskId: string;

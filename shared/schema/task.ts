@@ -37,6 +37,28 @@ export const timeEntrySchema = z.object({
 });
 export type TimeEntry = z.infer<typeof timeEntrySchema>;
 
+/**
+ * **What has been done to a task's recorded time.**
+ *
+ * Rendered under the time log. It covers the whole task rather than each entry, because a DELETED
+ * entry is the case this exists for and it is no longer in the list to mark. Names are resolved
+ * on the server, so a row describing somebody since removed still reads.
+ */
+export const timeAuditEntrySchema = z.object({
+  id: uuid,
+  action: z.enum(["updated", "deleted"]),
+  at: z.iso.datetime(),
+  by: z.string(),
+  whose: z.string(),
+  /** somebody corrected their OWN row rather than another person's */
+  own: z.boolean(),
+  wasSeconds: z.number().int().nullable(),
+  wasComment: z.string().nullable(),
+  nowSeconds: z.number().int().nullable(),
+  nowComment: z.string().nullable(),
+});
+export type TimeAuditEntry = z.infer<typeof timeAuditEntrySchema>;
+
 /** A free-text note on a task (for self or colleagues) — separate from the time-entry comment. */
 export const taskCommentSchema = z.object({
   id: uuid,

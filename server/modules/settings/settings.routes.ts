@@ -6,6 +6,7 @@ import {
   createSourceInput,
   swapPrioritiesInput,
   updateFirmInput,
+  updateNumberingInput,
   updatePriorityInput,
   updateSourceInput,
 } from "@shared/schema/settings.js";
@@ -31,7 +32,7 @@ export async function registerRoutes(instance: FastifyInstance) {
     return reply.send(readFileStream(file.path));
   });
 
-  // ── admin-only mutations ──────────────────────────────────────────────────
+  // ── the `settings` gate: everything below follows it, except numbering ────
 
   // static route — registered alongside /priorities/:id (static segments win routing)
   app.patch(
@@ -84,6 +85,22 @@ export async function registerRoutes(instance: FastifyInstance) {
     { config: gate("settings"), schema: { body: updateFirmInput } },
     async (request) => {
       return service.updateFirm(request.body);
+    },
+  );
+
+  /**
+   * **Its own route, and admin-only inside an open Settings.**
+   *
+   * The prefix is frozen into `Invoice.number` at issue and no route can edit it afterwards, so a
+   * careless change mid-year splits the accounting year across two series permanently. While it
+   * rode on `PATCH /firm`, that made the whole `settings` gate unsafe to open to anybody — which
+   * is the open question `modules/permissions.md` §16 recorded, answered here.
+   */
+  app.patch(
+    "/numbering",
+    { config: gate("settings", { adminOnly: true }), schema: { body: updateNumberingInput } },
+    async (request) => {
+      return service.updateNumbering(request.body);
     },
   );
 

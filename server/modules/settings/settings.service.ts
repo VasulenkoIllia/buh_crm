@@ -1,6 +1,7 @@
 import type {
   CreateSourceInput,
   UpdateFirmInput,
+  UpdateNumberingInput,
   UpdatePriorityInput,
   UpdateSourceInput,
 } from "@shared/schema/settings.js";
@@ -127,6 +128,14 @@ export async function updateFirm(input: UpdateFirmInput) {
     rescheduleJob("notification-sweep", sweepCron(firm.notifySweepAt));
   }
   return toFirmDto(firm);
+}
+
+/**
+ * Numbering, saved on its own — see `updateNumberingInput` for why it is not part of the firm
+ * profile. Nothing else here differs: the same row, the same DTO.
+ */
+export async function updateNumbering(input: UpdateNumberingInput) {
+  return toFirmDto(await repo.updateFirmProfile(input));
 }
 
 export async function setLogo(

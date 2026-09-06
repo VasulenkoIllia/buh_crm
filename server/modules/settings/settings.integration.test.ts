@@ -168,15 +168,31 @@ describe("settings", () => {
     expect(await prisma.sourceOption.count()).toBe(3);
   });
 
-  it("updates invoice numbering (prefix + digits)", async () => {
+  /**
+   * Numbering moved to its own route on 2026-09-06 and stays admin-only however the Settings gate
+   * is set: the prefix is frozen into every invoice number at issue and no route can repair it, so
+   * it is the one control on this screen a gate must not hand over. See permissions.md §16.
+   */
+  it("updates invoice numbering (prefix + digits) on its own route", async () => {
     const res = await app.inject({
       method: "PATCH",
-      url: "/api/settings/firm",
+      url: "/api/settings/numbering",
       headers: { cookie: adminCookie },
       payload: { invoicePrefix: "ACC", invoiceCounterDigits: 5 },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ invoicePrefix: "ACC", invoiceCounterDigits: 5 });
+  });
+
+  it("ignores a prefix smuggled through the firm route", async () => {
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/api/settings/firm",
+      headers: { cookie: adminCookie },
+      payload: { name: "buh_crm", invoicePrefix: "SNEAK" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().invoicePrefix).toBe("ACC");
   });
 });
 

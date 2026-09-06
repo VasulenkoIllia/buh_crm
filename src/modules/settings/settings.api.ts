@@ -7,6 +7,7 @@ import type {
   SourceOption,
   SwapPrioritiesInput,
   UpdateFirmInput,
+  UpdateNumberingInput,
   UpdatePriorityInput,
   UpdateSourceInput,
 } from "@shared/schema/settings";
@@ -105,6 +106,19 @@ export function useUpdateFirm() {
   return useMutation({
     mutationFn: (input: UpdateFirmInput) =>
       api<FirmProfile>("/api/settings/firm", { method: "PATCH", body: input }),
+    onSuccess: invalidate,
+  });
+}
+
+/**
+ * Numbering saves on its own route, and stays admin-only however the Settings gate is set — the
+ * prefix is frozen into every invoice number at issue and no route can repair it afterwards.
+ */
+export function useUpdateNumbering() {
+  const invalidate = useInvalidateSettings();
+  return useMutation({
+    mutationFn: (input: UpdateNumberingInput) =>
+      api<FirmProfile>("/api/settings/numbering", { method: "PATCH", body: input }),
     onSuccess: invalidate,
   });
 }

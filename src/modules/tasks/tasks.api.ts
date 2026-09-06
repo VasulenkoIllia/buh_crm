@@ -10,6 +10,7 @@ import type {
   MoveTaskInput,
   UpdateTaskInput,
   UpdateTimeEntryInput,
+  TimeAuditEntry,
 } from "@shared/schema/task";
 import { api } from "@/shared/lib/api";
 import { applyDrop } from "@/shared/lib/drop-target";
@@ -183,6 +184,24 @@ function useInvalidateTasksAndBilling() {
     void queryClient.invalidateQueries({ queryKey: INVOICES_KEY });
     void queryClient.invalidateQueries({ queryKey: CLIENTS_KEY });
   };
+}
+
+/**
+ * The task's time history.
+ *
+ * Fetched whenever a task card is open rather than on demand, and that is forced rather than
+ * chosen: the screen has to know whether there is ANYTHING to show before it can decide to render
+ * the control at all, and almost every task has nothing. Deferring the fetch would mean a "History"
+ * line on every task, most of them empty — noise on the screen people work from, to save one small
+ * indexed query on a modal that already fires several.
+ */
+export function useTimeAudit(taskId: string | null) {
+  return useQuery({
+    queryKey: [...TASKS_KEY, "time-audit", taskId],
+    queryFn: () => api<TimeAuditEntry[]>(`/api/tasks/${taskId}/time/audit`),
+    enabled: !!taskId,
+    staleTime: 60 * 1000,
+  });
 }
 
 export function useCreateTask() {

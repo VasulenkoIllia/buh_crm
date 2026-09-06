@@ -9,6 +9,7 @@ import { LeadFormModal, useLeads } from "@/modules/leads";
 import { useSettings } from "@/modules/settings";
 import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
+import { plural } from "@shared/text";
 import { fmtBizDate, fmtBytes, fmtDate, fmtDateTime, todayIso, todayPlus } from "@/shared/lib/format";
 import { fmtMoney } from "@/shared/lib/money";
 import { AssigneePicker } from "@/shared/ui/assignee-picker";
@@ -41,6 +42,7 @@ import {
   useTaskColumns,
   useUpdateTask,
   useUpdateTimeEntry,
+  useTimeAudit,
 } from "./tasks.api";
 
 // ── create / edit ────────────────────────────────────────────────────────────
@@ -1443,6 +1445,62 @@ function CommentsSection({
  * ELSE'S record of their working time, and the server enforces exactly that, journalling every
  * change. "+ Add time" stays admin: it writes an entry on another person's behalf.
  */
+/**
+ * **What has been done to this task's recorded time.**
+ *
+ * `TimeEntryAuditLog` shipped as the justification for letting people correct their own hours —
+ * "every change is journalled" — and for a day nothing could read it. A journal nobody can open
+ * settles no dispute, which is what this closes.
+ *
+ * Collapsed, and absent entirely when there is nothing: almost every task has no corrections, and
+ * a permanent "0 changes" line on all of them would be noise on the screen people work from.
+ * Deletions are the reason it lists the whole task rather than marking each row — a deleted entry
+ * is gone from the list above, and it is exactly the one somebody will come looking for.
+ *
+ * The list is fetched with the card rather than on the click, because deciding whether to render
+ * this control at all needs its length. See `useTimeAudit`.
+ */
+function TimeHistory({ taskId }: { taskId: string }) {
+  const [open, setOpen] = useState(false);
+  const { data } = useTimeAudit(taskId);
+  const rows = data ?? [];
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="mt-1.5">
+      <button
+        type="button"
+        className="text-[12px] font-medium text-primary-link hover:underline"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        {open ? "Hide history" : plural(rows.length, "correction")}
+      </button>
+      {open && (
+        <div className="mt-1 border-l-2 border-divider pl-2.5">
+          {rows.map((row) => (
+            <p key={row.id} className="py-0.5 text-[12px] leading-relaxed text-muted">
+              <span className="font-medium text-ink-700">{row.by}</span>{" "}
+              {row.action === "deleted" ? "deleted" : "changed"}{" "}
+              {row.own ? "their own" : `${row.whose}’s`} entry
+              {row.action === "deleted"
+                ? ` of ${fmtDuration(row.wasSeconds ?? 0)}`
+                : ` from ${fmtDuration(row.wasSeconds ?? 0)} to ${fmtDuration(row.nowSeconds ?? 0)}`}
+              {" · "}
+              {fmtDateTime(row.at)}
+              {row.action === "updated" && row.nowComment !== row.wasComment && (
+                <span className="block text-faint">
+                  “{row.wasComment ?? "—"}” → “{row.nowComment ?? "—"}”
+                </span>
+              )}
+            </p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TimeLog({
   task,
   isAdmin,
@@ -1510,6 +1568,7 @@ function TimeLog({
           )}
         </div>
       ))}
+      <TimeHistory taskId={task.id} />
       {editEntry && <EditTimeModal entry={editEntry} onClose={() => setEditEntry(null)} />}
       {addOpen && <AddTimeModal taskId={task.id} onClose={() => setAddOpen(false)} />}
     </div>

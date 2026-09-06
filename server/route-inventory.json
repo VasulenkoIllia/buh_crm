@@ -871,6 +871,11 @@
   },
   {
     "method": "PATCH",
+    "url": "/api/settings/numbering",
+    "access": "gate:settings:admin"
+  },
+  {
+    "method": "PATCH",
     "url": "/api/settings/priorities/:id",
     "access": "gate:settings"
   },
@@ -1004,6 +1009,17 @@
     "method": "POST",
     "url": "/api/tasks/:id/time",
     "access": "gate:tasks:admin"
+  },
+  {
+    "method": "GET",
+    "url": "/api/tasks/:id/time/audit",
+    "access": "gate:tasks"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/tasks/:id/time/audit",
+    "access": "gate:tasks",
+    "derived": true
   },
   {
     "method": "GET",

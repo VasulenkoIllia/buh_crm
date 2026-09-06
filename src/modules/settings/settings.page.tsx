@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { ArrowDown, ArrowUp, Trash2 } from "lucide-react";
 import type { Priority, SourceOption } from "@shared/schema/settings";
 import type { GateKey } from "@shared/access";
-import { useAccess, useCanOpen } from "@/app/auth";
+import { useAccess, useAuth, useCanOpen } from "@/app/auth";
 import { ApiError } from "@/shared/lib/api";
 import { Button, IconButton } from "@/shared/ui/button";
 import { firmZoneAbbr } from "@/shared/lib/tz";
@@ -14,6 +14,7 @@ import {
   useSettings,
   useSwapPriorities,
   useUpdateFirm,
+  useUpdateNumbering,
   useUpdatePriority,
   useDeleteSource,
   useUpdateSource,
@@ -372,8 +373,17 @@ function SourcesSection({ sources }: { sources: SourceOption[] }) {
 
 // ── Invoice numbering: PREFIX-YEAR-NNNN, yearly counter ──────────────────────
 
+/**
+ * Admin-only whatever the Settings gate says — the one control on this screen that is.
+ *
+ * The prefix is frozen into every invoice number at issue and nothing can repair it afterwards, so
+ * a firm that opens Settings to a bookkeeper still keeps this. Shown read-only rather than hidden:
+ * "what will our next invoice be numbered" is a fair question for anybody who can open the screen,
+ * and hiding the answer would only send them to ask.
+ */
 function NumberingSection({ prefix, digits }: { prefix: string; digits: number }) {
-  const update = useUpdateFirm();
+  const isAdmin = useAuth().user?.role === "admin";
+  const update = useUpdateNumbering();
   const [localPrefix, setLocalPrefix] = useState(prefix);
   const [localDigits, setLocalDigits] = useState(digits);
 
@@ -391,6 +401,7 @@ function NumberingSection({ prefix, digits }: { prefix: string; digits: number }
             value={localPrefix}
             placeholder="INV"
             maxLength={10}
+            disabled={!isAdmin}
             onChange={(e) =>
               setLocalPrefix(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))
             }
@@ -401,6 +412,7 @@ function NumberingSection({ prefix, digits }: { prefix: string; digits: number }
             id="inv-digits"
             className="w-24"
             value={localDigits}
+            disabled={!isAdmin}
             onChange={(e) => setLocalDigits(Number(e.target.value))}
           >
             {[3, 4, 5, 6].map((n) => (
@@ -410,15 +422,24 @@ function NumberingSection({ prefix, digits }: { prefix: string; digits: number }
             ))}
           </Select>
         </FormField>
-        <Button
-          disabled={!dirty || !localPrefix || update.isPending}
-          onClick={() =>
-            update.mutate({ invoicePrefix: localPrefix, invoiceCounterDigits: localDigits })
-          }
-        >
-          Save
-        </Button>
+        {isAdmin && (
+          <Button
+            disabled={!dirty || !localPrefix || update.isPending}
+            onClick={() =>
+              update.mutate({ invoicePrefix: localPrefix, invoiceCounterDigits: localDigits })
+            }
+          >
+            Save
+          </Button>
+        )}
       </div>
+      {!isAdmin && (
+        <p className="mt-2 text-[12px] text-muted">
+          Only an admin changes this. The prefix is stamped into every invoice number when it is
+          issued and cannot be corrected afterwards, so changing it mid-year would split the year
+          across two series.
+        </p>
+      )}
       {serverError && <p className="mt-1 text-[12px] text-danger-text">{serverError}</p>}
       <p className="mt-3 text-[12px] text-muted">
         Preview: <span className="font-medium text-ink">{preview}</span> — the counter resets

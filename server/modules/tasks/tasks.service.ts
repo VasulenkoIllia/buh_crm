@@ -925,6 +925,43 @@ export async function updateTimeEntry(
   return getTask(entry.taskId);
 }
 
+/**
+ * **The journal, where the time is.**
+ *
+ * `TimeEntryAuditLog` shipped on 2026-09-07 as the thing that made opening time editing
+ * defensible — "every change is recorded" — and then nothing could read it. A journal nobody can
+ * open does not settle the dispute it was written for, so this is the read that finishes the job
+ * (audit follow-up, 2026-09-06).
+ *
+ * It answers for the whole TASK rather than per entry, because a DELETED entry is the case that
+ * matters most and it is no longer in the list to hang a marker on. Names are resolved here so the
+ * screen never has to join a person onto a row that may describe somebody since removed.
+ */
+export async function listTimeAudit(taskId: string) {
+  liveTaskOr404(await repo.findTask(taskId));
+  const [rows, people] = await Promise.all([
+    repo.listTimeEntryAudit(taskId),
+    repo.listUserDirectory(),
+  ]);
+  const nameOf = (id: string) => {
+    const person = people.find((p) => p.id === id);
+    return person ? `${person.firstName} ${person.lastName}` : "Someone since removed";
+  };
+  return rows.map((row) => ({
+    id: row.id,
+    action: row.action,
+    at: row.createdAt.toISOString(),
+    by: nameOf(row.byUserId),
+    whose: nameOf(row.userId),
+    /** true when somebody corrected their own row rather than another person's */
+    own: row.byUserId === row.userId,
+    wasSeconds: row.wasSeconds,
+    wasComment: row.wasComment,
+    nowSeconds: row.nowSeconds,
+    nowComment: row.nowComment,
+  }));
+}
+
 /** Own entry or an admin — also unblocks a stuck running timer (deleting it force-stops). */
 export async function removeTimeEntry(entryId: string, actor: User) {
   const entry = await repo.findEntry(entryId);

@@ -78,18 +78,18 @@ describe("route inventory", () => {
       adminOnly: real.filter((r) => r.access.endsWith(":admin")).length,
     };
     expect(counts).toEqual({
-      total: 221,
-      derivedHead: 59,
-      real: 162,
-      api: 161, // everything but /health
+      total: 224,
+      derivedHead: 60,
+      real: 164,
+      api: 163, // everything but /health
       anonymous: 8, // 5 credential routes, 2 unsubscribe pages, /health
       // 10, not 11: `POST /tasks/timer/start` moved to the `tasks` gate during the 2026-09-07
       // audit. It takes a taskId and writes against somebody else's module, so it was never
       // really "the caller's own row" — `active` and `stop` still are, and must be.
       own: 10,
       shared: 9,
-      gated: 135,
-      adminOnly: 14,
+      gated: 137,
+      adminOnly: 15,
     });
   });
 

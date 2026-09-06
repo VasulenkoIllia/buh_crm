@@ -867,3 +867,128 @@ describe("the rules that were already there", () => {
     expect(reprice.json().error.message).toMatch(/already issued/i);
   });
 });
+
+/**
+ * **The two follow-ups from the audit** (2026-09-06).
+ *
+ * Both are small and both close something that was actually impossible: opening Settings to a
+ * bookkeeper without handing them the one field nothing can repair, and reading the journal that
+ * was the whole justification for letting people correct their own hours.
+ */
+describe("what the audit left to finish", () => {
+  it("keeps invoice numbering admin-only inside a Settings that has been opened", async () => {
+    await policy("settings", "open");
+
+    // the rest of Settings follows the gate — an opened Settings really is open
+    const rename = await asUser("POST", "/api/settings/firm");
+    expect(rename.statusCode).not.toBe(403);
+    const firm = await app.inject({
+      method: "PATCH",
+      url: "/api/settings/firm",
+      headers: { cookie: userCookie },
+      payload: { name: "Opened by the gate" },
+    });
+    expect(firm.statusCode).toBe(200);
+
+    /**
+     * Numbering does not. The prefix is frozen into `Invoice.number` at issue and no route can
+     * repair it, so one careless change mid-year splits the accounting year across two series
+     * permanently — which is why it is the one control on that screen a gate cannot hand over.
+     */
+    const numbering = await app.inject({
+      method: "PATCH",
+      url: "/api/settings/numbering",
+      headers: { cookie: userCookie },
+      payload: { invoicePrefix: "OOPS" },
+    });
+    expect(numbering.statusCode).toBe(403);
+    expect(numbering.json().error.code).toBe("admin_only");
+
+    const byAdmin = await app.inject({
+      method: "PATCH",
+      url: "/api/settings/numbering",
+      headers: { cookie: adminCookie },
+      payload: { invoicePrefix: "AUD" },
+    });
+    expect(byAdmin.statusCode).toBe(200);
+    expect(byAdmin.json().invoicePrefix).toBe("AUD");
+
+    // and the prefix cannot be reached through the firm route any more, whoever asks
+    const smuggled = await app.inject({
+      method: "PATCH",
+      url: "/api/settings/firm",
+      headers: { cookie: adminCookie },
+      payload: { name: "buh_crm", invoicePrefix: "SNEAK" },
+    });
+    expect(smuggled.statusCode).toBe(200);
+    expect(smuggled.json().invoicePrefix).toBe("AUD");
+    await app.inject({
+      method: "PATCH",
+      url: "/api/settings/numbering",
+      headers: { cookie: adminCookie },
+      payload: { invoicePrefix: "BUH" },
+    });
+  });
+
+  it("lets anyone who can open the task read what was done to its time", async () => {
+    const task = await app.inject({
+      method: "POST",
+      url: "/api/tasks",
+      headers: { cookie: adminCookie },
+      payload: { title: `Journal ${RUN}`, assignees: [userId] },
+    });
+    const taskId = task.json().id;
+
+    const empty = await asUser("GET", `/api/tasks/${taskId}/time/audit`);
+    expect(empty.statusCode).toBe(200);
+    expect(empty.json()).toEqual([]);
+
+    await app.inject({
+      method: "POST",
+      url: `/api/tasks/${taskId}/time`,
+      headers: { cookie: adminCookie },
+      payload: { userId, minutes: 60, comment: "Filed the return", date: "2026-07-20" },
+    });
+    const entry = await prisma.timeEntry.findFirstOrThrow({ where: { taskId, userId } });
+
+    await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/time/${entry.id}`,
+      headers: { cookie: userCookie },
+      payload: { minutes: 45, comment: "Mistyped it" },
+    });
+    await app.inject({
+      method: "DELETE",
+      url: `/api/tasks/time/${entry.id}`,
+      headers: { cookie: adminCookie },
+    });
+
+    const history = (await asUser("GET", `/api/tasks/${taskId}/time/audit`)).json();
+    expect(history).toHaveLength(2);
+    // newest first
+    expect(history[0]).toMatchObject({
+      action: "deleted",
+      by: "Ada Admin",
+      whose: "Ulf User",
+      own: false,
+      wasSeconds: 2700,
+    });
+    expect(history[1]).toMatchObject({
+      action: "updated",
+      by: "Ulf User",
+      whose: "Ulf User",
+      own: true,
+      wasSeconds: 3600,
+      nowSeconds: 2700,
+      nowComment: "Mistyped it",
+    });
+
+    // and it closes with the gate, like the time log it describes
+    await policy("tasks", "closed");
+    expect((await asUser("GET", `/api/tasks/${taskId}/time/audit`)).statusCode).toBe(403);
+    await policy("tasks", "open");
+
+    await prisma.timeEntryAuditLog.deleteMany({ where: { taskId } });
+    await prisma.task.delete({ where: { id: taskId } });
+  });
+});
