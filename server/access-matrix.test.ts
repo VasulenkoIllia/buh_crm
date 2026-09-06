@@ -337,6 +337,65 @@ describe("the registry matches the routes it claims to govern", () => {
     ).toEqual([]);
   });
 
+  /**
+   * **The screen that edits access cannot be closed by editing access.**
+   *
+   * The one way to brick this module would be to shut the door you manage it through — and there
+   * are two plausible routes to it: a policy row for `team`, or a personal override on the admin
+   * doing the shutting. Both are refused, and by DIFFERENT layers, which is why both are asserted
+   * here rather than trusted to the service's validation alone: `assertOffered` refuses the write,
+   * and the resolver ignores any row that reached the table another way (a migration, psql, a
+   * future bug).
+   */
+  it("cannot be locked out of itself, however the tables are written", async () => {
+    const admin = await prisma.user.findFirstOrThrow({ where: { email: "admin@matrix.local" } });
+    await prisma.accessPolicy.deleteMany();
+    await prisma.accessOverride.deleteMany();
+
+    // straight into the tables, past every check the service would have made
+    await prisma.accessPolicy.createMany({
+      data: [
+        { gate: "team", role: "admin", state: "closed" },
+        { gate: "team", role: "user", state: "open" },
+      ],
+    });
+    await prisma.accessOverride.create({
+      data: { userId: admin.id, gate: "team", state: "closed" },
+    });
+    invalidateAccessCache();
+
+    const stillOpen = await app.inject({
+      method: "GET",
+      url: "/api/access",
+      headers: { cookie: adminCookie },
+    });
+    expect(stillOpen.statusCode, "an admin must always reach the access screen").toBe(200);
+
+    const stillShut = await app.inject({
+      method: "GET",
+      url: "/api/access",
+      headers: { cookie: userCookie },
+    });
+    expect(stillShut.statusCode, "and a plain user must never").toBe(403);
+
+    // the service refuses to write either of those in the first place
+    for (const [url, payload] of [
+      ["/api/access/policies/team/user", { state: "open" }],
+      [`/api/access/overrides/${admin.id}/team`, { state: "closed" }],
+    ] as const) {
+      const res = await app.inject({
+        method: "PUT",
+        url,
+        headers: { cookie: adminCookie },
+        payload,
+      });
+      expect(res.statusCode, url).toBe(400);
+    }
+
+    await prisma.accessOverride.deleteMany();
+    await prisma.accessPolicy.deleteMany();
+  });
+
   /** Every gate the registry declares is reachable from the access screen, or is `team`. */
   it("offers a switch for every gate except the fixed one", () => {
     const noSwitch = GATE_KEYS.filter((g) => GATES[g].states.length === 0);
