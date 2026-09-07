@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle } from "lucide-react";
 import type { Meeting } from "@shared/schema/calendar";
@@ -159,19 +159,37 @@ export function MeetingModal({
       setLink(existing.link ?? "");
       setDescription(existing.description ?? "");
       setParticipants(existing.participantIds);
-    } else {
-      // a NEW meeting starts at the firm's default. Never applied to `existing`: a meeting keeps
-      // what it was booked with, so changing the firm setting cannot rewrite the calendar.
-      const firmDefault = settings?.firm.meetingRemindMinutes ?? null;
-      setRemind(
-        (REMINDER_CHOICES as readonly number[]).includes(firmDefault ?? -1)
-          ? (firmDefault as (typeof REMINDER_CHOICES)[number])
-          : null,
-      );
-      if (defaultClientId) setTarget({ kind: "client", id: defaultClientId, label: "" });
-      else if (defaultLeadId) setTarget({ kind: "lead", id: defaultLeadId, label: "" });
+    } else if (defaultClientId) {
+      setTarget({ kind: "client", id: defaultClientId, label: "" });
+    } else if (defaultLeadId) {
+      setTarget({ kind: "lead", id: defaultLeadId, label: "" });
     }
-  }, [existing, defaultClientId, defaultLeadId, settings]);
+  }, [existing, defaultClientId, defaultLeadId]);
+
+  /**
+   * The firm's reminder default, for a NEW meeting, seeded EXACTLY ONCE.
+   *
+   * Its own effect and its own guard, and both matter. Putting `settings` into the effect above
+   * re-ran that whole block whenever anything in Settings changed — the firm's name, a priority,
+   * a source — which reset this control and re-applied the target, throwing away a choice the
+   * person was in the middle of making. The query also resolves after the modal opens, so the
+   * block ran twice on every single open.
+   *
+   * The ref is safe because the modal is mounted behind `{formOpen && …}` and therefore starts
+   * fresh each time it is opened.
+   */
+  const remindSeeded = useRef(false);
+  useEffect(() => {
+    // `meetingId`, not `existing`: when EDITING, the meeting arrives a moment after the modal
+    // opens, so keying on the loaded data would seed the firm's default first and show
+    // "5 min before" on a meeting booked with none, until the real value replaced it.
+    if (meetingId || remindSeeded.current || !settings) return;
+    remindSeeded.current = true;
+    const firmDefault = settings.firm.meetingRemindMinutes;
+    if ((REMINDER_CHOICES as readonly number[]).includes(firmDefault ?? -1)) {
+      setRemind(firmDefault as (typeof REMINDER_CHOICES)[number]);
+    }
+  }, [meetingId, settings]);
 
   const clientId = target?.kind === "client" ? target.id : undefined;
   /**
