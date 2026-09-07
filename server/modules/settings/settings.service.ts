@@ -40,6 +40,7 @@ export function toFirmDto(firm: FirmProfile) {
     timezone: config.TZ,
     notifySweepAt: firm.notifySweepAt,
     notifyDeadlineDays: firm.notifyDeadlineDays,
+    meetingRemindMinutes: firm.meetingRemindMinutes,
   };
 }
 

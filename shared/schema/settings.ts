@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { uuid } from "./common.js";
 import { SWEEP_EARLIEST_HOUR } from "../notifications.js";
+import { REMINDER_CHOICES } from "./calendar.js";
 
 export const prioritySchema = z.object({
   id: uuid,
@@ -37,6 +38,8 @@ export const firmProfileSchema = z.object({
   notifySweepAt: z.string(),
   /** how many days ahead `task_deadline_near` warns; 1 = "due tomorrow" */
   notifyDeadlineDays: z.number().int(),
+  /** what a NEW meeting is booked with. null = no reminder unless somebody picks one. */
+  meetingRemindMinutes: z.number().int().nullable(),
 });
 export type FirmProfile = z.infer<typeof firmProfileSchema>;
 
@@ -97,6 +100,24 @@ export const updateFirmInput = z.object({
     .optional(),
   /** how many days ahead `task_deadline_near` warns. 1 = "due tomorrow". */
   notifyDeadlineDays: z.number().int().min(1).max(30).optional(),
+  /**
+   * The reminder a NEW meeting is booked with. `null` is Off, and is a real value here rather than
+   * "unchanged" — which is why it is `.nullish()`: absent means the caller is not touching it.
+   *
+   * Constrained to the same choices the meeting form offers, because a number the pills cannot
+   * show would prefill a control that then silently disagrees with it.
+   */
+  meetingRemindMinutes: z
+    .union([
+      z.literal(null),
+      z
+        .number()
+        .int()
+        .refine((v) => (REMINDER_CHOICES as readonly number[]).includes(v), {
+          message: `Pick one of ${REMINDER_CHOICES.join(", ")} minutes, or none`,
+        }),
+    ])
+    .optional(),
 });
 export type UpdateFirmInput = z.infer<typeof updateFirmInput>;
 

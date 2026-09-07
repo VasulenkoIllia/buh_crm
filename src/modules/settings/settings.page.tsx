@@ -21,6 +21,8 @@ import {
   useUploadLogo,
 } from "./settings.api";
 import { SWEEP_EARLIEST_HOUR } from "@shared/notifications";
+import { REMINDER_CHOICES } from "@shared/schema/calendar";
+import { pillCls } from "@/shared/ui/pill";
 import { NotificationPolicySection } from "@/modules/notifications";
 
 /**
@@ -49,12 +51,15 @@ const TABS: { value: Tab; label: string; gate?: GateKey }[] = [
   { value: "firm" as const, label: "Firm" },
   { value: "lists" as const, label: "Lists" },
   { value: "invoices" as const, label: "Invoices" },
-  { value: "notifications" as const, label: "Notifications", gate: "notification_rules" as const },
+  {
+    value: "notifications" as const,
+    label: "Notifications",
+    gate: "notification_rules" as const,
+  },
   { value: "system" as const, label: "System" },
   // whoever manages people manages their access — the tab is the Team gate, never its own switch
   { value: "access" as const, label: "Access", gate: "team" as const },
 ];
-
 
 /**
  * One line each, and one line is the point — the same lesson `mailouts.page.tsx` records.
@@ -68,7 +73,8 @@ const BLURB: Record<Tab, string> = {
   lists: "The options the forms offer: task priorities, and where a client or lead came from.",
   invoices: "How invoice numbers are built, and what the next one will look like.",
   notifications: "Which notifications the firm raises at all, and by which channel.",
-  access: "What each person may open, and what they may change. Nothing else in the app decides it.",
+  access:
+    "What each person may open, and what they may change. Nothing else in the app decides it.",
   system:
     "Whether the work the CRM does on its own — overnight and in the background — is happening.",
 };
@@ -152,6 +158,7 @@ export function SettingsPage() {
           <NotificationScheduleSection
             sweepAt={data.firm.notifySweepAt}
             leadDays={data.firm.notifyDeadlineDays}
+            meetingRemind={data.firm.meetingRemindMinutes}
           />
         </div>
       )}
@@ -436,8 +443,8 @@ function NumberingSection({ prefix, digits }: { prefix: string; digits: number }
       {!isAdmin && (
         <p className="mt-2 text-[12px] text-muted">
           Only an admin changes this. The prefix is stamped into every invoice number when it is
-          issued and cannot be corrected afterwards, so changing it mid-year would split the year
-          across two series.
+          issued and cannot be corrected afterwards, so changing it mid-year would split the
+          year across two series.
         </p>
       )}
       {serverError && <p className="mt-1 text-[12px] text-danger-text">{serverError}</p>}
@@ -499,9 +506,11 @@ function TimezoneSection({ timezone }: { timezone: string }) {
 function NotificationScheduleSection({
   sweepAt,
   leadDays,
+  meetingRemind,
 }: {
   sweepAt: string;
   leadDays: number;
+  meetingRemind: number | null;
 }) {
   const update = useUpdateFirm();
   const serverError = update.error instanceof ApiError ? update.error.message : null;
@@ -537,7 +546,48 @@ function NotificationScheduleSection({
           />
         </FormField>
       </div>
+
+      {/*
+        Pills, not a number box: five choices including Off, all visible at once — the same shape
+        the meeting form uses. This control PREFILLS that one, and two controls for the same idea
+        looking different would read as two different settings.
+      */}
+      <div className="mt-5">
+        <FormField label="Remind about new meetings by default">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              disabled={update.isPending}
+              className={pillCls(meetingRemind === null)}
+              onClick={() =>
+                meetingRemind !== null && update.mutate({ meetingRemindMinutes: null })
+              }
+            >
+              No reminder
+            </button>
+            {REMINDER_CHOICES.map((m) => (
+              <button
+                key={m}
+                type="button"
+                disabled={update.isPending}
+                className={pillCls(meetingRemind === m)}
+                onClick={() =>
+                  meetingRemind !== m && update.mutate({ meetingRemindMinutes: m })
+                }
+              >
+                {m} min before
+              </button>
+            ))}
+          </div>
+        </FormField>
+      </div>
+
       {serverError && <p className="mt-2 text-[12px] text-danger-text">{serverError}</p>}
+      <p className="mt-3 text-[12px] text-muted">
+        The meeting default only fills the form in when somebody books a NEW meeting — they can
+        change it there, and meetings already in the calendar keep whatever they were booked
+        with. Anyone can turn meeting reminders off entirely in their own profile.
+      </p>
       <p className="mt-3 text-[12px] text-muted">
         The pass looks for deadlines coming up, meetings today, invoices past their due day and
         timers left running overnight — once a day, in{" "}

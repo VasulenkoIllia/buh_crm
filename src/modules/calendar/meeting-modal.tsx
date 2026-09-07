@@ -22,6 +22,7 @@ import { Modal } from "@/shared/ui/modal";
 import { pillCls } from "@/shared/ui/pill";
 import { SearchSelect } from "@/shared/ui/search-select";
 import { Segmented } from "@/shared/ui/segmented";
+import { useSettings } from "@/modules/settings";
 import { useConflicts, useCreateMeeting, useMeeting, useUpdateMeeting } from "./calendar.api";
 import { fmtRange } from "./grid";
 
@@ -76,6 +77,8 @@ export function MeetingModal({
   const navigate = useNavigate();
   const editing = !!meetingId;
   const { data: existing } = useMeeting(meetingId);
+  /** cached and shared — the settings query is already loaded by the time a modal opens */
+  const { data: settings } = useSettings();
   const { data: team } = useAssignees();
   const create = useCreateMeeting();
   const update = useUpdateMeeting();
@@ -95,8 +98,14 @@ export function MeetingModal({
   // wrong costs a correction every single time (user, 2026-08-06)
   const [duration, setDuration] = useState(DEFAULT_MEETING_MINUTES);
   /**
-   * No reminder unless somebody asks for one (user, 2026-09-06). A booking made without a thought
-   * about it behaves exactly as every booking did before this field existed.
+   * Seeded from the FIRM's default for a new booking (Settings → Notifications), and from the
+   * meeting itself when editing one.
+   *
+   * It shipped defaulting to `null` on the reasoning that a booking made without a thought about
+   * reminders should behave as every booking did before this field existed. The first person to
+   * book a meeting expected a reminder, got none, and went looking for the setting where there
+   * was none to find (user, 2026-09-07). The firm now owns that starting point; this is still a
+   * per-meeting choice, and whoever books can still say No reminder.
    */
   const [remind, setRemind] = useState<(typeof REMINDER_CHOICES)[number] | null>(null);
   const [link, setLink] = useState("");
@@ -150,12 +159,19 @@ export function MeetingModal({
       setLink(existing.link ?? "");
       setDescription(existing.description ?? "");
       setParticipants(existing.participantIds);
-    } else if (defaultClientId) {
-      setTarget({ kind: "client", id: defaultClientId, label: "" });
-    } else if (defaultLeadId) {
-      setTarget({ kind: "lead", id: defaultLeadId, label: "" });
+    } else {
+      // a NEW meeting starts at the firm's default. Never applied to `existing`: a meeting keeps
+      // what it was booked with, so changing the firm setting cannot rewrite the calendar.
+      const firmDefault = settings?.firm.meetingRemindMinutes ?? null;
+      setRemind(
+        (REMINDER_CHOICES as readonly number[]).includes(firmDefault ?? -1)
+          ? (firmDefault as (typeof REMINDER_CHOICES)[number])
+          : null,
+      );
+      if (defaultClientId) setTarget({ kind: "client", id: defaultClientId, label: "" });
+      else if (defaultLeadId) setTarget({ kind: "lead", id: defaultLeadId, label: "" });
     }
-  }, [existing, defaultClientId, defaultLeadId]);
+  }, [existing, defaultClientId, defaultLeadId, settings]);
 
   const clientId = target?.kind === "client" ? target.id : undefined;
   /**

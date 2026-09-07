@@ -326,20 +326,33 @@ model FirmProfile {
    * /**
    * /**
    * /**
+   * /**
    * When the nightly notification sweep runs, as `HH:MM` in the firm's own timezone.
    * Was hardcoded at 07:00, which was a guess about when this firm's day starts. The hour is the
    * firm's to choose; the CONSTRAINT is not. It must be later than 03:20, because the task sweep
    * (03:05) and the invoice sweep (03:20) have to have run first — otherwise deadlines are scanned
    * before the day's generated work exists, and nobody is warned about it.
    */
-  notifySweepAt      String @default("07:00")
+  notifySweepAt        String @default("07:00")
   /**
    * How many days ahead `task_deadline_near` warns. 1 = "due tomorrow", the original behaviour.
    * The sweep reads it as a RANGE (tomorrow … today + N), never as an exact day. With an exact day
    * a task created INSIDE the window would never be warned at all: the sweep only ever looks at
    * `today + N`, and a deadline nearer than that is never equal to it.
    */
-  notifyDeadlineDays Int    @default(1)
+  notifyDeadlineDays   Int    @default(1)
+  /**
+   * The reminder a NEW meeting is booked with, unless whoever books it says otherwise.
+   * NULL = none, and the pills in the meeting form still offer 5/15/30/60 per meeting.
+   * It exists because the opposite was tried first. `Meeting.remindMinutesBefore` shipped
+   * defaulting to NULL — "a booking made without a thought about it behaves as every booking did
+   * before the field existed" — and the first person to book a meeting expected a reminder,
+   * got none, and went looking for the setting in Settings → Notifications, where there was none
+   * to find (user, 2026-09-07). Seeded at 5.
+   * It prefills the FORM; it is not read at reminder time. A meeting keeps whatever it was booked
+   * with, so changing this never silently rewrites what is already in the calendar.
+   */
+  meetingRemindMinutes Int?   @default(5)
 
   // ── Mailouts (S10) ────────────────────────────────────────────────────────
   //
@@ -349,6 +362,7 @@ model FirmProfile {
   // fields could only ever describe one of them.
   //
   /**
+   * /**
    * /**
    * /**
    * /**
@@ -462,6 +476,7 @@ model MailSenderAccount {
    * /**
    * /**
    * /**
+   * /**
    * /** null = this mailbox is not read for bounces
    */
   imapHost       String?
@@ -482,6 +497,7 @@ model MailSenderAccount {
   // Never `\Seen`, never a moved message: this mailbox belongs to a person, and flagging their
   // mail to track our own progress would hide a bounce from them — or theirs from us.
   /**
+   * /**
    * /**
    * /**
    * /**

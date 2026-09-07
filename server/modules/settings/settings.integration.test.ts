@@ -315,3 +315,58 @@ describe("settings — the System tab", () => {
     await resetJobHealth();
   });
 });
+
+describe("settings — the meeting reminder default", () => {
+  it("ships at 5 minutes, which is what somebody booking a meeting expects", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/settings",
+      headers: { cookie: adminCookie },
+    });
+    expect(res.json().firm.meetingRemindMinutes).toBe(5);
+  });
+
+  it("accepts null, because Off is a real answer and not 'unchanged'", async () => {
+    const off = await app.inject({
+      method: "PATCH",
+      url: "/api/settings/firm",
+      headers: { cookie: adminCookie },
+      payload: { meetingRemindMinutes: null },
+    });
+    expect(off.statusCode).toBe(200);
+    expect(off.json().meetingRemindMinutes).toBeNull();
+
+    // and leaving it out is what "unchanged" means — renaming the firm must not clear it
+    await app.inject({
+      method: "PATCH",
+      url: "/api/settings/firm",
+      headers: { cookie: adminCookie },
+      payload: { meetingRemindMinutes: 15 },
+    });
+    const renamed = await app.inject({
+      method: "PATCH",
+      url: "/api/settings/firm",
+      headers: { cookie: adminCookie },
+      payload: { name: "Still Us" },
+    });
+    expect(renamed.json().meetingRemindMinutes).toBe(15);
+  });
+
+  it("refuses a number the meeting form cannot show", async () => {
+    // 7 would prefill a control with five pills and none of them selected — a setting that
+    // silently disagrees with the screen showing it
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/api/settings/firm",
+      headers: { cookie: adminCookie },
+      payload: { meetingRemindMinutes: 7 },
+    });
+    expect(res.statusCode).toBe(400);
+    await app.inject({
+      method: "PATCH",
+      url: "/api/settings/firm",
+      headers: { cookie: adminCookie },
+      payload: { meetingRemindMinutes: 5 },
+    });
+  });
+});

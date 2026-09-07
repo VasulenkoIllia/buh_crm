@@ -1,0 +1,11 @@
+-- The reminder a NEW meeting is booked with, unless whoever books it says otherwise.
+--
+-- `Meeting.remindMinutesBefore` shipped defaulting to NULL, on the reasoning that a booking made
+-- without a thought about reminders should behave as every booking did before the field existed.
+-- The first person to book a meeting expected a reminder, got none, and went looking for the
+-- setting in Settings -> Notifications, where there was none to find (user, 2026-09-07).
+--
+-- DEFAULT 5 is the firm's starting point, one click from Off. It prefills the FORM and is never
+-- read at reminder time, so EXISTING meetings keep their NULL and no reminder appears for anything
+-- already in the calendar. That is the whole reason this is not a backfill.
+ALTER TABLE "FirmProfile" ADD COLUMN "meetingRemindMinutes" INTEGER DEFAULT 5;
