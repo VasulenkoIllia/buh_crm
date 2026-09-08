@@ -2,6 +2,7 @@ import { fetchSince } from "../../core/imap.js";
 import { explainSendError } from "../../core/send-error.js";
 import { bounceHeadline } from "@shared/delivery.js";
 import { parseBounce, type Bounce } from "./bounce.js";
+import { record } from "../../core/activity.js";
 import * as repo from "./mailouts.repository.js";
 
 /**
@@ -72,6 +73,8 @@ async function sweepMailbox(
     smtpUser: string | null;
     bounceLastUid: number | null;
     bounceUidValidity: string | null;
+    /** what it said last time, or null when it was answering — the whole test for "recovered" */
+    bounceError: string | null;
   },
   credentials: Parameters<Fetcher>[0],
   read: Fetcher,
@@ -109,6 +112,18 @@ async function sweepMailbox(
           // on either would turn one misconfiguration into a blocklist of real clients.
           if (bounce.kind === "address") {
             await repo.retireAddress(bounce.email, bounce.code, sentence(bounce));
+            /**
+             * **A client silently became unreachable**, and until now the only trace was a row in a
+             * blocklist nobody opens. The question is asked on the CLIENT's card — "why did they
+             * stop getting our letters" — which is why this is in the general log and the sweep's
+             * own `JobEvent` is not (activity-log.md §3.3).
+             */
+            record("client.email_retired", {
+              subjectId: hit.row.clientId,
+              subjectLabel: bounce.email,
+              clientId: hit.row.clientId,
+              changes: { email: bounce.email, reason: sentence(bounce) },
+            });
             out.retired += 1;
           }
         }
@@ -124,6 +139,11 @@ async function sweepMailbox(
       bounceCheckedAt: new Date(),
       bounceError: null,
     });
+    // only on the TRANSITION back: the sweep runs every fifteen minutes, and "still working" is
+    // not an event. `bounceError` is what the mailbox said last time, so it is the whole test.
+    if (account.bounceError) {
+      record("mailbox.read_recovered", { subjectId: account.id, subjectLabel: account.name });
+    }
   } catch (err) {
     const said = explainSendError(err, {
       host: account.imapHost,
@@ -134,6 +154,18 @@ async function sweepMailbox(
     // Recorded, not thrown: the next mailbox still gets read, and the screen shows this one as
     // broken rather than quietly stopping.
     await repo.recordSweep(account.id, { bounceError: said.slice(0, 300) }).catch(() => {});
+    /**
+     * A mailbox that stopped answering means bounces are no longer being read, which means dead
+     * addresses stay live and letters keep going into them. Deduped to twice a day: the sweep runs
+     * every fifteen minutes and a broken mailbox would otherwise write 96 rows a day, burying the
+     * first one — which is the one that mattered.
+     */
+    record("mailbox.read_failed", {
+      subjectId: account.id,
+      subjectLabel: account.name,
+      dedupeValue: account.name,
+      changes: { error: said },
+    });
     console.error(`[mailouts] could not read ${account.name}:`, err);
   }
   return out;

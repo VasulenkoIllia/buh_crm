@@ -156,7 +156,7 @@ export const router = createBrowserRouter([
               { element: <RequireGate gate="reports" />, children: [{ path: "reports", element: <ComingSoon module="Reports" stage="S12" /> }] },
               { element: <RequireGate gate="archive" />, children: [{ path: "archive", element: <ArchivePage /> }] },
               { element: <RequireGate gate="team" />, children: [{ path: "team", element: <TeamPage /> }] },
-              { element: <RequireGate gate="settings" />, children: [{ path: "settings", element: <SettingsPage /> }] },
+              { element: <RequireGate gate={["settings", "activity"]} />, children: [{ path: "settings", element: <SettingsPage /> }] },
             ],
           },
         ],

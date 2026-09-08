@@ -169,6 +169,10 @@ export function findTasksByIds(ids: string[]) {
       done: true,
       cancelledAt: true,
       archivedAt: true,
+      // the title and the client ride along for the activity log: a bulk archive records one row
+      // per task, and a row that could name neither would be unreadable
+      title: true,
+      clientId: true,
       client: { select: { archivedAt: true } },
       lead: { select: { archivedAt: true } },
     },
@@ -423,7 +427,12 @@ export function findRunningEntry(userId: string) {
 }
 
 export function findEntry(id: string) {
-  return prisma.timeEntry.findUnique({ where: { id } });
+  return prisma.timeEntry.findUnique({
+    where: { id },
+    // the job's title and its client ride along for the activity log: deleting somebody's recorded
+    // time is filed under the TASK and under the client, and neither is worth a second query
+    include: { task: { select: { title: true, clientId: true } } },
+  });
 }
 
 /** Close the old interval (if any) and open the new one atomically. */

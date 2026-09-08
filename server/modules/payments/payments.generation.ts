@@ -11,6 +11,7 @@ import {
 import { coverage, firstDayInForce } from "../../core/coverage.js";
 import { raiseSystemTask } from "../../core/system-tasks.js";
 import { issueInvoice } from "./invoicing.js";
+import { record } from "../../core/activity.js";
 import * as repo from "./payments.repository.js";
 import type { BillableSubscription } from "./payments.repository.js";
 
@@ -212,8 +213,21 @@ async function issueDue(subs: BillableSubscription[]) {
           if ((err as { code?: string }).code !== "P2002") throw err;
         }
       }
-    } catch {
+    } catch (err) {
       failed++;
+      /**
+       * The failure is isolated per subscription so one bad row cannot stop the firm's billing run.
+       * That is right — and it is also how a client goes months without an invoice while every
+       * night's job reports "ok". `JobEvent` counts them; this names the one that failed, on the
+       * client's card, where somebody would actually meet it.
+       */
+      record("subscription.generation_failed", {
+        subjectId: sub.id,
+        subjectLabel: sub.service?.name ?? null,
+        clientId: sub.clientId,
+        dedupeValue: sub.id,
+        changes: { error: err instanceof Error ? err.message : String(err) },
+      });
     }
   }
   return { created, reminded, failed };

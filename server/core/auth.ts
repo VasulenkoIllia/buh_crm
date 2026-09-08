@@ -2,6 +2,8 @@ import { createHash, randomBytes } from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { User } from "../generated/prisma/client.js";
 import { prisma } from "./db.js";
+import { record, setActivityActor } from "./activity.js";
+import { personName } from "./names.js";
 
 // Cookie sessions, Postgres-backed (decision 2026-07-17):
 // 30-day rolling TTL — extended on activity once less than 15 days remain.
@@ -43,16 +45,74 @@ export async function createSession(
   userId: string,
 ) {
   const sid = randomBytes(32).toString("base64url");
-  await prisma.session.create({
-    data: { id: sid, userId, expiresAt: new Date(Date.now() + SESSION_TTL_MS) },
+  const session = await prisma.session.create({
+    /**
+     * **Where this session was opened from, captured once.**
+     *
+     * Not for display: it is what lets "somebody signed in from an address nobody recognises" be a
+     * question anybody can ask, and it is the prerequisite the security package's detection work
+     * needs as much as this module does (activity-log.md §13 A1). Only as true as `TRUST_PROXY_HOPS`
+     * — behind a proxy an untrusted setting records the proxy for the whole firm.
+     */
+    data: {
+      id: sid,
+      userId,
+      expiresAt: new Date(Date.now() + SESSION_TTL_MS),
+      ip: request.ip,
+      userAgent: request.headers["user-agent"] ?? null,
+    },
   });
   reply.setCookie(SESSION_COOKIE, sid, sessionCookieOptions(request));
+
+  /**
+   * **Recorded here rather than on the login route, because there are two doors.**
+   *
+   * Signing in and accepting an invitation both end in a session, and a sign-in log that knew about
+   * one of them would be worse than none — it would read as complete. This is the one place both
+   * pass through.
+   *
+   * The actor is PINNED: `/login` and `/accept-invite` are anonymous routes, so the request has no
+   * `currentUser` and the flush would otherwise attribute the firm's own sign-in to "Anonymous".
+   */
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, firstName: true, lastName: true },
+  });
+  if (user) {
+    setActivityActor({ kind: "user", userId: user.id, label: personName(user) });
+    record("session.signed_in", { subjectId: session.userId, subjectLabel: personName(user) });
+  }
 }
 
 export async function destroySession(request: FastifyRequest, reply: FastifyReply) {
   const sid = readSid(request);
   if (sid) {
+    /**
+     * Read before deleting, and read the USER with it.
+     *
+     * `/logout` is an anonymous route — it has to be, or a browser whose session already expired
+     * could not clear its own cookie — so `request.currentUser` is never resolved here and the
+     * session row is the only thing that knows whose sign-out this is. Recording it from an absent
+     * `currentUser` would have silently logged nothing at all.
+     */
+    const session = await prisma.session.findUnique({
+      where: { id: sid },
+      select: { userId: true, user: { select: { firstName: true, lastName: true } } },
+    });
     await prisma.session.deleteMany({ where: { id: sid } });
+    // only when a session actually went: `/logout` answers `{ok:true}` to a browser with no
+    // session at all, and recording that as a sign-out would be inventing an event
+    if (session) {
+      setActivityActor({
+        kind: "user",
+        userId: session.userId,
+        label: personName(session.user),
+      });
+      record("session.signed_out", {
+        subjectId: session.userId,
+        subjectLabel: personName(session.user),
+      });
+    }
   }
   reply.clearCookie(SESSION_COOKIE, { path: "/" });
 }

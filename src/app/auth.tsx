@@ -111,10 +111,20 @@ export function RequireAuth() {
  * a person who types a URL for an area they cannot open lands somewhere real rather than on a
  * screen of failed requests.
  */
-export function RequireGate({ gate }: { gate: GateKey }) {
+/**
+ * A route may name SEVERAL gates, and opens if any one of them is open.
+ *
+ * Settings is the case: it holds the firm's own settings behind `settings`, the access table behind
+ * `team` and the activity log behind `activity`. A single gate would have made `activity` a switch
+ * that does nothing for anybody whose `settings` is closed — which is most of the point of giving
+ * the log a gate of its own (activity-log.md §12). The page itself then shows only the tabs that
+ * person may open.
+ */
+export function RequireGate({ gate }: { gate: GateKey | GateKey[] }) {
   const { user } = useAuth();
-  const state = user?.access?.[gate];
-  if (user && state === "closed") return <Navigate to="/" replace />;
+  const gates = Array.isArray(gate) ? gate : [gate];
+  const closed = gates.every((g) => user?.access?.[g] === "closed");
+  if (user && closed) return <Navigate to="/" replace />;
   return <Outlet />;
 }
 

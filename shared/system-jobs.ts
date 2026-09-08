@@ -23,7 +23,8 @@ export type SystemJobKey =
   | "notification-sweep"
   | "meeting-reminders"
   | "notifications:retention"
-  | "sessions:cleanup";
+  | "sessions:cleanup"
+  | "activity:retention";
 
 /** The part of the app a job keeps running — the screen groups by this. */
 export type SystemJobArea = "work" | "billing" | "mail" | "notifications" | "housekeeping";
@@ -157,6 +158,18 @@ export const SYSTEM_JOBS: Record<SystemJobKey, SystemJobSpec> = {
     cadence: "Every night, at 4am",
     whenOk: "Removes sign-in sessions that have expired.",
     whenBad: "Nothing breaks; expired sessions accumulate.",
+    staleAfterMinutes: DAY + 12 * HOUR,
+  },
+  "activity:retention": {
+    area: "housekeeping",
+    label: "Clearing the old activity log",
+    cadence: "Every night, at 5am",
+    whenOk:
+      "Removes activity older than two years — seven for sign-ins, role changes, access changes " +
+      "and records of data being destroyed.",
+    whenBad:
+      "Nothing breaks and nothing is lost; the log keeps records past the age the firm said it " +
+      "would hold them for.",
     staleAfterMinutes: DAY + 12 * HOUR,
   },
 };

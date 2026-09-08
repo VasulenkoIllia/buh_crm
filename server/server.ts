@@ -1,5 +1,6 @@
 import { buildApp } from "./app.js";
-import { ensureBaseData, ensureBootstrapAdmin } from "./core/bootstrap.js";
+import { ensureBaseData, ensureBootstrapAdmin, recordBootEvents } from "./core/bootstrap.js";
+import { purgeOldActivity } from "./core/activity.js";
 import { config } from "./core/config.js";
 import { disconnectDb } from "./core/db.js";
 import { closeTransports } from "./core/email.js";
@@ -25,6 +26,12 @@ async function main() {
   await ensureUploadsDir();
   await ensureBaseData();
   await ensureBootstrapAdmin(app.log);
+  /**
+   * After the admin, so a fresh install's very first rows read in the order they happened. Costs
+   * one indexed query and one insert per boot, and answers the question every incident starts with:
+   * what changed, and when (activity-log.md §3.3).
+   */
+  await recordBootEvents();
 
   /**
    * **Rows that say `closed` while nothing can enforce them.**
@@ -295,6 +302,28 @@ async function main() {
       return {
         note: total > 0 ? `${plural(total, "old record")} removed` : "Nothing to clear",
         did: total,
+      };
+    },
+  });
+
+  /**
+   * The log's own housekeeping, in the shape `sessions:cleanup` and `notifications:retention`
+   * already use — two years for ordinary events, seven for the classes a dispute or an examination
+   * asks about (activity-log.md §11). The classes are declared per event in the registry, so this
+   * job carries no list of its own to drift.
+   *
+   * At 05:00 rather than 04:10 with the other purge: they touch different tables and there is no
+   * reason for two long deletes to overlap on the same quiet hour.
+   */
+  registerJob({
+    name: "activity:retention",
+    cronExpr: "0 5 * * *",
+    run: async () => {
+      const { purged } = await purgeOldActivity();
+      if (purged > 0) app.log.info({ purged }, "old activity events purged");
+      return {
+        note: purged > 0 ? `${plural(purged, "old record")} removed` : "Nothing to clear",
+        did: purged,
       };
     },
   });

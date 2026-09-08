@@ -50,7 +50,9 @@ export async function registerRoutes(instance: FastifyInstance) {
   });
 
   app.get("/:id", { config: shared(), schema: { params: idParams } }, async (request) => {
-    return service.getClient(request.params.id, request.currentUser!.id);
+    // `viewClient`, not `getClient`: opening a card is a recordable act (off by default), and the
+    // dozen mutations that call `getClient` to build their response are not
+    return service.viewClient(request.params.id, request.currentUser!.id);
   });
 
   app.post("/", { config: clients, schema: { body: createClientInput } }, async (request, reply) => {

@@ -5,6 +5,8 @@ import { destroyAllUserSessions, generateToken } from "../../core/auth.js";
 import { sendEmail, webOrigin } from "../../core/email.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
 import { deleteFileBytes, saveFileBytes } from "../../core/files.js";
+import { diff, record } from "../../core/activity.js";
+import { personName } from "../../core/names.js";
 import * as repo from "./users.repository.js";
 
 const INVITE_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -22,6 +24,13 @@ export async function inviteUser(input: InviteUserInput, invitedBy: User) {
 
   const user = await repo.createInvitedUser(input.email, input.role);
   await sendInviteEmail(user, invitedBy);
+  // an invitation is an access decision before it is anything else: it is the moment somebody
+  // outside the firm's systems is given a way in, and the role they arrive with is part of it
+  record("user.invited", {
+    subjectId: user.id,
+    subjectLabel: user.email,
+    changes: { email: user.email, role: user.role },
+  });
   return user;
 }
 
@@ -33,6 +42,9 @@ export async function resendInvite(userId: string, invitedBy: User) {
   }
   await repo.invalidateInviteTokens(userId);
   await sendInviteEmail(user, invitedBy);
+  // the PREVIOUS link stops working, which is the half that matters: an invitation resent is also
+  // an invitation revoked, and somebody holding the old one will be told it is invalid
+  record("user.invite_resent", { subjectId: user.id, subjectLabel: user.email });
   return user;
 }
 
@@ -79,6 +91,32 @@ export async function updateUser(id: string, input: UpdateUserInput, actor: User
       fromRole: user.role,
       toRole: input.role,
     });
+    /**
+     * **The mirror, written by the same function that writes the journal** (activity-log.md §9).
+     *
+     * `UserRoleAuditLog` keeps the record of the transition and its screen; this says that it
+     * happened, so somebody looking for "what has been done to this account" finds it without
+     * already knowing which journal to ask. The one thing that must not happen is divergence, and
+     * the guard against it is that both writes are here, three lines apart, with a test asserting
+     * both rows appear.
+     */
+    record("user.role_changed", {
+      subjectId: id,
+      subjectLabel: personName(user),
+      changes: { role: { from: user.role, to: input.role } },
+    });
+  }
+
+  if (input.status && input.status !== user.status) {
+    // the pair, and only on a real move: saving the form with the status untouched is not a
+    // blocking and must not read like one
+    if (input.status === "blocked" || input.status === "active") {
+      record(input.status === "blocked" ? "user.blocked" : "user.unblocked", {
+        subjectId: id,
+        subjectLabel: personName(user),
+        changes: { status: { from: user.status, to: input.status } },
+      });
+    }
   }
 
   if (input.status === "blocked") {
@@ -104,10 +142,22 @@ export async function updateProfile(user: User, input: UpdateProfileInput) {
   }
 
   const updated = await repo.updateUser(user.id, data);
+  record("user.profile_changed", {
+    subjectId: user.id,
+    subjectLabel: personName(updated),
+    changes:
+      diff(user as unknown as Record<string, unknown>, data as Record<string, unknown>, [
+        "firstName",
+        "lastName",
+      ]) ?? undefined,
+  });
   if (data.passwordHash) {
     // same rule as forgot-password reset: a password change signs out every session;
     // the route immediately issues a fresh one so THIS device stays signed in
     await destroyAllUserSessions(user.id);
+    // the credential changed, which is a security event whoever holds the account may later need
+    // to place in time. The name change beside it is `user.profile_changed` and is not this.
+    record("user.password_changed", { subjectId: user.id, subjectLabel: personName(user) });
   }
   return updated;
 }

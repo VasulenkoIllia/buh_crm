@@ -19,5 +19,13 @@ export const USERS_KEY = ["users"] as const;
 export const CALENDAR_KEY = ["calendar"] as const;
 export const MAILOUTS_KEY = ["mailouts"] as const;
 export const NOTIFICATIONS_KEY = ["notifications"] as const;
+/**
+ * The log, and the switches that decide what goes into it.
+ *
+ * Two keys rather than one: the feed is filtered and paged and refetches constantly, and flipping
+ * an event's switch must not drag a page of rows down with it.
+ */
+export const ACTIVITY_KEY = ["activity"] as const;
+export const ACTIVITY_POLICIES_KEY = ["activity", "policies"] as const;
 // the signed-in user's own key stays with the auth provider that owns it (`ME_QUERY_KEY`
 // in app/auth.tsx) — shared/ must not reach up into app/

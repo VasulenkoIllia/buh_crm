@@ -29,6 +29,7 @@ import {
 import { clientLabel, personName } from "../../core/names.js";
 import { notify } from "../../core/notify.js";
 import { issueJobInvoice } from "../payments/index.js";
+import { diff, record } from "../../core/activity.js";
 import * as repo from "./tasks.repository.js";
 
 /** The job's invoice WITH its settlement state — same derivation rule as the Billing screen. */
@@ -152,6 +153,9 @@ export async function listColumns() {
 
 export async function addColumn(input: CreateColumnInput) {
   const column = await repo.createColumn(input.name);
+  // the board's shape is a firm SETTING, whichever screen edits it — filed under `settings` so
+  // somebody looking for "who changed the board" finds it beside the rest of the configuration
+  record("settings.column_created", { subjectId: column.id, subjectLabel: column.name });
   return { id: column.id, name: column.name, order: column.order, isFixed: column.isFixed };
 }
 
@@ -165,6 +169,13 @@ export async function updateColumn(id: string, input: UpdateColumnInput) {
     throw new ValidationError('Order 0 is reserved for the fixed "New" column');
   }
   const updated = await repo.updateColumn(id, input);
+  if (input.name !== undefined && input.name !== column.name) {
+    record("settings.column_updated", {
+      subjectId: id,
+      subjectLabel: updated.name,
+      changes: { name: { from: column.name, to: updated.name } },
+    });
+  }
   return { id: updated.id, name: updated.name, order: updated.order, isFixed: updated.isFixed };
 }
 
@@ -176,6 +187,7 @@ export async function moveColumn(id: string, input: MoveColumnInput) {
     throw new ValidationError('The "New" column is fixed — it can\'t be renamed or moved');
   }
   await repo.moveColumn(id, input.afterColumnId);
+  record("settings.column_moved", { subjectId: id, subjectLabel: column.name });
   return listColumns();
 }
 
@@ -188,6 +200,7 @@ export async function removeColumn(id: string) {
     throw new ConflictError(`Move the ${count} task(s) out of this column first`);
   }
   await repo.deleteColumn(id);
+  record("settings.column_deleted", { subjectId: id, subjectLabel: column.name });
   return { ok: true as const };
 }
 
@@ -385,14 +398,27 @@ async function resolvePriorityColumn(priorityId?: string, statusColumnId?: strin
 export async function moveTask(taskId: string, input: MoveTaskInput) {
   // the module's own liveness rule, not a second one: it also refuses work whose CLIENT or LEAD is
   // archived, which is off every board and must not be re-arranged on one
-  liveTaskOr404(await repo.findTask(taskId));
+  // kept, not discarded: the column it came FROM is the half of the move worth recording, and
+  // after `moveTaskInBoard` there is no way to ask
+  const before = liveTaskOr404(await repo.findTask(taskId));
   const column = await repo.findColumn(input.statusColumnId);
   if (!column) throw new ValidationError("Unknown column");
   if (input.afterTaskId === taskId) {
     throw new ValidationError("A task cannot be dropped after itself");
   }
   await repo.moveTaskInBoard(taskId, input.statusColumnId, input.afterTaskId);
-  return toTaskDto(liveTaskOr404(await repo.findTask(taskId)), todayBusinessMs(config.TZ));
+  const moved = liveTaskOr404(await repo.findTask(taskId));
+  // only a change of COLUMN. Re-ordering within one column is presentation, and a row for every
+  // drag would bury the board's real history under it
+  if (before.statusColumnId !== input.statusColumnId) {
+    record("task.column_changed", {
+      subjectId: moved.id,
+      subjectLabel: moved.title,
+      clientId: moved.clientId,
+      changes: { column: { from: before.statusColumnId, to: input.statusColumnId } },
+    });
+  }
+  return toTaskDto(moved, todayBusinessMs(config.TZ));
 }
 
 export async function createTask(input: CreateTaskInput, actor: User) {
@@ -502,6 +528,16 @@ export async function createTask(input: CreateTaskInput, actor: User) {
     sub: clientLine(task),
     link: { type: "task", id: task.id },
   });
+  record("task.created", {
+    subjectId: task.id,
+    subjectLabel: task.title,
+    clientId,
+    changes: {
+      kind,
+      client: clientId,
+      deadline: input.deadline ?? null,
+    },
+  });
   return getTask(task.id);
 }
 
@@ -585,6 +621,7 @@ export async function updateTask(id: string, input: UpdateTaskInput, actor: User
   if (input.assignees) await repo.setAssignees(id, input.assignees);
 
   await notifyTaskChanges(task, updated, input, actor);
+  recordTaskChanges(task, updated, input);
 
   // one-time job billed on completion: issue the invoice the moment it's marked done
   if (input.done === true && task.kind === "once" && !hasLiveInvoice(task) && task.clientId) {
@@ -620,6 +657,71 @@ export async function updateTask(id: string, input: UpdateTaskInput, actor: User
  * Every dedup key names a STATE, not a call: re-saving the same deadline, or the same completion,
  * notifies nobody a second time, while a genuine reopen-and-redo does.
  */
+/**
+ * **The same split as `notifyTaskChanges`, for a different question.**
+ *
+ * Notifications answer "who needs to know now", and deliberately stay silent about a card moving
+ * between columns — that happens dozens of times a day and IS the work. The log answers "what
+ * happened to this job", and for that the column move is one of the more useful rows in it: "where
+ * did this get stuck" is answered by nothing else in the product.
+ *
+ * Written beside the notifier rather than inside it because the two must be able to diverge — this
+ * one already does, twice.
+ */
+function recordTaskChanges(
+  before: repo.TaskRecord,
+  after: repo.TaskRecord,
+  input: UpdateTaskInput,
+) {
+  const subject = {
+    subjectId: after.id,
+    subjectLabel: after.title,
+    clientId: after.clientId,
+  };
+
+  // the ordinary field edit — everything that is not one of the lifecycle facts below
+  record("task.updated", {
+    ...subject,
+    changes:
+      diff(before as unknown as Record<string, unknown>, input as Record<string, unknown>, [
+        "title",
+        "description",
+        "priorityId",
+        "plannedMinutes",
+        "amount",
+      ]) ?? undefined,
+  });
+
+  if (input.assignees) {
+    const was = before.assignees.map((a) => a.userId).sort();
+    const now = [...input.assignees].sort();
+    if (was.join() !== now.join()) {
+      record("task.assigned", { ...subject, changes: { assignees: { from: was, to: now } } });
+    }
+  }
+  if (input.deadline !== undefined && !sameInstant(before.deadline, after.deadline)) {
+    record("task.deadline_changed", {
+      ...subject,
+      changes: {
+        deadline: {
+          from: before.deadline ? isoDay(before.deadline) : null,
+          to: after.deadline ? isoDay(after.deadline) : null,
+        },
+      },
+    });
+  }
+  if (input.done === true && !before.done) record("task.completed", subject);
+  if (input.done === false && before.done) record("task.reopened", subject);
+  if (input.cancelled === true && !before.cancelledAt) record("task.cancelled", subject);
+  if (input.cancelled === false && before.cancelledAt) record("task.uncancelled", subject);
+  if (input.statusColumnId && input.statusColumnId !== before.statusColumnId) {
+    record("task.column_changed", {
+      ...subject,
+      changes: { column: { from: before.statusColumnId, to: input.statusColumnId } },
+    });
+  }
+}
+
 async function notifyTaskChanges(
   before: repo.TaskRecord,
   after: repo.TaskRecord,
@@ -699,6 +801,13 @@ export async function addComment(taskId: string, input: CreateTaskCommentInput, 
     sub: input.body.length > 90 ? `${input.body.slice(0, 90)}…` : input.body,
     link: { type: "task", id: taskId },
   });
+  // the fact, never the words: §5.1 keeps this log an index of events, and a comment body is
+  // exactly the kind of content that would turn it into a second copy of the thread
+  record("task.commented", {
+    subjectId: taskId,
+    subjectLabel: task.title,
+    clientId: task.clientId,
+  });
   return getTask(taskId);
 }
 
@@ -713,6 +822,19 @@ export async function deleteComment(commentId: string, actor: User) {
     throw new ForbiddenError("You can only delete your own comments");
   }
   await repo.deleteComment(commentId);
+  /**
+   * `long` retention, and the author recorded rather than the text.
+   *
+   * An admin may delete anybody's comment, so "who wrote the thing that was removed, and who
+   * removed it" is a question with two different people in it — which is the whole reason this row
+   * is worth keeping for seven years while the comment itself is gone.
+   */
+  record("task.comment_deleted", {
+    subjectId: comment.taskId,
+    subjectLabel: task.title,
+    clientId: task.clientId,
+    changes: { author: comment.authorId },
+  });
   return getTask(comment.taskId);
 }
 
@@ -733,6 +855,11 @@ export async function archiveTask(id: string, actor: User) {
     );
   }
   await repo.updateTask(id, { archivedAt: new Date(), archivedById: actor.id });
+  record("task.archived", {
+    subjectId: id,
+    subjectLabel: task.title,
+    clientId: task.clientId,
+  });
   return { ok: true as const };
 }
 
@@ -753,6 +880,11 @@ export async function restoreTask(id: string) {
     );
   }
   await repo.updateTask(id, { archivedAt: null, archivedById: null });
+  record("task.restored", {
+    subjectId: id,
+    subjectLabel: task.title,
+    clientId: task.clientId,
+  });
   return getTask(id);
 }
 
@@ -777,6 +909,15 @@ export async function bulkArchive(input: BulkArchiveTasksInput, actor: User) {
       eligible.map((t) => t.id),
       actor.id,
     );
+    // per task, sharing this request's correlation id (§4.2, clause 1): "what happened to this job"
+    // must find the bulk archive that took it off the board, and the screen still shows one gesture
+    for (const task of eligible) {
+      record("task.archived", {
+        subjectId: task.id,
+        subjectLabel: task.title,
+        clientId: task.clientId,
+      });
+    }
   }
   return { changed: eligible.length, skipped: input.taskIds.length - eligible.length };
 }
@@ -856,7 +997,7 @@ export async function stopTimer(actor: User, input: StopTimerInput) {
 // ── admin time management ────────────────────────────────────────────────────
 
 export async function addTimeEntry(admin: User, taskId: string, input: AddTimeEntryInput) {
-  liveTaskOr404(await repo.findTask(taskId));
+  const task = liveTaskOr404(await repo.findTask(taskId));
   if (!(await repo.findUser(input.userId))) throw new ValidationError("Unknown user");
 
   const startedAt = input.date ? dateToUtc(input.date) : new Date();
@@ -869,6 +1010,14 @@ export async function addTimeEntry(admin: User, taskId: string, input: AddTimeEn
     seconds,
     comment: input.comment,
     createdById: admin.id,
+  });
+  // an admin entering time on somebody's behalf, which `TimeEntryAuditLog` does not cover — it
+  // journals edits and deletions, not the creation that a dispute would start from
+  record("time_entry.created_manually", {
+    subjectId: taskId,
+    subjectLabel: task.title,
+    clientId: task.clientId,
+    changes: { minutes: input.minutes, whose: input.userId },
   });
   return getTask(taskId);
 }
@@ -921,6 +1070,20 @@ export async function updateTimeEntry(
     wasComment: entry.comment,
     nowSeconds: seconds ?? entry.seconds,
     nowComment: input.comment ?? entry.comment,
+  });
+  record("time_entry.updated", {
+    subjectId: entry.taskId,
+    subjectLabel: entry.task?.title ?? null,
+    clientId: entry.task?.clientId ?? null,
+    changes:
+      diff(
+        { seconds: entry.seconds, comment: entry.comment },
+        {
+          ...(seconds !== undefined ? { seconds } : {}),
+          ...(input.comment !== undefined ? { comment: input.comment } : {}),
+        },
+        ["seconds", "comment"],
+      ) ?? undefined,
   });
   return getTask(entry.taskId);
 }
@@ -981,6 +1144,25 @@ export async function removeTimeEntry(entryId: string, actor: User) {
     nowSeconds: null,
     nowComment: null,
   });
+  /**
+   * **The mirror, and the fix §7 promised while absorbing this journal.**
+   *
+   * `TimeEntryAuditLog` is written as a second statement after the delete with no transaction, so a
+   * process dying between them loses the record of a deletion that happened (`permissions.md`
+   * §20.2). This row does not repeat that mistake — `record()` only buffers, and the flush is one
+   * insert after the request — so even when the journal write is lost the fact that time was
+   * destroyed survives, with whose time it was.
+   */
+  record("time_entry.deleted", {
+    subjectId: entry.taskId,
+    subjectLabel: entry.task?.title ?? null,
+    clientId: entry.task?.clientId ?? null,
+    changes: {
+      seconds: entry.seconds,
+      comment: entry.comment,
+      whose: entry.userId,
+    },
+  });
   return getTask(entry.taskId);
 }
 
@@ -1029,21 +1211,41 @@ export async function addFile(
     path: relPath,
     uploadedById: actor.id,
   });
+  // the same three file events the client card writes, with `attachedTo` telling them apart — one
+  // log answers "whose documents were taken" whichever screen the document arrived through
+  record("file.uploaded", {
+    subjectId: row.id,
+    subjectLabel: row.name,
+    clientId: task.clientId,
+    changes: { name: row.name, size: row.size, attachedTo: "task" },
+  });
   return { id: row.id, name: row.name, size: row.size, mime: row.mime };
 }
 
 export async function getFile(taskId: string, fileId: string) {
-  liveTaskOr404(await repo.findTask(taskId));
+  const task = liveTaskOr404(await repo.findTask(taskId));
   const file = await repo.findTaskFile(taskId, fileId);
   if (!file) throw new NotFoundError("File not found");
+  // a read, recorded — for this one the read IS the act (activity-log.md §3.2)
+  record("file.downloaded", {
+    subjectId: file.id,
+    subjectLabel: file.name,
+    clientId: task.clientId,
+  });
   return file;
 }
 
 export async function removeFile(taskId: string, fileId: string) {
-  liveTaskOr404(await repo.findTask(taskId));
+  const task = liveTaskOr404(await repo.findTask(taskId));
   const file = await repo.findTaskFile(taskId, fileId);
   if (!file) throw new NotFoundError("File not found");
   await repo.deleteFileRow(file.id);
   await deleteFileBytes(file.path);
+  record("file.deleted", {
+    subjectId: file.id,
+    subjectLabel: file.name,
+    clientId: task.clientId,
+    changes: { name: file.name, attachedTo: "task" },
+  });
   return { ok: true as const };
 }

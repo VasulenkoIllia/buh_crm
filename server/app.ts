@@ -17,8 +17,10 @@ import { loadFirmName } from "./core/firm.js";
 import { staticCacheControl } from "./core/static-cache.js";
 import { errorHandler } from "./core/errors.js";
 import { accessHook, anonymous } from "./core/access.js";
+import { actorFromUser, enterActivityContext, flushStore } from "./core/activity.js";
 import { collectRouteInventory, type RouteRecord } from "./core/route-inventory.js";
 import { accessModule } from "./modules/access/index.js";
+import { activityModule } from "./modules/activity/index.js";
 import { authModule } from "./modules/auth/index.js";
 import { catalogModule } from "./modules/catalog/index.js";
 import { clientsModule } from "./modules/clients/index.js";
@@ -57,9 +59,18 @@ const DEV_ORIGIN_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]", "::1"])
 
 export async function buildApp() {
   const app = Fastify({
-    // behind Traefik in prod: trust X-Forwarded-* so req.ip / req.protocol are the
-    // real client's (needed for per-client rate limiting + Secure-cookie detection)
-    trustProxy: isProd,
+    /**
+     * Behind Traefik in prod: trust `X-Forwarded-*` so `req.ip` / `req.protocol` are the real
+     * client's (needed for per-client rate limiting and Secure-cookie detection).
+     *
+     * A COUNT, not `true`, since 2026-09-08. `true` trusts the entire chain, so the leftmost entry
+     * in `X-Forwarded-For` wins — and that entry is whatever the caller typed into the header.
+     * That was harmless while the rate limiter was the only reader; it is not harmless now that
+     * every sign-in and every mutation stores an address somebody may later be asked to account
+     * for. `TRUST_PROXY_HOPS` defaults to the two real hops here (Cloudflare, then Traefik) and is
+     * an env var because that is a deployment fact — see core/config.ts.
+     */
+    trustProxy: isProd ? config.TRUST_PROXY_HOPS : false,
     logger: {
       level: config.LOG_LEVEL,
       ...(isDev ? { transport: { target: "pino-pretty" } } : {}),
@@ -143,6 +154,59 @@ export async function buildApp() {
   });
   await app.register(multipart, { limits: { fileSize: 25 * 1024 * 1024, files: 1 } });
 
+  /**
+   * **The activity context, opened before anything can refuse the request.**
+   *
+   * First of the `onRequest` hooks on purpose: the Origin check and the access hook both refuse by
+   * themselves, and a refusal that happened outside a context would be the one thing the log could
+   * not see — which is exactly the gap `permissions.md` §20.3 hands to this module.
+   *
+   * Opening a context is an object and an `enterWith`; it writes nothing. A read that no service
+   * describes flushes zero rows and touches the database not at all, which is what keeps "reads are
+   * not logged" (activity-log.md §3.2) true without an allow-list of routes.
+   */
+  app.addHook("onRequest", async (request) => {
+    const declared = (request.routeOptions?.config as { access?: { gate?: string } } | undefined)
+      ?.access;
+    request.activity = enterActivityContext({
+      // Anonymous until the access hook resolves somebody. A service may pin it earlier — signing
+      // in is the case: `createSession` knows who it just admitted, and the request that carried
+      // it has no `currentUser` at all, because /login is an anonymous route.
+      actor: actorFromUser(null),
+      ip: request.ip,
+      userAgent: request.headers["user-agent"] ?? null,
+      gate: declared?.gate ?? null,
+      method: request.method,
+      // the PATTERN (`/api/clients/:id`), never the filled URL: it groups, and it keeps record ids
+      // out of a column that is read by a screen
+      route: request.routeOptions?.url ?? request.url,
+    });
+  });
+
+  /**
+   * **And flushed once the outcome is known.**
+   *
+   * `onResponse` runs after the reply is written — so after the handler's transaction committed,
+   * which is the rule this module cannot get wrong because it is not a rule here but a
+   * construction (core/activity.ts). It is also the first moment `outcome` exists: at `onRequest` a
+   * gate refusal, a validation error and a success are indistinguishable.
+   */
+  app.addHook("onResponse", async (request, reply) => {
+    const store = request.activity;
+    if (!store) return;
+    // Only when there IS one: an anonymous request keeps whatever the store holds, which is
+    // "Anonymous" unless a service knew better (see the seed above).
+    if (request.currentUser) store.actor = actorFromUser(request.currentUser);
+    const status = reply.statusCode;
+    await flushStore(store, {
+      outcome: status < 400 ? "ok" : status === 401 || status === 403 ? "refused" : "failed",
+      // Every mutation, automatically — and only mutations. A kanban board polling every minute is
+      // not an act, and a log of it answers nothing (§3.2).
+      tier1: MUTATING_METHODS.has(request.method),
+      statusCode: status,
+    });
+  });
+
   // CSRF (decision 2026-07-17): JSON-only API + Origin check on state-changing routes.
   app.addHook("onRequest", async (request, reply) => {
     if (!MUTATING_METHODS.has(request.method)) return;
@@ -206,6 +270,7 @@ export async function buildApp() {
   await app.register(notificationsModule, { prefix: "/api/notifications" }); // S9
   await app.register(mailoutsModule, { prefix: "/api/mailouts" }); // S10
   await app.register(accessModule, { prefix: "/api/access" }); // S14 — who may open what
+  await app.register(activityModule, { prefix: "/api/activity" }); // S15 — who did what
 
   // ── Serve the built SPA in production (single-container: API + web) ────────
   // Vite builds the frontend into ./dist; this app serves it and falls back to

@@ -13,6 +13,7 @@
  */
 import { SYSTEM_TASKS, type SystemTaskKind } from "@shared/system-tasks.js";
 import { prisma } from "./db.js";
+import { record } from "./activity.js";
 
 export interface SystemTaskTarget {
   clientId: string;
@@ -36,7 +37,7 @@ export async function raiseSystemTask(
   if (!priority || !column) return false; // bootstrap hasn't run yet — nothing to hang a task on
 
   try {
-    await prisma.task.create({
+    const task = await prisma.task.create({
       data: {
         ...target,
         title: extra?.titleSuffix ? `${spec.title} · ${extra.titleSuffix}` : spec.title,
@@ -48,6 +49,20 @@ export async function raiseSystemTask(
         statusColumnId: column.id,
         ...(extra?.deadline ? { deadline: extra.deadline } : {}),
       },
+    });
+    /**
+     * **The product raised a job because something needs a person to decide** — a period it will
+     * not price by itself, a service about to end. Different from `task.generated`, which is the
+     * nightly sweep doing the firm's ordinary work: this one is the system saying it is stuck.
+     *
+     * After the insert and outside the duplicate guard: a second sweep that hits the unique index
+     * raised nothing, and recording there would say it had.
+     */
+    record("task.raised_by_system", {
+      subjectId: task.id,
+      subjectLabel: task.title,
+      clientId: target.clientId,
+      changes: { kind },
     });
     return true;
   } catch (err) {

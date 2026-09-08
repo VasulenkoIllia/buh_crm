@@ -48,6 +48,7 @@ import { fromDate } from "../../core/dates.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
 import { clientLabel, personName } from "../../core/names.js";
 import type { User } from "../../generated/prisma/client.js";
+import { diff, record } from "../../core/activity.js";
 import * as repo from "./campaigns.repository.js";
 import * as mailRepo from "./mailouts.repository.js";
 import {
@@ -257,6 +258,15 @@ export async function create(actor: User, input: CampaignInput): Promise<Campaig
     dedupe(input.recipients),
     dateMs.map((ms) => new Date(ms)),
   );
+  record("campaign.created", {
+    subjectId: row.id,
+    subjectLabel: input.name,
+    changes: {
+      rhythm: input.rhythm,
+      startsOn: new Date(startsOn).toISOString().slice(0, 10),
+      recipients: input.recipients?.length ?? 0,
+    },
+  });
   return detail(row.id);
 }
 
@@ -319,6 +329,30 @@ export async function update(id: string, input: CampaignInput): Promise<Campaign
     dedupe(input.recipients),
     dateMs.map((ms) => new Date(ms)),
   );
+  record("campaign.updated", {
+    subjectId: id,
+    subjectLabel: input.name,
+    changes:
+      diff(
+        {
+          rhythm: existing.rhythm,
+          startsOn: existing.startsOn.toISOString().slice(0, 10),
+          endsOn: existing.endsOn?.toISOString().slice(0, 10) ?? null,
+          sendAt: existing.sendAt,
+          templateId: existing.templateId,
+          recipients: existing._count.recipients,
+        },
+        {
+          rhythm: input.rhythm,
+          startsOn: new Date(startsOn).toISOString().slice(0, 10),
+          endsOn: endsOn === null ? null : new Date(endsOn).toISOString().slice(0, 10),
+          sendAt: input.sendAt,
+          templateId: input.templateId,
+          recipients: dedupe(input.recipients).length,
+        },
+        ["rhythm", "startsOn", "endsOn", "sendAt", "templateId", "recipients"],
+      ) ?? undefined,
+  });
   return detail(id);
 }
 
@@ -331,6 +365,7 @@ export async function setActive(id: string, active: boolean): Promise<CampaignDe
   }
 
   if (!active) {
+    record("campaign.stopped", { subjectId: id, subjectLabel: existing.name });
     // nextRunOn is cleared as well as the status: a stopped campaign still carrying a date reads
     // as "due", and one forgotten `status` check anywhere would then send it.
     //
@@ -357,6 +392,7 @@ export async function setActive(id: string, active: boolean): Promise<CampaignDe
     );
   }
   await repo.updateCampaign(id, { status: "scheduled", nextRunOn: new Date(next) }, null);
+  record("campaign.started", { subjectId: id, subjectLabel: existing.name });
   return detail(id);
 }
 
@@ -370,6 +406,7 @@ export async function remove(id: string): Promise<void> {
     );
   }
   await repo.deleteCampaign(id);
+  record("campaign.deleted", { subjectId: id, subjectLabel: existing.name });
 }
 
 // ── the sweep ────────────────────────────────────────────────────────────────
@@ -406,8 +443,9 @@ export async function runDueCampaigns(
 
     try {
       const targets = await repo.listCampaignRecipients(campaign.id);
+      let mailoutId: string | null = null;
       if (targets.length > 0) {
-        await runCampaign({
+        mailoutId = await runCampaign({
           id: campaign.id,
           templateId: campaign.templateId,
           kind: campaign.kind as MailoutKind,
@@ -433,11 +471,39 @@ export async function runDueCampaigns(
         lastRunAt: new Date(),
         status: next === null ? "finished" : "scheduled",
       });
+      /**
+       * **One summary with a count, not a row per recipient** — §4.2's second clause. The
+       * per-recipient record already exists in `MailoutRecipient`, and duplicating it would double
+       * the largest table in the product for no new answer.
+       *
+       * Recorded because letters left the building unattended: the question is asked from the
+       * campaign and from the client, and `JobEvent` answers it only for somebody who already knows
+       * to ask about the `campaign-sends` job (§3.3).
+       */
+      record("campaign.fired", {
+        subjectId: campaign.id,
+        subjectLabel: campaign.name,
+        // the count it ADDRESSED and the run it produced — not "sent", which this function does not
+        // know: `runCampaign` returns the mailout's id, and the delivery log is what knows who
+        // actually received anything
+        changes: { recipients: targets.length, mailout: mailoutId },
+      });
       fired += 1;
     } catch (err) {
       // A campaign that cannot fire must not stop the ones behind it, and must not silently
       // advance either — it stays due, and the error is in the log where somebody looks.
       failed += 1;
+      /**
+       * The campaign stays due and is retried — which is right, and is also how a newsletter can
+       * fail every hour for a week while nothing on any screen says so. Deduped to twice a day for
+       * that exact reason.
+       */
+      record("campaign.fire_failed", {
+        subjectId: campaign.id,
+        subjectLabel: campaign.name,
+        dedupeValue: campaign.name,
+        changes: { error: err instanceof Error ? err.message : String(err), period: key },
+      });
       console.error(`[campaigns] run failed for campaign=${campaign.id} period=${key}:`, err);
     }
   }

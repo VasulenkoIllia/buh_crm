@@ -98,17 +98,23 @@ export function updateInvoice(id: string, data: Prisma.InvoiceUncheckedUpdateInp
  * day it can: nothing is written, and the log says so.
  */
 export async function syncTaskAmounts(invoiceId: string, amount: number) {
-  const tasks = await prisma.task.findMany({ where: { invoiceId }, select: { id: true } });
-  if (tasks.length === 0) return { updated: 0 };
+  // the title and the previous price come back with the id: a job's price moving without anybody
+  // touching the job is exactly the kind of thing that looks like a bug six months later, and the
+  // activity log is where it stops looking like one
+  const tasks = await prisma.task.findMany({
+    where: { invoiceId },
+    select: { id: true, title: true, amount: true, clientId: true },
+  });
+  if (tasks.length === 0) return { updated: 0, task: null };
   if (tasks.length > 1) {
     console.warn(
       `[payments] invoice=${invoiceId} bills ${tasks.length} jobs — their prices were left alone. ` +
         `A per-job amount needs a line per job (see the hourly-billing backlog).`,
     );
-    return { updated: 0 };
+    return { updated: 0, task: null };
   }
   await prisma.task.update({ where: { id: tasks[0].id }, data: { amount } });
-  return { updated: 1 };
+  return { updated: 1, task: tasks[0] };
 }
 
 /** Archive / restore a set of invoices in one statement (callers pre-check the rules). */
@@ -182,7 +188,9 @@ const billableSubscription = () =>
     // the served periods ARE the billing window now — a period is invoiced only when the
     // subscription was in force continuously from its first day through the trigger day
     periods: { select: { startsOn: true, endsBefore: true }, orderBy: { startsOn: "asc" } },
-    service: { select: { invoiceTrigger: true, invoiceDay: true, dueDays: true } },
+    // `name` rides along for the activity log: a sweep that fails on one subscription records
+    // WHICH one, and "8f3a… could not be billed" is not a sentence anybody can act on
+    service: { select: { name: true, invoiceTrigger: true, invoiceDay: true, dueDays: true } },
   },
   }) satisfies Prisma.SubscriptionFindManyArgs;
 
@@ -306,13 +314,23 @@ export async function lockTaskForInvoicing(tx: Prisma.TransactionClient, taskId:
 // ── payments ─────────────────────────────────────────────────────────────────
 
 export type PaymentRecord = Prisma.PaymentGetPayload<{
-  include: { invoice: { select: { id: true; amount: true; cancelledAt: true } } };
+  include: {
+    invoice: {
+      select: { id: true; amount: true; cancelledAt: true; number: true; clientId: true };
+    };
+  };
 }>;
 
 export function findPayment(id: string): Promise<PaymentRecord | null> {
   return prisma.payment.findUnique({
     where: { id },
-    include: { invoice: { select: { id: true, amount: true, cancelledAt: true } } },
+    // `number` and `clientId` ride along for the activity log: a deleted payment is recorded
+    // against its invoice and its client, and neither is worth a second query here
+    include: {
+      invoice: {
+        select: { id: true, amount: true, cancelledAt: true, number: true, clientId: true },
+      },
+    },
   });
 }
 

@@ -69,8 +69,29 @@ if $RESET; then
     read -r answer
     [ "$answer" = "$PG_DB" ] || { echo "   not confirmed — nothing was changed"; exit 1; }
   fi
+  # **Recorded BEFORE the wipe, and it is the one thing the wipe does not take.**
+  #
+  # This is the most destructive operation in the product and until now the application learned
+  # nothing about it: afterwards there was no client book and no explanation of where it went.
+  # `ActivityEvent` is on the `--reset` keep-list precisely so this row survives — a reset that
+  # erased the record of the reset would be the one gap nobody could close afterwards
+  # (docs/modules/activity-log.md §3.3, §11).
+  #
+  # SQL rather than an app call because the app is not being restarted at this point in the script.
+  # It is the only statement outside Prisma that names this table's columns, so it is deliberately
+  # the smallest possible one: nothing here is nullable-by-accident, and nothing needs a lookup.
+  docker compose exec -T db psql -v ON_ERROR_STOP=1 -q -U "$PG_USER" -d "$PG_DB" <<SQL
+INSERT INTO "ActivityEvent"
+  ("id", "actorKind", "actorLabel", "action", "subject", "subjectLabel", "changes",
+   "outcome", "correlationId", "occurredAt")
+VALUES
+  (gen_random_uuid(), 'system', 'The deploy script', 'system.data_reset', 'system',
+   '$(whoami)@$(hostname -s)',
+   json_build_object('by', '$(whoami)', 'host', '$(hostname -s)'),
+   'ok', gen_random_uuid(), now());
+SQL
   docker compose exec -T db psql -v ON_ERROR_STOP=1 -q -U "$PG_USER" -d "$PG_DB" < scripts/reset-data.sql
-  echo "   database cleared"
+  echo "   database cleared (the reset itself is in the activity log)"
   # The files the deleted rows pointed at are pruned AFTER the rebuild — see step 5. Not here:
   # the reset keeps the team's avatars and the firm's logos now, so the old blanket
   # `rm -rf /app/uploads/*` would delete the bytes those surviving rows point at.
@@ -81,7 +102,14 @@ say "Pulling"
 git pull --ff-only
 
 say "Rebuilding and restarting (migrations run on start)"
-docker compose up -d --build
+# **What the container is running, and who put it there.**
+#
+# The app records `system.started` on every boot and adds `system.deployed` when the version
+# differs from the last one it recorded — which answers "everything broke at 14:00" against "the
+# deploy was at 13:58" without anybody reading container logs that this very deploy has just
+# destroyed by replacing the container (activity-log.md §3.3). Neither variable is required: with
+# both unset the version is "dev" and no deploy is ever detected.
+APP_VERSION="$(git rev-parse --short HEAD)" DEPLOY_BY="$(whoami)" docker compose up -d --build
 
 # ── 4. verify ────────────────────────────────────────────────────────────────
 say "Waiting for the app to answer"

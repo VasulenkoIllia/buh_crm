@@ -24,6 +24,7 @@ import { countUpcomingMeetingsForClient } from "../meetings/index.js";
 import { countOpenTasksForClient, generateForSubscription } from "../tasks/index.js";
 import { MAX_FILE_SIZE, deleteFileBytes, saveFileBytes } from "../../core/files.js";
 import { clientLabel } from "../../core/names.js";
+import { diff, record } from "../../core/activity.js";
 import * as repo from "./clients.repository.js";
 
 /**
@@ -340,7 +341,7 @@ async function assertCompanyNamesFree(
  */
 async function applyCompanies(clientId: string, companies: repo.CompanyRecordInput[]) {
   await assertCompanyNamesFree(clientId, companies);
-  const { removed, apply } = await repo.reconcileClientCompanies(clientId, companies);
+  const { removed, changed, apply } = await repo.reconcileClientCompanies(clientId, companies);
 
   if (removed.length > 0) {
     const refs = await repo.countCompanyReferences(removed.map((c) => c.id));
@@ -356,7 +357,40 @@ async function applyCompanies(clientId: string, companies: repo.CompanyRecordInp
       );
     }
   }
-  await apply();
+  const created = await apply();
+
+  for (const company of created) {
+    record("company.created", {
+      subjectId: company.id,
+      subjectLabel: company.name,
+      clientId,
+      changes: { name: company.name },
+    });
+  }
+  // only the ones a field actually moved on — the reconciliation rewrites every kept company on
+  // every save, and firing on that would put a row in the log each time the form was opened
+  for (const company of changed) {
+    record("company.updated", {
+      subjectId: company.id,
+      subjectLabel: company.name,
+      clientId,
+      changes: company.changes,
+    });
+  }
+  /**
+   * **Per removed company, sharing the request's correlation id** — §4.2's first clause. A bounded
+   * bulk action by a person is recorded per item, and the test is whether anybody would ever look
+   * for that row under `[subject, subjectId]`. They would: "what happened to that company" is asked
+   * on the company, and this is the only event that answers it.
+   */
+  for (const company of removed) {
+    record("company.deleted", {
+      subjectId: company.id,
+      subjectLabel: company.name,
+      clientId,
+      changes: { name: company.name },
+    });
+  }
 }
 
 /** Normalize the people payload for the repo (optional fields → null). */
@@ -378,6 +412,26 @@ async function assertPeopleServicesClientFacing(people: CreateClientInput["peopl
   }
 }
 
+/**
+ * **Opening a card, recorded — when the firm has switched it on.**
+ *
+ * Its own function rather than a line inside `getClient`, because `getClient` is what a dozen
+ * mutations call to build their response: recording there would write a "view" every time anybody
+ * saved anything, which is both wrong and the fastest way to make the log unreadable.
+ *
+ * `client.viewed` is seeded OFF (§3.2), so on a normal install this costs one lookup in a cached
+ * set of disabled keys and writes nothing at all.
+ */
+export async function viewClient(id: string, userId: string) {
+  const client = await getClient(id, userId);
+  record("client.viewed", {
+    subjectId: client.id,
+    subjectLabel: client.displayName,
+    clientId: client.id,
+  });
+  return client;
+}
+
 export async function createClient(input: CreateClientInput) {
   await assertPeopleServicesClientFacing(input.people);
   // check before writing anything: a refused save must not leave a half-created client behind
@@ -388,6 +442,13 @@ export async function createClient(input: CreateClientInput) {
     await repo.setClientPeople(client.id, mapPeople(input.people));
   }
   await applyDefaultClientService(client.id);
+  record("client.created", {
+    subjectId: client.id,
+    subjectLabel: clientLabel(client),
+    // the subject IS the client here, and the column is still filled: the client card's tab reads
+    // `clientId` alone, so leaving it null on the client's own events would hide them from it
+    clientId: client.id,
+  });
   return getClient(client.id);
 }
 
@@ -468,7 +529,84 @@ export async function updateClient(id: string, input: UpdateClientInput) {
   if (input.people !== undefined) {
     await repo.setClientPeople(id, mapPeople(input.people));
   }
+
+  /**
+   * **Only what moved, and nothing at all when nothing did.**
+   *
+   * This is the site §4.2 names: a save carrying only `{companies}` still reaches here, and firing
+   * on presence rather than on change would put a "Olena updated Petrenko" row in the log every
+   * time somebody opened and closed the form. `diff()` returns null for an empty change and
+   * `record()` drops it.
+   */
+  record("client.updated", {
+    subjectId: id,
+    subjectLabel: clientLabel(existing),
+    clientId: id,
+    changes:
+      diff(existing, toClientFields(input, false) as Record<string, unknown>, [
+        "firstName",
+        "lastName",
+        "companyName",
+        "phone",
+        "email",
+        "address",
+        "sourceId",
+        "description",
+      ]) ?? undefined,
+  });
+
+  /**
+   * The contacts are a SUMMARY, not a row per person: `ClientPerson` is deleted and recreated on
+   * every save, so no person id survives to be a subject (activity-log.md §4.3). Counts are what
+   * is left, and they are what somebody actually asks — "were the contacts changed, and when".
+   */
+  if (input.people !== undefined) {
+    const counts = countPeopleChanges(existing.people, mapPeople(input.people));
+    if (counts.added > 0 || counts.removed > 0 || counts.changed > 0) {
+      record("client.people_changed", {
+        subjectId: id,
+        subjectLabel: clientLabel(existing),
+        clientId: id,
+        changes: counts,
+      });
+    }
+  }
   return getClient(id);
+}
+
+/**
+ * Compared BY NAME, because a name is the only stable thing a person has here.
+ *
+ * The rows are deleted and recreated on every save, so ids cannot be matched across the write and
+ * a positional comparison would call a reordering a change. Renaming somebody therefore reads as
+ * one removal and one addition — which is honest: nothing in the data says the two are the same
+ * person, and a summary that guessed would be worse than one that counts.
+ */
+type PersonFields = ReturnType<typeof mapPeople>[number];
+
+export function countPeopleChanges(
+  was: PersonFields[],
+  now: PersonFields[],
+): { added: number; removed: number; changed: number } {
+  /**
+   * Normalised on BOTH sides before comparing. The stored rows carry `id`, `clientId`, `order` and
+   * timestamps that the input never has, so comparing them raw would report every surviving person
+   * as changed — a summary that always says "everything moved" says nothing.
+   */
+  const fields = (p: PersonFields) =>
+    JSON.stringify([p.name, p.serviceId, p.serviceLabel, p.role, p.phone, p.email]);
+  const before = new Map(was.map((p) => [p.name, fields(p)]));
+  const after = new Map(now.map((p) => [p.name, fields(p)]));
+  let changed = 0;
+  for (const [name, person] of after) {
+    const previous = before.get(name);
+    if (previous !== undefined && previous !== person) changed++;
+  }
+  return {
+    added: [...after.keys()].filter((n) => !before.has(n)).length,
+    removed: [...before.keys()].filter((n) => !after.has(n)).length,
+    changed,
+  };
 }
 
 // ── subscriptions & categories (S3) ─────────────────────────────────────────
@@ -529,6 +667,22 @@ export async function addSubscription(clientId: string, input: CreateSubscriptio
   // (already-committed) subscription; the daily scheduler sweeps + startup catch-up fill any gap.
   await generateForSubscription(created.id).catch(() => {});
   await generateForSubscriptionInvoices(created.id).catch(() => {});
+  /**
+   * The moment a client starts being billed for something. `SubscriptionPeriod` is the fifth
+   * journal (activity-log.md §4.6) — it carries `startNote`, `endNote` and who did both, which is
+   * why the rest of the subscription lifecycle can wait; this one is here because "when did we
+   * start charging for this" is asked from the client card, not from a period row.
+   */
+  record("subscription.created", {
+    subjectId: created.id,
+    subjectLabel: service.name,
+    clientId,
+    changes: {
+      service: service.name,
+      amount: input.amount,
+      startedAt: startsOn.toISOString(),
+    },
+  });
   return getClient(clientId);
 }
 
@@ -600,6 +754,27 @@ export async function updateSubscription(
   if (input.rhythmOverrides !== undefined) {
     await generateForSubscription(subscriptionId).catch(() => {});
   }
+  // `rhythmOverrides` is deliberately not a change key: it is a map keyed by task-template id, and
+  // a diff of it would be unreadable on screen and would say nothing a person could act on
+  record("subscription.updated", {
+    subjectId: subscriptionId,
+    subjectLabel: sub.service.name,
+    clientId,
+    changes:
+      diff(
+        { ...sub, isDefault: sub.isDefault },
+        { ...input, ...(isDefault !== undefined ? { isDefault } : {}) } as Record<string, unknown>,
+        [
+          "amount",
+          "period",
+          "companyId",
+          "invoiceTrigger",
+          "invoiceDay",
+          "dueDays",
+          "isDefault",
+        ],
+      ) ?? undefined,
+  });
   return getClient(clientId);
 }
 
@@ -634,6 +809,11 @@ export async function pauseSubscription(
   if (input.lastDay === null) {
     if (!open.endsBefore) throw new ConflictError("This service has no end date to remove");
     await repo.reopenPeriod(open.id);
+    record("subscription.pause_cancelled", {
+      subjectId: subscriptionId,
+      subjectLabel: sub.service.name,
+      clientId,
+    });
     return getClient(clientId);
   }
 
@@ -652,6 +832,12 @@ export async function pauseSubscription(
     // than leave a zero-length stub that would confuse the history and the coverage maths.
     if (open.startsOn > today) {
       await repo.deletePeriod(open.id);
+      record("subscription.start_cancelled", {
+        subjectId: subscriptionId,
+        subjectLabel: sub.service.name,
+        clientId,
+        changes: { startsOn: open.startsOn.toISOString() },
+      });
       return getClient(clientId);
     }
     // …but service that is already running must not be erased by a mistyped date. This used to
@@ -664,6 +850,13 @@ export async function pauseSubscription(
   await repo.closePeriod(open.id, new Date(lastDay.getTime() + 86_400_000), {
     endNote: input.note ?? null,
     endedById: actor.id,
+  });
+  record("subscription.paused", {
+    subjectId: subscriptionId,
+    subjectLabel: sub.service.name,
+    clientId,
+    // the DATE is the point of pausing, so it is what the row carries
+    changes: { lastDay: isoDay(lastDay), note: input.note ?? null },
   });
   return getClient(clientId);
 }
@@ -707,6 +900,12 @@ export async function resumeSubscription(
     startNote: input.note ?? null,
     createdById: actor.id,
   });
+  record("subscription.resumed", {
+    subjectId: subscriptionId,
+    subjectLabel: sub.service.name,
+    clientId,
+    changes: { startsOn: isoDay(startsOn), note: input.note ?? null },
+  });
   // today's work may already be due — sweep this one now; the scheduler self-heals either way
   await generateForSubscription(subscriptionId).catch(() => {});
   await generateForSubscriptionInvoices(subscriptionId).catch(() => {});
@@ -732,12 +931,30 @@ export async function archiveClient(id: string, actor: User) {
   if (!existing || existing.archivedAt) throw new NotFoundError("Client not found");
   // exclusive end: the last day served is today, so the period ends before tomorrow
   const endsBefore = toUtc(addDays(todayInTz(config.TZ), 1));
+  /**
+   * Recorded per subscription, sharing the archive's correlation id (§4.2, clause 1): "why did this
+   * service stop" is asked on the SERVICE, and `client.archived` alone cannot answer it — the whole
+   * question is which of them were running at the time.
+   */
+  const running = await repo.findSubscriptionsWithLivePeriods(id);
   await repo.closeLivePeriodsForClient(id, endsBefore, actor.id);
+  for (const sub of running) {
+    record("subscription.stopped", {
+      subjectId: sub.id,
+      subjectLabel: sub.service.name,
+      clientId: id,
+    });
+  }
   // and out of everyone's pinned block: an archived client is in nobody's working set, and a pin
   // left behind would float them to the top of the Archive screen, which reads as a mistake.
   // Deliberately not restored on un-archive — like the services, which also stay stopped.
   await repo.unpinForAllUsers(id);
   await repo.updateClient(id, { archivedAt: new Date(), archivedById: actor.id });
+  record("client.archived", {
+    subjectId: id,
+    subjectLabel: clientLabel(existing),
+    clientId: id,
+  });
   return { ok: true as const };
 }
 
@@ -756,6 +973,11 @@ export async function restoreClient(id: string) {
   if (!existing) throw new NotFoundError("Client not found");
   if (!existing.archivedAt) throw new ConflictError("This client is not archived");
   await repo.updateClient(id, { archivedAt: null, archivedById: null });
+  record("client.restored", {
+    subjectId: id,
+    subjectLabel: clientLabel(existing),
+    clientId: id,
+  });
   return getClient(id);
 }
 
@@ -791,6 +1013,14 @@ export async function addFile(
     path: relPath,
     uploadedById: actor.id,
   });
+  // a file is never "created" — the verb is reserved for bytes (§4.1), and `attachedTo` is what
+  // makes one log answer for client files and task files alike
+  record("file.uploaded", {
+    subjectId: row.id,
+    subjectLabel: row.name,
+    clientId,
+    changes: { name: row.name, size: row.size, attachedTo: "client" },
+  });
   return { id: row.id, name: row.name, size: row.size, mime: row.mime };
 }
 
@@ -798,6 +1028,14 @@ export async function getFile(clientId: string, fileId: string) {
   await getClient(clientId); // 404s archived/missing clients — files go dark with the client
   const file = await repo.findClientFile(clientId, fileId);
   if (!file) throw new NotFoundError("File not found");
+  /**
+   * **A read, recorded — because for this one the read IS the act.**
+   *
+   * Reads are not logged in general (§3.2): an open board polls every minute and a log of that
+   * answers nothing. A download is the exception, and the reason is blunt — it is the only way to
+   * answer "whose documents were taken" after a compromise.
+   */
+  record("file.downloaded", { subjectId: file.id, subjectLabel: file.name, clientId });
   return file;
 }
 
@@ -807,5 +1045,13 @@ export async function removeFile(clientId: string, fileId: string) {
   if (!file) throw new NotFoundError("File not found");
   await repo.deleteFileRow(file.id);
   await deleteFileBytes(file.path);
+  // `long` retention: this is a disposal record, and §11 keeps those seven years because they are
+  // the evidence that the disposal happened
+  record("file.deleted", {
+    subjectId: file.id,
+    subjectLabel: file.name,
+    clientId,
+    changes: { name: file.name, attachedTo: "client" },
+  });
   return { ok: true as const };
 }

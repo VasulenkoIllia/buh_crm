@@ -128,6 +128,16 @@ export const GATE_COPY: Record<GateKey, GateCopy> = {
       "The dashboard and reports. Declared before the screen exists, so S12 arrives with its " +
       "gate already in place.",
   },
+  activity: {
+    label: "Activity log",
+    hint:
+      "Who did what, when, and to whom — the firm-wide record, and the Activity tab on each " +
+      "client card. Its own switch rather than part of Team, so a lead can be given the record " +
+      "without also being given roles and invitations.",
+    caveat:
+      "The tab and the client-card history go. Nothing stops being RECORDED — the log is written " +
+      "whatever this says, and closing it only decides who may read it back.",
+  },
   team: {
     label: "Team",
     hint:

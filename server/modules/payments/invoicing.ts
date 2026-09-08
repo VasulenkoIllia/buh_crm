@@ -3,6 +3,7 @@ import { hasLiveInvoice } from "@shared/schema/payment.js";
 import { todayInTz, toUtc } from "../../core/dates.js";
 import type { Prisma } from "../../generated/prisma/client.js";
 import * as repo from "./payments.repository.js";
+import { record } from "../../core/activity.js";
 
 /**
  * Invoice issuing — the single place a `number` is allocated and an Invoice row is
@@ -104,16 +105,38 @@ export async function issueInvoice(input: IssueInvoiceInput) {
   const { data, year } = invoiceRow(input);
   for (let attempt = 0; ; attempt++) {
     try {
-      return await repo.inTransaction(async (tx) => {
-        const invoice = await repo.insertInvoice(tx, year, data, input.taskId);
-        if (input.lines?.length) await repo.replaceLines(tx, invoice.id, input.lines);
-        return invoice;
+      const invoice = await repo.inTransaction(async (tx) => {
+        const row = await repo.insertInvoice(tx, year, data, input.taskId);
+        if (input.lines?.length) await repo.replaceLines(tx, row.id, input.lines);
+        return row;
       });
+      recordIssued(invoice);
+      return invoice;
     } catch (err) {
       if (attempt < 5 && isUniqueOn(err, "number")) continue; // burnt number → take the next one
       throw err;
     }
   }
+}
+
+/**
+ * **One key, two actors** — the reason `actorKinds` is a list (activity-log.md §4.3).
+ *
+ * An invoice is issued by a person pressing a button and by the 03:20 sweep, and "where did this
+ * invoice come from" is asked on the invoice rather than on the job. The store already knows which
+ * it was: a request carries the person, `runWithActivity` in the scheduler carries "The scheduler".
+ *
+ * **After the transaction, never inside it.** A log entry for a write that rolled back is worse
+ * than no entry — and here that is not a rule anybody has to remember, because `record()` only
+ * buffers and the flush happens once the request (or the job) is done.
+ */
+function recordIssued(invoice: { id: string; number: string; amount: number; clientId: string }) {
+  record("invoice.issued", {
+    subjectId: invoice.id,
+    subjectLabel: invoice.number,
+    clientId: invoice.clientId,
+    changes: { number: invoice.number, amount: invoice.amount },
+  });
 }
 
 /**
@@ -153,10 +176,14 @@ export interface JobInvoiceInput {
  * The link itself is left alone on cancel, so a voided invoice can still say what it was for; it
  * moves only when the job is genuinely billed again.
  */
-export function issueJobInvoice(input: JobInvoiceInput) {
-  return repo.inTransaction(async (tx) => {
+export async function issueJobInvoice(input: JobInvoiceInput) {
+  const invoice = await repo.inTransaction(async (tx) => {
     const task = await repo.lockTaskForInvoicing(tx, input.taskId);
     if (hasLiveInvoice(task)) return null;
     return issueInvoiceIn(tx, input);
   });
+  // outside the transaction, and only when one was actually issued: the guard above returns null
+  // when somebody else billed the same job first, and that is not an issuance
+  if (invoice) recordIssued(invoice);
+  return invoice;
 }

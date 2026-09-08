@@ -12,10 +12,21 @@
  * So the guard is a refusal, not a warning. `I_KNOW_THIS_IS_PRODUCTION=yes` exists because a
  * guard with no way past it gets deleted by whoever first needs past it.
  */
+import { record } from "../../server/core/activity.js";
+
 export function refuseOnProduction(what: string): void {
   if (process.env.NODE_ENV !== "production") return;
   if (process.env.I_KNOW_THIS_IS_PRODUCTION === "yes") {
     console.warn(`[dev-script] running ${what} against PRODUCTION on purpose — good luck.`);
+    /**
+     * Written straight through — there is no request and no `runWithActivity` wrapper here, and
+     * `record()` handles both by writing immediately with a correlation id of its own. Deliberately
+     * fire-and-forget: this is a guard, and it must not become a reason the guard itself fails.
+     */
+    record("system.dev_script_forced", {
+      subjectLabel: what,
+      changes: { script: what },
+    });
     return;
   }
   console.error(

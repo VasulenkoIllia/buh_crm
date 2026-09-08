@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { prisma, disconnectDb } from "../server/core/db.js";
+import { record, runWithActivity } from "../server/core/activity.js";
 import { createClient, createSecret } from "../server/modules/clients/index.js";
 import { clean, identityKey, normalisePhone, parseCsv, phoneKey } from "./import-lib.js";
 
@@ -250,6 +251,18 @@ async function main() {
     }
   }
 
+  // the same one-row-with-a-count rule as the client import: 84 clients arrived through this
+  // script and nothing recorded that they had
+  record("client.imported", {
+    subjectLabel: path ?? "stdin",
+    changes: {
+      file: path ?? "stdin",
+      created,
+      updated: secrets,
+      skipped: failed.length,
+    },
+  });
+
   console.log(`\ncreated: ${created}/${fresh.length}`);
   console.log(`secrets: ${secrets}`);
   if (failed.length) {
@@ -259,7 +272,10 @@ async function main() {
   }
 }
 
-main()
+runWithActivity(
+  { actor: { kind: "system", label: "The import script" }, summaryOnly: true },
+  main,
+)
   .catch((err) => {
     console.error(err);
     process.exit(1);

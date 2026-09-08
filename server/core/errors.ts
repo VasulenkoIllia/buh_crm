@@ -1,4 +1,5 @@
 import type { FastifyError, FastifyReply, FastifyRequest } from "fastify";
+import { setActivityRefusal } from "./activity.js";
 
 // Consistent error shape across the whole API:
 // { error: { code, message, details? } }
@@ -51,6 +52,18 @@ export function errorHandler(
   reply: FastifyReply,
 ) {
   if (error instanceof AppError) {
+    /**
+     * **The name of the refusal, kept for the log.**
+     *
+     * `module_closed`, `admin_only` and `forbidden` mean three different things to the person who
+     * met them, and until now this function returned without recording any of them — the
+     * permissions module decided and kept no runtime record of what it decided
+     * (`permissions.md` §20.3). The status code alone cannot tell them apart, so the code is
+     * stashed on the request's activity store and the flush writes it beside the outcome.
+     */
+    if (error.statusCode === 401 || error.statusCode === 403) {
+      setActivityRefusal(error.code, request.activity);
+    }
     return reply.status(error.statusCode).send({
       error: { code: error.code, message: error.message, details: error.details },
     });

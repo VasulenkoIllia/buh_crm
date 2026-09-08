@@ -2,6 +2,7 @@ import { readdir, rm, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { config } from "../server/core/config.js";
 import { prisma, disconnectDb } from "../server/core/db.js";
+import { record, runWithActivity } from "../server/core/activity.js";
 
 /**
  * Delete the bytes of every upload the database no longer knows about.
@@ -49,6 +50,15 @@ async function main() {
 
   const mb = (removedBytes / 1024 / 1024).toFixed(1);
   console.log(`uploads pruned: ${removed} file(s) removed (${mb} MB), ${kept} kept`);
+  /**
+   * Only when it removed something. This script deletes client documents' bytes from disk — the
+   * last trace of a file after its row is gone — which is a disposal record, so it is kept for
+   * seven years like the rest of them (activity-log.md §3.3, §11). A run that found nothing to do
+   * is not an act.
+   */
+  if (removed > 0) {
+    record("file.bytes_pruned", { changes: { removed, bytes: removedBytes } });
+  }
 
   const orphanRows = [...known].length - kept;
   if (orphanRows > 0) {
@@ -59,7 +69,7 @@ async function main() {
   }
 }
 
-main()
+runWithActivity({ actor: { kind: "system", label: "The uploads prune" } }, main)
   .catch((err) => {
     console.error(err);
     process.exit(1);

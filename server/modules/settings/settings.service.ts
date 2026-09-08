@@ -12,6 +12,7 @@ import { rememberFirmName } from "../../core/firm.js";
 import { rescheduleJob } from "../../core/scheduler.js";
 import { deleteFileBytes, saveFileBytes } from "../../core/files.js";
 import { ValidationError } from "../../core/errors.js";
+import { diff, record } from "../../core/activity.js";
 import * as repo from "./settings.repository.js";
 import { config } from "../../core/config.js";
 import { processBootedAt, readJobEvents, readJobHealth } from "../../core/job-health.js";
@@ -52,6 +53,11 @@ export async function updatePriority(id: string, input: UpdatePriorityInput) {
   const { isDefault, ...rest } = input;
   if (isDefault) {
     await repo.moveDefaultPriority(id);
+    // only the DEFAULT. A rename or a colour is presentation; the default decides what every task
+    // created from now on starts at, including the ones the nightly sweep generates
+    if (!priority.isDefault) {
+      record("settings.priority_default_changed", { subjectId: id, subjectLabel: priority.name });
+    }
   }
   if (Object.keys(rest).length > 0) {
     return repo.updatePriority(id, rest);
@@ -71,7 +77,9 @@ export async function createSource(input: CreateSourceInput) {
   const existing = await repo.findSourceByName(input.name);
   if (existing) throw new ConflictError("A source with this name already exists");
   const { _max } = await repo.maxSourceOrder();
-  return repo.createSource(input.name, (_max.order ?? -1) + 1);
+  const source = await repo.createSource(input.name, (_max.order ?? -1) + 1);
+  record("settings.source_created", { subjectId: source.id, subjectLabel: source.name });
+  return source;
 }
 
 export async function updateSource(id: string, input: UpdateSourceInput) {
@@ -81,7 +89,18 @@ export async function updateSource(id: string, input: UpdateSourceInput) {
       throw new ConflictError("A source with this name already exists");
     }
   }
-  return repo.updateSource(id, input);
+  const before = await repo.findSource(id);
+  const updated = await repo.updateSource(id, input);
+  record("settings.source_updated", {
+    subjectId: id,
+    subjectLabel: updated.name,
+    changes:
+      diff(before as unknown as Record<string, unknown>, input as Record<string, unknown>, [
+        "name",
+        "active",
+      ]) ?? undefined,
+  });
+  return updated;
 }
 
 /**
@@ -109,10 +128,12 @@ export async function removeSource(id: string) {
     );
   }
   await repo.deleteSource(id);
+  record("settings.source_deleted", { subjectId: id, subjectLabel: source.name });
   return { ok: true as const };
 }
 
 export async function updateFirm(input: UpdateFirmInput) {
+  const before = await repo.getFirmProfile();
   const firm = await repo.updateFirmProfile(input);
   // letters print this name and read it from memory, so a rename has to say so
   rememberFirmName(firm.name);
@@ -128,6 +149,22 @@ export async function updateFirm(input: UpdateFirmInput) {
   if (input.notifySweepAt !== undefined) {
     rescheduleJob("notification-sweep", sweepCron(firm.notifySweepAt));
   }
+  record("settings.firm_changed", {
+    subjectLabel: firm.name,
+    changes:
+      diff(before as unknown as Record<string, unknown>, input as Record<string, unknown>, [
+        "name",
+        "timezone",
+        "address",
+        "phone",
+        "email",
+        "taxId",
+        "bankDetails",
+        "notifySweepAt",
+        "notifyDeadlineDays",
+        "meetingRemindMinutes",
+      ]) ?? undefined,
+  });
   return toFirmDto(firm);
 }
 
@@ -136,7 +173,22 @@ export async function updateFirm(input: UpdateFirmInput) {
  * profile. Nothing else here differs: the same row, the same DTO.
  */
 export async function updateNumbering(input: UpdateNumberingInput) {
-  return toFirmDto(await repo.updateFirmProfile(input));
+  const before = await repo.getFirmProfile();
+  const firm = await repo.updateFirmProfile(input);
+  /**
+   * `long` retention. This is the one field in the product that nothing can repair after the fact:
+   * a counter moved backwards issues a number that already exists, and the invoices carrying it are
+   * already with clients. Seven years is the same reasoning that keeps accounting records.
+   */
+  record("settings.numbering_changed", {
+    subjectLabel: firm.invoicePrefix,
+    changes:
+      diff(before as unknown as Record<string, unknown>, input as Record<string, unknown>, [
+        "invoicePrefix",
+        "invoiceCounterDigits",
+      ]) ?? undefined,
+  });
+  return toFirmDto(firm);
 }
 
 export async function setLogo(
@@ -170,6 +222,7 @@ export async function setLogo(
       await deleteFileBytes(old.path);
     }
   }
+  record("settings.logo_changed", { subjectLabel: file.filename });
   return toFirmDto(updated);
 }
 

@@ -7,6 +7,7 @@ import type {
 } from "@shared/schema/catalog.js";
 import { billingRuleValid, defaultTriggerFor, rhythmValid } from "@shared/schema/catalog.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
+import { diff, record } from "../../core/activity.js";
 import * as repo from "./catalog.repository.js";
 
 /** Default chip palette (design tokens) — auto-assigned round-robin when no color is picked. */
@@ -82,6 +83,14 @@ export async function createService(input: CreateServiceInput) {
     },
     isInternal ? false : input.autoAddToNewClients === true,
   );
+  record("service.created", {
+    subjectId: service!.id,
+    subjectLabel: service!.name,
+    changes: { type: service!.type, defaultAmount: service!.defaultAmount },
+  });
+  if (service!.autoAddToNewClients) {
+    record("service.made_default", { subjectId: service!.id, subjectLabel: service!.name });
+  }
   return toServiceDto(service!);
 }
 
@@ -131,6 +140,34 @@ export async function updateService(id: string, input: UpdateServiceInput) {
   }
   const flag = merged.type === "internal" ? false : autoAddToNewClients;
   const updated = await repo.updateServiceWithDefault(id, fields, flag);
+
+  const subject = { subjectId: id, subjectLabel: updated!.name };
+  /**
+   * Three events out of one call, and the split is not cosmetic: the ACTIVATION pair and the
+   * DEFAULT pair are the two fields whose reach goes past the service itself — an inactive service
+   * leaves every picker in the product, and the default is what every new client is handed on
+   * create. Folding either into a generic "updated" would hide the two changes anybody would come
+   * looking for.
+   */
+  record("service.updated", {
+    ...subject,
+    changes:
+      diff(service as unknown as Record<string, unknown>, fields as Record<string, unknown>, [
+        "name",
+        "type",
+        "defaultAmount",
+        "invoiceTrigger",
+        "invoiceDay",
+        "dueDays",
+        "color",
+      ]) ?? undefined,
+  });
+  if (input.active !== undefined && input.active !== service.active) {
+    record(input.active ? "service.activated" : "service.deactivated", subject);
+  }
+  if (flag !== undefined && flag !== service.autoAddToNewClients) {
+    record(flag ? "service.made_default" : "service.default_cleared", subject);
+  }
   return toServiceDto(updated!);
 }
 
@@ -153,6 +190,13 @@ export async function removeService(id: string) {
     );
   }
   await repo.deleteService(id); // task templates cascade; lead references clear to null
+  // `long` retention: this is a disposal record, and it is the only remaining trace that the
+  // service ever existed — the row and its templates are gone
+  record("service.deleted", {
+    subjectId: id,
+    subjectLabel: service.name,
+    changes: { type: service.type },
+  });
   return { ok: true as const };
 }
 
@@ -176,6 +220,13 @@ export async function addTemplate(serviceId: string, input: CreateTaskTemplateIn
     description: input.description ?? null,
     defaultAssigneeIds: input.defaultAssigneeIds ?? [],
     billable: input.billable,
+  });
+  // a template is what turns a service into recurring work, so this changes what the nightly sweep
+  // produces for every client holding the service — not a detail of one service's form
+  record("service.template_added", {
+    subjectId: serviceId,
+    subjectLabel: service.name,
+    changes: { template: input.name, periodicity: input.periodicity },
   });
   return toServiceDto((await repo.findService(serviceId))!);
 }
@@ -203,6 +254,11 @@ export async function updateTemplate(
     throw new ValidationError("One-time services hold job presets — no repeat rhythm (use once)");
   }
   await repo.updateTemplate(templateId, input);
+  record("service.template_changed", {
+    subjectId: serviceId,
+    subjectLabel: service.name,
+    changes: { template: template.name },
+  });
   return toServiceDto((await repo.findService(serviceId))!);
 }
 
@@ -210,5 +266,11 @@ export async function removeTemplate(serviceId: string, templateId: string) {
   const template = await repo.findTemplate(serviceId, templateId);
   if (!template) throw new NotFoundError("Task template not found");
   await repo.deleteTemplate(templateId);
+  // that work stops being generated from tonight — for every client who holds this service
+  record("service.template_removed", {
+    subjectId: serviceId,
+    subjectLabel: (await repo.findService(serviceId))?.name ?? null,
+    changes: { template: template.name },
+  });
   return toServiceDto((await repo.findService(serviceId))!);
 }

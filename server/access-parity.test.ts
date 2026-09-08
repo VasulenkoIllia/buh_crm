@@ -20,8 +20,8 @@ import type { RouteRecord } from "./core/route-inventory.js";
  * recorded as UNGUARDED — 41 routes' worth, the Clients module included). It is a historical
  * record: it must never be regenerated, only read.
  *
- * Every difference is listed in `INTENDED_CHANGES`, with the reason. There are seven: two
- * behaviour changes and five routes that did not exist before.
+ * Every difference is listed in `INTENDED_CHANGES`, with the reason. There are ten: two behaviour
+ * changes and eight routes that did not exist before.
  */
 
 /** What protected each route the day before the access module landed. */
@@ -130,6 +130,27 @@ const INTENDED_CHANGES: Record<string, { before: Answer; after: Answer; why: str
     before: "nobody",
     after: "admin-only",
     why: "new: the access screen itself, behind the Team gate",
+  },
+  "GET /api/activity": {
+    before: "nobody",
+    after: "admin-only",
+    why:
+      "new: the activity log, behind its OWN gate (the fifteenth), seeded closed for a user and " +
+      "open for an admin — so on deploy day it is admin-only, exactly as the spec's first draft " +
+      "would have made it behind Team, and the firm can widen it afterwards without a developer",
+  },
+  "GET /api/activity/policies": {
+    before: "nobody",
+    after: "admin-only",
+    why: "new: which events are recorded at all, read beside the log it governs",
+  },
+  "PATCH /api/activity/policies/:action": {
+    before: "nobody",
+    after: "admin-only",
+    why:
+      "new: the switch for one event. Admin-only INSIDE the gate — deciding what is RECORDED is a " +
+      "different act from reading what was, and a firm that opens the log to a lead has not " +
+      "thereby let them stop it recording",
   },
   "PATCH /api/settings/numbering": {
     before: "nobody",

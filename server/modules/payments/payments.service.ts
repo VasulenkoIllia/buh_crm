@@ -18,6 +18,7 @@ import { dateToUtc, todayBusinessMs } from "../../core/dates.js";
 import { NotFoundError, ValidationError } from "../../core/errors.js";
 import { clientLabel, personName } from "../../core/names.js";
 import { issueInvoice } from "./invoicing.js";
+import { diff, record } from "../../core/activity.js";
 import * as repo from "./payments.repository.js";
 
 /**
@@ -310,7 +311,17 @@ export async function updateInvoice(id: string, input: UpdateInvoiceInput, user:
     newLines,
   );
   if (amount !== invoice.amount) {
-    await repo.syncTaskAmounts(id, amount);
+    const { task } = await repo.syncTaskAmounts(id, amount);
+    if (task) {
+      // the job's price followed the invoice, and nobody touched the job — recorded so that a
+      // number which moved on its own is explainable rather than suspicious
+      record("task.amount_synced", {
+        subjectId: task.id,
+        subjectLabel: task.title,
+        clientId: task.clientId,
+        changes: { amount: { from: task.amount, to: amount }, invoice: invoice.number },
+      });
+    }
   }
   await repo.writeAudit({
     invoiceId: id,
@@ -319,6 +330,19 @@ export async function updateInvoice(id: string, input: UpdateInvoiceInput, user:
     byUserId: user.id,
     before,
     after: { amount: updated.amount, description: updated.description, dueDate: updated.dueDate?.toISOString() ?? null },
+  });
+  record("invoice.updated", {
+    subjectId: id,
+    subjectLabel: invoice.number,
+    clientId: invoice.clientId,
+    changes:
+      diff(before, {
+        amount,
+        ...(input.description !== undefined ? { description: input.description ?? null } : {}),
+        ...(input.dueDate !== undefined
+          ? { dueDate: updated.dueDate?.toISOString() ?? null }
+          : {}),
+      }, ["amount", "description", "dueDate"]) ?? undefined,
   });
   await unarchiveIfOwed(id);
   return getInvoice(id);
@@ -338,6 +362,15 @@ export async function setTidied(input: BulkTidyInput, user: User) {
   });
   if (eligible.length > 0) {
     await repo.setTidied(eligible.map((inv) => inv.id), input.tidied, user.id);
+    // per invoice, sharing one correlation id: "what happened to invoice 41" must find the bulk
+    // tidy that took it off the list (§4.2, clause 1)
+    for (const inv of eligible) {
+      record(input.tidied ? "invoice.tidied" : "invoice.untidied", {
+        subjectId: inv.id,
+        subjectLabel: inv.number,
+        clientId: inv.clientId,
+      });
+    }
   }
   return { changed: eligible.length, skipped: input.invoiceIds.length - eligible.length };
 }
@@ -350,7 +383,18 @@ export async function setTidied(input: BulkTidyInput, user: User) {
 async function unarchiveIfOwed(invoiceId: string) {
   const invoice = await repo.findInvoice(invoiceId);
   if (!invoice?.tidiedAt || invoice.cancelledAt) return;
-  if (balanceOf(invoice) > 0) await repo.clearArchived([invoiceId]);
+  const balance = balanceOf(invoice);
+  if (balance > 0) {
+    await repo.clearArchived([invoiceId]);
+    // its own key rather than `invoice.untidied`: an invoice reappearing in the working list with
+    // nobody's name on it is otherwise indistinguishable from somebody having put it back
+    record("invoice.untidied_owed", {
+      subjectId: invoiceId,
+      subjectLabel: invoice.number,
+      clientId: invoice.clientId,
+      changes: { balance },
+    });
+  }
 }
 
 /** Bulk "mark as sent" from the list — same rule as the single toggle, cancelled ones skipped. */
@@ -361,6 +405,13 @@ export async function setDeliveryMany(input: BulkDeliveryInput, user: User) {
   );
   if (eligible.length > 0) {
     await repo.setDeliveryMany(eligible.map((inv) => inv.id), input.sent, user.id);
+    for (const inv of eligible) {
+      record(input.sent ? "invoice.marked_sent" : "invoice.sent_unmarked", {
+        subjectId: inv.id,
+        subjectLabel: inv.number,
+        clientId: inv.clientId,
+      });
+    }
   }
   return { changed: eligible.length, skipped: input.invoiceIds.length - eligible.length };
 }
@@ -374,7 +425,16 @@ export async function setDelivery(id: string, input: SetDeliveryInput, user: Use
   const invoice = await repo.findInvoice(id);
   if (!invoice) throw new NotFoundError("Invoice not found");
   if (invoice.cancelledAt) throw new ValidationError("This invoice is cancelled");
-  return toInvoiceDto(await repo.setInvoiceDelivery(id, input.sent, user.id));
+  const result = toInvoiceDto(await repo.setInvoiceDelivery(id, input.sent, user.id));
+  // only on a real move: re-marking an invoice that is already marked is not an act
+  if (input.sent !== (invoice.sentAt != null)) {
+    record(input.sent ? "invoice.marked_sent" : "invoice.sent_unmarked", {
+      subjectId: id,
+      subjectLabel: invoice.number,
+      clientId: invoice.clientId,
+    });
+  }
+  return result;
 }
 
 /** Void (never delete): the row stays for history but owes nothing. Admin only. */
@@ -385,7 +445,13 @@ export async function cancelInvoice(id: string, user: User) {
   if (invoice.payments.length > 0) {
     throw new ValidationError("Delete the payments on this invoice before cancelling it");
   }
-  return toInvoiceDto(await repo.cancelInvoice(id, user.id));
+  const cancelled = await repo.cancelInvoice(id, user.id);
+  record("invoice.cancelled", {
+    subjectId: id,
+    subjectLabel: invoice.number,
+    clientId: invoice.clientId,
+  });
+  return toInvoiceDto(cancelled);
 }
 
 // ── payments ─────────────────────────────────────────────────────────────────
@@ -426,6 +492,20 @@ export async function addPayment(invoiceId: string, input: AddPaymentInput, user
     byUserId: user.id,
     after: snapshot(payment),
   });
+  /**
+   * **The mirror beside the journal it mirrors** (activity-log.md §9). `PaymentAuditLog` keeps the
+   * real before/after JSON and the invoice's own audit screen; this says money moved, on an
+   * invoice, for a client — findable without knowing which journal to ask.
+   *
+   * A payment is an event on its INVOICE, not a subject of its own: nothing declares a `payment`
+   * subject, because nobody asks "what happened to payment 41" (§4.3).
+   */
+  record("invoice.payment_recorded", {
+    subjectId: invoiceId,
+    subjectLabel: invoice.number,
+    clientId: invoice.clientId,
+    changes: { amount: payment.amount, paidAt: payment.paidAt.toISOString() },
+  });
   return getInvoice(invoiceId);
 }
 
@@ -454,6 +534,13 @@ export async function updatePayment(id: string, input: UpdatePaymentInput, user:
     before,
     after: snapshot(updated),
   });
+  record("invoice.payment_edited", {
+    subjectId: payment.invoiceId,
+    subjectLabel: payment.invoice.number,
+    clientId: payment.invoice.clientId,
+    changes:
+      diff(before, snapshot(updated), ["amount", "paidAt", "reference"]) ?? undefined,
+  });
   await unarchiveIfOwed(payment.invoiceId);
   return getInvoice(payment.invoiceId);
 }
@@ -469,6 +556,14 @@ export async function removePayment(id: string, user: User) {
     action: "deleted",
     byUserId: user.id,
     before,
+  });
+  // `long` retention: deleting a record of money received is the kind of act a dispute asks about
+  // years later, which is why §11 keeps it seven rather than two
+  record("invoice.payment_deleted", {
+    subjectId: payment.invoiceId,
+    subjectLabel: payment.invoice.number,
+    clientId: payment.invoice.clientId,
+    changes: { amount: before.amount, paidAt: before.paidAt },
   });
   await unarchiveIfOwed(payment.invoiceId);
   return getInvoice(payment.invoiceId);
@@ -503,6 +598,19 @@ export async function markPaid(input: MarkPaidInput, user: User) {
       action: "created",
       byUserId: user.id,
       after: snapshot(payment),
+    });
+    /**
+     * **Per invoice, not one summary** — §4.2's first clause, and its test applied: would anybody
+     * ever look for this row under `[subject, subjectId]`? They would. "What happened to invoice
+     * 41" must find the bulk mark-paid that settled it, or the log answers the general question and
+     * not the specific one. All of them share this request's correlation id, so the screen still
+     * shows one gesture.
+     */
+    record("invoice.payment_recorded", {
+      subjectId: invoice.id,
+      subjectLabel: invoice.number,
+      clientId: invoice.clientId,
+      changes: { amount: payment.amount, paidAt: payment.paidAt.toISOString() },
     });
     settled++;
   }

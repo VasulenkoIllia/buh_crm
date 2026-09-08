@@ -40,6 +40,29 @@ export function findUser(id: string) {
   return prisma.user.findUnique({ where: { id }, select: { id: true } });
 }
 
+/**
+ * The state BEFORE a write, for the log.
+ *
+ * Policies and overrides are upserted in place, so without this read the change has no "from" and
+ * the log could say only that something moved — which is not the question anybody asks
+ * (`permissions.md` §20.3). Two extra indexed reads on a screen used a few times a year.
+ */
+export async function currentPolicyState(gate: string, role: UserRole) {
+  const row = await prisma.accessPolicy.findUnique({
+    where: { gate_role_action: { gate, role, action: "*" } },
+    select: { state: true },
+  });
+  return row?.state ?? null;
+}
+
+export async function currentOverrideState(userId: string, gate: string) {
+  const row = await prisma.accessOverride.findUnique({
+    where: { userId_gate_action: { userId, gate, action: "*" } },
+    select: { state: true },
+  });
+  return row?.state ?? null;
+}
+
 export function upsertPolicy(gate: string, role: UserRole, state: AccessState) {
   return prisma.accessPolicy.upsert({
     where: { gate_role_action: { gate, role, action: "*" } },

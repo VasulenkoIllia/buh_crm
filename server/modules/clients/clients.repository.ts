@@ -263,16 +263,51 @@ export async function reconcileClientCompanies(clientId: string, input: CompanyR
   });
   const removed = existing.filter((c) => !keptIds.has(c.id));
 
+  /**
+   * **What actually MOVED, computed here where both sides are in hand.**
+   *
+   * Every kept company is written on every save — `update` above carries `order` whether or not
+   * anything changed — so a caller recording "company updated" from that list would fire on
+   * presence rather than on change, which is the failure `activity-log.md` §4.2 names at this exact
+   * site. `order` is excluded because it is presentation: dragging the second company above the
+   * first is not a change to either company.
+   */
+  const FIELDS = ["name", "phone", "email", "description"] as const;
+  const changed = update
+    .map((u) => {
+      const was = byId.get(u.id)!;
+      const moved: Record<string, { from: unknown; to: unknown }> = {};
+      for (const field of FIELDS) {
+        const to = (u.data as Record<string, unknown>)[field];
+        if (to === undefined) continue;
+        if (was[field] !== to) moved[field] = { from: was[field], to };
+      }
+      return { id: u.id, name: was.name, changes: moved };
+    })
+    .filter((c) => Object.keys(c.changes).length > 0);
+
   return {
     removed, // the caller decides whether dropping these is allowed
-    apply: () =>
-      prisma.$transaction([
+    changed,
+    /**
+     * Returns the rows it CREATED, so they can be recorded with their ids.
+     *
+     * `create()` per row rather than one `createMany`: `createMany` returns a count and nothing
+     * else, and a company recorded without its id could never be found under `[subject, subjectId]`
+     * — which is the index the whole log is filed by. At most fifty companies on one save, in one
+     * transaction, on a write that happens a few times a week.
+     */
+    apply: async () => {
+      const results = await prisma.$transaction([
         ...update.map((u) => prisma.company.update({ where: { id: u.id }, data: u.data })),
         ...(removed.length
           ? [prisma.company.deleteMany({ where: { id: { in: removed.map((c) => c.id) } } })]
           : []),
-        ...(create.length ? [prisma.company.createMany({ data: create })] : []),
-      ]),
+        ...create.map((data) => prisma.company.create({ data })),
+      ]);
+      // the creates are last, and there are exactly `create.length` of them
+      return results.slice(results.length - create.length) as Prisma.CompanyGetPayload<object>[];
+    },
   };
 }
 
@@ -485,6 +520,22 @@ export function openPeriod(args: {
  * Touches open periods AND ones ending later, so a pause already scheduled for next month doesn't
  * keep the clock running past the archive date.
  */
+/**
+ * The client's services that are actually RUNNING right now, with the name each one is known by.
+ *
+ * Read before `closeLivePeriodsForClient` so the archive can say which services it stopped — after
+ * the write there is no way to tell a service stopped today from one paused last year.
+ */
+export function findSubscriptionsWithLivePeriods(clientId: string) {
+  return prisma.subscription.findMany({
+    where: {
+      clientId,
+      periods: { some: { OR: [{ endsBefore: null }, { endsBefore: { gt: new Date() } }] } },
+    },
+    select: { id: true, service: { select: { name: true } } },
+  });
+}
+
 export function closeLivePeriodsForClient(
   clientId: string,
   endsBefore: Date,
@@ -516,7 +567,9 @@ export function deletePeriod(id: string) {
 export function findSubscription(clientId: string, id: string) {
   return prisma.subscription.findFirst({
     where: { id, clientId },
-    include: { service: { select: { type: true } } },
+    // the service's NAME rides along for the activity log: every subscription event is filed under
+    // it, and "amount changed on 8f3a…" is not a sentence anybody can read
+    include: { service: { select: { type: true, name: true } } },
   });
 }
 

@@ -83,6 +83,7 @@ import { clientLabel, personName } from "../../core/names.js";
 import { open, seal, secretsConfigured } from "../../core/secrets-crypto.js";
 import type { User } from "../../generated/prisma/client.js";
 import * as campaignRepo from "./campaigns.repository.js";
+import { diff, record } from "../../core/activity.js";
 import * as repo from "./mailouts.repository.js";
 
 /** A stored DATE as `YYYY-MM-DD`, read off the UTC-midnight instant days are stored on. */
@@ -149,9 +150,8 @@ export async function listTemplates() {
 export async function createTemplate(input: CreateTemplateInput) {
   const clash = await repo.findTemplateByName(input.name);
   if (clash) throw new ConflictError(`A template named “${input.name}” already exists`);
-  return toTemplate(
-    await repo.createTemplate({
-      name: input.name,
+  const created = await repo.createTemplate({
+    name: input.name,
       subject: input.subject,
       heading: input.heading ?? null,
       body: input.body,
@@ -159,8 +159,9 @@ export async function createTemplate(input: CreateTemplateInput) {
       senderAccount: input.senderAccountId
         ? { connect: { id: input.senderAccountId } }
         : undefined,
-    }),
-  );
+  });
+  record("mailout.template_created", { subjectId: created.id, subjectLabel: created.name });
+  return toTemplate(created);
 }
 
 export async function updateTemplate(id: string, input: UpdateTemplateInput) {
@@ -171,7 +172,20 @@ export async function updateTemplate(id: string, input: UpdateTemplateInput) {
     const clash = await repo.findTemplateByName(input.name);
     if (clash) throw new ConflictError(`A template named “${input.name}” already exists`);
   }
-  return toTemplate(await repo.updateTemplate(id, input));
+  const updated = await repo.updateTemplate(id, input);
+  record("mailout.template_updated", {
+    subjectId: id,
+    subjectLabel: updated.name,
+    // never the BODY: §5.1 keeps this an index of events, and a letter's text is content
+    changes:
+      diff(existing as unknown as Record<string, unknown>, input as Record<string, unknown>, [
+        "name",
+        "subject",
+        "heading",
+        "kind",
+      ]) ?? undefined,
+  });
+  return toTemplate(updated);
 }
 
 export async function deleteTemplate(id: string) {
@@ -194,6 +208,7 @@ export async function deleteTemplate(id: string) {
     );
   }
   await repo.deleteTemplate(id);
+  record("mailout.template_deleted", { subjectId: id, subjectLabel: existing.name });
 }
 
 // ── sender mailboxes ─────────────────────────────────────────────────────────
@@ -510,7 +525,15 @@ export async function listSenderAccounts(): Promise<MailSenderState> {
 
 /** The firm's postal address — one address, not per mailbox, so it is saved on its own. */
 export async function updateFirmMail(input: UpdateFirmMailInput): Promise<MailSenderState> {
+  const before = (await repo.getFirmProfile()).postalAddress;
   await repo.updateFirmProfile({ postalAddress: input.postalAddress ?? null });
+  // CAN-SPAM requires this address in every commercial letter, so it decides whether the firm may
+  // send one at all — which is why it is worth a row of its own rather than a firm-profile diff
+  if (before !== (input.postalAddress ?? null)) {
+    record("settings.firm_mail_changed", {
+      changes: { postalAddress: { from: before, to: input.postalAddress ?? null } },
+    });
+  }
   return listSenderAccounts();
 }
 
@@ -555,6 +578,9 @@ export async function setMailLogo(
     await repo.deleteFileRow(firm.mailLogoFile.id).catch(() => {});
     await deleteFileBytes(firm.mailLogoFile.path).catch(() => {});
   }
+  // what every client sees at the top of every letter — a change nobody in the firm may notice,
+  // because the people who receive it are not the people who make it
+  record("settings.mail_logo_changed", { subjectLabel: file.filename });
   return listSenderAccounts();
 }
 
@@ -570,6 +596,7 @@ export async function removeMailLogo(): Promise<MailSenderState> {
     await repo.updateFirmProfile({ mailLogoFile: { disconnect: true } });
     await repo.deleteFileRow(firm.mailLogoFile.id).catch(() => {});
     await deleteFileBytes(firm.mailLogoFile.path).catch(() => {});
+    record("settings.mail_logo_changed", { subjectLabel: "removed" });
   }
   return listSenderAccounts();
 }
@@ -663,6 +690,14 @@ export async function createSenderAccount(input: SenderAccountInput): Promise<Ma
     isDefault: first,
   } as never);
   if (first) await repo.makeSenderAccountDefault(created.id);
+  // `long` retention throughout this subject: whoever holds a mailbox holds where the firm's mail
+  // appears to come from, and one of these accounts decides that for invoices
+  record("mailbox.created", {
+    subjectId: created.id,
+    subjectLabel: created.name,
+    changes: { fromEmail: created.fromEmail },
+  });
+  if (first) record("mailbox.default_changed", { subjectId: created.id, subjectLabel: created.name });
   return listSenderAccounts();
 }
 
@@ -683,6 +718,22 @@ export async function updateSenderAccount(
   }
 
   await repo.updateSenderAccount(id, accountWrite(input) as never);
+  record("mailbox.updated", {
+    subjectId: id,
+    subjectLabel: existing.name,
+    // the password is deliberately absent from the declared keys — this is the one place §5.1
+    // would be most tempting to break, and a diff of a credential is a credential
+    changes:
+      diff(existing as unknown as Record<string, unknown>, input as Record<string, unknown>, [
+        "name",
+        "fromEmail",
+        "fromName",
+        "smtpHost",
+        "smtpPort",
+        "imapHost",
+        "signature",
+      ]) ?? undefined,
+  });
   return listSenderAccounts();
 }
 
@@ -692,6 +743,9 @@ export async function makeSenderAccountDefault(id: string): Promise<MailSenderSt
   if (!account.active)
     throw new ValidationError("Activate the mailbox before making it default");
   await repo.makeSenderAccountDefault(id);
+  if (!account.isDefault) {
+    record("mailbox.default_changed", { subjectId: id, subjectLabel: account.name });
+  }
   return listSenderAccounts();
 }
 
@@ -707,6 +761,7 @@ export async function makeInvoiceSender(id: string): Promise<MailSenderState> {
   if (!account) throw new NotFoundError("Mailbox not found");
   if (!account.active) throw new ValidationError("Activate the mailbox first");
   await repo.makeInvoiceSender(id);
+  record("mailbox.invoice_sender_changed", { subjectId: id, subjectLabel: account.name });
   return listSenderAccounts();
 }
 
@@ -728,6 +783,7 @@ export async function deleteSenderAccount(id: string): Promise<MailSenderState> 
     );
   }
   await repo.deleteSenderAccount(id);
+  record("mailbox.deleted", { subjectId: id, subjectLabel: account.name });
   return listSenderAccounts();
 }
 
@@ -800,10 +856,36 @@ export async function sweepStalledSends(): Promise<{ closed: number }> {
       .catch(() => false);
     if (ok) closed++;
   }
+  /**
+   * The only thing in the product that ever says a send died. Delivery runs after the response
+   * returns, so a restart leaves whatever it had not reached reading as still in flight, for ever
+   * — and until now this sweep said so to a log nobody reads.
+   */
+  if (closed > 0) record("mailout.send_abandoned", { changes: { closed } });
   return { closed };
 }
 
+/**
+ * **Recorded once, whatever the test decided.**
+ *
+ * The test itself returns from six places — every step it can fail at hands back its own sentence
+ * — so a `record()` per return would be six chances to forget one. A wrapper records the verdict,
+ * and the function underneath stays exactly as readable as it was.
+ */
 export async function testSenderAccount(
+  actor: User,
+  id: string,
+  input: SenderTestInput,
+): Promise<SenderTestResult> {
+  const result = await runSenderTest(actor, id, input);
+  record("mailbox.tested", {
+    subjectId: id,
+    changes: { ok: result.ok, detail: result.step },
+  });
+  return result;
+}
+
+async function runSenderTest(
   actor: User,
   id: string,
   input: SenderTestInput,
@@ -1468,6 +1550,20 @@ export async function send(actor: User, input: SendMailoutInput): Promise<Mailou
     campaignId: null,
     periodKey: null,
   });
+  /**
+   * **One summary with a count** — §4.2's second clause. The per-recipient record already exists in
+   * `MailoutRecipient`, which is the largest table in the product, and a row each here would double
+   * it for an answer it already gives.
+   *
+   * `recipients` is what was ADDRESSED, not what arrived: delivery happens after this returns, and
+   * a count here that claimed otherwise would be the log's own lie. `mailout.send_failed` is the
+   * other half of the story.
+   */
+  record("mailout.sent", {
+    subjectId: id,
+    subjectLabel: letter.subject,
+    changes: { recipients: input.recipients.length, kind: letter.kind },
+  });
   return detail(id);
 }
 
@@ -1774,6 +1870,23 @@ async function notifyFailures(
   failures: number,
 ) {
   if (failures === 0) return;
+  /**
+   * **One summary with a count** — §4.2's second clause. The per-recipient record already exists in
+   * `MailoutRecipient`, which is the largest table in the product; a row each here would double it
+   * for no answer it does not already give.
+   *
+   * Deduped by the run, an hour at a time, for the same reason the notification is: the stalled-send
+   * sweep re-reads a mailout every ten minutes and one send must produce one line.
+   *
+   * This is also the call that proved the flushed-store path in `core/activity.ts` was needed:
+   * delivery runs after the response, so there is no open request left to buffer into.
+   */
+  record("mailout.send_failed", {
+    subjectId: mailoutId,
+    subjectLabel: letter.subject,
+    dedupeValue: letter.subject,
+    changes: { failed: failures, reason: "delivery" },
+  });
   await notify("ops_mailout_errors", {
     // the RUN, not the day: one send, one notification, however often the sweep re-reads it
     dedup: mailoutId,
@@ -2114,11 +2227,26 @@ export async function reviveAddress(actor: User, clientId: string, email: string
   const rows = await repo.listDeadAddresses([email]);
   if (!rows.length) throw new NotFoundError("That address is not blocked");
   await repo.reviveAddress(email, actor.id);
+  // the other half of `client.email_retired`: the pair reads as a story on the client's card —
+  // a server said the address was gone, and then somebody vouched for it
+  record("client.email_revived", {
+    subjectId: clientId,
+    subjectLabel: email,
+    clientId,
+    changes: { email },
+  });
   return clientState(clientId, FIRST_PAGE);
 }
 
 export async function setSubscription(actor: User, clientId: string, subscribed: boolean) {
   await repo.setUnsubscribed(clientId, subscribed ? null : new Date(), actor.id);
+  // the FIRM doing it, which is a different act from the client clicking unsubscribe — that one
+  // has no actor in the firm at all and is not recorded here
+  record("client.mail_subscription_changed", {
+    subjectId: clientId,
+    clientId,
+    changes: { subscribed },
+  });
   return clientState(clientId, FIRST_PAGE);
 }
 

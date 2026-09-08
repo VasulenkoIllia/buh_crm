@@ -261,6 +261,16 @@ model Session {
   userId    String   @db.Uuid
   expiresAt DateTime
   createdAt DateTime @default(now())
+  /// Where this session was opened from, captured once at sign-in.
+  ///
+  /// Not for display: it is what lets "somebody signed in from an address nobody recognises" be a
+  /// question anybody can ask. Nullable because every session that existed before this column did
+  /// has no answer, and inventing one would be worse than the gap.
+  ///
+  /// Only as true as `trustProxy` — behind Traefik an untrusted setting records the proxy's
+  /// address for every person in the firm, which is a lie that looks like data (activity-log.md A1).
+  ip        String?
+  userAgent String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -1842,4 +1852,130 @@ model UserRoleAuditLog {
   byUser User @relation("RoleAuditBy", fields: [byUserId], references: [id])
 
   @@index([userId, createdAt])
+}
+
+
+// ── Activity log (S15) ───────────────────────────────────────────────────────
+
+/// Three kinds of actor, and the reason the column beside it is nullable from the first migration.
+///
+/// `client` is reserved and unwritten: nothing creates a client actor until the portal ships. It is
+/// here now because this is the table where getting the seam wrong is worst — a log that cannot say
+/// "the client did this" is useless on the day the portal lands, and by then it holds every action
+/// the firm has taken (activity-log.md §8).
+enum ActorKind {
+  user
+  client
+  system
+}
+
+/// What became of the request. `refused` is a gate or a role saying no; `failed` is the app or the
+/// database saying no. Telling them apart is the whole value of the column — one is a permissions
+/// question and the other is an incident.
+enum ActivityOutcome {
+  ok
+  refused
+  failed
+}
+
+/// **Who did what, when, and to whom — one table for the whole product.**
+///
+/// Two tiers write into it (activity-log.md §2). Tier 1 is a hook that records every mutating
+/// request with no work per route, so a route added next year is logged the day it ships. Tier 2 is
+/// a service saying what actually happened — the subject, the action, the fields that moved. Where
+/// a service says nothing, tier 1 still stands.
+///
+/// **No foreign keys, deliberately.** Not an oversight and not laziness: `actorUserId`,
+/// `actorClientId`, `subjectId` and `clientId` are plain columns because §11 makes this table
+/// outlive what it describes. It is the evidence that disposal happened, so a cascade from a purged
+/// client would delete the proof at the moment it is needed, and a RESTRICT would block the purge
+/// instead. The labels beside the ids are SNAPSHOTTED for the same reason — `SecretAuditLog` has
+/// carried a label for exactly this since S7.5, and a deleted actor still reads.
+///
+/// **Never UPDATEd and never DELETEd by a route.** The module exposes reads and a retention purge,
+/// nothing else, which is what allows the app's database role to be narrowed to `INSERT, SELECT`
+/// here without breaking a feature (§10). It is on the keep-list in `schema-invariants.test.ts` and
+/// absent from `scripts/reset-data.sql`: a `--reset` that erased the log would erase the record of
+/// the reset, which is the one gap nobody could close afterwards.
+model ActivityEvent {
+  id String @id @default(uuid()) @db.Uuid
+
+  // ── WHO ────────────────────────────────────────────────────────────────────
+  actorKind     ActorKind
+  /// null for `system`, and for `client` once the portal writes here
+  actorUserId   String?   @db.Uuid
+  /// reserved; nothing writes it until the portal (§8)
+  actorClientId String?   @db.Uuid
+  /// snapshotted name, so a deleted actor still reads. "The scheduler" / "The import script" for
+  /// system rows — never an empty string, because the screen renders this and blank reads as a bug.
+  actorLabel    String
+
+  // ── WHAT ───────────────────────────────────────────────────────────────────
+  /// the key from `shared/activity.ts` — a STRING, never a Prisma enum. An enum would make every
+  /// new event a migration, which is precisely what the registry exists to avoid (§4).
+  action       String
+  /// the `ActivitySubject` value, always equal to the segment before the dot in `action`
+  subject      String
+  subjectId    String? @db.Uuid
+  subjectLabel String?
+
+  /// **The client this event is ABOUT, when there is one — denormalised on purpose.**
+  ///
+  /// §1 opens with "what has happened to this client", and that question crosses subjects: an
+  /// invoice issued for Petrenko is `subject: "invoice"`, a downloaded file is `subject: "file"`.
+  /// Keyed only by `[subject, subjectId]` the client card's Activity tab would find ten events of
+  /// the hundred-odd that concern that client. One nullable column and one index answer it in a
+  /// single query, and the alternative — resolving at read time — needs a join per subject type and
+  /// breaks every time a new subject learns to belong to a client (decided 2026-09-08).
+  clientId String? @db.Uuid
+
+  /// ONLY the fields that moved: `{ "phone": { "from": "…", "to": "…" } }`, never a whole record.
+  /// A log of full snapshots is a second copy of the client book — it would have to be gated like
+  /// the data it describes and would become a way to read what a closed gate refuses (§5.1).
+  changes Json?
+
+  // ── WHERE FROM ─────────────────────────────────────────────────────────────
+  ip          String?
+  userAgent   String?
+  /// which gate the route belonged to, or null for `shared` / `own` / `anonymous` routes
+  gate        String?
+  method      String?
+  route       String?
+  outcome     ActivityOutcome @default(ok)
+  /// `module_closed` · `admin_only` · `forbidden` … — the code the SPA was given
+  refusalCode String?
+
+  /// **One human gesture, one id.** Saving a client edits the client, reconciles two companies and
+  /// touches a subscription; the screen collapses those into "Olena updated Petrenko" and expands
+  /// on demand. The request hook mints it and every row written under that request inherits it,
+  /// which is also what makes tier 1 and tier 2 one thing rather than two logs (§6).
+  correlationId String @db.Uuid
+
+  occurredAt DateTime @default(now())
+
+  /// The screen's four questions, plus the fifth this build added (§5.2).
+  @@index([occurredAt])
+  @@index([actorUserId, occurredAt])
+  @@index([subject, subjectId, occurredAt])
+  @@index([clientId, occurredAt])
+  @@index([action, occurredAt])
+  @@index([correlationId])
+}
+
+/// **Whether one event in the registry is recorded at all.**
+///
+/// The shape `NotificationPolicy` already uses: one row per registry key, seeded from the constant
+/// by `ensureBaseData` with create-if-missing, never rewritten — so a firm's decision survives every
+/// deploy and a key added by a later release arrives at its own default.
+///
+/// It exists for `client.viewed`, which is the one event that would let a breach be scoped
+/// precisely and is also the noisiest in the product (every navigation). It ships present and off,
+/// and turning it on is a switch rather than a deploy (§3.2). Everything else ships on — but the
+/// same row is what lets the firm silence a new event that turns out to be noise, which is the
+/// property this module needs as the product grows.
+model ActivityPolicy {
+  /// the registry key from shared/activity.ts
+  action    String   @id
+  enabled   Boolean  @default(true)
+  updatedAt DateTime @updatedAt
 }

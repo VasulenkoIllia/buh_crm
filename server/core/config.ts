@@ -37,6 +37,30 @@ const envSchema = z.object({
     .refine(isRealTimezone, "Not a known IANA timezone (e.g. America/New_York, Europe/Kyiv)"),
   LOG_LEVEL: z.string().default("info"),
 
+  /**
+   * **How many proxies sit in front of this app** — and therefore which entry in
+   * `X-Forwarded-For` is the actual person.
+   *
+   * `trustProxy: true` trusts the whole chain, which means the LEFTMOST value wins, and that value
+   * is whatever the client typed into the header. Harmless while the only reader was the rate
+   * limiter; not harmless once every sign-in and every mutation stores an address that a person
+   * will later be asked to account for (activity-log.md §13 A1).
+   *
+   * Two in production: Cloudflare is proxied (docs/deployment.md §34) and Traefik terminates TLS
+   * behind it, so the app is two hops from the client. It is an env var rather than a literal
+   * because that is a deployment fact, not a code fact — turning Cloudflare to DNS-only makes it
+   * one, and an IP recorded under the wrong count is a lie that looks exactly like data.
+   */
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(10).default(2),
+
+  /**
+   * The build this container is running, and who put it there. Both are set by
+   * `scripts/deploy.sh`; both are absent in dev, where "the version" is whatever is checked out.
+   * Read once at boot to record `system.started`, and to notice a deploy by the version changing.
+   */
+  APP_VERSION: z.string().default(""),
+  DEPLOY_BY: z.string().default(""),
+
   DATABASE_URL: z.string().min(1),
   SESSION_SECRET: z.string().min(16),
 

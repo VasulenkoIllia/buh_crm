@@ -149,6 +149,23 @@ const GATE_SPECS = {
     defaults: { admin: "open", user: "open" },
   },
   /**
+   * **The fifteenth gate, and the log's own** (activity-log.md §12, owner 2026-09-08).
+   *
+   * The spec's first draft read the log behind `team`. `team` is `fixedAdmin` and has no states at
+   * all, so that would have meant full admin to read the log — and giving a lead their
+   * department's record would have meant giving them everything else with it. Its own gate is one
+   * line here and lets the firm decide without a developer, which is how every other area of this
+   * product now works.
+   *
+   * Seeded `closed` for `user` and `open` for `admin`, which reproduces the draft's behaviour on
+   * the day it ships: nothing anybody could see yesterday becomes visible today.
+   */
+  activity: {
+    states: ON_OFF,
+    enforcement: "routes",
+    defaults: { admin: "open", user: "closed" },
+  },
+  /**
    * The one gate with no switch. If any user could change a role, they could grant themselves
    * every other gate, and the whole table would be decorative. This is the only truly irreducible
    * rule in the module.

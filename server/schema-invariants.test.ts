@@ -152,6 +152,13 @@ describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
      *     calls irreducible was ever exercised. (TimeEntryAuditLog is NOT kept: it describes
      *     edits to client-work time entries, which the reset wipes — same call as PaymentAuditLog
      *     and SecretAuditLog, and it is in the script.)
+     *   • ActivityEvent — the log RECORDS the reset (`system.data_reset`, written before the SQL
+     *     runs), so a reset that wiped it would erase the record of the reset. That is the one gap
+     *     nobody could close afterwards, and it is why activity-log.md §11 puts the table here by
+     *     name. It also outlives what it describes on purpose: it is the evidence that disposal
+     *     happened.
+     *   • ActivityPolicy — which events the firm has silenced. Firm configuration, exactly like
+     *     NotificationPolicy above.
      *   • _prisma_migrations — Prisma owns its own ledger.
      */
     const KEPT = new Set([
@@ -167,6 +174,8 @@ describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
       "AccessPolicy",
       "AccessOverride",
       "UserRoleAuditLog",
+      "ActivityEvent",
+      "ActivityPolicy",
       "_prisma_migrations",
     ]);
 

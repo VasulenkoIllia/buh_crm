@@ -1,7 +1,9 @@
 import argon2 from "argon2";
 import { NOTIFICATION_TRIGGERS } from "@shared/notifications.js";
+import { ACTIVITY_EVENTS, ACTIVITY_KEYS } from "@shared/activity.js";
 import { prisma } from "./db.js";
 import { ensureAccessPolicies } from "./access.js";
+import { invalidateActivityPolicy, record, runWithActivity } from "./activity.js";
 import { config } from "./config.js";
 
 // Startup bootstrap — makes a fresh (production) database usable out of the box:
@@ -75,7 +77,69 @@ export async function ensureBaseData() {
    */
   await ensureAccessPolicies();
 
+  await ensureActivityPolicies();
+
   await ensureDefaultMailbox();
+}
+
+/**
+ * One row per event in the activity registry, seeded exactly as the notification policies are.
+ *
+ * `create`-if-missing, never `upsert`: an upsert would rewrite the firm's own decisions on every
+ * deploy, which is the failure `ensureDefaultMailbox` is written to avoid three models over. An
+ * event the firm has silenced stays silenced; an event a later release adds arrives at its
+ * registry default — which is the property that makes "a new module adds entries to a constant"
+ * (activity-log.md §4) true of the running system and not only of the code.
+ */
+async function ensureActivityPolicies() {
+  const existing = new Set(
+    (await prisma.activityPolicy.findMany({ select: { action: true } })).map((r) => r.action),
+  );
+  const rows = ACTIVITY_KEYS.filter((key) => !existing.has(key)).map((key) => ({
+    action: key,
+    enabled: ACTIVITY_EVENTS[key].enabledByDefault,
+  }));
+  if (rows.length > 0) {
+    await prisma.activityPolicy.createMany({ data: rows, skipDuplicates: true });
+    invalidateActivityPolicy();
+  }
+  return rows.length;
+}
+
+/**
+ * **The boot marker, and the deploy it implies.**
+ *
+ * "Everything broke at 14:00" against "the deploy was at 13:58" is the question asked most often
+ * after an incident, and answering it by hand means reading container logs the deploy has just
+ * destroyed by replacing the container (activity-log.md §3.3).
+ *
+ * A deploy is DETECTED rather than announced: the boot compares its own version to the last one
+ * recorded and writes `system.deployed` when they differ. Nothing in the deploy script writes SQL,
+ * which matters because a shell statement naming this table's columns is a second definition of
+ * the schema that nothing would keep in step (decided 2026-09-08). `scripts/deploy.sh` only has to
+ * pass `APP_VERSION` and `DEPLOY_BY` into the container.
+ *
+ * In development `APP_VERSION` is empty, so the version is the constant "dev" and no deploy is ever
+ * detected — which is correct: a restart is not a deploy.
+ */
+export async function recordBootEvents() {
+  const version = config.APP_VERSION.trim() || "dev";
+  const last = await prisma.activityEvent.findFirst({
+    where: { action: "system.started" },
+    orderBy: { occurredAt: "desc" },
+    select: { changes: true },
+  });
+  const previous = (last?.changes as { version?: string } | null)?.version ?? null;
+
+  await runWithActivity({ actor: { kind: "system", label: "The system" } }, async () => {
+    record("system.started", { subjectLabel: version, changes: { version } });
+    if (previous && previous !== version) {
+      record("system.deployed", {
+        subjectLabel: version,
+        changes: { version, previous, by: config.DEPLOY_BY.trim() || "unknown" },
+      });
+    }
+  });
 }
 
 /**
@@ -112,6 +176,17 @@ async function ensureNotificationPolicies() {
   for (const [trigger, spec] of Object.entries(NOTIFICATION_TRIGGERS)) {
     await prisma.notificationPolicy.upsert({
       where: { trigger },
+      /**
+       * `roles` is re-seeded on every boot; `recipientGate` and the firm's own fields are NOT.
+       *
+       * The split is deliberate and the two halves have different owners. `roles` is structural —
+       * "a task notification reaches its assignee" is not a preference, and a registry correction
+       * to it has to reach a database that was seeded before the correction (that is the bug where
+       * `ops_mailout_errors` notified nobody for a day). `recipientGate` is the firm's to change
+       * from the Notifications tab, so rewriting it here would undo their decision every deploy —
+       * which is what `ensureDefaultMailbox` below is written to avoid. Existing rows got their
+       * gate from the migration, once.
+       */
       update: { roles: spec.defaultRecipients },
       create: {
         trigger,
@@ -119,6 +194,9 @@ async function ensureNotificationPolicies() {
         mandatory: spec.mandatory,
         roles: spec.defaultRecipients,
         customUserIds: [],
+        // NULL: routing by permission is an option the firm turns on, never a shipped default —
+        // `billing` is open to everybody, so seeding it here would widen the audience on deploy
+        recipientGate: null,
         // both channels are ALLOWED for every trigger — what differs is which one is on by
         // default. Disallowing a channel is an admin decision, not a shipped one.
         inApp: true,
@@ -232,6 +310,14 @@ export async function ensureBootstrapAdmin(
     }
     throw err;
   }
+  /**
+   * The only account that exists before anybody is invited, and a security event recorded as one.
+   * The seeded configuration rows around it are not (activity-log.md §3.3) — nobody searches a log
+   * for "the default priorities were created".
+   */
+  await runWithActivity({ actor: { kind: "system", label: "The system" } }, async () => {
+    record("user.first_admin_created", { subjectLabel: email, changes: { email } });
+  });
   log.info({ email }, "Bootstrap admin created — sign in and change the password.");
   return { created: true };
 }

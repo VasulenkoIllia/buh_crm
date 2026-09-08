@@ -15,6 +15,7 @@ import {
   toUtc,
 } from "../../core/dates.js";
 import { clientLabel } from "../../core/names.js";
+import { record } from "../../core/activity.js";
 import * as repo from "./tasks.repository.js";
 import type { GeneratingSubscription, InternalService } from "./tasks.repository.js";
 
@@ -278,6 +279,14 @@ export async function generateSubscriptionTasks() {
   const subs = await repo.listGeneratingSubscriptions();
   const rows = subs.flatMap((sub) => rowsForSubscription(sub, deps, today, config.TZ));
   const created = await insertGeneratedTasks(rows);
+  /**
+   * **One summary per run, and only when it did something** (§4.2, clause 3). A night that raised
+   * nothing writes nothing — `JobEvent` is what says the run happened at all, with a better note
+   * than this module could compose (§3.3). What this adds is findability: "where did all this work
+   * come from" is asked from the board, by somebody who does not know there is a job called
+   * `subscription-task-generation`.
+   */
+  if (created > 0) record("task.generated", { changes: { created } });
   return { created, reminded: await remindEndingSubscriptions() };
 }
 
@@ -356,9 +365,13 @@ export async function generateInternalTasks() {
   const services = await repo.listInternalServices();
   const rows = services.flatMap((svc) => internalRows(svc, deps, today, config.TZ));
   if (rows.length === 0) return { created: 0 };
+  // the internal half of the same sweep. It shares the job's correlation id, so the two summaries
+  // read as one night's work rather than as two unrelated events
   // only ACTIVE users get freshly assigned (same invariant manual create/update enforce) —
   // a template member blocked after being set is dropped, not carried onto new tasks
   const active = new Set(await repo.listActiveUserIds());
   for (const row of rows) row.assigneeIds = row.assigneeIds.filter((id) => active.has(id));
-  return { created: await insertInternalTasks(rows) };
+  const created = await insertInternalTasks(rows);
+  if (created > 0) record("task.generated", { changes: { created } });
+  return { created };
 }

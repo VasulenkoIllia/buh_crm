@@ -17,6 +17,7 @@ import type { ClientSecretInput, UnlockSecretsInput } from "@shared/schema/clien
 import type { User } from "../../generated/prisma/client.js";
 import { ForbiddenError, NotFoundError, ValidationError } from "../../core/errors.js";
 import { open, seal, secretsConfigured } from "../../core/secrets-crypto.js";
+import { diff, record } from "../../core/activity.js";
 import * as repo from "./secrets.repository.js";
 
 const GRANT_MINUTES = 5;
@@ -95,6 +96,14 @@ export async function createSecret(
     label: input.label,
     ip,
   });
+  /**
+   * **The mirror, beside the journal it mirrors** (activity-log.md §9).
+   *
+   * `SecretAuditLog` keeps its IP, its label snapshot and the Secrets tab that reads it. This says
+   * the act happened somewhere findable without knowing which journal to ask — and it carries
+   * `clientId`, so the client card's Activity tab finds it even though the SUBJECT is a secret.
+   */
+  record("secret.created", { subjectId: created.id, subjectLabel: input.label, clientId });
   return listSecrets(clientId);
 }
 
@@ -130,6 +139,27 @@ export async function updateSecret(
     label: input.label,
     ip,
   });
+  /**
+   * **What moved, and never the value that moved.**
+   *
+   * The journal records `updated` and stops there, so "was the credential rotated, or did somebody
+   * fix a typo in the label" — the question asked after a departure — had no answer. `value` says
+   * what happened to the secret, never what it is: §5.1's rule is what keeps this log an index of
+   * events rather than a second copy of the vault.
+   */
+  const changed: Record<string, unknown> =
+    diff(
+      { label: secret.label, description: secret.description },
+      { label: input.label, description: input.description ?? null },
+      ["label", "description"],
+    ) ?? {};
+  if (sealed !== undefined) {
+    changed.value = {
+      from: secret.ciphertext ? "stored" : "none",
+      to: sealed ? "stored" : "none",
+    };
+  }
+  record("secret.updated", { subjectId: secretId, subjectLabel: input.label, clientId, changes: changed });
   return listSecrets(clientId);
 }
 
@@ -157,6 +187,7 @@ export async function deleteSecret(
     ip,
   });
   await repo.deleteSecret(secretId);
+  record("secret.deleted", { subjectId: secretId, subjectLabel: secret.label, clientId });
   return listSecrets(clientId);
 }
 
@@ -182,6 +213,7 @@ export async function unlock(
       label: null, // an unlock targets the client, not one secret
       ip,
     });
+    record("secret.unlock_failed", { clientId });
     // Names WHICH password, because that is the part people get wrong. The window asks for
     // re-authentication, and somebody who assumes the vault has a password of its own will try
     // one that never existed and read "Wrong password" as a fault in the app. Seven consecutive
@@ -197,6 +229,12 @@ export async function unlock(
 
   const expiresAt = now + GRANT_MS;
   grants.set(grantKey(actor.id, clientId), expiresAt);
+  /**
+   * **The journal records failures and reveals, and never a success** — so "seven failures" could
+   * not be told apart from "seven failures and then they got in" (activity-log.md §4.5). It is one
+   * of the three acts this product could not reconstruct at all, and this line is the whole fix.
+   */
+  record("secret.vault_unlocked", { clientId });
   return { expiresAt: new Date(expiresAt).toISOString() };
 }
 
@@ -242,6 +280,9 @@ export async function revealSecret(
       label: secret.label,
       ip,
     });
+    // inside the same guard, deliberately: the mirror follows the journal's one-row-per-LOOK rule
+    // rather than inventing a second, and the two cannot drift because they are the same branch
+    record("secret.revealed", { subjectId: secretId, subjectLabel: secret.label, clientId });
   }
   return { value, expiresAt: new Date(until).toISOString() };
 }

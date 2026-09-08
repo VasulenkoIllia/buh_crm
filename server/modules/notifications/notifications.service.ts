@@ -4,6 +4,7 @@ import {
 } from "@shared/notifications.js";
 import type { SetPreferenceInput, UpdatePolicyInput } from "@shared/schema/notification.js";
 import { NotFoundError } from "../../core/errors.js";
+import { diff, record } from "../../core/activity.js";
 import * as repo from "./notifications.repository.js";
 
 /**
@@ -167,5 +168,20 @@ export async function updatePolicy(trigger: string, input: UpdatePolicyInput) {
   if (!existing) throw new NotFoundError("Unknown notification trigger");
 
   await repo.updatePolicy(trigger, input);
+  // the firm-wide contour, which decides what the whole team is told — filed under `settings`
+  // because that is where a person would look for "who turned this off"
+  record("settings.notification_policy_changed", {
+    subjectLabel: trigger,
+    changes:
+      diff(existing as unknown as Record<string, unknown>, input as Record<string, unknown>, [
+        "enabled",
+        "inApp",
+        "email",
+        "sound",
+        "roles",
+        "recipientGate",
+        "customUserIds",
+      ]) ?? undefined,
+  });
   return policies();
 }

@@ -36,6 +36,11 @@ const SystemStatusSection = lazy(() =>
 const AccessSection = lazy(() =>
   import("./access-section").then((m) => ({ default: m.AccessSection })),
 );
+// the log's own tab. Lazy through the activity barrel, which publishes both halves already lazy —
+// the feed alone reaches the whole 138-event registry.
+const ActivitySection = lazy(() =>
+  import("./activity-section").then((m) => ({ default: m.ActivitySection })),
+);
 
 /**
  * Grouped by WHAT IS BEING CONFIGURED, not by which module owns the code.
@@ -45,7 +50,7 @@ const AccessSection = lazy(() =>
  * boring: the firm's own identity, the option lists every form offers, invoice numbering, and
  * notifications. Anyone looking for a setting can guess which of the four it is in.
  */
-type Tab = "firm" | "lists" | "invoices" | "notifications" | "system" | "access";
+type Tab = "firm" | "lists" | "invoices" | "notifications" | "system" | "access" | "activity";
 
 const TABS: { value: Tab; label: string; gate?: GateKey }[] = [
   { value: "firm" as const, label: "Firm" },
@@ -59,6 +64,14 @@ const TABS: { value: Tab; label: string; gate?: GateKey }[] = [
   { value: "system" as const, label: "System" },
   // whoever manages people manages their access — the tab is the Team gate, never its own switch
   { value: "access" as const, label: "Access", gate: "team" as const },
+  /**
+   * Beside Access, and behind a gate of its OWN (activity-log.md §12).
+   *
+   * Not `team`: that gate is `fixedAdmin`, so reading the log would have meant full admin, and
+   * giving a lead their department's record would have meant giving them roles and invitations
+   * with it. Its own gate is one line in `shared/access.ts` and lets the firm decide.
+   */
+  { value: "activity" as const, label: "Activity", gate: "activity" as const },
 ];
 
 /**
@@ -77,6 +90,7 @@ const BLURB: Record<Tab, string> = {
     "What each person may open, and what they may change. Nothing else in the app decides it.",
   system:
     "Whether the work the CRM does on its own — overnight and in the background — is happening.",
+  activity: "Who did what, when, and to whom — every change anybody made through the app.",
 };
 
 export function SettingsPage() {
@@ -90,9 +104,17 @@ export function SettingsPage() {
    */
   const [params, setParams] = useSearchParams();
   const raw = params.get("tab");
-  // a tab whose gate is closed leaves the strip; a link pointing at it lands on Firm
-  const tabs = TABS.filter((t) => !t.gate || access(t.gate) !== "closed");
-  const tab: Tab = tabs.some((t) => t.value === raw) ? (raw as Tab) : "firm";
+  /**
+   * A tab whose gate is closed leaves the strip; a link pointing at it lands on the first tab left.
+   *
+   * **An ungated tab belongs to `settings` itself**, which is what makes the whole strip resolve
+   * correctly for somebody who has the log and nothing else: `activity` open with `settings` closed
+   * used to be a switch that did nothing, because the screen holding the tab was unreachable
+   * (found while building the tab, 2026-09-08). Now the page shows exactly the tabs that person
+   * may open, and `RequireGate` on the route lets them through for the same reason.
+   */
+  const tabs = TABS.filter((t) => (t.gate ? access(t.gate) !== "closed" : canOpen));
+  const tab: Tab = tabs.some((t) => t.value === raw) ? (raw as Tab) : (tabs[0]?.value ?? "firm");
   const setTab = (next: Tab) =>
     setParams(
       (prev) => {
@@ -110,11 +132,13 @@ export function SettingsPage() {
    * which is what `RequireAdmin` on the route did. `RequireGate` already bounced them; this is the
    * belt to that braces, for a gate closed while the screen is open.
    */
-  if (!canOpen) {
+  if (tabs.length === 0) {
     return <p className="text-[13px] text-muted">This area is closed for your account.</p>;
   }
-  if (isLoading) return <p className="text-[13px] text-muted">Loading…</p>;
-  if (error || !data)
+  // the firm's own settings are what this query loads; somebody here only for the log does not
+  // need them, and must not be held at "Loading…" by a request their gate refuses
+  if (canOpen && isLoading) return <p className="text-[13px] text-muted">Loading…</p>;
+  if (canOpen && (error || !data))
     return <p className="text-[13px] text-danger-text">Failed to load settings.</p>;
 
   return (
@@ -128,19 +152,22 @@ export function SettingsPage() {
 
       {/* the forms stay in a narrow column — a name field the width of the screen is not a
           better name field. Notifications is the exception and takes the full width. */}
-      {tab === "firm" && (
+      {!data && tab !== "activity" && (
+        <p className="text-[13px] text-muted">Loading…</p>
+      )}
+      {data && tab === "firm" && (
         <div className="max-w-2xl space-y-6">
           <FirmSection name={data.firm.name} hasLogo={!!data.firm.logoFileId} />
           <TimezoneSection timezone={data.firm.timezone} />
         </div>
       )}
-      {tab === "lists" && (
+      {data && tab === "lists" && (
         <div className="max-w-2xl space-y-6">
           <PrioritiesSection priorities={data.priorities} />
           <SourcesSection sources={data.sources} />
         </div>
       )}
-      {tab === "invoices" && (
+      {data && tab === "invoices" && (
         <div className="max-w-2xl space-y-6">
           <NumberingSection
             prefix={data.firm.invoicePrefix}
@@ -153,7 +180,7 @@ export function SettingsPage() {
         what changed is that it is no longer stacked under five unrelated forms. Lazy through the
         barrel, because that barrel is also the app shell's route to the bell.
       */}
-      {tab === "notifications" && (
+      {data && tab === "notifications" && (
         <div className="mb-6 max-w-2xl">
           <NotificationScheduleSection
             sweepAt={data.firm.notifySweepAt}
@@ -179,6 +206,11 @@ export function SettingsPage() {
       {tab === "access" && (
         <Suspense fallback={<p className="text-[13px] text-muted">Loading…</p>}>
           <AccessSection />
+        </Suspense>
+      )}
+      {tab === "activity" && (
+        <Suspense fallback={<p className="text-[13px] text-muted">Loading…</p>}>
+          <ActivitySection />
         </Suspense>
       )}
     </div>

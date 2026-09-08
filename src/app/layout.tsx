@@ -34,7 +34,14 @@ import { FirmClock } from "./firm-clock";
  * the firm can change, which is the whole point of the module: those two are now `team` (fixed
  * admin, so nothing moved) and `settings` (seeded closed for a user, so nothing moved either).
  */
-const NAV: { to: string; label: string; icon: typeof Kanban; end?: boolean; gate?: GateKey }[] = [
+const NAV: {
+  to: string;
+  label: string;
+  icon: typeof Kanban;
+  end?: boolean;
+  /** several gates = the item stays while ANY of them is open — see `RequireGate` */
+  gate?: GateKey | GateKey[];
+}[] = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/tasks", label: "Tasks", icon: Kanban, gate: "tasks" },
   { to: "/clients", label: "Clients", icon: Users, gate: "clients" },
@@ -46,7 +53,9 @@ const NAV: { to: string; label: string; icon: typeof Kanban; end?: boolean; gate
   { to: "/reports", label: "Reports", icon: BarChart3, gate: "reports" },
   { to: "/team", label: "Team", icon: Users, gate: "team" },
   { to: "/archive", label: "Archive", icon: Archive, gate: "archive" },
-  { to: "/settings", label: "Settings", icon: Settings, gate: "settings" },
+  // Settings holds three areas behind three different gates. Somebody given only the activity log
+  // must still be able to reach the screen its tab lives on (activity-log.md §12).
+  { to: "/settings", label: "Settings", icon: Settings, gate: ["settings", "activity"] },
 ];
 
 export function AppLayout() {
@@ -62,7 +71,11 @@ export function AppLayout() {
       void queryClient.invalidateQueries({ queryKey: ME_QUERY_KEY });
     }, [queryClient]),
   );
-  const nav = NAV.filter((item) => !item.gate || access(item.gate) !== "closed");
+  const nav = NAV.filter(
+    (item) =>
+      !item.gate ||
+      (Array.isArray(item.gate) ? item.gate : [item.gate]).some((g) => access(g) !== "closed"),
+  );
   return (
     <div className="flex min-h-screen">
       <aside className="flex w-56 shrink-0 flex-col bg-sidebar text-white">

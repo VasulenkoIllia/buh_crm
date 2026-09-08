@@ -65,6 +65,25 @@ describe("code splitting cannot be undone by accident", () => {
     expect(barrel).toMatch(/lazy\(\s*\(\)\s*=>\s*import\("\.\/client-services"\)/);
   });
 
+  /**
+   * The same rule, third time, and this one carries the largest single constant in the app.
+   *
+   * `modules/activity/index.ts` is imported by TWO screens — Settings and the client card — so a
+   * static export would put the 138-event registry and its prose into whatever chunk those two
+   * happen to share, on every first visit, for a tab most people open a few times a year. Both
+   * exports are `lazy()` and both are rendered inside a `<Suspense>`.
+   */
+  it("the activity barrel reaches the registry only through lazy()", async () => {
+    const barrel = await readFile(new URL("../modules/activity/index.ts", import.meta.url), "utf8");
+    expect(
+      /^\s*export\s.*from\s+["']\.\//m.test(barrel),
+      "The activity barrel must not re-export anything statically: it is imported by Settings and " +
+        "by the client card, and what it reaches travels to both.",
+    ).toBe(false);
+    expect(barrel).toMatch(/lazy\(\s*\(\)\s*=>\s*import\("\.\/activity-feed"\)/);
+    expect(barrel).toMatch(/lazy\(\s*\(\)\s*=>\s*import\("\.\/activity-policies"\)/);
+  });
+
   it("the router loads every screen on demand", async () => {
     const router = await readFile(new URL("./router.tsx", import.meta.url), "utf8");
     // every Page component the router names must arrive through lazy(), not a static import

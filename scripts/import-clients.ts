@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { prisma, disconnectDb } from "../server/core/db.js";
+import { record, runWithActivity } from "../server/core/activity.js";
 import { clean, normalisePhone, parseCsv } from "./import-lib.js";
 import { createClient } from "../server/modules/clients/index.js";
 
@@ -302,6 +303,24 @@ async function main() {
     }
   }
 
+  /**
+   * **One row with a count and the source file** (activity-log.md §3.3).
+   *
+   * This script created 177 clients and left no trace anywhere — the biggest write this database
+   * has ever seen, invisible to everything. The run is wrapped in a `summaryOnly` context, so the
+   * 177 `client.created` events its own service layer produces are dropped and this is what
+   * survives: a bulk import is one act, and a person searching the log wants to find it as one.
+   */
+  record("client.imported", {
+    subjectLabel: path ?? "stdin",
+    changes: {
+      file: path ?? "stdin",
+      created: done,
+      updated: 0,
+      skipped: failed.length,
+    },
+  });
+
   console.log(`\nimported: ${done}/${drafts.length}`);
   if (failed.length) {
     console.log(`failed  : ${failed.length}`);
@@ -310,7 +329,10 @@ async function main() {
   }
 }
 
-main()
+runWithActivity(
+  { actor: { kind: "system", label: "The import script" }, summaryOnly: true },
+  main,
+)
   .catch((err) => {
     console.error(err);
     process.exit(1);

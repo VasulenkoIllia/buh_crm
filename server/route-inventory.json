@@ -32,6 +32,39 @@
     "access": "gate:team"
   },
   {
+    "method": "GET",
+    "url": "/api/activity",
+    "access": "gate:activity"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/activity",
+    "access": "gate:activity",
+    "derived": true
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/activity/",
+    "access": "gate:activity",
+    "derived": true
+  },
+  {
+    "method": "GET",
+    "url": "/api/activity/policies",
+    "access": "gate:activity"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/activity/policies",
+    "access": "gate:activity",
+    "derived": true
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/activity/policies/:action",
+    "access": "gate:activity:admin"
+  },
+  {
     "method": "POST",
     "url": "/api/auth/accept-invite",
     "access": "anonymous"

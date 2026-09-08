@@ -2,6 +2,7 @@ import cron, { type ScheduledTask } from "node-cron";
 import type { FastifyBaseLogger } from "fastify";
 import { config } from "./config.js";
 import { recordJobRun, type JobRunResult } from "./job-health.js";
+import { record, runWithActivity } from "./activity.js";
 
 // In-process scheduler skeleton (S0). Jobs land per stage:
 //   S6 — subscription task generation · S7 — per-period invoices
@@ -56,23 +57,50 @@ export function registerJob(job: SchedulerJob) {
  */
 async function runOnce(job: SchedulerJob, log: FastifyBaseLogger): Promise<void> {
   const started = Date.now();
-  try {
-    const outcome = await job.run();
-    await recordJobRun(job.name, {
-      ok: true,
-      durationMs: Date.now() - started,
-      note: outcome?.note,
-      skipped: outcome?.skipped,
-      did: outcome?.did,
-    });
-  } catch (err) {
-    await recordJobRun(job.name, {
-      ok: false,
-      durationMs: Date.now() - started,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    log.error({ job: job.name, err }, "scheduler job failed");
-  }
+  /**
+   * **A job runs inside an activity context, which is the half a request hook cannot see.**
+   *
+   * The tier-1 hook sees HTTP and nothing else, so on its own the log would miss every write
+   * nobody clicks — including the two largest data events in this firm's history
+   * (activity-log.md §3.3). One wrapper here gives every job an actor, a correlation id and a
+   * flush, so a service that records during a nightly sweep needs to know nothing about how it
+   * was called.
+   *
+   * **This module does not duplicate `JobEvent`.** `recordJobRun` keeps the run detail — duration,
+   * skipped count, the error text, the note in the firm's language — and stays the record the
+   * System tab reads. Only the failure is mirrored here, because "a night did not happen" is asked
+   * by somebody who does not yet know which job to ask about (§9).
+   */
+  await runWithActivity(
+    { actor: { kind: "system", label: "The scheduler" } },
+    async () => {
+      try {
+        const outcome = await job.run();
+        await recordJobRun(job.name, {
+          ok: true,
+          durationMs: Date.now() - started,
+          note: outcome?.note,
+          skipped: outcome?.skipped,
+          did: outcome?.did,
+        });
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        await recordJobRun(job.name, {
+          ok: false,
+          durationMs: Date.now() - started,
+          error,
+        });
+        // deduped to one row an hour per job: a job failing every fifteen minutes would otherwise
+        // write 96 rows a day and bury everything else (§4.2)
+        record("system.job_failed", {
+          subjectLabel: job.name,
+          dedupeValue: job.name,
+          changes: { job: job.name, error },
+        });
+        log.error({ job: job.name, err }, "scheduler job failed");
+      }
+    },
+  );
 }
 
 /** One place that turns a job into a running cron task, so start and reschedule cannot diverge. */

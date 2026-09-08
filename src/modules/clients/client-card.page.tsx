@@ -1,8 +1,9 @@
-import { useRef, useState } from "react";
+import { Suspense, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAccess } from "@/app/auth";
 import { Download, Trash2 } from "lucide-react";
 import type { Client } from "@shared/schema/client";
+import { ActivityFeed } from "@/modules/activity";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { EntityMeetings } from "@/modules/calendar";
 import { ClientMailouts } from "@/modules/mailouts";
@@ -43,6 +44,16 @@ const TABS = [
   { key: "mailouts", label: "Mailouts", gate: "mailouts" },
   { key: "secrets", label: "Secrets", gate: "secrets" },
   { key: "files", label: "Files" },
+  /**
+   * **An entity's own history appears on the entity** (activity-log.md §12, rule 2), so the
+   * common question is answered where it is asked rather than on a separate screen.
+   *
+   * Last, and behind the log's own gate: it is looked up when something needs explaining, not read
+   * through. It reads by `clientId`, so it finds what happened to this client across every
+   * subject — the invoice issued for them, the document downloaded, the secret revealed — not only
+   * the events whose subject is the client.
+   */
+  { key: "activity", label: "Activity", gate: "activity" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 
@@ -188,6 +199,13 @@ export function ClientCardPage() {
         <ClientMailouts key={client.id} clientId={client.id} clientName={client.displayName} />
       )}
       {activeTab === "files" && <FilesTab clientId={client.id} />}
+      {activeTab === "activity" && (
+        // through the barrel, which publishes it already lazy: the feed reaches the whole
+        // 138-event registry, and this card is opened far more often than the tab is
+        <Suspense fallback={<p className="text-[13px] text-muted">Loading…</p>}>
+          <ActivityFeed clientId={client.id} compact />
+        </Suspense>
+      )}
       {editOpen && (
         <ClientFormModal open={editOpen} onClose={() => setEditOpen(false)} client={client} />
       )}

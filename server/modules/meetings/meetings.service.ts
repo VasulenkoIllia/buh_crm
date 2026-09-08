@@ -15,6 +15,7 @@ import { ConflictError, NotFoundError, ValidationError } from "../../core/errors
 import { clientLabel, personName } from "../../core/names.js";
 import { notify, notifiedAbout } from "../../core/notify.js";
 import { createTask, listDeadlinesInRange } from "../tasks/index.js";
+import { diff, record } from "../../core/activity.js";
 import * as repo from "./meetings.repository.js";
 import { fmtDayTimeInTz } from "@shared/dates.js";
 
@@ -315,6 +316,15 @@ export async function createMeeting(input: CreateMeetingInput, actor: User) {
   // after the writes, and never inside them — a booking that rolls back must not leave an
   // invitation in somebody's tray. The organiser is dropped by the emitter: they were there.
   await notifyInvited(created.id, input.title, startAt, actor);
+  record("meeting.created", {
+    subjectId: created.id,
+    subjectLabel: input.title,
+    clientId: target.clientId ?? null,
+    changes: {
+      startAt: startAt.toISOString(),
+      durationMinutes: input.durationMinutes,
+    },
+  });
   return getMeeting(created.id);
 }
 
@@ -332,6 +342,64 @@ function notifyInvited(meetingId: string, title: string, startAt: Date, actor: U
     sub: meetingWhen(startAt),
     link: { type: "meeting", id: meetingId },
   });
+}
+
+/**
+ * **The same split as the notifier, for the log's question rather than the tray's.**
+ *
+ * `meeting.moved` and `meeting.participants_changed` are lifted out of the ordinary field diff for
+ * the same reason the notifications module raises them separately: both reach other people's days,
+ * and "when did this move, and who moved it" is asked about a meeting far more often than any of
+ * its other fields.
+ */
+function recordMeetingChanges(
+  before: repo.MeetingRecord,
+  /** the title AFTER the edit — `repo.updateMeeting` returns a slim row that has no title */
+  title: string,
+  input: UpdateMeetingInput,
+  participantIds: string[] | undefined,
+  movedTo: Date | null,
+) {
+  const subject = {
+    subjectId: before.id,
+    subjectLabel: title,
+    clientId: before.clientId,
+  };
+
+  record("meeting.updated", {
+    ...subject,
+    changes:
+      diff(before as unknown as Record<string, unknown>, input as Record<string, unknown>, [
+        "title",
+        "durationMinutes",
+        "link",
+        "description",
+        "remindMinutesBefore",
+      ]) ?? undefined,
+  });
+
+  if (movedTo && movedTo.getTime() !== before.startAt.getTime()) {
+    record("meeting.moved", {
+      ...subject,
+      changes: {
+        startAt: { from: before.startAt.toISOString(), to: movedTo.toISOString() },
+      },
+    });
+  }
+  if (input.cancelled === true && !before.cancelledAt) record("meeting.cancelled", subject);
+  if (input.cancelled === false && before.cancelledAt) record("meeting.restored", subject);
+
+  if (participantIds) {
+    const was = before.participants.map((p) => p.userId);
+    const added = participantIds.filter((id) => !was.includes(id));
+    const removed = was.filter((id) => !participantIds.includes(id));
+    if (added.length > 0 || removed.length > 0) {
+      record("meeting.participants_changed", {
+        ...subject,
+        changes: { added, removed },
+      });
+    }
+  }
 }
 
 /** The one place a meeting instant is written into notification text, so the two triggers agree. */
@@ -519,6 +587,8 @@ export async function updateMeeting(id: string, input: UpdateMeetingInput, actor
 
   // Turning up to a moved meeting is the failure this prevents, so the dedup key is the new
   // INSTANT: a meeting pushed twice tells people twice, and a save that did not move it is silent.
+  recordMeetingChanges(existing, title, input, participantIds, movedTo);
+
   if (movedTo && movedTo.getTime() !== existing.startAt.getTime()) {
     await notify("meeting_moved", {
       dedup: `${id}:${movedTo.toISOString()}`,
