@@ -460,6 +460,80 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
   },
 };
 
+/**
+ * **Every module either raises notifications, or has decided not to — and says why.**
+ *
+ * The question "does this need a notification?" was being asked by accident or not at all. Two
+ * modules shipped while this file existed and neither was ever weighed against it. Absence of a
+ * trigger is ambiguous — a decision and an oversight look identical — and this repo has already
+ * paid for that ambiguity once: `ops_mailout_errors` shipped enabled with an empty recipient list
+ * and reached nobody for a day, which read exactly like somebody's intention.
+ *
+ * So a module is listed here with its triggers, or with the sentence explaining its silence.
+ * `notifications.coverage.test.ts` reads `server/modules/` off the disk and fails when a directory
+ * has no entry — which is what turns "remember to ask" into "cannot ship without answering".
+ *
+ * **A trigger is listed under the DOMAIN it is about, not the file that calls `notify()`.**
+ * `invoice_overdue` belongs to payments even though the nightly sweep raises it; keying this on
+ * call sites would have said payments has no notifications, which is false.
+ *
+ * The honest limit, stated so nobody trusts this further than it goes: module boundaries are
+ * directories and can be checked. Features are not. A new FIELD on an existing feature still needs
+ * a person to ask the question — see `templates/module/README.md` and AGENTS.md.
+ */
+export const MODULE_NOTIFICATIONS: Record<string, readonly NotificationTriggerKey[] | string> =
+  {
+    tasks: [
+      "task_assigned",
+      "task_comment",
+      "task_deadline_changed",
+      "task_deadline_near",
+      "task_overdue",
+      "task_done",
+      "task_reopened",
+      "task_cancelled",
+      "timer_left_running",
+    ],
+    meetings: [
+      "meeting_invited",
+      "meeting_today",
+      "meeting_moved",
+      "meeting_cancelled",
+      "meeting_restored",
+      "meeting_uninvited",
+      "meeting_soon",
+    ],
+    payments: ["invoice_overdue"],
+    mailouts: ["ops_mailbox_broken", "ops_mailout_errors"],
+    notifications: ["ops_sweep_failed"],
+
+    // ── decided to stay silent ────────────────────────────────────────────────
+    auth:
+      "Invitations, password resets and sign-in are letters a person asked for, not news about " +
+      "somebody else's work. A refused sign-in is a security question and belongs to the activity log.",
+    users:
+      "Adding or blocking a colleague is felt at once — they get an invitation, or they lose access " +
+      "mid-session. Nothing is waiting on a message about it.",
+    clients:
+      "Editing a client is a step of ordinary work, dozens a day. That is the rule that trimmed the " +
+      "original 32 candidates to 16 (§3.2): a lifecycle event yes, a work step no.",
+    leads:
+      "A stage change is already on the board of the person who made it, and means nothing to anybody " +
+      "else until it becomes a client — which raises nothing either, for the same reason.",
+    catalog:
+      "Services and task templates change rarely, and they change what will be GENERATED rather than " +
+      "anything a person must act on today. The generated task is the notification.",
+    settings:
+      "A firm setting is changed by the person reading the screen it is on. The one consequence worth " +
+      "announcing — a background job that stopped — is `ops_sweep_failed`, which belongs to this module.",
+    access:
+      "A permission change is felt the moment it lands: a screen appears or stops appearing. It is " +
+      "recorded in the activity log, which is where 'who changed my access' is answered.",
+    activity:
+      "The log records what happened; it does not announce it. A log that notified about itself would " +
+      "be a loop, and its own failures are already covered by `ops_sweep_failed`.",
+  };
+
 export const NOTIFICATION_TRIGGER_KEYS = Object.keys(
   NOTIFICATION_TRIGGERS,
 ) as NotificationTriggerKey[];
