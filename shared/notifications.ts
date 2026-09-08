@@ -524,8 +524,11 @@ export const MODULE_NOTIFICATIONS: Record<string, readonly NotificationTriggerKe
       "Services and task templates change rarely, and they change what will be GENERATED rather than " +
       "anything a person must act on today. The generated task is the notification.",
     settings:
-      "A firm setting is changed by the person reading the screen it is on. The one consequence worth " +
-      "announcing — a background job that stopped — is `ops_sweep_failed`, which belongs to this module.",
+      "A firm setting is changed by the person reading the screen it is on, so the change is its own " +
+      "confirmation. The Settings screen also SHOWS background-job health (the System tab), but the " +
+      "notification about a job that stopped is `ops_sweep_failed`, raised and drained by the " +
+      "notifications sweep and listed under that module — a screen that displays a fact does not own " +
+      "the telling of it.",
     access:
       "A permission change is felt the moment it lands: a screen appears or stops appearing. It is " +
       "recorded in the activity log, which is where 'who changed my access' is answered.",
