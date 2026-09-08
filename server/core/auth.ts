@@ -84,7 +84,10 @@ export async function createSession(
    */
   const user = await prisma.user
     .findUnique({ where: { id: userId }, select: { id: true, firstName: true, lastName: true } })
-    .catch(() => null);
+    .catch((error) => {
+      console.error("activity: could not name the person signing in", error);
+      return null;
+    });
   if (user) {
     setActivityActor({ kind: "user", userId: user.id, label: personName(user) });
     record("session.signed_in", { subjectId: session.userId, subjectLabel: personName(user) });
@@ -109,7 +112,10 @@ export async function destroySession(request: FastifyRequest, reply: FastifyRepl
         where: { id: sid },
         select: { userId: true, user: { select: { firstName: true, lastName: true } } },
       })
-      .catch(() => null);
+      .catch((error) => {
+        console.error("activity: could not name the person signing out", error);
+        return null;
+      });
     await prisma.session.deleteMany({ where: { id: sid } });
     // only when a session actually went: `/logout` answers `{ok:true}` to a browser with no
     // session at all, and recording that as a sign-out would be inventing an event

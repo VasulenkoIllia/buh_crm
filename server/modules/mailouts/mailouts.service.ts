@@ -881,7 +881,10 @@ export async function testSenderAccount(
 ): Promise<SenderTestResult> {
   const result = await runSenderTest(actor, id, input);
   // the NAME, not just the id: "tested the mailbox —" told a reader nothing they could act on
-  const account = await repo.findSenderAccount(id).catch(() => null);
+  const account = await repo.findSenderAccount(id).catch((error) => {
+    console.error("activity: could not name the tested mailbox", error);
+    return null;
+  });
   record("mailbox.tested", {
     subjectId: id,
     subjectLabel: account?.name ?? null,

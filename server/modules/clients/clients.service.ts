@@ -951,7 +951,10 @@ export async function archiveClient(id: string, actor: User) {
    * question is which of them were running at the time.
    */
   // read FOR the log, so it may not be able to fail the archive: same guard as `createSession`
-  const running = await repo.findSubscriptionsWithLivePeriods(id).catch(() => []);
+  const running = await repo.findSubscriptionsWithLivePeriods(id).catch((error) => {
+    console.error("activity: could not list the services this archive stops", error);
+    return [];
+  });
   await repo.closeLivePeriodsForClient(id, endsBefore, actor.id);
   for (const sub of running) {
     record("subscription.stopped", {

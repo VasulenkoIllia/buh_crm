@@ -930,3 +930,91 @@ describe("the three the audit caught", () => {
     await prisma.activityEvent.deleteMany({ where: { actorLabel: "Gated" } });
   });
 });
+
+describe("what the second review caught", () => {
+  /**
+   * The pager's total is capped on purpose — an exact count of a two-year log costs a scan of every
+   * matching gesture on every page load. Deriving "is there more" from that ceiling made the Next
+   * button die AT the ceiling: page 80 of a log with ten thousand gestures, and everything older
+   * unreachable on the one screen built to reach it.
+   *
+   * Proved with three gestures and a page size of one, which tests the mechanism rather than the
+   * number: `hasMore` has to come from the page, so it stays true past the last page only when the
+   * page itself says so.
+   */
+  it("knows there is another page from the page, not from the capped total", async () => {
+    for (const name of ["Pager one", "Pager two", "Pager three"]) {
+      await runWithActivity({ actor: { kind: "user", label: "Pager" } }, async () => {
+        record("client.created", { subjectLabel: name });
+      });
+    }
+    const page = async (n: number) => {
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/activity?q=Pager&pageSize=1&page=${n}`,
+        headers: { cookie: adminCookie },
+      });
+      return res.json() as { entries: unknown[]; hasMore: boolean };
+    };
+    expect((await page(1)).hasMore).toBe(true);
+    expect((await page(2)).hasMore).toBe(true);
+    expect((await page(3)).hasMore).toBe(false);
+    expect((await page(3)).entries).toHaveLength(1);
+
+    await prisma.activityEvent.deleteMany({ where: { actorLabel: "Pager" } });
+  });
+
+  /**
+   * `subject` and `group` are independent query params. The group branch used to assign over the
+   * subject narrowing instead of intersecting with it, so "just `client` events, within the clients
+   * group" quietly returned every subject in the group.
+   */
+  it("lets a group narrow a chosen subject rather than replace it", async () => {
+    /**
+     * Two SEPARATE gestures. A filter selects gestures and a selected gesture comes back whole
+     * (§6), so putting both records in one would prove nothing about the subject filter — it would
+     * only re-prove that an entry is not shown half of itself.
+     */
+    await runWithActivity({ actor: { kind: "user", label: "Narrow" } }, async () => {
+      record("client.created", { subjectLabel: "A client" });
+    });
+    await runWithActivity({ actor: { kind: "user", label: "Narrow" } }, async () => {
+      record("company.deleted", { subjectLabel: "A company", changes: { name: "A company" } });
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/activity?q=Narrow&group=clients&subject=company",
+      headers: { cookie: adminCookie },
+    });
+    const seen = (res.json() as { entries: { rows: { subject: string }[] }[] }).entries
+      .flatMap((e) => e.rows.map((r) => r.subject));
+    // both subjects are in the `clients` group; only the one asked for may come back
+    expect([...new Set(seen)]).toEqual(["company"]);
+
+    await prisma.activityEvent.deleteMany({ where: { actorLabel: "Narrow" } });
+  });
+
+  /** The client's name is snapshotted at write time, so it survives the client being wiped. */
+  it("keeps the client's name after the client is gone", async () => {
+    const client = await prisma.client.create({
+      data: { firstName: "Ghost", lastName: "Client" },
+    });
+    await runWithActivity({ actor: { kind: "user", label: "Snapshot" } }, async () => {
+      record("invoice.issued", {
+        subjectLabel: "INV-GHOST",
+        clientId: client.id,
+        changes: { number: "INV-GHOST", amount: 1 },
+      });
+    });
+    await prisma.client.delete({ where: { id: client.id } });
+
+    const row = await prisma.activityEvent.findFirstOrThrow({
+      where: { actorLabel: "Snapshot" },
+    });
+    // the client no longer exists; the row still says whose invoice it was
+    expect(row.clientLabel).toBe("Ghost Client");
+    expect(row.clientId).toBe(client.id);
+
+    await prisma.activityEvent.deleteMany({ where: { actorLabel: "Snapshot" } });
+  });
+});

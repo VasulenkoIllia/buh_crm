@@ -37,7 +37,15 @@ function where(query: ActivityQuery, visible: string[]): Prisma.ActivityEventWhe
     const subjects = (Object.keys(SUBJECT_GROUP) as ActivitySubject[]).filter(
       (s) => SUBJECT_GROUP[s] === (query.group as ActivityGroup),
     );
-    filters.subject = { in: subjects.filter((subject) => visible.includes(subject)) };
+    /**
+     * Intersected with whatever `subject` already holds, not assigned over it. `subject` and
+     * `group` are independent optional params, so a caller may send both — and overwriting turned
+     * "just `client` events, within the clients group" into "every subject in the group". Latent
+     * (the screen sends only one), and exposed on the API the moment a deep link sends both.
+     */
+    const inGroup = subjects.filter((subject) => visible.includes(subject));
+    const already = (filters.subject as { in: string[] }).in;
+    filters.subject = { in: inGroup.filter((subject) => already.includes(subject)) };
   }
   if (query.from || query.to) {
     filters.occurredAt = {
@@ -56,17 +64,30 @@ function where(query: ActivityQuery, visible: string[]): Prisma.ActivityEventWhe
   return filters;
 }
 
-/** The ids of one page of gestures, newest gesture first. */
-export async function findGestureIds(query: ActivityQuery, visible: string[]): Promise<string[]> {
+/**
+ * One page of gestures, newest first — **and whether another page exists**.
+ *
+ * `hasMore` is read from ONE EXTRA ROW rather than from the total, and that is the whole point.
+ * The total is deliberately capped (see `countGestures`), and deriving "is there more" from a
+ * ceiling means the Next button dies at the ceiling: a two-year log that silently stops at 2000
+ * gestures, on the one screen built to reach back through it. Caught in review, 2026-09-09.
+ */
+export async function findGestureIds(
+  query: ActivityQuery,
+  visible: string[],
+): Promise<{ ids: string[]; hasMore: boolean }> {
   const groups = await prisma.activityEvent.groupBy({
     by: ["correlationId"],
     where: where(query, visible),
     _max: { occurredAt: true },
     orderBy: { _max: { occurredAt: "desc" } },
-    take: query.pageSize,
+    take: query.pageSize + 1,
     skip: (query.page - 1) * query.pageSize,
   });
-  return groups.map((g) => g.correlationId);
+  return {
+    ids: groups.slice(0, query.pageSize).map((g) => g.correlationId),
+    hasMore: groups.length > query.pageSize,
+  };
 }
 
 /**

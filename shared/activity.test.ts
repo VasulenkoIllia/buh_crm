@@ -1,3 +1,4 @@
+import { isGateKey } from "./access.js";
 import { describe, expect, it } from "vitest";
 import {
   ACTIVITY_EVENTS,
@@ -53,6 +54,13 @@ describe("the activity registry", () => {
       expect(SUBJECT_GATE[subject], `${subject} names no gate`).toBeTruthy();
     }
     expect(Object.keys(SUBJECT_GATE).sort()).toEqual(Object.keys(SUBJECT_GROUP).sort());
+    /**
+     * And the gate NAMES must be real. A typo, or a gate renamed in `shared/access.ts`, would make
+     * `visibleSubjects()` treat that subject as gate-less and hide it from everyone — it fails
+     * safe, which is exactly why nobody would notice.
+     */
+    const unknown = Object.entries(SUBJECT_GATE).filter(([, gate]) => !isGateKey(gate));
+    expect(unknown, "a subject names a gate that does not exist").toEqual([]);
   });
 
   it("files every subject in exactly one group", () => {
@@ -168,6 +176,29 @@ describe("the activity registry", () => {
     expect(renderTitle("secret.vault_unlocked", { actorLabel: "Olena" })).toBe(
       "Olena unlocked the vault",
     );
+  });
+
+  /**
+   * A handful of acts are about a client without naming a thing of their own — unsubscribing them
+   * from mail, unlocking their vault. Those rendered "changed whether — receives mail" until the
+   * renderer learned to reach for the client first.
+   */
+  it("names the client when the subject has no label of its own", () => {
+    expect(
+      renderTitle("client.mail_subscription_changed", {
+        actorLabel: "Olena",
+        subjectLabel: null,
+        clientLabel: "Petrenko",
+      }),
+    ).toBe("Olena changed whether Petrenko receives mail");
+    // and the subject still wins when there is one
+    expect(
+      renderTitle("company.deleted", {
+        actorLabel: "Olena",
+        subjectLabel: "Petrenko LLC",
+        clientLabel: "Petrenko",
+      }),
+    ).toBe("Olena removed the company Petrenko LLC");
   });
 
   it("declares the two keys the tier-1 hook writes itself", () => {

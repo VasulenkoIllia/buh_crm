@@ -476,7 +476,12 @@ async function writeEvents(
           where: { id: { in: clientIds } },
           select: { id: true, firstName: true, lastName: true },
         })
-        .catch(() => []);
+        .catch((error) => {
+          // swallowed so the flush still writes its rows — but never silently: a recurring
+          // failure here means every row loses its client, and nothing else would say so
+          console.error("activity: could not resolve client names", error);
+          return [];
+        });
       for (const c of clients) clientNames.set(c.id, clientLabel(c));
     }
 

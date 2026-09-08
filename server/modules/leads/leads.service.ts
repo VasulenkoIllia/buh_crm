@@ -166,7 +166,11 @@ export async function markLost(id: string) {
     throw new ValidationError("A converted lead is read-only");
   }
   const lost = await repo.updateLead(id, { outcome: "lost" });
-  record("lead.marked_lost", { subjectId: id, subjectLabel: lead.name });
+  // only on a real move: marking an already-lost lead lost again is a legal no-op write, and a
+  // second row for it is the log claiming a decision nobody took
+  if (lead.outcome !== "lost") {
+    record("lead.marked_lost", { subjectId: id, subjectLabel: lead.name });
+  }
   return toLeadDto(lost);
 }
 
@@ -284,9 +288,14 @@ export async function renameStage(id: string, input: UpdateLeadStageInput) {
 export async function moveStage(id: string, input: MoveLeadStageInput) {
   const stage = await repo.findStage(id);
   if (!stage) throw new NotFoundError("Stage not found");
+  const before = (await repo.listStages()).map((x) => x.id).join();
   await repo.moveStage(id, input.afterStageId);
-  record("settings.stage_moved", { subjectId: id, subjectLabel: stage.name });
-  return repo.listStages();
+  const stages = await repo.listStages();
+  // a drag that lands where it started is not a move — the same rule the board's cards follow
+  if (before !== stages.map((x) => x.id).join()) {
+    record("settings.stage_moved", { subjectId: id, subjectLabel: stage.name });
+  }
+  return stages;
 }
 
 /**

@@ -76,6 +76,11 @@ export const activityPage = z.object({
    * whether there is more, so past the ceiling the screen says "2000+" (see `countGestures`).
    */
   totalIsExact: z.boolean(),
+  /**
+   * Whether another page exists — read from one extra row of THIS page, never from `total`.
+   * `total` is capped, and a Next button derived from a ceiling stops at the ceiling.
+   */
+  hasMore: z.boolean(),
   page: z.number().int(),
   pageSize: z.number().int(),
 });

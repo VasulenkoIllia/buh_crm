@@ -37,7 +37,7 @@ async function visibleSubjects(user: Pick<User, "id" | "role">): Promise<string[
 
 export async function list(user: Pick<User, "id" | "role">, query: ActivityQuery): Promise<ActivityPage> {
   const visible = await visibleSubjects(user);
-  const ids = await repo.findGestureIds(query, visible);
+  const { ids, hasMore } = await repo.findGestureIds(query, visible);
   const [rows, count] = await Promise.all([
     repo.findRowsFor(ids, visible),
     repo.countGestures(query, visible),
@@ -82,6 +82,7 @@ export async function list(user: Pick<User, "id" | "role">, query: ActivityQuery
     entries: ids.map((id) => byGesture.get(id)).filter((e): e is ActivityEntry => Boolean(e)),
     total: count.total,
     totalIsExact: count.exact,
+    hasMore,
     page: query.page,
     pageSize: query.pageSize,
   };

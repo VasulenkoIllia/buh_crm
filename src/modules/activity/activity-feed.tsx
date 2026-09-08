@@ -213,7 +213,9 @@ export function ActivityFeed({ clientId, compact = false }: ActivityFeedProps) {
             </Button>
             <Button
               variant="secondary"
-              disabled={data.page * data.pageSize >= data.total}
+              // `hasMore`, not the total: the total is capped, and a Next derived from a ceiling
+              // stops dead at it — which on a two-year log means the older half is unreachable
+              disabled={!data.hasMore}
               onClick={() => setPage((p) => p + 1)}
             >
               Next
