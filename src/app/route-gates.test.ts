@@ -58,6 +58,17 @@ function objectAt(source: string, from: number): { text: string; end: number } {
   throw new Error("unbalanced object in router.tsx");
 }
 
+/**
+ * Everything declared BEFORE the shell — the four screens that must work without a session, plus
+ * the `/` route that mounts the shell itself.
+ *
+ * Walked separately because the rest of this file only looks inside `AppLayout`, and a screen
+ * added out here would slip past every check in it. Found by auditing this test rather than the
+ * code it guards (2026-09-08). Asserted whole for the same reason `EXEMPT` is: the set is small,
+ * every member is deliberate, and a fifth is a decision.
+ */
+const OUTSIDE_SHELL = ["/", "/forgot-password", "/reset-password", "/set-password", "/sign-in"];
+
 /** The children array of the `AppLayout` route — every screen reached while signed in. */
 function layoutChildren(source: string): string {
   const layout = source.indexOf("element: <AppLayout />");
@@ -116,6 +127,24 @@ describe("every screen is behind a gate, or says why not", () => {
    */
   it("keeps the ungated list to the three screens that are argued for", () => {
     expect(EXEMPT).toEqual(["(index)", "profile", "unpaid"]);
+  });
+
+  /**
+   * The auth screens carry no gate because nobody is signed in yet: `PublicOnly` bounces a session
+   * away from sign-in, and the two token links have to work for somebody who has no account state
+   * at all. A NEW route out here would have neither a gate nor `RequireAuth`, which is a larger
+   * mistake than an ungated screen inside the shell — and until this assertion existed, a quieter
+   * one.
+   */
+  it("keeps the pre-shell routes to the four that need no session", async () => {
+    const source = await readFile(new URL("./router.tsx", import.meta.url), "utf8");
+    const beforeShell = source.slice(0, source.indexOf("element: <AppLayout />"));
+    const paths = [...beforeShell.matchAll(/path:\s*"([^"]+)"/g)].map((m) => m[1]);
+    expect(
+      [...new Set(paths)].sort(),
+      "a route declared outside the signed-in shell. It has no gate and no RequireAuth — if that " +
+        "is deliberate it belongs in OUTSIDE_SHELL with the reason.",
+    ).toEqual(OUTSIDE_SHELL);
   });
 
   it("names only gates the registry knows", async () => {
