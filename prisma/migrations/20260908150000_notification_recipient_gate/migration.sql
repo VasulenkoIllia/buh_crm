@@ -1,0 +1,13 @@
+-- Let a notification's audience follow PERMISSION rather than role — as an option, not a default.
+--
+-- Notifications answered "who should see this" with a role (`admin`); the access work answers it
+-- with a gate (`billing`, `mailouts`, `mailboxes`, `settings`). Two answers to one question drift,
+-- and this pair already had: a bookkeeper given the billing gate gets no overdue-invoice notice,
+-- and an admin whose billing gate was closed still gets one, about a screen they cannot open.
+--
+-- NO BACKFILL, and that is the decision. Routing `invoice_overdue` by `billing` out of the box
+-- would widen it from the two admins to everybody, because `billing` ships open to the `user`
+-- role — the opposite of what was asked for. The column arrives NULL everywhere, every firm keeps
+-- exactly the audience it had this morning, and switching it on is a visible act on the
+-- Notifications tab rather than a side effect of a deploy.
+ALTER TABLE "NotificationPolicy" ADD COLUMN "recipientGate" TEXT;

@@ -80,6 +80,17 @@ export const updatePolicyInput = z
     defaultInApp: z.boolean().optional(),
     defaultEmail: z.boolean().optional(),
     defaultSound: z.boolean().optional(),
+    /**
+     * Who this reaches. Editable only for the four triggers that address an AUDIENCE — the service
+     * refuses it on the other sixteen, because "a task notification reaches its assignee" is the
+     * module working, not a setting, and a screen that let somebody clear it would let them break
+     * the module quietly.
+     *
+     * `null` is a real value here (route by `roles` alone), which is why it is a union rather than
+     * `.optional()` on a string: absent means "not touching it".
+     */
+    recipientGate: z.union([z.literal(null), z.string().min(1)]).optional(),
+    customUserIds: z.array(uuid).max(50).optional(),
   })
   .refine((v) => Object.keys(v).length > 0, { message: "Nothing to update" });
 export type UpdatePolicyInput = z.infer<typeof updatePolicyInput>;
@@ -95,5 +106,9 @@ export const policySchema = z.object({
   defaultInApp: z.boolean(),
   defaultEmail: z.boolean(),
   defaultSound: z.boolean(),
+  /** the gate that decides the audience, or null when `roles` alone decides */
+  recipientGate: z.string().nullable(),
+  /** named people, added on top of whatever the gate or the roles resolve to */
+  customUserIds: z.array(uuid),
 });
 export type NotificationPolicy = z.infer<typeof policySchema>;

@@ -11,6 +11,15 @@
  * +433 kB — and this one is read by the UI.
  */
 
+/**
+ * TYPE-only, and that keeps the promise this file makes.
+ *
+ * The rule above is about importing a VALUE — that is what drags a runtime into the browser
+ * bundle. A type is erased at build time and costs nothing, and it is what makes a mistyped gate
+ * key fail the build instead of quietly notifying nobody.
+ */
+import type { GateKey } from "./access.js";
+
 export type NotificationGroup =
   "tasks" | "discussion" | "meetings" | "billing" | "ops" | "personal";
 
@@ -93,6 +102,26 @@ export interface NotificationTriggerSpec {
    * three triggers people would least expect to repeat (audit, 2026-09-06).
    */
   dedupScope: "record" | "occurrence";
+  /**
+   * The permission area this trigger MAY be routed by — offered on the settings screen, and off
+   * until somebody turns it on.
+   *
+   * Set only on the four triggers that address an AUDIENCE rather than a subject. The other
+   * sixteen reach the person the thing is about — the assignee, the participant, the author — and
+   * a gate is meaningless for those.
+   *
+   * It exists because two systems had started answering "who should see this": notifications by
+   * role (`admin`), permissions by gate (`billing`). They drift both ways — a bookkeeper given the
+   * billing gate gets no overdue-invoice notice, and an admin whose billing gate was closed still
+   * gets one, about a screen they cannot open.
+   *
+   * **An option and not a default, deliberately.** Routing `invoice_overdue` by `billing` out of
+   * the box would have widened it from two admins to everybody, because `billing` ships open to
+   * the `user` role — the exact opposite of the request that prompted this (user, 2026-09-08).
+   * A firm that wants "whoever can see it, hears about it" switches it on and can see what
+   * changed; nobody has their audience widened by a deploy.
+   */
+  gateOption?: GateKey;
 }
 
 /**
@@ -344,6 +373,7 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     mandatory: false,
   },
   invoice_overdue: {
+    gateOption: "billing",
     group: "billing",
     title: "Invoice {number} is overdue — {client}",
     when: "An invoice passes its due day still unpaid. Once per invoice, ever.",
@@ -357,6 +387,7 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     mandatory: false,
   },
   ops_mailbox_broken: {
+    gateOption: "mailboxes",
     group: "ops",
     title: "Mailbox {mailbox} could not be read",
     when: "One of your mailboxes stops answering — wrong password, wrong host, or it went down.",
@@ -372,6 +403,7 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     mandatory: false,
   },
   ops_sweep_failed: {
+    gateOption: "settings",
     group: "ops",
     // `{sweep}` is the job's HUMAN name — "Letters that came back", not `read-bounces`. The raw
     // key shipped in this line for two days and reached a real inbox as
@@ -391,6 +423,7 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     mandatory: false,
   },
   ops_mailout_errors: {
+    gateOption: "mailouts",
     group: "ops",
     // `{failed}` arrives ALREADY counted ("1 letter" / "4 letters") — the emitter has the number
     // and the template has no way to pluralise. "1 letters were not delivered" shipped for an

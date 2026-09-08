@@ -24,6 +24,8 @@ import {
   type NotificationTriggerKey,
   type RecipientRole,
 } from "@shared/notifications.js";
+import { isGateKey } from "@shared/access.js";
+import { accessMapFor } from "./access.js";
 import { prisma } from "./db.js";
 import { sendEmail, webOrigin } from "./email.js";
 
@@ -176,10 +178,40 @@ async function resolveRole(role: RecipientRole, ctx: NotifyContext): Promise<str
  * expressible. Roles an admin has added by hand that the registry does not declare are appended
  * afterwards rather than dropped.
  */
+/**
+ * Everyone who may open the screen this notification points at.
+ *
+ * Not "everyone with a role" — the firm decides access per gate, per role, and per person, and a
+ * notification that disagrees with that is either a leak or a silence. `closed` is the only state
+ * that excludes: `read_only` still means the reader can go and look, which is exactly what an
+ * overdue invoice asks them to do.
+ *
+ * One query for the users and a cached map each; the firm has a handful of people, and
+ * `accessMapFor` reads tables it already caches.
+ */
+async function resolveGate(gate: string): Promise<string[]> {
+  if (!isGateKey(gate)) {
+    // a gate removed from the registry must not take the notification down with it — the same
+    // contract `client_owner` has above
+    console.warn(`[notify] recipientGate \`${gate}\` is not a known gate — skipped`);
+    return [];
+  }
+  const users = await prisma.user.findMany({
+    where: { status: "active" },
+    select: { id: true, role: true },
+  });
+  const allowed: string[] = [];
+  for (const user of users) {
+    if ((await accessMapFor(user))[gate] !== "closed") allowed.push(user.id);
+  }
+  return allowed;
+}
+
 async function resolveRecipients(
   trigger: NotificationTriggerKey,
   policyRoles: RecipientRole[],
   customUserIds: string[],
+  recipientGate: string | null,
   ctx: NotifyContext,
 ): Promise<Recipient[]> {
   const declared = NOTIFICATION_TRIGGERS[trigger].defaultRecipients;
@@ -189,6 +221,20 @@ async function resolveRecipients(
   ];
 
   const seen = new Map<string, RecipientRole>();
+
+  /**
+   * The gate goes FIRST, so its reason is the one recorded.
+   *
+   * `reason` is the first role that matched, and it is what the tray shows and what a later
+   * "why am I getting this" answers from. "Because you can open Billing" is a better answer than
+   * "because you are an admin", and for these four triggers it is also the true one.
+   */
+  if (recipientGate) {
+    for (const id of await resolveGate(recipientGate)) {
+      if (!seen.has(id)) seen.set(id, "admin");
+    }
+  }
+
   for (const role of ordered) {
     const ids = role === "custom" ? customUserIds : await resolveRole(role, ctx);
     for (const id of ids) {
@@ -344,6 +390,7 @@ async function run(
     trigger,
     policy.roles as RecipientRole[],
     policy.customUserIds,
+    policy.recipientGate,
     ctx,
   );
   if (recipients.length === 0) return NOTHING_TO_DO;

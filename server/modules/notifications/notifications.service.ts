@@ -1,9 +1,11 @@
 import {
+  NOTIFICATION_TRIGGERS,
   NOTIFICATION_TRIGGER_KEYS,
   type NotificationTriggerKey,
 } from "@shared/notifications.js";
 import type { SetPreferenceInput, UpdatePolicyInput } from "@shared/schema/notification.js";
-import { NotFoundError } from "../../core/errors.js";
+import { isGateKey } from "@shared/access.js";
+import { NotFoundError, ValidationError } from "../../core/errors.js";
 import { diff, record } from "../../core/activity.js";
 import * as repo from "./notifications.repository.js";
 
@@ -155,6 +157,8 @@ export async function policies() {
         defaultInApp: p.defaultInApp,
         defaultEmail: p.defaultEmail,
         defaultSound: p.defaultSound,
+        recipientGate: p.recipientGate,
+        customUserIds: p.customUserIds,
       };
     }),
   };
@@ -166,6 +170,32 @@ export async function updatePolicy(trigger: string, input: UpdatePolicyInput) {
   }
   const existing = await repo.findPolicy(trigger);
   if (!existing) throw new NotFoundError("Unknown notification trigger");
+
+  /**
+   * Only the four AUDIENCE triggers may have their recipients changed.
+   *
+   * The other sixteen reach the person the thing is ABOUT — the assignee, the participant, the
+   * author, you. That is the module working, not a preference, and a task notification with its
+   * assignee removed is not a configured notification but a broken one. Refused at the service so
+   * a hand-written PATCH cannot do what the screen will not offer.
+   */
+  const audience = !!NOTIFICATION_TRIGGERS[trigger as NotificationTriggerKey].gateOption;
+  if (!audience && (input.recipientGate !== undefined || input.customUserIds !== undefined)) {
+    throw new ValidationError(
+      "This notification always goes to the people it is about — its recipients cannot be changed",
+    );
+  }
+  if (typeof input.recipientGate === "string" && !isGateKey(input.recipientGate)) {
+    throw new ValidationError("Unknown permission area");
+  }
+  if (input.customUserIds?.length) {
+    // a named person who has left, or was never real, would be a recipient that silently never
+    // receives anything — refuse it while somebody is looking at the screen
+    const found = await repo.countActiveUsers(input.customUserIds);
+    if (found !== new Set(input.customUserIds).size) {
+      throw new ValidationError("One of those people is no longer active");
+    }
+  }
 
   await repo.updatePolicy(trigger, input);
   // the firm-wide contour, which decides what the whole team is told — filed under `settings`

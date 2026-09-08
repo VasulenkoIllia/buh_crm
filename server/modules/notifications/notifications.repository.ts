@@ -221,3 +221,8 @@ export function brokenMailboxes() {
     select: { id: true, name: true, bounceError: true, bounceCheckedAt: true },
   });
 }
+
+/** How many of these ids are active people — used to refuse a named recipient who has left. */
+export async function countActiveUsers(ids: string[]): Promise<number> {
+  return prisma.user.count({ where: { id: { in: ids }, status: "active" } });
+}

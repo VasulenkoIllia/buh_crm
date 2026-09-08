@@ -42,6 +42,10 @@ export interface PolicyRow {
   defaultInApp: boolean;
   defaultEmail: boolean;
   defaultSound: boolean;
+  /** the permission area that decides the audience, or null when `roles` alone decides */
+  recipientGate: string | null;
+  /** people named on top of whatever the gate or the roles resolve to */
+  customUserIds: string[];
 }
 
 /**

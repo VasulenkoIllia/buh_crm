@@ -7,6 +7,9 @@ import {
   type NotificationTriggerKey,
 } from "@shared/notifications";
 import { cn } from "@/shared/lib/cn";
+import { isGateKey } from "@shared/access";
+import { GATE_COPY } from "@shared/access-copy";
+import { useUsers } from "@/modules/users";
 import { ApiError } from "@/shared/lib/api";
 import { InfoHint } from "@/shared/ui/info-hint";
 import { chimeStatus, playChime, type ChimeResult } from "./chime";
@@ -37,6 +40,8 @@ const GROUP_ORDER = (Object.keys(NOTIFICATION_GROUPS) as NotificationGroup[]).so
 export function NotificationPolicySection() {
   const { data, isLoading, error } = useNotificationPolicies();
   const update = useUpdateNotificationPolicy();
+  // names for the people a policy lists by id. Cached and shared with every other picker.
+  const { data: team } = useUsers();
   const [openGroups, setOpenGroups] = useState<Set<NotificationGroup>>(new Set());
   const [chime, setChime] = useState<ChimeResult | null>(null);
 
@@ -48,6 +53,9 @@ export function NotificationPolicySection() {
   }
 
   const byTrigger = new Map(data.triggers.map((t) => [t.trigger, t]));
+  const names = new Map(
+    (team ?? []).map((u) => [u.id, `${u.firstName} ${u.lastName}`.trim() || u.email]),
+  );
   const on = data.triggers.filter((t) => t.enabled).length;
 
   return (
@@ -129,6 +137,7 @@ export function NotificationPolicySection() {
                   <PolicyLine
                     key={row.trigger}
                     row={row}
+                    names={names}
                     busy={update.isPending}
                     onChange={(patch) =>
                       void update
@@ -146,12 +155,54 @@ export function NotificationPolicySection() {
   );
 }
 
+/**
+ * Who a notification reaches, as a sentence.
+ *
+ * It printed the raw role names — "Goes to: admin, custom" — which is the module's vocabulary and
+ * not a reader's. Worse, it was the ONLY place the audience appeared at all, so the behaviour was
+ * correct and unverifiable at the same time: nothing on this screen let an admin confirm that
+ * billing and system alerts were not going to everybody (user, 2026-09-08).
+ */
+const ROLE_WORDS: Record<string, string> = {
+  assignee: "whoever the task is assigned to",
+  author: "whoever created it",
+  participant: "everyone taking part",
+  mentioned: "anyone named in it",
+  admin: "administrators",
+  self: "the person it is about",
+  client_owner: "the client's owner",
+};
+
+function audienceLine(row: PolicyRow, names: Map<string, string>): string {
+  const parts: string[] = [];
+  // the gate first: it is the true reason for the four triggers that have one, and "anyone who can
+  // open Billing" is a better answer to "why am I getting this" than "you are an admin"
+  const gate = row.recipientGate;
+  if (gate && isGateKey(gate)) {
+    parts.push(`anyone who can open ${GATE_COPY[gate].label}`);
+  }
+  for (const role of row.roles) {
+    if (role === "custom") continue; // named people are listed separately, below
+    const word = ROLE_WORDS[role];
+    // an `admin` role beside a gate would say the same thing twice
+    if (word && !(role === "admin" && row.recipientGate)) parts.push(word);
+  }
+  const people = row.customUserIds.map((id) => names.get(id) ?? "someone who has left");
+  if (people.length) parts.push(people.join(", "));
+
+  return parts.length
+    ? `Goes to ${parts.join(", ")}`
+    : "Goes to nobody — no recipients are set";
+}
+
 function PolicyLine({
   row,
+  names,
   busy,
   onChange,
 }: {
   row: PolicyRow;
+  names: Map<string, string>;
   busy: boolean;
   onChange: (patch: {
     enabled?: boolean;
@@ -171,7 +222,7 @@ function PolicyLine({
         </p>
         <p className="mt-[2px] text-[11px] text-faint">{spec.why}</p>
         <p className="mt-1 text-[11px] text-muted">
-          Goes to: {row.roles.join(", ")}
+          {audienceLine(row, names)}
           {row.mandatory && " · required, nobody can turn it off"}
         </p>
       </div>

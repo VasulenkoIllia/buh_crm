@@ -1322,6 +1322,11 @@ model NotificationPolicy {
   roles         RecipientRole[]
   /// used only when `roles` contains `custom`
   customUserIds String[]        @db.Uuid
+  /// A gate key from shared/access.ts. When set, everyone whose access to that gate is not
+  /// `closed` receives this — so "who is told about overdue invoices" and "who may open Billing"
+  /// stop being two answers that drift. NULL = routed by `roles` alone, which is the case for the
+  /// sixteen triggers that address the person a thing is ABOUT rather than an audience.
+  recipientGate String?
 
   /// whether the channel is ALLOWED at all
   inApp Boolean @default(true)
