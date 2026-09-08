@@ -53,3 +53,43 @@ export function isTaskOverdue(
 ): boolean {
   return !task.done && isPastBusinessDate(task.deadline, todayMs);
 }
+
+/**
+ * "Tue 9 Sept, 14:30" and "9 Sept" — the way this app writes a date to a person.
+ *
+ * `tz` is a parameter rather than a lookup so this file stays dependency-free and usable from both
+ * sides. The server passes the firm's zone; a business date is always reckoned on it.
+ *
+ * It exists because the same `Intl.DateTimeFormat` call was written out three times — once in the
+ * meetings service, twice inside the notification sweep — and the one place that DIDN'T do it sent
+ * `Was due 2026-09-01` to a reader, which is a machine's date in a human sentence
+ * (audit, 2026-09-08).
+ */
+export function fmtDayInTz(at: Date, tz: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: tz,
+    day: "numeric",
+    month: "short",
+  }).format(at);
+}
+
+export function fmtDayTimeInTz(at: Date, tz: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: tz,
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(at);
+}
+
+export function fmtTimeInTz(at: Date, tz: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: tz,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(at);
+}

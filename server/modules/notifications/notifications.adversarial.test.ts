@@ -946,3 +946,43 @@ describe("what an ops alert actually says to the person who gets it", () => {
     expect(row.text).toContain("a-job-since-renamed");
   });
 });
+
+describe("nothing a notification says is written for a machine", () => {
+  beforeEach(async () => {
+    await prisma.notification.deleteMany();
+  });
+
+  it("writes a date the way the rest of the app writes one", async () => {
+    // "Was due 2026-09-01" shipped and was the only date in the module a reader had to decode
+    const task = await taskFor("Overdue probe", [ada]);
+    await prisma.task.update({
+      where: { id: task.id },
+      data: { deadline: new Date("2026-09-01T00:00:00Z") },
+    });
+    await runNotificationSweep();
+
+    const [row] = await prisma.notification.findMany({ where: { trigger: "task_overdue" } });
+    expect(row.sub).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+    expect(row.sub).toMatch(/Was due \d{1,2} \w+/);
+
+    await prisma.taskAssignee.deleteMany({ where: { taskId: task.id } });
+    await prisma.task.delete({ where: { id: task.id } });
+  });
+
+  it("never states an amount without its currency", async () => {
+    // "1250.00 outstanding" — no symbol, no separator, on a billing alert
+    const { fmtMoney } = await import("@shared/money.js");
+    expect(fmtMoney(125_000)).toBe("$1,250.00");
+    // and the one definition is shared, so the screen and the letter cannot disagree
+    const browser = await import("../../../src/shared/lib/money.js");
+    expect(browser.fmtMoney).toBe(fmtMoney);
+  });
+
+  it("puts no service key or protocol code in any registry title", () => {
+    for (const [key, spec] of Object.entries(NOTIFICATION_TRIGGERS)) {
+      expect(spec.title, key).not.toMatch(/[a-z]+-[a-z]+/); // `read-bounces`, `stalled-send-sweep`
+      expect(spec.title, key).not.toMatch(/\b(ECONN|ETIMEDOUT|SMTP|IMAP|null|undefined)\b/);
+      expect(spec.when, key).not.toMatch(/\b(cron|sweep\.ts|log file|stderr)\b/i);
+    }
+  });
+});

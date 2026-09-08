@@ -16,6 +16,7 @@ import { clientLabel, personName } from "../../core/names.js";
 import { notify, notifiedAbout } from "../../core/notify.js";
 import { createTask, listDeadlinesInRange } from "../tasks/index.js";
 import * as repo from "./meetings.repository.js";
+import { fmtDayTimeInTz } from "@shared/dates.js";
 
 export function toMeetingDto(m: repo.MeetingRecord) {
   return {
@@ -335,15 +336,7 @@ function notifyInvited(meetingId: string, title: string, startAt: Date, actor: U
 
 /** The one place a meeting instant is written into notification text, so the two triggers agree. */
 function meetingWhen(startAt: Date): string {
-  return new Intl.DateTimeFormat("en-GB", {
-    timeZone: config.TZ,
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(startAt);
+  return fmtDayTimeInTz(startAt, config.TZ);
 }
 
 /** Move a meeting's task to the meeting's new day. Never touches anything else on the task. */

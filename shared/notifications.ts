@@ -359,8 +359,10 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
   ops_mailbox_broken: {
     group: "ops",
     title: "Mailbox {mailbox} could not be read",
-    when: "A configured mailbox fails to authenticate or cannot be read.",
-    why: "A mailbox that stops being read stops catching bounces, silently, forever.",
+    when: "One of your mailboxes stops answering — wrong password, wrong host, or it went down.",
+    why:
+      "While it is unread, nothing notices the letters that bounce back, so dead addresses stay " +
+      "on the lists and keep being written to. Fixed under Mailouts → Sender.",
     source: "sweep",
     defaultRecipients: ["admin", "custom"],
     defaultInApp: true,
@@ -376,8 +378,10 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     // "read-bounces reported failures / 2 items skipped — check the server log" (user,
     // 2026-09-08): a service name and an instruction the reader cannot follow.
     title: "{sweep} did not finish everything",
-    when: "A background job finishes having skipped work it could not do.",
-    why: "A client who quietly stops being billed is only visible in the logs otherwise.",
+    when: "Work the CRM does on its own overnight could not be finished.",
+    why:
+      "Invoices and tasks appear because of those jobs. When one stops, nothing else says so — a " +
+      "client simply stops being billed. Settings → System says which job and when.",
     source: "sweep",
     defaultRecipients: ["admin", "custom"],
     defaultInApp: true,
@@ -392,8 +396,10 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     // and the template has no way to pluralise. "1 letters were not delivered" shipped for an
     // afternoon before a live run showed it (2026-09-05).
     title: "{failed} not delivered: {mailout}",
-    when: "A send finishes with failed recipients.",
-    why: "The person who pressed Send has moved on by the time the run closes.",
+    when: "A mailout finishes and some letters did not go out.",
+    why:
+      "A send takes minutes and whoever pressed Send has moved on by the time it closes. The " +
+      "mailout itself lists which addresses failed and why.",
     source: "event",
     // The sender IS the author of the run, so `author` is the role — and they are NOT the actor
     // here: nobody performs the act of a delivery failing, which is why §5.4's "never notify the

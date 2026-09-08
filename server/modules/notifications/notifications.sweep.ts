@@ -18,6 +18,8 @@ import { notify, type NotifyOutcome } from "../../core/notify.js";
 import { drainSweepFailures } from "../../core/job-health.js";
 import { SYSTEM_JOBS, isSystemJobKey } from "@shared/system-jobs.js";
 import { plural } from "@shared/text.js";
+import { fmtDayInTz, fmtTimeInTz } from "@shared/dates.js";
+import { fmtMoney } from "@shared/money.js";
 import * as repo from "./notifications.repository.js";
 
 /** "tomorrow" / "in 3 days" — how far off one particular deadline is, in whole days. */
@@ -139,7 +141,9 @@ export async function runNotificationSweep(): Promise<SweepResult> {
         dedup: task.id,
         taskId: task.id,
         vars: { task: task.title },
-        sub: task.deadline ? `Was due ${task.deadline.toISOString().slice(0, 10)}` : null,
+        // the firm's date, not the machine's: this said "Was due 2026-09-01" until 2026-09-08,
+        // which is the only date in the whole module a person could not read at a glance
+        sub: task.deadline ? `Was due ${fmtDayInTz(task.deadline, config.TZ)}` : null,
         link: { type: "task", id: task.id },
       }),
     out,
@@ -163,12 +167,7 @@ export async function runNotificationSweep(): Promise<SweepResult> {
         meetingId: meeting.id,
         vars: {
           meeting: meeting.title,
-          time: new Intl.DateTimeFormat("en-GB", {
-            timeZone: config.TZ,
-            hour: "2-digit",
-            minute: "2-digit",
-            hour12: false,
-          }).format(meeting.startAt),
+          time: fmtTimeInTz(meeting.startAt, config.TZ),
         },
         link: { type: "meeting", id: meeting.id },
       }),
@@ -187,7 +186,10 @@ export async function runNotificationSweep(): Promise<SweepResult> {
       notify("invoice_overdue", {
         dedup: invoice.id,
         vars: { number: invoice.number, client: clientLabel(invoice.client) },
-        sub: `${((invoice.amount - invoice.paidTotal) / 100).toFixed(2)} outstanding`,
+        // `fmtMoney`, not a hand-rolled `toFixed(2)`: it reached a reader as "1250.00 outstanding",
+        // with no currency and no separator, on the one alert where an ambiguous number is least
+        // acceptable
+        sub: `${fmtMoney(invoice.amount - invoice.paidTotal)} outstanding`,
         link: { type: "invoice", id: invoice.id },
       }),
     out,

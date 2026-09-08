@@ -1,8 +1,9 @@
 /** Money is USD minor units (cents) everywhere in the app — never floats. */
 
-/** 123456 → "$1,234.56" */
-export const fmtMoney = (minor: number) =>
-  `$${(minor / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+// `fmtMoney` lives in `shared/` because the server composes amounts too (notification subjects).
+// Re-exported rather than redefined: two formatters for one currency is how "$1,250.00" here and
+// "1250.00" there happen.
+export { fmtMoney } from "@shared/money";
 
 /** "1 234,56" / "1234.56" → 123456 minor units. NaN-safe: bad input → 0. */
 export function parseMoney(text: string): number {
