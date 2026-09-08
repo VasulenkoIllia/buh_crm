@@ -13,7 +13,7 @@ import {
 } from "@shared/system-jobs";
 import { plural } from "@shared/text";
 import { Link } from "react-router-dom";
-import { fmtDateTime } from "@/shared/lib/format";
+import { fmtDateTime, relativeTime } from "@/shared/lib/format";
 import { cn } from "@/shared/lib/cn";
 import { JOB_TONE_COLORS } from "@/shared/lib/colors";
 import { InfoHint } from "@/shared/ui/info-hint";
@@ -362,11 +362,6 @@ function duration(ms: number): string {
   return `${Math.round(ms / 60_000)} min`;
 }
 
-function relative(at: Date, now: Date): string {
-  const mins = Math.round((now.getTime() - at.getTime()) / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${plural(mins, "minute")} ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${plural(hours, "hour")} ago`;
-  return `on ${fmtDateTime(at)}`;
-}
+// moved to `shared/lib/format.ts` on 2026-09-08 — the activity log says the same thing, and one
+// rule written twice eventually reads two ways
+const relative = relativeTime;

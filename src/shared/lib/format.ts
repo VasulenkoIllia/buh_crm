@@ -1,3 +1,4 @@
+import { plural } from "@shared/text";
 import { firmTimezone, firmToday } from "./tz";
 
 /**
@@ -62,6 +63,27 @@ export const todayPlus = (days: number) => {
 };
 
 /** A Date → "YYYY-MM-DD" in the VIEWER's calendar (not UTC — "today" must mean their today). */
+/**
+ * "4 minutes ago" · "yesterday at 14:02".
+ *
+ * Relative up to a day, because that is the window in which "how long ago" is the question, and
+ * absolute after it, because "3 days ago" is not something anybody can act on. `now` is passed in
+ * rather than read here so every row on one render agrees with every other — a list where the top
+ * row says "1 minute ago" and the bottom "2 minutes ago" because they were formatted a tick apart
+ * is a list that looks wrong for no reason.
+ *
+ * Shared since 2026-09-08: the System tab and the activity log both say when something happened,
+ * and one rule written twice eventually reads two ways.
+ */
+export function relativeTime(at: Date, now: Date): string {
+  const mins = Math.round((now.getTime() - at.getTime()) / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${plural(mins, "minute")} ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${plural(hours, "hour")} ago`;
+  return `on ${fmtDateTime(at)}`;
+}
+
 export function isoDay(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
