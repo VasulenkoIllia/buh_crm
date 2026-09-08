@@ -241,7 +241,7 @@ function Entry({
 }) {
   const head = entry.rows[0];
   const extra = entry.rows.length - 1;
-  const refused = entry.rows.some((r) => r.outcome !== "ok");
+  const problem = entry.rows.find((r) => r.outcome !== "ok");
 
   return (
     <li className="px-3.5 py-2.5">
@@ -264,11 +264,19 @@ function Entry({
             </span>
           )}
         </span>
-        {/* only when it is NOT ok: a green tick on every row is noise, and the rows that need
-            looking at are the ones that were refused or failed */}
-        {refused && (
-          <Chip tone="amber" size="sm">
-            {entry.rows.find((r) => r.outcome !== "ok")?.refusalCode ?? "refused"}
+        {/*
+          Only when it is NOT ok: a green tick on every row is noise, and the rows worth looking at
+          are the ones that were refused or failed.
+
+          **And the two are not the same word.** `refused` is a gate or a role saying no — a
+          permissions question. `failed` is the app or the database saying no — an incident. The
+          column keeps them apart precisely so somebody can tell, and labelling a failure "refused"
+          here threw that away in the one place a person actually reads it (seen on screen with a
+          malformed DELETE, 2026-09-08).
+        */}
+        {problem && (
+          <Chip tone="amber" size="sm" title={outcomeHint(problem)}>
+            {problem.outcome === "refused" ? (problem.refusalCode ?? "refused") : "failed"}
           </Chip>
         )}
         <span
@@ -296,6 +304,12 @@ function Entry({
       )}
     </li>
   );
+}
+
+function outcomeHint(row: ActivityRow): string {
+  return row.outcome === "refused"
+    ? "A gate or a role said no — this person was not allowed to do it"
+    : "The app or the database said no — the request was allowed but did not go through";
 }
 
 /** The registry's sentence, or the raw key when a row names an event this build has dropped. */
