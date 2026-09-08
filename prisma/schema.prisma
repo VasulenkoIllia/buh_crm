@@ -1751,6 +1751,14 @@ model ActivityEvent {
   subjectId    String? @db.Uuid
   subjectLabel String?
 
+  /// The client's name as it read when this happened — snapshotted for the same reason
+  /// `actorLabel` and `subjectLabel` are: the log outlives what it describes, so a client wiped by
+  /// `--reset` or purged under (c)(6) must still leave a readable record of what was done to them.
+  ///
+  /// Added 2026-09-08, from production: the screen showed "Serhii paused Payroll" and no way to
+  /// tell WHOSE Payroll. The id was on the row and a uuid is not an answer.
+  clientLabel String?
+
   /// **The client this event is ABOUT, when there is one — denormalised on purpose.**
   ///
   /// §1 opens with "what has happened to this client", and that question crosses subjects: an

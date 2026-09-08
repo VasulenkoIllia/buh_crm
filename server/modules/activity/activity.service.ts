@@ -66,6 +66,7 @@ export async function list(user: Pick<User, "id" | "role">, query: ActivityQuery
       subjectId: row.subjectId,
       subjectLabel: row.subjectLabel,
       clientId: row.clientId,
+      clientLabel: row.clientLabel,
       changes: row.changes ?? null,
       outcome: row.outcome,
       refusalCode: row.refusalCode,

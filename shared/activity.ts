@@ -883,6 +883,8 @@ const EVENTS = {
     granularity: "item",
     actorKinds: ["user"],
     retention: "ordinary",
+    // `attachedTo` names the client or the task, not the KIND of thing — "attachedTo: task"
+    // told a reader a file went somewhere and not where (2026-09-08)
     changeKeys: ["name", "size", "attachedTo"],
     enabledByDefault: true,
   },
@@ -2069,11 +2071,20 @@ export const TIER1_REFUSED = "session.gate_refused" satisfies ActivityKey;
  */
 export function renderTitle(
   key: ActivityKey,
-  row: { actorLabel?: string | null; subjectLabel?: string | null },
+  row: { actorLabel?: string | null; subjectLabel?: string | null; clientLabel?: string | null },
 ): string {
+  /**
+   * `{subject}` falls back to the CLIENT before it falls back to an em dash.
+   *
+   * A handful of acts are about a client without naming a thing of their own — unsubscribing them
+   * from mail, unlocking their vault — and those rendered as "changed whether — receives mail".
+   * The row already carries whose it was; this is one place rather than a label argued into every
+   * such call site (found by scanning all 147 record() calls, 2026-09-08).
+   */
+  const subject = row.subjectLabel?.trim() || row.clientLabel?.trim() || "—";
   return ACTIVITY_EVENTS[key].title
     .replace("{actor}", row.actorLabel?.trim() || "Somebody")
-    .replace("{subject}", row.subjectLabel?.trim() || "—");
+    .replace("{subject}", subject);
 }
 
 /** Which events survive the two-year purge — §11's four classes, declared per event. */

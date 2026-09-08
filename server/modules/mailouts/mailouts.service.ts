@@ -880,8 +880,11 @@ export async function testSenderAccount(
   input: SenderTestInput,
 ): Promise<SenderTestResult> {
   const result = await runSenderTest(actor, id, input);
+  // the NAME, not just the id: "tested the mailbox —" told a reader nothing they could act on
+  const account = await repo.findSenderAccount(id).catch(() => null);
   record("mailbox.tested", {
     subjectId: id,
+    subjectLabel: account?.name ?? null,
     changes: { ok: result.ok, detail: result.step },
   });
   return result;

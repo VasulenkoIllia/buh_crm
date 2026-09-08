@@ -37,6 +37,8 @@ export const activityRow = z.object({
   subjectId: uuid.nullable(),
   subjectLabel: z.string().nullable(),
   clientId: uuid.nullable(),
+  /** the client's name as it read when this happened — "whose", which a uuid cannot answer */
+  clientLabel: z.string().nullable(),
   changes: z.unknown().nullable(),
   outcome: z.enum(["ok", "refused", "failed"]),
   refusalCode: z.string().nullable(),

@@ -1217,7 +1217,7 @@ export async function addFile(
     subjectId: row.id,
     subjectLabel: row.name,
     clientId: task.clientId,
-    changes: { name: row.name, size: row.size, attachedTo: "task" },
+    changes: { name: row.name, size: row.size, attachedTo: task.title },
   });
   return { id: row.id, name: row.name, size: row.size, mime: row.mime };
 }
@@ -1245,7 +1245,7 @@ export async function removeFile(taskId: string, fileId: string) {
     subjectId: file.id,
     subjectLabel: file.name,
     clientId: task.clientId,
-    changes: { name: file.name, attachedTo: "task" },
+    changes: { name: file.name, attachedTo: task.title },
   });
   return { ok: true as const };
 }

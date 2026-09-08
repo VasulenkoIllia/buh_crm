@@ -1,0 +1,14 @@
+-- **Whose.**
+--
+-- The log could say "Serhii paused Payroll" and not which client's Payroll. `clientId` was on the
+-- row from the first migration and a uuid is not an answer a person can read, so the screen showed
+-- nothing at all — found on production, by the owner, two hours after real users started using it.
+--
+-- Snapshotted rather than joined, for the reason every other label on this table is: there are no
+-- foreign keys here on purpose (§11 — the log outlives what it describes), so a client wiped by
+-- `--reset` or disposed of under (c)(6) would otherwise take the readable half of their own history
+-- with them.
+--
+-- Nullable and additive: rows written before this land with NULL, and the screen simply shows no
+-- client for them, which is what it did for every row until now.
+ALTER TABLE "ActivityEvent" ADD COLUMN "clientLabel" TEXT;

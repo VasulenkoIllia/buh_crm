@@ -13,7 +13,7 @@ import {
 } from "@shared/activity.js";
 import { prisma } from "./db.js";
 import { isTest } from "./config.js";
-import { personName } from "./names.js";
+import { clientLabel, personName } from "./names.js";
 
 /**
  * **Recording an act, in one place.**
@@ -459,6 +459,27 @@ async function writeEvents(
     if (pending.length === 0) return 0;
 
     const disabled = await disabledActions();
+    /**
+     * **The client's name, resolved once for the whole flush and snapshotted onto every row.**
+     *
+     * Here rather than at the forty call sites that pass a `clientId`: a service knows WHICH client
+     * an act was about, and having each one also fetch the name would be forty chances to forget
+     * and forty extra queries. One lookup per gesture, after the response, on an indexed primary
+     * key — and from then on the row reads without a join, which is the whole point of a
+     * snapshot (§5, no foreign keys).
+     */
+    const clientIds = [...new Set(pending.map((e) => e.clientId).filter((id): id is string => !!id))];
+    const clientNames = new Map<string, string>();
+    if (clientIds.length > 0) {
+      const clients = await prisma.client
+        .findMany({
+          where: { id: { in: clientIds } },
+          select: { id: true, firstName: true, lastName: true },
+        })
+        .catch(() => []);
+      for (const c of clients) clientNames.set(c.id, clientLabel(c));
+    }
+
     const rows = [];
     for (const event of pending) {
       if (disabled.has(event.action)) continue;
@@ -476,6 +497,9 @@ async function writeEvents(
         subjectId: event.subjectId ?? null,
         subjectLabel: event.subjectLabel ?? null,
         clientId: event.clientId ?? null,
+        // null when the client is already gone — the act is still recorded, unnamed, which is
+        // strictly better than losing the row
+        clientLabel: event.clientId ? (clientNames.get(event.clientId) ?? null) : null,
         changes: (event.changes ?? undefined) as never,
         ip: store.ip ?? null,
         userAgent: store.userAgent ?? null,

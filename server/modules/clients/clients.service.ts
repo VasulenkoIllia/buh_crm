@@ -1015,7 +1015,8 @@ export async function addFile(
   actor: User,
   file: { buffer: Buffer; filename: string; mimetype: string },
 ) {
-  await getClient(clientId);
+  // kept rather than discarded: the log names WHICH client the file hangs off, not just "a client"
+  const client = await getClient(clientId);
   if (file.buffer.byteLength > MAX_FILE_SIZE) {
     throw new ValidationError("File must be 25 MB or smaller");
   }
@@ -1034,7 +1035,7 @@ export async function addFile(
     subjectId: row.id,
     subjectLabel: row.name,
     clientId,
-    changes: { name: row.name, size: row.size, attachedTo: "client" },
+    changes: { name: row.name, size: row.size, attachedTo: client.displayName },
   });
   return { id: row.id, name: row.name, size: row.size, mime: row.mime };
 }
@@ -1055,7 +1056,7 @@ export async function getFile(clientId: string, fileId: string) {
 }
 
 export async function removeFile(clientId: string, fileId: string) {
-  await getClient(clientId); // 404s archived/missing clients
+  const client = await getClient(clientId); // 404s archived/missing clients
   const file = await repo.findClientFile(clientId, fileId);
   if (!file) throw new NotFoundError("File not found");
   await repo.deleteFileRow(file.id);
@@ -1066,7 +1067,7 @@ export async function removeFile(clientId: string, fileId: string) {
     subjectId: file.id,
     subjectLabel: file.name,
     clientId,
-    changes: { name: file.name, attachedTo: "client" },
+    changes: { name: file.name, attachedTo: client.displayName },
   });
   return { ok: true as const };
 }

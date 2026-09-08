@@ -185,6 +185,7 @@ export function ActivityFeed({ clientId, compact = false }: ActivityFeedProps) {
             <Entry
               key={entry.correlationId}
               entry={entry}
+              compact={compact}
               now={now}
               open={open.has(entry.correlationId)}
               onToggle={() => toggle(entry.correlationId)}
@@ -232,11 +233,13 @@ export function ActivityFeed({ clientId, compact = false }: ActivityFeedProps) {
  */
 function Entry({
   entry,
+  compact,
   now,
   open,
   onToggle,
 }: {
   entry: ActivityEntry;
+  compact: boolean;
   now: Date;
   open: boolean;
   onToggle: () => void;
@@ -260,6 +263,17 @@ function Entry({
         )}
         <span className="min-w-0 flex-1">
           <span className="text-[13px] text-ink">{sentence(head, entry)}</span>
+          {/*
+            **Whose.** "Serhii paused Payroll" is half an answer — the half that says what was done
+            and not to whom. The row has carried the client since the first migration; it just had
+            nowhere to be read (found on production by the owner, 2026-09-08).
+
+            Hidden on the client card, where every row is that client and repeating the name on all
+            of them says nothing.
+          */}
+          {!compact && head?.clientLabel && head.clientLabel !== head.subjectLabel && (
+            <span className="ml-2 text-[13px] text-muted">· {head.clientLabel}</span>
+          )}
           {extra > 0 && (
             <span className="ml-1.5 text-[12px] text-faint">
               +{extra} more in the same action
@@ -337,6 +351,7 @@ function sentence(row: ActivityRow | undefined, entry: ActivityEntry): string {
   return renderTitle(row.action, {
     actorLabel: entry.actorLabel,
     subjectLabel: row.subjectLabel,
+    clientLabel: row.clientLabel,
   });
 }
 
