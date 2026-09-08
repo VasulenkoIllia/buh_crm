@@ -109,6 +109,11 @@ enum RecipientRole {
   custom
   self
   client_owner
+  /// An OUTCOME, never an input: it is never listed in `roles`, and `recipientGate` is the field
+  /// that puts it on a row. Without it a person added because they can open Billing was recorded
+  /// as `admin`, which is false whenever they are not one — and `reason` exists precisely so that
+  /// "notify me where I am the assignee but not where I merely commented" stays expressible.
+  gate
 }
 
 /// `sound` is a THIRD channel rather than a switch of its own, because it obeys exactly the same

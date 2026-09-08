@@ -161,6 +161,11 @@ async function resolveRole(role: RecipientRole, ctx: NotifyContext): Promise<str
     case "self":
       return ctx.selfUserId ? [ctx.selfUserId] : [];
 
+    case "gate":
+      // an OUTCOME, never an input: `recipientGate` puts it on a row, and a policy that somehow
+      // listed it in `roles` should reach nobody rather than everybody
+      return [];
+
     case "client_owner":
       // Reachable only if somebody edits a policy row by hand: nothing seeds it. Skipped with a
       // warning rather than thrown — "who is responsible for this client" does not exist until the
@@ -231,7 +236,7 @@ async function resolveRecipients(
    */
   if (recipientGate) {
     for (const id of await resolveGate(recipientGate)) {
-      if (!seen.has(id)) seen.set(id, "admin");
+      if (!seen.has(id)) seen.set(id, "gate");
     }
   }
 

@@ -38,6 +38,7 @@ export type RecipientRole =
   | "admin" // every active admin
   | "custom" // the explicit user list on the policy row
   | "self" // the person the fact is ABOUT — the one role that may be the actor
+  | "gate" // OUTCOME only: recorded when `recipientGate` matched. Never listed in `roles`.
   | "client_owner"; // reserved — no such concept until the roles package. Never seeded.
 
 /**

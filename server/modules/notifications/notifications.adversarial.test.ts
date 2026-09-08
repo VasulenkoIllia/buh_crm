@@ -997,3 +997,85 @@ describe("nothing a notification says is written for a machine", () => {
     }
   });
 });
+
+describe("routing an audience by permission instead of by role", () => {
+  beforeEach(async () => {
+    await prisma.notification.deleteMany();
+    await prisma.accessPolicy.deleteMany({ where: { gate: "billing" } });
+    await prisma.notificationPolicy.update({
+      where: { trigger: "invoice_overdue" },
+      data: { recipientGate: null },
+    });
+  });
+
+  afterEach(async () => {
+    await prisma.accessPolicy.deleteMany({ where: { gate: "billing" } });
+    await prisma.notificationPolicy.update({
+      where: { trigger: "invoice_overdue" },
+      data: { recipientGate: null },
+    });
+  });
+
+  const raiseInvoice = () =>
+    notify("invoice_overdue", {
+      dedup: `probe-${Math.random()}`,
+      vars: { number: "INV-1", client: "Probe" },
+      sub: "$1.00 outstanding",
+      link: null,
+    });
+
+  it("ships OFF, so no firm has its audience widened by a deploy", async () => {
+    // the first version made this a default and backfilled it. `billing` ships open to the `user`
+    // role, so overdue invoices would have gone from the two admins to everybody — the opposite of
+    // what was asked for (user, 2026-09-08).
+    const policy = await prisma.notificationPolicy.findUniqueOrThrow({
+      where: { trigger: "invoice_overdue" },
+    });
+    expect(policy.recipientGate).toBeNull();
+  });
+
+  it("reaches whoever can open the screen, once it is switched on", async () => {
+    await prisma.notificationPolicy.update({
+      where: { trigger: "invoice_overdue" },
+      data: { recipientGate: "billing" },
+    });
+    await raiseInvoice();
+    const open = await prisma.notification.findMany({ where: { trigger: "invoice_overdue" } });
+    // `billing` is open to both roles by default, so a plain user is included — which is the point
+    expect(open.map((r) => r.userId)).toContain(bo);
+    expect(open.every((r) => r.reason === "gate")).toBe(true);
+
+    // close it for the `user` role and the same event reaches admins only
+    await prisma.notification.deleteMany();
+    await prisma.accessPolicy.create({
+      data: { gate: "billing", role: "user", action: "*", state: "closed" },
+    });
+    await raiseInvoice();
+    const closed = await prisma.notification.findMany({
+      where: { trigger: "invoice_overdue" },
+    });
+    expect(closed.map((r) => r.userId)).not.toContain(bo);
+    expect(closed.map((r) => r.userId)).toContain(ada);
+  });
+
+  it("records WHY, and `admin` would have been a lie for a plain user", async () => {
+    // `reason` is what makes "notify me where I am the assignee but not where I merely commented"
+    // expressible later. A user added because they can open Billing is not an admin.
+    await prisma.notificationPolicy.update({
+      where: { trigger: "invoice_overdue" },
+      data: { recipientGate: "billing" },
+    });
+    await raiseInvoice();
+    const row = await prisma.notification.findFirstOrThrow({ where: { userId: bo } });
+    expect(row.reason).toBe("gate");
+  });
+
+  it("does not take the notification down when the gate no longer exists", async () => {
+    await prisma.notificationPolicy.update({
+      where: { trigger: "invoice_overdue" },
+      data: { recipientGate: "a_gate_since_removed" },
+    });
+    // the roles on the policy still resolve; only the unknown gate is skipped
+    await expect(raiseInvoice()).resolves.toMatchObject({ failed: false });
+  });
+});

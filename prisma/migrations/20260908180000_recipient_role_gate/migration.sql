@@ -1,0 +1,11 @@
+-- `reason` records WHY a person received a notification, and it had no way to say "because they can
+-- open the screen it points at". Somebody added by `recipientGate` was recorded as `admin`, which is
+-- false whenever they are not one.
+--
+-- It changes no behaviour today — `decide()` only special-cases `mentioned` — but `reason` is what
+-- makes "notify me where I am the assignee but not where I merely commented" expressible later, and
+-- a column that lies is worth less than one that is absent.
+--
+-- IF NOT EXISTS because a deploy that fails partway and is finished by hand re-runs SQL, and
+-- `ALTER TYPE ... ADD VALUE` is the one statement in this module that is not naturally idempotent.
+ALTER TYPE "RecipientRole" ADD VALUE IF NOT EXISTS 'gate';
