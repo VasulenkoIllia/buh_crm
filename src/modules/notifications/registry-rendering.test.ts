@@ -46,3 +46,40 @@ describe("the settings screens render from the trigger registry", () => {
     });
   }
 });
+
+/**
+ * The recipients half of the policy screen, held to the same rule as the triggers.
+ *
+ * Only the four AUDIENCE triggers may have their recipients edited: the other sixteen reach the
+ * person a thing is ABOUT, and a task notification with its assignee removed is not configured but
+ * broken. The service refuses those too — this asserts the screen does not offer what the server
+ * would reject, which is the difference between a rule and a rule somebody can walk into.
+ */
+describe("who a notification reaches, on the policy screen", () => {
+  const read = () => readFile(new URL("./notification-policy.tsx", import.meta.url), "utf8");
+
+  it("decides editability from the registry, never from a list of trigger names", async () => {
+    const src = await read();
+    expect(src).toContain("spec.gateOption");
+    // a hand-written set of "the ops ones" would drift the first time a fifth audience trigger
+    // arrived — silently, and in the direction that looks fine
+    for (const key of ["invoice_overdue", "ops_sweep_failed", "ops_mailbox_broken"]) {
+      expect(src, `${key} is named literally`).not.toContain(`"${key}"`);
+    }
+  });
+
+  it("says who receives it in words, not in role keys", async () => {
+    const src = await read();
+    expect(src).toContain("audienceLine");
+    // it printed `Goes to: admin, custom` — the module's vocabulary, not a reader's
+    expect(src).not.toContain("row.roles.join");
+  });
+
+  it("sends the gate and the named people, so the API surface is not dead", async () => {
+    // the server accepted both for a while with no screen sending either, which is the same shape
+    // this repo already had to record as latent once
+    const src = await read();
+    expect(src).toContain("recipientGate:");
+    expect(src).toContain("customUserIds:");
+  });
+});

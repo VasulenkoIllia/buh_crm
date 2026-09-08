@@ -10,6 +10,7 @@ import { cn } from "@/shared/lib/cn";
 import { isGateKey } from "@shared/access";
 import { GATE_COPY } from "@shared/access-copy";
 import { useUsers } from "@/modules/users";
+import { AssigneePicker, type AssigneeUser } from "@/shared/ui/assignee-picker";
 import { ApiError } from "@/shared/lib/api";
 import { InfoHint } from "@/shared/ui/info-hint";
 import { chimeStatus, playChime, type ChimeResult } from "./chime";
@@ -138,6 +139,7 @@ export function NotificationPolicySection() {
                     key={row.trigger}
                     row={row}
                     names={names}
+                    team={team ?? []}
                     busy={update.isPending}
                     onChange={(patch) =>
                       void update
@@ -198,21 +200,35 @@ function audienceLine(row: PolicyRow, names: Map<string, string>): string {
 function PolicyLine({
   row,
   names,
+  team,
   busy,
   onChange,
 }: {
   row: PolicyRow;
   names: Map<string, string>;
   busy: boolean;
+  team: AssigneeUser[];
   onChange: (patch: {
     enabled?: boolean;
     inApp?: boolean;
     email?: boolean;
     sound?: boolean;
+    recipientGate?: string | null;
+    customUserIds?: string[];
   }) => void;
 }) {
   const spec = NOTIFICATION_TRIGGERS[row.trigger as NotificationTriggerKey];
   if (!spec) return null;
+
+  /**
+   * Only the four triggers that address an AUDIENCE may have their recipients edited.
+   *
+   * The other sixteen reach the person a thing is ABOUT, and that is the module working rather
+   * than a preference — a task notification with its assignee removed is not configured, it is
+   * broken. The service refuses those too, so this is the visible half of a rule that holds
+   * whether or not anybody uses the screen.
+   */
+  const audience = !!spec.gateOption;
 
   return (
     <div className="flex items-start gap-3 border-b border-divider px-3 py-2.5 last:border-b-0">
@@ -225,6 +241,47 @@ function PolicyLine({
           {audienceLine(row, names)}
           {row.mandatory && " · required, nobody can turn it off"}
         </p>
+
+        {audience && row.enabled && (
+          <div className="mt-2 space-y-2 border-l-2 border-divider pl-2.5">
+            {/*
+              Off by default, and the screen says why rather than only the code: the permission
+              areas ship OPEN, so switching this on can WIDEN who hears about invoices. A firm that
+              wants "whoever can see it, hears about it" should choose that knowingly.
+            */}
+            <label className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
+              <input
+                type="checkbox"
+                checked={!!row.recipientGate}
+                disabled={busy}
+                onChange={(e) =>
+                  onChange({ recipientGate: e.target.checked ? spec.gateOption! : null })
+                }
+              />
+              Send to anyone who can open
+              <b className="font-medium text-ink-700">{GATE_COPY[spec.gateOption!].label}</b>
+              <span className="text-faint">— follows the permission, not the role</span>
+            </label>
+
+            <div>
+              <p className="mb-1 text-[11px] text-muted">
+                And these people, whatever their access:
+              </p>
+              <AssigneePicker
+                users={team}
+                disabled={busy}
+                selected={(id) => row.customUserIds.includes(id)}
+                onToggle={(id) =>
+                  onChange({
+                    customUserIds: row.customUserIds.includes(id)
+                      ? row.customUserIds.filter((x) => x !== id)
+                      : [...row.customUserIds, id],
+                  })
+                }
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="flex shrink-0 items-center gap-3">
