@@ -126,21 +126,17 @@ enum NotificationChannel {
   sound
 }
 
-/**
- * The line the CAN-SPAM Act draws, and the reason it is stored rather than inferred.
- * `commercial` mail (news, offers, seasonal reminders) must carry a working unsubscribe and the
- * firm's postal address, and must honour an unsubscribe. `transactional` mail (an invoice, a
- * password reset, a document request) is exempt from all three — and MUST stay exempt, because a
- * client who unsubscribes from news still has to receive their bill.
- */
+/// The line the CAN-SPAM Act draws, and the reason it is stored rather than inferred.
+/// `commercial` mail (news, offers, seasonal reminders) must carry a working unsubscribe and the
+/// firm's postal address, and must honour an unsubscribe. `transactional` mail (an invoice, a
+/// password reset, a document request) is exempt from all three — and MUST stay exempt, because a
+/// client who unsubscribes from news still has to receive their bill.
 enum MailoutKind {
   commercial
   transactional
 }
 
-/**
- * What happened to one recipient of one send. `skipped` is a record, never a silent drop.
- */
+/// What happened to one recipient of one send. `skipped` is a record, never a silent drop.
 /// How often a campaign fires. `once` is a scheduled one-off — same entity, no special case.
 ///
 /// `dates` is a hand-picked list rather than a rule: an accounting firm's calendar is 15 March,
@@ -168,31 +164,19 @@ enum MailoutStatus {
   sent
   failed
   skipped
-  /**
-   * a delivery report came back — the letter was handed over and then refused
-   */
+  /// a delivery report came back — the letter was handed over and then refused
   bounced
 }
 
-/**
- * What a delivery report was ABOUT, which decides what may be done in response.
- */
+/// What a delivery report was ABOUT, which decides what may be done in response.
 enum BounceKind {
-  /**
-   * the recipient's mailbox is gone — the only kind that may retire an address
-   */
+  /// the recipient's mailbox is gone — the only kind that may retire an address
   address
-  /**
-   * a mail system between us and them, quite possibly our own — blame no address for it
-   */
+  /// a mail system between us and them, quite possibly our own — blame no address for it
   system
-  /**
-   * the message itself was unacceptable, usually its size
-   */
+  /// the message itself was unacceptable, usually its size
   letter
-  /**
-   * 4.x.x, still being retried — recorded, but nothing acts on it
-   */
+  /// 4.x.x, still being retried — recorded, but nothing acts on it
   transient
 }
 
@@ -295,12 +279,10 @@ model Priority {
   tasks Task[]
 }
 
-/**
- * A column of the leads pipeline.
- * Was a Prisma enum until 2026-08-28. An enum cannot be reordered, renamed or added to by the firm
- * that uses it — the board could not be dragged, and every change meant a migration. It is a table
- * now, for the same reasons and in the same shape as `TaskColumn`, so both boards are one idea.
- */
+/// A column of the leads pipeline.
+/// Was a Prisma enum until 2026-08-28. An enum cannot be reordered, renamed or added to by the firm
+/// that uses it — the board could not be dragged, and every change meant a migration. It is a table
+/// now, for the same reasons and in the same shape as `TaskColumn`, so both boards are one idea.
 model LeadStage {
   id    String @id @default(uuid()) @db.Uuid
   name  String @unique
@@ -335,38 +317,26 @@ model FirmProfile {
   currency             String  @default("USD")
 
   // ── Notifications (S9.2) ──────────────────────────────────────────────────
-  /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * When the nightly notification sweep runs, as `HH:MM` in the firm's own timezone.
-   * Was hardcoded at 07:00, which was a guess about when this firm's day starts. The hour is the
-   * firm's to choose; the CONSTRAINT is not. It must be later than 03:20, because the task sweep
-   * (03:05) and the invoice sweep (03:20) have to have run first — otherwise deadlines are scanned
-   * before the day's generated work exists, and nobody is warned about it.
-   */
+  /// When the nightly notification sweep runs, as `HH:MM` in the firm's own timezone.
+  /// Was hardcoded at 07:00, which was a guess about when this firm's day starts. The hour is the
+  /// firm's to choose; the CONSTRAINT is not. It must be later than 03:20, because the task sweep
+  /// (03:05) and the invoice sweep (03:20) have to have run first — otherwise deadlines are scanned
+  /// before the day's generated work exists, and nobody is warned about it.
   notifySweepAt        String @default("07:00")
-  /**
-   * How many days ahead `task_deadline_near` warns. 1 = "due tomorrow", the original behaviour.
-   * The sweep reads it as a RANGE (tomorrow … today + N), never as an exact day. With an exact day
-   * a task created INSIDE the window would never be warned at all: the sweep only ever looks at
-   * `today + N`, and a deadline nearer than that is never equal to it.
-   */
+  /// How many days ahead `task_deadline_near` warns. 1 = "due tomorrow", the original behaviour.
+  /// The sweep reads it as a RANGE (tomorrow … today + N), never as an exact day. With an exact day
+  /// a task created INSIDE the window would never be warned at all: the sweep only ever looks at
+  /// `today + N`, and a deadline nearer than that is never equal to it.
   notifyDeadlineDays   Int    @default(1)
-  /**
-   * The reminder a NEW meeting is booked with, unless whoever books it says otherwise.
-   * NULL = none, and the pills in the meeting form still offer 5/15/30/60 per meeting.
-   * It exists because the opposite was tried first. `Meeting.remindMinutesBefore` shipped
-   * defaulting to NULL — "a booking made without a thought about it behaves as every booking did
-   * before the field existed" — and the first person to book a meeting expected a reminder,
-   * got none, and went looking for the setting in Settings → Notifications, where there was none
-   * to find (user, 2026-09-07). Seeded at 5.
-   * It prefills the FORM; it is not read at reminder time. A meeting keeps whatever it was booked
-   * with, so changing this never silently rewrites what is already in the calendar.
-   */
+  /// The reminder a NEW meeting is booked with, unless whoever books it says otherwise.
+  /// NULL = none, and the pills in the meeting form still offer 5/15/30/60 per meeting.
+  /// It exists because the opposite was tried first. `Meeting.remindMinutesBefore` shipped
+  /// defaulting to NULL — "a booking made without a thought about it behaves as every booking did
+  /// before the field existed" — and the first person to book a meeting expected a reminder,
+  /// got none, and went looking for the setting in Settings → Notifications, where there was none
+  /// to find (user, 2026-09-07). Seeded at 5.
+  /// It prefills the FORM; it is not read at reminder time. A meeting keeps whatever it was booked
+  /// with, so changing this never silently rewrites what is already in the calendar.
   meetingRemindMinutes Int?   @default(5)
 
   // ── Mailouts (S10) ────────────────────────────────────────────────────────
@@ -376,63 +346,37 @@ model FirmProfile {
   // of letter from different mailboxes (news from info@, bills from billing@) and one set of
   // fields could only ever describe one of them.
   //
-  /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /** CAN-SPAM: the firm's physical address. One firm, one legal address — never per mailbox.
-   */
+  /// CAN-SPAM: the firm's physical address. One firm, one legal address — never per mailbox.
   postalAddress  String?
-  /**
-   * The mark that goes in LETTERS — deliberately its own file, not `logoFileId`.
-   * The sidebar logo and the letterhead have different jobs: the sidebar is small, sits on a dark
-   * panel and can be any shape; the letterhead is 168px wide on white and needs a tight raster
-   * crop at the lockup's own aspect. One file could serve both only by being wrong for one of them.
-   */
+  /// The mark that goes in LETTERS — deliberately its own file, not `logoFileId`.
+  /// The sidebar logo and the letterhead have different jobs: the sidebar is small, sits on a dark
+  /// panel and can be any shape; the letterhead is 168px wide on white and needs a tight raster
+  /// crop at the lockup's own aspect. One file could serve both only by being wrong for one of them.
   mailLogoFileId String? @unique @db.Uuid
 
   logoFile     File? @relation("FirmLogo", fields: [logoFileId], references: [id])
   mailLogoFile File? @relation("FirmMailLogo", fields: [mailLogoFileId], references: [id])
 }
 
-/**
- * A mailbox the firm sends client letters from.
- * Several, because the letters are not all of a kind: seasonal news from `info@`, invoices from
- * `billing@`, document requests from a particular accountant. Each carries its own `From`, its own
- * signature — the block at the foot of the letter names a *person*, and that person differs by
- * mailbox — and its own SMTP credentials.
- * `smtpHost` null means "send over the `.env` account", so a firm can name a sender and start
- * using it before its DNS and credentials are ready.
- * Never hard-deleted: a `Mailout` records which account it went from, and history that points at a
- * missing row stops being able to answer "where did this come from". Deactivate instead.
- */
+/// A mailbox the firm sends client letters from.
+/// Several, because the letters are not all of a kind: seasonal news from `info@`, invoices from
+/// `billing@`, document requests from a particular accountant. Each carries its own `From`, its own
+/// signature — the block at the foot of the letter names a *person*, and that person differs by
+/// mailbox — and its own SMTP credentials.
+/// `smtpHost` null means "send over the `.env` account", so a firm can name a sender and start
+/// using it before its DNS and credentials are ready.
+/// Never hard-deleted: a `Mailout` records which account it went from, and history that points at a
+/// missing row stops being able to answer "where did this come from". Deactivate instead.
 model MailSenderAccount {
   id   String @id @default(uuid()) @db.Uuid
-  /**
-   * what the firm calls it — "Newsletters", "Invoices". Unique, case-insensitively.
-   */
+  /// what the firm calls it — "Newsletters", "Invoices". Unique, case-insensitively.
   name String
 
-  /**
-   * the From: header — the address must be one the SMTP account below may send AS
-   */
+  /// the From: header — the address must be one the SMTP account below may send AS
   fromName  String
   fromEmail String
   replyTo   String?
-  /**
-   * the contact block at the foot of every letter sent from here — a NAME and title, not data
-   */
+  /// the contact block at the foot of every letter sent from here — a NAME and title, not data
   signature String?
 
   // ── the tap-to-contact buttons ────────────────────────────────────────────
@@ -447,17 +391,13 @@ model MailSenderAccount {
   contactViber    String?
   contactWebsite  String?
 
-  /**
-   * The mailbox invoices go out from, once Payments starts sending them.
-   * A named purpose rather than a second "default": the firm decides once that bills come from
-   * billing@ and news from info@, and the invoice code then has somewhere to read instead of
-   * inventing its own setting later.
-   */
+  /// The mailbox invoices go out from, once Payments starts sending them.
+  /// A named purpose rather than a second "default": the firm decides once that bills come from
+  /// billing@ and news from info@, and the invoice code then has somewhere to read instead of
+  /// inventing its own setting later.
   isInvoiceSender Boolean @default(false)
 
-  /**
-   * null = borrow the `.env` account that sends invites and password resets
-   */
+  /// null = borrow the `.env` account that sends invites and password resets
   smtpHost       String?
   smtpPort       Int?
   smtpSecure     Boolean?
@@ -477,29 +417,11 @@ model MailSenderAccount {
   //
   // The reader matches on a key carried inside the bounce, so it does not matter which mailbox a
   // given bounce lands in: every configured mailbox is polled, and whatever turns up is matched.
-  /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /** null = this mailbox is not read for bounces
-   */
+  /// null = this mailbox is not read for bounces
   imapHost       String?
   imapPort       Int?
   imapSecure     Boolean?
-  /**
-   * null = reuse smtpUser / smtpPass, which is the usual case and what the form offers first
-   */
+  /// null = reuse smtpUser / smtpPass, which is the usual case and what the form offers first
   imapUser       String?
   /// sealed with SECRETS_KEY, exactly like smtpPass — never returned by the API
   imapPass       Bytes?
@@ -511,41 +433,18 @@ model MailSenderAccount {
   //
   // Never `\Seen`, never a moved message: this mailbox belongs to a person, and flagging their
   // mail to track our own progress would hide a bounce from them — or theirs from us.
-  /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /**
-   * /** the mailbox's UIDVALIDITY when last read; a change means the UIDs were reissued
-   */
+  /// the mailbox's UIDVALIDITY when last read; a change means the UIDs were reissued
   bounceUidValidity String?
-  /**
-   * the highest UID already read, so a restart resumes rather than rescans
-   */
+  /// the highest UID already read, so a restart resumes rather than rescans
   bounceLastUid     Int?
-  /**
-   * When the mailbox was last read successfully.
-   * Load-bearing beyond bookkeeping: a letter is only called DELIVERED once this proves we looked
-   * after it was sent and found no complaint. Silence is evidence only when somebody was listening.
-   */
+  /// When the mailbox was last read successfully.
+  /// Load-bearing beyond bookkeeping: a letter is only called DELIVERED once this proves we looked
+  /// after it was sent and found no complaint. Silence is evidence only when somebody was listening.
   bounceCheckedAt   DateTime?
-  /**
-   * the last failure, shown beside the mailbox so a broken reader is visible rather than silent
-   */
+  /// the last failure, shown beside the mailbox so a broken reader is visible rather than silent
   bounceError       String?
 
-  /**
-   * exactly one account is the default; moved atomically, like Priority.isDefault
-   */
+  /// exactly one account is the default; moved atomically, like Priority.isDefault
   isDefault Boolean  @default(false)
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -1202,13 +1101,11 @@ model Meeting {
   startAt             DateTime
   durationMinutes     Int
   link                String? // video-call URL, or a dial-in — free text on purpose
-  /**
-   * Minutes before the start to remind whoever is coming. NULL = no reminder, and that is the
-   * default: a meeting booked before this existed had none, and a booking made without thinking
-   * about it should behave the same way.
-   * A property of the MEETING, set by whoever books it — but it still obeys each person's own
-   * `meeting_soon` preference, so an organiser cannot make a colleague's machine chime.
-   */
+  /// Minutes before the start to remind whoever is coming. NULL = no reminder, and that is the
+  /// default: a meeting booked before this existed had none, and a booking made without thinking
+  /// about it should behave the same way.
+  /// A property of the MEETING, set by whoever books it — but it still obeys each person's own
+  /// `meeting_soon` preference, so an organiser cannot make a colleague's machine chime.
   remindMinutesBefore Int?
   description         String?
   /// the organiser: who booked it. Null only for rows that predate the field.
@@ -1250,12 +1147,10 @@ model MeetingParticipant {
 
 // ── Notifications ────────────────────────────────────────────────────────────
 
-/**
- * One row in one person's bell tray.
- * `trigger` is the registry key, not a category: a category cannot be configured, and every screen
- * in this module configures triggers. `NotificationKind` (task/meeting/invoice/system) was that
- * category and is gone.
- */
+/// One row in one person's bell tray.
+/// `trigger` is the registry key, not a category: a category cannot be configured, and every screen
+/// in this module configures triggers. `NotificationKind` (task/meeting/invoice/system) was that
+/// category and is gone.
 model Notification {
   id      String        @id @default(uuid()) @db.Uuid
   /// Nullable like the other four actor columns (Payment.createdById, PaymentAuditLog.byUserId,
@@ -1273,12 +1168,10 @@ model Notification {
   linkType String? // free text: "task" | "meeting" | "invoice", and "thread" later with no migration
   linkId   String? @db.Uuid
 
-  /**
-   * `${trigger}:${ctx.dedup}` — built by the emitter, never composed at a call site.
-   * NOT NULL, and load-bearing: `catchUp` re-runs each sweep in full on EVERY boot, a mail is sent
-   * only when this insert succeeds, and Postgres treats NULLs as distinct. A nullable key would
-   * therefore insert — and mail — the whole firm on every restart.
-   */
+  /// `${trigger}:${ctx.dedup}` — built by the emitter, never composed at a call site.
+  /// NOT NULL, and load-bearing: `catchUp` re-runs each sweep in full on EVERY boot, a mail is sent
+  /// only when this insert succeeds, and Postgres treats NULLs as distinct. A nullable key would
+  /// therefore insert — and mail — the whole firm on every restart.
   dedupKey String
 
   /// an instant, not a flag: a state with a WHEN is stored as a timestamp here (sentAt,
@@ -1286,13 +1179,11 @@ model Notification {
   readAt    DateTime?
   /// null = never mailed. Not a status enum, for the same reason Invoice.sentAt is not.
   emailedAt DateTime?
-  /**
-   * Whether this row was meant to make a sound when it arrived.
-   * DECIDED AT WRITE TIME, by the same precedence the other two channels go through, and stored —
-   * so the tray hands the browser a boolean instead of re-deriving policy and preferences on
-   * every 60-second poll, for every user. It is a record of what this notification was for, in
-   * the same way `emailedAt` is.
-   */
+  /// Whether this row was meant to make a sound when it arrived.
+  /// DECIDED AT WRITE TIME, by the same precedence the other two channels go through, and stored —
+  /// so the tray hands the browser a boolean instead of re-deriving policy and preferences on
+  /// every 60-second poll, for every user. It is a record of what this notification was for, in
+  /// the same way `emailedAt` is.
   sound     Boolean   @default(false)
   createdAt DateTime  @default(now())
 
@@ -1305,13 +1196,11 @@ model Notification {
   @@index([readAt])
 }
 
-/**
- * The GLOBAL contour: one row per trigger, seeded from the registry by `ensureBaseData`, exactly
- * as Priority and SourceOption are. Seeding upserts on the key, so a new registry entry appears on
- * the next boot and an edited row is never overwritten.
- * A policy row is DATA, which is the whole point: a noisy trigger is switched off from the
- * Settings screen without a deploy.
- */
+/// The GLOBAL contour: one row per trigger, seeded from the registry by `ensureBaseData`, exactly
+/// as Priority and SourceOption are. Seeding upserts on the key, so a new registry entry appears on
+/// the next boot and an edited row is never overwritten.
+/// A policy row is DATA, which is the whole point: a noisy trigger is switched off from the
+/// Settings screen without a deploy.
 model NotificationPolicy {
   /// the registry key
   trigger   String  @id
@@ -1319,11 +1208,9 @@ model NotificationPolicy {
   /// a personal off cannot override it. Seeded false everywhere; reserved for the security package.
   mandatory Boolean @default(false)
 
-  /**
-   * Array columns, not a join table. The precedent that applies is `Subscription.rhythmOverrides`
-   * (sparse, read whole, never queried across rows), not `TaskAssignee` (joined and filtered
-   * constantly): a policy row is read as a unit by the emitter and never searched by role.
-   */
+  /// Array columns, not a join table. The precedent that applies is `Subscription.rhythmOverrides`
+  /// (sparse, read whole, never queried across rows), not `TaskAssignee` (joined and filtered
+  /// constantly): a policy row is read as a unit by the emitter and never searched by role.
   roles         RecipientRole[]
   /// used only when `roles` contains `custom`
   customUserIds String[]        @db.Uuid
@@ -1347,13 +1234,11 @@ model NotificationPolicy {
   updatedAt DateTime @updatedAt
 }
 
-/**
- * The PERSONAL contour, and SPARSE on purpose: an absent row means "follow the policy default".
- * A row per user per trigger per channel would freeze every user at the default in force on the
- * day their account was made, and a later change to `defaultEmail` would reach nobody. With sparse
- * rows a changed default reaches everyone who has not made an explicit choice — which, in a
- * ten-person firm, is most people.
- */
+/// The PERSONAL contour, and SPARSE on purpose: an absent row means "follow the policy default".
+/// A row per user per trigger per channel would freeze every user at the default in force on the
+/// day their account was made, and a later change to `defaultEmail` would reach nobody. With sparse
+/// rows a changed default reaches everyone who has not made an explicit choice — which, in a
+/// ten-person firm, is most people.
 model NotificationPreference {
   userId  String              @db.Uuid
   trigger String
@@ -1367,28 +1252,22 @@ model NotificationPreference {
 
 // ── Mailouts ─────────────────────────────────────────────────────────────────
 
-/**
- * A reusable letter. `subject` and `body` carry `{{merge_vars}}` resolved per recipient by
- * shared/mailouts.ts — the SAME renderer the browser preview calls, so what the firm proofreads is
- * character-for-character what leaves the building.
- * Only the subject, the heading and the body vary. The surrounding brand shell (logo, contact
- * block, footer) lives in server/core/email-layout.ts and is not editable here — that is the whole
- * point of "однаково з вигляду, змінюємо лише заголовок".
- */
+/// A reusable letter. `subject` and `body` carry `{{merge_vars}}` resolved per recipient by
+/// shared/mailouts.ts — the SAME renderer the browser preview calls, so what the firm proofreads is
+/// character-for-character what leaves the building.
+/// Only the subject, the heading and the body vary. The surrounding brand shell (logo, contact
+/// block, footer) lives in server/core/email-layout.ts and is not editable here — that is the whole
+/// point of "однаково з вигляду, змінюємо лише заголовок".
 model EmailTemplate {
   id              String      @id @default(uuid()) @db.Uuid
   name            String      @unique
   subject         String
-  /**
-   * the heading drawn above the body, `{{vars}}` allowed; falls back to the subject when null
-   */
+  /// the heading drawn above the body, `{{vars}}` allowed; falls back to the subject when null
   heading         String?
   body            String
   kind            MailoutKind @default(commercial)
   active          Boolean     @default(true)
-  /**
-   * which mailbox this template usually goes from; null = the default account
-   */
+  /// which mailbox this template usually goes from; null = the default account
   senderAccountId String?     @db.Uuid
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
@@ -1398,40 +1277,28 @@ model EmailTemplate {
   campaigns     Campaign[]
 }
 
-/**
- * One act of sending — to a single client or to a hundred.
- * `subject`/`heading`/`body` are a SNAPSHOT taken at send time, still holding their `{{vars}}`.
- * Editing the template afterwards must not rewrite history, and re-rendering per recipient is what
- * lets the log show each person the exact letter they got.
- */
+/// One act of sending — to a single client or to a hundred.
+/// `subject`/`heading`/`body` are a SNAPSHOT taken at send time, still holding their `{{vars}}`.
+/// Editing the template afterwards must not rewrite history, and re-rendering per recipient is what
+/// lets the log show each person the exact letter they got.
 model Mailout {
   id              String      @id @default(uuid()) @db.Uuid
-  /**
-   * null = a one-off personal letter, written straight into the composer
-   */
+  /// null = a one-off personal letter, written straight into the composer
   templateId      String?     @db.Uuid
   subject         String
   heading         String?
   body            String
   kind            MailoutKind
-  /**
-   * the mailbox it actually went from — a record, so the log can answer "sent from where"
-   */
+  /// the mailbox it actually went from — a record, so the log can answer "sent from where"
   senderAccountId String?     @db.Uuid
-  /**
-   * null = somebody pressed Send. Otherwise the campaign whose date came round.
-   */
+  /// null = somebody pressed Send. Otherwise the campaign whose date came round.
   campaignId      String?     @db.Uuid
-  /**
-   * Which of that campaign's dates this run is for — "2026-09-01".
-   * The whole reason a missed date is safe: the sweep runs daily AND on every boot, so without a
-   * key naming the occurrence, a server that was down over the weekend would re-send on Monday and
-   * again on Tuesday. Null for a hand-pressed send, which has no occurrence.
-   */
+  /// Which of that campaign's dates this run is for — "2026-09-01".
+  /// The whole reason a missed date is safe: the sweep runs daily AND on every boot, so without a
+  /// key naming the occurrence, a server that was down over the weekend would re-send on Monday and
+  /// again on Tuesday. Null for a hand-pressed send, which has no occurrence.
   periodKey       String?
-  /**
-   * null for a campaign run — nobody pressed anything
-   */
+  /// null for a campaign run — nobody pressed anything
   createdById     String?     @db.Uuid
   createdAt       DateTime    @default(now())
 
@@ -1440,9 +1307,7 @@ model Mailout {
   campaign      Campaign?              @relation(fields: [campaignId], references: [id])
   createdBy     User?                  @relation("MailoutCreatedBy", fields: [createdById], references: [id])
   recipients    MailoutRecipient[]
-  /**
-   * clients whose opt-out was traced back to this letter — see ClientMailPreference
-   */
+  /// clients whose opt-out was traced back to this letter — see ClientMailPreference
   unsubscribes  ClientMailPreference[] @relation("UnsubscribedFrom")
 
   // One run per occurrence, enforced by the database rather than by the sweep being careful.
@@ -1460,40 +1325,26 @@ model Mailout {
 /// came round.
 model Campaign {
   id              String         @id @default(uuid()) @db.Uuid
-  /**
-   * what the firm calls it — "Tax season reminder", not the letter's subject
-   */
+  /// what the firm calls it — "Tax season reminder", not the letter's subject
   name            String
-  /**
-   * a campaign always sends a saved template; a one-off letter is what the composer is for
-   */
+  /// a campaign always sends a saved template; a one-off letter is what the composer is for
   templateId      String         @db.Uuid
   senderAccountId String?        @db.Uuid
-  /**
-   * Copied from the template when the campaign is made, then owned here.
-   * `commercial` is the default and carries unsubscribe + the firm's postal address, and honours
-   * an opt-out. `transactional` is a deliberate choice: it reaches clients who unsubscribed and
-   * carries no unsubscribe link, which is lawful for a bill or a document request and unlawful
-   * for news. The editor warns before letting it be chosen.
-   */
+  /// Copied from the template when the campaign is made, then owned here.
+  /// `commercial` is the default and carries unsubscribe + the firm's postal address, and honours
+  /// an opt-out. `transactional` is a deliberate choice: it reaches clients who unsubscribed and
+  /// carries no unsubscribe link, which is lawful for a bill or a document request and unlawful
+  /// for news. The editor warns before letting it be chosen.
   kind            MailoutKind    @default(commercial)
   rhythm          CampaignRhythm @default(once)
-  /**
-   * the first date it fires; for a rhythm, also the anchor day of the month
-   */
+  /// the first date it fires; for a rhythm, also the anchor day of the month
   startsOn        DateTime       @db.Date
-  /**
-   * firm-local time of day, "HH:MM" — the sweep runs daily, this decides which side of it
-   */
+  /// firm-local time of day, "HH:MM" — the sweep runs daily, this decides which side of it
   sendAt          String         @default("09:00")
-  /**
-   * a rhythm's last allowed date; null = until somebody stops it
-   */
+  /// a rhythm's last allowed date; null = until somebody stops it
   endsOn          DateTime?      @db.Date
   status          CampaignStatus @default(scheduled)
-  /**
-   * the next date due. Null once nothing is due — finished, or stopped by hand.
-   */
+  /// the next date due. Null once nothing is due — finished, or stopped by hand.
   nextRunOn       DateTime?      @db.Date
   lastRunAt       DateTime?
   createdById     String?        @db.Uuid
@@ -1534,9 +1385,7 @@ model CampaignRecipient {
   id         String   @id @default(uuid()) @db.Uuid
   campaignId String   @db.Uuid
   clientId   String   @db.Uuid
-  /**
-   * null = the client's own address; otherwise one of that client's companies
-   */
+  /// null = the client's own address; otherwise one of that client's companies
   companyId  String?  @db.Uuid
   createdAt  DateTime @default(now())
 
@@ -1554,49 +1403,35 @@ model CampaignRecipient {
   @@index([companyId])
 }
 
-/**
- * One client's copy of one send. `email` is a snapshot: the address it actually went to, so a later
- * change on the client card cannot rewrite what the log says happened.
- */
-/**
- * One address this letter went to.
- * A recipient is a client OR one of that client's companies — `companyId` null means the client
- * themselves. A firm's client can hold several companies, each with its own inbox, and "send to
- * the client" and "send to Kvitka Trade LLC" are different acts with different addresses.
- * Consent stays on the CLIENT, deliberately: unsubscribing is a person saying "stop marketing to
- * me", and honouring it for their personal address while still mailing their company's would be
- * obeying the letter of the request and not the request.
- */
+/// One client's copy of one send. `email` is a snapshot: the address it actually went to, so a later
+/// change on the client card cannot rewrite what the log says happened.
+/// One address this letter went to.
+/// A recipient is a client OR one of that client's companies — `companyId` null means the client
+/// themselves. A firm's client can hold several companies, each with its own inbox, and "send to
+/// the client" and "send to Kvitka Trade LLC" are different acts with different addresses.
+/// Consent stays on the CLIENT, deliberately: unsubscribing is a person saying "stop marketing to
+/// me", and honouring it for their personal address while still mailing their company's would be
+/// obeying the letter of the request and not the request.
 model MailoutRecipient {
   id        String        @id @default(uuid()) @db.Uuid
   mailoutId String        @db.Uuid
   clientId  String        @db.Uuid
-  /**
-   * null = the client's own address; otherwise the company whose inbox this went to
-   */
+  /// null = the client's own address; otherwise the company whose inbox this went to
   companyId String?       @db.Uuid
   email     String
   status    MailoutStatus @default(queued)
-  /**
-   * why it was skipped or how it failed — "no email address", "missing {{company}}", SMTP error
-   */
+  /// why it was skipped or how it failed — "no email address", "missing {{company}}", SMTP error
   reason    String?
-  /**
-   * The `Message-ID` this letter went out with, as nodemailer reports it.
-   * A bounce quotes it back in `References:`, so it is how a returned letter is matched to the row
-   * that sent it — exactly, without guessing from the address. It was being discarded; storing it
-   * costs one column and is what makes reading bounces possible at all.
-   */
+  /// The `Message-ID` this letter went out with, as nodemailer reports it.
+  /// A bounce quotes it back in `References:`, so it is how a returned letter is matched to the row
+  /// that sent it — exactly, without guessing from the address. It was being discarded; storing it
+  /// costs one column and is what makes reading bounces possible at all.
   messageId String?
   sentAt    DateTime?
 
-  /**
-   * when a delivery report came back for this letter
-   */
+  /// when a delivery report came back for this letter
   bouncedAt  DateTime?
-  /**
-   * the enhanced code where the server gave one, else the bare three-digit reply
-   */
+  /// the enhanced code where the server gave one, else the bare three-digit reply
   bounceCode String?
   bounceKind BounceKind?
   createdAt  DateTime    @default(now())
@@ -1615,33 +1450,25 @@ model MailoutRecipient {
   @@index([companyId])
 }
 
-/**
- * Whether a client accepts COMMERCIAL mail. Absent row = subscribed; the firm never has to
- * back-fill one to start sending.
- * `token` is the unguessable secret in the one-click unsubscribe link — the route it opens is the
- * only unauthenticated write in the app, so it can afford nothing weaker.
- */
-/**
- * An address that a receiving server said does not exist.
- * Keyed by the ADDRESS, not hung off a client: a client has several — their own and one per
- * company — and a bounce kills exactly one of them. The same address may also sit on more than one
- * card, and it is dead for all of them or none.
- * Only `BounceKind.address` ever writes here. A refused greeting or a full mailbox must not, or one
- * misconfiguration of our own would spread into a self-inflicted blocklist of real clients.
- */
+/// Whether a client accepts COMMERCIAL mail. Absent row = subscribed; the firm never has to
+/// back-fill one to start sending.
+/// `token` is the unguessable secret in the one-click unsubscribe link — the route it opens is the
+/// only unauthenticated write in the app, so it can afford nothing weaker.
+/// An address that a receiving server said does not exist.
+/// Keyed by the ADDRESS, not hung off a client: a client has several — their own and one per
+/// company — and a bounce kills exactly one of them. The same address may also sit on more than one
+/// card, and it is dead for all of them or none.
+/// Only `BounceKind.address` ever writes here. A refused greeting or a full mailbox must not, or one
+/// misconfiguration of our own would spread into a self-inflicted blocklist of real clients.
 model DeadEmailAddress {
-  /**
-   * lower-cased, because a mailbox is not case-sensitive in any way that matters here
-   */
+  /// lower-cased, because a mailbox is not case-sensitive in any way that matters here
   email       String   @id
   code        String
   reason      String
   firstSeenAt DateTime @default(now())
   lastSeenAt  DateTime @updatedAt
 
-  /**
-   * set when somebody vouches for the address again; the row is kept as history
-   */
+  /// set when somebody vouches for the address again; the row is kept as history
   clearedAt   DateTime?
   clearedById String?   @db.Uuid
   clearedBy   User?     @relation(fields: [clearedById], references: [id], onDelete: SetNull)
@@ -1652,17 +1479,13 @@ model DeadEmailAddress {
 model ClientMailPreference {
   clientId                  String    @id @db.Uuid
   unsubscribedAt            DateTime?
-  /**
-   * set when the firm unsubscribed them from the card rather than the client clicking the link
-   */
+  /// set when the firm unsubscribed them from the card rather than the client clicking the link
   unsubscribedById          String?   @db.Uuid
-  /**
-   * WHICH letter's link they clicked — so "unsubscribed from the March newsletter" is answerable.
-   * The token belongs to the client, not to a letter, so the click alone cannot say where it came
-   * from; the letter puts its own id in the link. That makes the id a claim rather than proof, and
-   * it is stored only after checking that the mailout really did have a row for this client.
-   * SetNull rather than Cascade: losing the provenance is better than losing the opt-out.
-   */
+  /// WHICH letter's link they clicked — so "unsubscribed from the March newsletter" is answerable.
+  /// The token belongs to the client, not to a letter, so the click alone cannot say where it came
+  /// from; the letter puts its own id in the link. That makes the id a claim rather than proof, and
+  /// it is stored only after checking that the mailout really did have a row for this client.
+  /// SetNull rather than Cascade: losing the provenance is better than losing the opt-out.
   unsubscribedFromMailoutId String?   @db.Uuid
   token                     String    @unique
   updatedAt                 DateTime  @updatedAt
@@ -1863,7 +1686,6 @@ model UserRoleAuditLog {
 
   @@index([userId, createdAt])
 }
-
 
 // ── Activity log (S15) ───────────────────────────────────────────────────────
 
