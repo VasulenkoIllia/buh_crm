@@ -288,14 +288,30 @@ function Entry({
       </button>
 
       {open && (
-        <div className="mt-2 space-y-2 pl-5.5">
+        /*
+          A rule down the left, so the detail reads as belonging to the row above it rather than as
+          the next row starting.
+        */
+        <div className="mt-2 ml-1.5 space-y-2 border-l-2 border-divider pl-3.5">
           {entry.rows.map((row) => (
             <div key={row.id} className="text-[12px]">
-              <div className="text-muted">{sentence(row, entry)}</div>
+              {/*
+                The head sentence is NOT repeated. A gesture with one row already says what it was
+                in the line above; printing it again in grey adds a second line that says nothing
+                and makes the one line that does — the diff — harder to find (user, 2026-09-08).
+              */}
+              {entry.rows.length > 1 && (
+                <div className="text-ink-700">{sentence(row, entry)}</div>
+              )}
               <Changes row={row} />
             </div>
           ))}
-          <div className="text-[11px] text-faint">
+          {/*
+            Where it came from. `text-muted` rather than `text-faint`: faint is #9aa1ab, which is
+            about 2.6:1 on white and under the readable threshold for text this size — the IP was
+            on screen and could not be seen.
+          */}
+          <div className="border-t border-divider pt-1.5 text-[11px] text-muted">
             {entry.actorLabel}
             {entry.ip ? ` · ${entry.ip}` : ""}
             {head?.route ? ` · ${head.method} ${head.route}` : ""}
@@ -333,14 +349,19 @@ function Changes({ row }: { row: ActivityRow }) {
   const changes = row.changes as Record<string, unknown> | null;
   if (!changes || Object.keys(changes).length === 0) return null;
   return (
+    /*
+      **The value that is true NOW carries the weight.**
+      A diff read as one grey run of text made the reader parse it to find which half was current.
+      The field is a label, the old value steps back, and what the record says today is in ink.
+    */
     <ul className="mt-0.5 space-y-0.5">
       {Object.entries(changes).map(([field, value]) => (
-        <li key={field} className="text-faint">
-          <span className="text-muted">{field.replace(/_/g, " ")}</span>:{" "}
-          {/* one line each, with the whole value on hover: a description is a paragraph, and a
-              row that grows to hold one buries the four diffs above it */}
-          <span className="inline-block max-w-full truncate align-bottom" title={show(value)}>
-            {show(value)}
+        <li key={field} className="flex gap-2">
+          <span className="w-28 flex-none text-muted">{field.replace(/_/g, " ")}</span>
+          {/* one line, with the whole value on hover: a description is a paragraph, and a row
+              that grows to hold one buries the diffs above it */}
+          <span className="min-w-0 flex-1 truncate" title={plainPair(value)}>
+            <Value value={value} />
           </span>
         </li>
       ))}
@@ -348,13 +369,38 @@ function Changes({ row }: { row: ActivityRow }) {
   );
 }
 
-function show(value: unknown): string {
-  if (value === null || value === undefined) return "—";
-  if (typeof value === "object" && "from" in (value as object) && "to" in (value as object)) {
-    const pair = value as { from: unknown; to: unknown };
-    return `${plainly(pair.from)} → ${plainly(pair.to)}`;
+function Value({ value }: { value: unknown }) {
+  if (isPair(value)) {
+    return (
+      <>
+        {/*
+          `text-muted`, not `muted-400`: the value that WAS is still something a person may need to
+          read, and 3.14:1 on white is under the threshold. The hierarchy is bought with the arrow
+          and with ink on the current value — 4.8 against 16.9 — not by making half the diff faint.
+        */}
+        <span className="text-muted">{plainly(value.from)}</span>
+        <span className="px-1 text-faint" aria-label="became">
+          →
+        </span>
+        <span className="text-ink">{plainly(value.to)}</span>
+      </>
+    );
   }
-  return plainly(value);
+  return <span className="text-ink">{plainly(value)}</span>;
+}
+
+function isPair(value: unknown): value is { from: unknown; to: unknown } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "from" in (value as object) &&
+    "to" in (value as object)
+  );
+}
+
+/** The same thing as one string, for the hover title. */
+function plainPair(value: unknown): string {
+  return isPair(value) ? `${plainly(value.from)} → ${plainly(value.to)}` : plainly(value);
 }
 
 function plainly(value: unknown): string {
