@@ -16,6 +16,8 @@ import { addDays, isoDayInTz, todayInTz, toUtc, zonedDayStart } from "../../core
 import { clientLabel } from "../../core/names.js";
 import { notify, type NotifyOutcome } from "../../core/notify.js";
 import { drainSweepFailures } from "../../core/job-health.js";
+import { SYSTEM_JOBS, isSystemJobKey } from "@shared/system-jobs.js";
+import { plural } from "@shared/text.js";
 import * as repo from "./notifications.repository.js";
 
 /** "tomorrow" / "in 3 days" — how far off one particular deadline is, in whole days. */
@@ -246,9 +248,15 @@ export async function runNotificationSweep(): Promise<SweepResult> {
         // the day's run: unlike every other sweep key this one names an OCCASION rather than a
         // thing, because the thing being reported IS "the night the sweep could not finish"
         dedup: `${failure.sweep}:${isoDayInTz(failure.lastAt, config.TZ)}`,
-        vars: { sweep: failure.sweep },
-        sub: `${failure.count} item${failure.count === 1 ? "" : "s"} skipped — check the server log`,
-        link: null,
+        // the job's own name is `read-bounces`; the person reading this needs "Letters that came
+        // back". The registry that the System screen renders from is the source for both, so the
+        // two cannot drift into calling the same job different things.
+        vars: { sweep: jobLabel(failure.sweep) },
+        // NOT "check the server log" — the reader cannot. Settings → System says, per job, when it
+        // last ran, what it did and what breaks while it does not, which is the whole reason that
+        // screen exists.
+        sub: `${plural(failure.count, "item")} skipped — Settings → System says what and when`,
+        link: { type: "system", id: null },
       }),
     out,
   );
@@ -328,6 +336,11 @@ function minutesAway(startAt: Date, now: Date): string {
  * is not a position 16 CFR §314.4(c)(6) permits indefinitely. Recorded so the next module has a
  * precedent to follow rather than a decision to re-take.
  */
+/** The job's name as a person would say it, falling back to its own key for one we do not know. */
+function jobLabel(job: string): string {
+  return isSystemJobKey(job) ? SYSTEM_JOBS[job].label : job;
+}
+
 export const RETENTION_DAYS = 90;
 
 /**

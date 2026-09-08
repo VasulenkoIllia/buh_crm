@@ -1,10 +1,16 @@
 import argon2 from "argon2";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { NOTIFICATION_TRIGGERS, renderNotificationText } from "@shared/notifications.js";
+import {
+  NOTIFICATION_TRIGGERS,
+  notificationPath,
+  renderNotificationText,
+} from "@shared/notifications.js";
+import { SYSTEM_JOBS } from "@shared/system-jobs.js";
 import { buildApp } from "../../app.js";
 import { ensureBaseData } from "../../core/bootstrap.js";
 import { prisma } from "../../core/db.js";
 import { testOutbox } from "../../core/email.js";
+import { recordJobRun, resetJobHealth } from "../../core/job-health.js";
 import { notify, notifiedAbout } from "../../core/notify.js";
 import * as repo from "./notifications.repository.js";
 import {
@@ -902,5 +908,41 @@ describe("a notification's life after it is written", () => {
     expect(purged).toBe(1);
     const left = (await rowsOf(bo)).map((r) => r.text).sort();
     expect(left).toEqual(["read-89", "unread-91"]);
+  });
+});
+
+describe("what an ops alert actually says to the person who gets it", () => {
+  beforeEach(async () => {
+    await resetJobHealth();
+    await prisma.notification.deleteMany({ where: { trigger: "ops_sweep_failed" } });
+  });
+
+  it("names the job the way a person would, never by its service key", async () => {
+    // it shipped as "read-bounces reported failures / 2 items skipped — check the server log" and
+    // reached a real inbox (user, 2026-09-08): a service name, and an instruction the reader
+    // cannot follow. Both halves are now taken from the registry the System screen renders from.
+    await recordJobRun("read-bounces", { ok: true, durationMs: 40, skipped: 2 });
+    await runNotificationSweep();
+
+    const [row] = await prisma.notification.findMany({
+      where: { trigger: "ops_sweep_failed" },
+    });
+    expect(row.text).toContain(SYSTEM_JOBS["read-bounces"].label);
+    expect(row.text).not.toContain("read-bounces");
+    expect(row.sub).not.toContain("server log");
+    // and it goes somewhere the reader can act
+    expect(notificationPath(row.linkType, row.linkId)).toBe("/settings?tab=system");
+  });
+
+  it("falls back to the raw name for a job the registry does not know", async () => {
+    // a renamed or removed job still has to be reportable — the alternative is an alert that
+    // silently says nothing about which job broke
+    await recordJobRun("a-job-since-renamed", { ok: false, durationMs: 1, error: "gone" });
+    await runNotificationSweep();
+
+    const [row] = await prisma.notification.findMany({
+      where: { trigger: "ops_sweep_failed" },
+    });
+    expect(row.text).toContain("a-job-since-renamed");
   });
 });

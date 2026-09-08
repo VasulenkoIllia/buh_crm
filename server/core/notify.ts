@@ -41,7 +41,13 @@ export interface NotifyContext {
   /** the tray row's second, quieter line */
   sub?: string | null;
   /** where `Open` goes. `linkType` is free text, so "thread" will work with no schema change. */
-  link?: { type: string; id: string } | null;
+  /**
+   * Where the row and the letter point. `id` is nullable because several link types do not use
+   * one — `mailout` lands on the list because `/mailouts/:id` does not exist, `system` on the
+   * System tab — and `notificationPath` has always accepted a null id. Requiring one here only
+   * forced callers to invent a value that is then discarded.
+   */
+  link?: { type: string; id: string | null } | null;
 
   // ── role inputs: what the roles on the policy row are resolved against ──────
   /** resolves `assignee`, `author` and `participant` */

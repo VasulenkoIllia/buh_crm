@@ -371,8 +371,12 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
   },
   ops_sweep_failed: {
     group: "ops",
-    title: "{sweep} reported failures",
-    when: "A generating sweep finishes having skipped work it could not do.",
+    // `{sweep}` is the job's HUMAN name — "Letters that came back", not `read-bounces`. The raw
+    // key shipped in this line for two days and reached a real inbox as
+    // "read-bounces reported failures / 2 items skipped — check the server log" (user,
+    // 2026-09-08): a service name and an instruction the reader cannot follow.
+    title: "{sweep} did not finish everything",
+    when: "A background job finishes having skipped work it could not do.",
     why: "A client who quietly stops being billed is only visible in the logs otherwise.",
     source: "sweep",
     defaultRecipients: ["admin", "custom"],
@@ -479,6 +483,11 @@ export function notificationPath(
       // the list, not a detail route: `/mailouts/:id` does not exist, and a link that 404s is
       // worse than one that lands on the screen the run is on
       return "/mailouts";
+    case "system":
+      // Settings → System, where every background job says in plain words what it does, when it
+      // last ran and what breaks while it does not. The alternative this replaced was the sentence
+      // "check the server log", which is not something the person reading this can do.
+      return "/settings?tab=system";
     case "mailbox":
       // Mailboxes live under Mailouts → Sender, NOT in Settings — which is where this pointed
       // until 2026-09-05, landing the reader on a screen with no mailbox on it

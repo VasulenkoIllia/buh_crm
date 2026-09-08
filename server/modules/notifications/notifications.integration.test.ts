@@ -429,7 +429,10 @@ describe("the sweep", () => {
     await runNotificationSweep();
 
     const [row] = await rowsFor(adminId, "ops_sweep_failed");
-    expect(row.text).toContain("period-invoice-generation");
+    // the job's HUMAN name. This asserted the service key until 2026-09-08, and the key is what
+    // reached a real inbox as "read-bounces reported failures".
+    expect(row.text).toContain("Invoices for the period");
+    expect(row.text).not.toContain("period-invoice-generation");
     expect(row.sub).toContain("3 items skipped");
 
     // drained, not read: one bad night is reported once, and the next report only happens if a
