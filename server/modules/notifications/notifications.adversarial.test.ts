@@ -961,9 +961,20 @@ describe("nothing a notification says is written for a machine", () => {
     });
     await runNotificationSweep();
 
-    const [row] = await prisma.notification.findMany({ where: { trigger: "task_overdue" } });
+    // scoped to THIS task: the suite leaves other overdue tasks around, and taking `[0]` from all
+    // of them read a different row's date — which is how this test first "passed" against a value
+    // it was not looking at
+    const [row] = await prisma.notification.findMany({
+      where: { trigger: "task_overdue", linkId: task.id },
+    });
     expect(row.sub).not.toMatch(/\d{4}-\d{2}-\d{2}/);
-    expect(row.sub).toMatch(/Was due \d{1,2} \w+/);
+    /**
+     * The VALUE, not the shape. The first version of this asserted `/Was due \d{1,2} \w+/`, which
+     * a wrong day satisfies perfectly — and a wrong day is exactly what shipped: a deadline is a
+     * business date at UTC midnight, and rendering it in America/New_York turned 1 Sept into
+     * 31 Aug. A test that only checks the format cannot see that.
+     */
+    expect(row.sub).toBe("Was due 1 Sept");
 
     await prisma.taskAssignee.deleteMany({ where: { taskId: task.id } });
     await prisma.task.delete({ where: { id: task.id } });

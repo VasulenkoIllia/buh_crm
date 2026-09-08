@@ -55,7 +55,7 @@ const MAX_ERROR = 500;
  * for storing a password in a second place; the host and the failure are what a person needs, and
  * they survive this.
  */
-export function redactError(message: string): string {
+function redactError(message: string): string {
   return message.replace(/\/\/[^/\s:@]+:[^/\s@]+@/g, "//***:***@").slice(0, MAX_ERROR);
 }
 

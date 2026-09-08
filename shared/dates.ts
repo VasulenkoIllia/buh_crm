@@ -65,6 +65,17 @@ export function isTaskOverdue(
  * `Was due 2026-09-01` to a reader, which is a machine's date in a human sentence
  * (audit, 2026-09-08).
  */
+/**
+ * **Which zone to pass, and it is not a style choice.**
+ *
+ * A *business date* — a task deadline, an invoice due day — is stored at **UTC midnight** and
+ * carries no time of day. Render it with `"UTC"`. Rendering it in the firm's zone moves it: a
+ * deadline of 2026-09-01 shown in America/New_York reads "31 Aug", and a task due the 1st tells
+ * its assignee it was due the 31st (regression, 2026-09-08).
+ *
+ * An *instant* — a meeting's `startAt`, a timer's start — is a real moment. Render it with the
+ * firm's zone, which is what a person means by "half past two".
+ */
 export function fmtDayInTz(at: Date, tz: string): string {
   return new Intl.DateTimeFormat("en-GB", {
     timeZone: tz,

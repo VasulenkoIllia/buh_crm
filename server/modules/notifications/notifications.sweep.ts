@@ -141,9 +141,18 @@ export async function runNotificationSweep(): Promise<SweepResult> {
         dedup: task.id,
         taskId: task.id,
         vars: { task: task.title },
-        // the firm's date, not the machine's: this said "Was due 2026-09-01" until 2026-09-08,
-        // which is the only date in the whole module a person could not read at a glance
-        sub: task.deadline ? `Was due ${fmtDayInTz(task.deadline, config.TZ)}` : null,
+        /**
+         * UTC, not the firm's zone — and this cost a regression to learn.
+         *
+         * A deadline is a BUSINESS DATE stored at UTC midnight, not an instant. Rendering
+         * 2026-09-01T00:00:00Z in America/New_York gives "31 Aug", so a task due the 1st read as
+         * due the 31st. The ISO string this replaced was ugly and right; the first fix was pretty
+         * and wrong (audit, 2026-09-08).
+         *
+         * A meeting's `startAt` IS an instant and is rendered in the firm's zone — the two are
+         * different kinds of value and take different zones.
+         */
+        sub: task.deadline ? `Was due ${fmtDayInTz(task.deadline, "UTC")}` : null,
         link: { type: "task", id: task.id },
       }),
     out,
