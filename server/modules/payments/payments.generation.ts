@@ -222,6 +222,7 @@ async function issueDue(subs: BillableSubscription[]) {
        * client's card, where somebody would actually meet it.
        */
       record("subscription.generation_failed", {
+        outcome: "failed",
         subjectId: sub.id,
         subjectLabel: sub.service?.name ?? null,
         clientId: sub.clientId,

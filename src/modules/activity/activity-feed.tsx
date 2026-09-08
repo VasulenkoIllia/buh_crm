@@ -1,9 +1,8 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import {
-  ACTIVITY_EVENTS,
   ACTIVITY_KEYS,
-  SUBJECT_GROUP,
+  groupOf,
   isActivityKey,
   renderTitle,
   type ActivityGroup,
@@ -63,7 +62,7 @@ function actionLabel(key: string): string {
   return `${words(subject).replace(/^./, (c) => c.toUpperCase())} · ${words(verb)}`;
 }
 
-export interface ActivityFeedProps {
+interface ActivityFeedProps {
   /** locks the feed to one client — everything that concerns them, across every subject */
   clientId?: string;
   /** the client card's shape: no filter strip, a shorter page */
@@ -113,7 +112,7 @@ export function ActivityFeed({ clientId, compact = false }: ActivityFeedProps) {
 
   const actions = useMemo(
     () =>
-      ACTIVITY_KEYS.filter((key) => !group || SUBJECT_GROUP[ACTIVITY_EVENTS[key].subject] === group)
+      ACTIVITY_KEYS.filter((key) => !group || groupOf(key) === group)
         .map((key) => ({ value: key, label: actionLabel(key) }))
         .sort((a, b) => a.label.localeCompare(b.label)),
     [group],
@@ -199,6 +198,9 @@ export function ActivityFeed({ clientId, compact = false }: ActivityFeedProps) {
           <span>
             {(data.page - 1) * data.pageSize + 1}–
             {Math.min(data.page * data.pageSize, data.total)} of {data.total}
+            {/* a ceiling, not a count: an exact total of a two-year log costs a scan of every
+                matching gesture on every page load, and a pager does not need one */}
+            {data.totalIsExact ? "" : "+"}
           </span>
           <div className="flex gap-2">
             <Button

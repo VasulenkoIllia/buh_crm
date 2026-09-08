@@ -74,10 +74,17 @@ export async function createSession(
    * The actor is PINNED: `/login` and `/accept-invite` are anonymous routes, so the request has no
    * `currentUser` and the flush would otherwise attribute the firm's own sign-in to "Anonymous".
    */
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { id: true, firstName: true, lastName: true },
-  });
+  /**
+   * **The lookup cannot be allowed to fail the sign-in it is describing.**
+   *
+   * `record()` swallows its own failures by design, but this read is not `record()` — it is an
+   * extra query the log needs, added to a function whose job is to admit somebody. Without the
+   * catch, a hiccup here answers 500 to a person whose session was already created and whose
+   * cookie was already set: signed in, and told they were not (audit, 2026-09-08).
+   */
+  const user = await prisma.user
+    .findUnique({ where: { id: userId }, select: { id: true, firstName: true, lastName: true } })
+    .catch(() => null);
   if (user) {
     setActivityActor({ kind: "user", userId: user.id, label: personName(user) });
     record("session.signed_in", { subjectId: session.userId, subjectLabel: personName(user) });
@@ -95,10 +102,14 @@ export async function destroySession(request: FastifyRequest, reply: FastifyRepl
      * session row is the only thing that knows whose sign-out this is. Recording it from an absent
      * `currentUser` would have silently logged nothing at all.
      */
-    const session = await prisma.session.findUnique({
-      where: { id: sid },
-      select: { userId: true, user: { select: { firstName: true, lastName: true } } },
-    });
+    // …and the same guard on the way out: this read is FOR the log, and a sign-out that could not
+    // be recorded must still be a sign-out
+    const session = await prisma.session
+      .findUnique({
+        where: { id: sid },
+        select: { userId: true, user: { select: { firstName: true, lastName: true } } },
+      })
+      .catch(() => null);
     await prisma.session.deleteMany({ where: { id: sid } });
     // only when a session actually went: `/logout` answers `{ok:true}` to a browser with no
     // session at all, and recording that as a sign-out would be inventing an event

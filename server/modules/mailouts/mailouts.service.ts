@@ -861,7 +861,9 @@ export async function sweepStalledSends(): Promise<{ closed: number }> {
    * returns, so a restart leaves whatever it had not reached reading as still in flight, for ever
    * — and until now this sweep said so to a log nobody reads.
    */
-  if (closed > 0) record("mailout.send_abandoned", { changes: { closed } });
+  if (closed > 0) {
+    record("mailout.send_abandoned", { outcome: "failed", changes: { closed } });
+  }
   return { closed };
 }
 
@@ -1882,6 +1884,7 @@ async function notifyFailures(
    * delivery runs after the response, so there is no open request left to buffer into.
    */
   record("mailout.send_failed", {
+    outcome: "failed",
     subjectId: mailoutId,
     subjectLabel: letter.subject,
     dedupeValue: letter.subject,

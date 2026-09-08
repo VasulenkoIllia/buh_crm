@@ -23,7 +23,8 @@ export async function registerRoutes(instance: FastifyInstance) {
   app.get(
     "/",
     { config: activity, schema: { querystring: activityQuery } },
-    async (request) => service.list(request.query),
+    // the caller, not just their query: what they may READ is decided by their own gates (§12)
+    async (request) => service.list(request.currentUser!, request.query),
   );
 
   app.get("/policies", { config: activity }, async () => service.policies());

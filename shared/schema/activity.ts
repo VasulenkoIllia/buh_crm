@@ -68,10 +68,15 @@ export type ActivityEntry = z.infer<typeof activityEntry>;
 export const activityPage = z.object({
   entries: z.array(activityEntry),
   total: z.number().int(),
+  /**
+   * False when `total` is a ceiling rather than a count. An exact total of a two-year log costs a
+   * scan of every matching gesture on every page load; a pager needs to know where it is and
+   * whether there is more, so past the ceiling the screen says "2000+" (see `countGestures`).
+   */
+  totalIsExact: z.boolean(),
   page: z.number().int(),
   pageSize: z.number().int(),
 });
 export type ActivityPage = z.infer<typeof activityPage>;
 
 export const setActivityPolicyInput = z.object({ enabled: z.boolean() });
-export type SetActivityPolicyInput = z.infer<typeof setActivityPolicyInput>;

@@ -4,6 +4,7 @@ import {
   ACTIVITY_EVENTS,
   ACTIVITY_KEYS,
   isActivityKey,
+  retentionYears,
   TIER1_REFUSED,
   TIER1_REQUEST,
   type ActivityKey,
@@ -81,6 +82,17 @@ export interface RecordDetails {
   actor?: ActivityActor;
   /** for a `dedupe` event: the value its window is keyed by (a job name, a mailout id) */
   dedupeValue?: string | null;
+  /**
+   * **Overrides the context's outcome, for an event that knows better than the request does.**
+   *
+   * `outcome` is otherwise a fact about the REQUEST — a gate refused it, or the app threw. That is
+   * the right default and it is wrong for exactly one shape: a background job whose own `catch`
+   * records the failure. The job did not fail as a request; there is no request. It failed as the
+   * thing it was, and `runWithActivity`'s flush was hard-coding `ok` over the top of every
+   * `*_failed` event the scheduler, the bounce sweep and the campaign sweep produce — so the one
+   * column the screen uses to mark a problem said there was none (audit, 2026-09-08).
+   */
+  outcome?: ActivityOutcome;
 }
 
 interface PendingEvent extends RecordDetails {
@@ -470,7 +482,7 @@ async function writeEvents(
         gate: store.gate ?? null,
         method: store.method ?? null,
         route: store.route ?? null,
-        outcome,
+        outcome: event.outcome ?? outcome,
         refusalCode: store.refusalCode ?? null,
         correlationId: store.correlationId,
       });
@@ -545,14 +557,40 @@ export async function purgeOldActivity(now: Date = new Date()): Promise<{ purged
     d.setFullYear(d.getFullYear() - years);
     return d;
   };
-  const longKeys = ACTIVITY_KEYS.filter((k) => ACTIVITY_EVENTS[k].retention === "long");
-  const { count } = await prisma.activityEvent.deleteMany({
-    where: {
-      OR: [
-        { action: { notIn: longKeys }, occurredAt: { lt: cutoff(2) } },
-        { action: { in: longKeys }, occurredAt: { lt: cutoff(7) } },
-      ],
-    },
-  });
-  return { purged: count };
+  // `retentionYears` is the registry's own answer; asking it rather than re-deriving the rule is
+  // what stops the purge and the screen drifting apart
+  const longKeys = ACTIVITY_KEYS.filter((k) => retentionYears(k) === 7);
+  const expired = {
+    OR: [
+      { action: { notIn: longKeys }, occurredAt: { lt: cutoff(2) } },
+      { action: { in: longKeys }, occurredAt: { lt: cutoff(7) } },
+    ],
+  };
+
+  /**
+   * **Batched, for the run that has not run in months.**
+   *
+   * In steady state this is one batch of a few hundred rows and the loop turns once — a non-event.
+   * The shape is for the other case: a job that was down through a broken deploy comes back and
+   * tries to delete two years of backlog in ONE transaction, holding every row lock until it
+   * commits and holding the whole database's xmin horizon back with it, which delays vacuum on
+   * every other table too. Five thousand at a time costs nothing when there is nothing to do and
+   * bounds the damage when there is.
+   */
+  const BATCH = 5_000;
+  let purged = 0;
+  for (;;) {
+    const doomed = await prisma.activityEvent.findMany({
+      where: expired,
+      select: { id: true },
+      take: BATCH,
+    });
+    if (doomed.length === 0) break;
+    const { count } = await prisma.activityEvent.deleteMany({
+      where: { id: { in: doomed.map((r) => r.id) } },
+    });
+    purged += count;
+    if (doomed.length < BATCH) break;
+  }
+  return { purged };
 }

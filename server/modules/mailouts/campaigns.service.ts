@@ -499,6 +499,7 @@ export async function runDueCampaigns(
        * that exact reason.
        */
       record("campaign.fire_failed", {
+        outcome: "failed",
         subjectId: campaign.id,
         subjectLabel: campaign.name,
         dedupeValue: campaign.name,

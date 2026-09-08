@@ -543,7 +543,13 @@ export async function updateClient(id: string, input: UpdateClientInput) {
     subjectLabel: clientLabel(existing),
     clientId: id,
     changes:
-      diff(existing, toClientFields(input, false) as Record<string, unknown>, [
+      /**
+       * The INPUT, not `toClientFields(input)`. That mapper turns `sourceId` into a Prisma relation
+       * write (`source: { connect }` / `{ disconnect }`), so a diff taken over its output could
+       * never see `sourceId` at all — a declared change key structurally unable to fire, silently,
+       * for every source change anybody made (audit, 2026-09-08).
+       */
+      diff(existing, input as Record<string, unknown>, [
         "firstName",
         "lastName",
         "companyName",
@@ -763,7 +769,15 @@ export async function updateSubscription(
     changes:
       diff(
         { ...sub, isDefault: sub.isDefault },
-        { ...input, ...(isDefault !== undefined ? { isDefault } : {}) } as Record<string, unknown>,
+        {
+          ...input,
+          // `periodFor` overrides what the caller asked for — a one-time service stores no period
+          // whatever it was sent — so the diff has to show what was written, not what was wanted
+          ...(fields.period !== undefined
+            ? { period: periodFor(sub.service, fields.period) }
+            : {}),
+          ...(isDefault !== undefined ? { isDefault } : {}),
+        } as Record<string, unknown>,
         [
           "amount",
           "period",
@@ -936,7 +950,8 @@ export async function archiveClient(id: string, actor: User) {
    * service stop" is asked on the SERVICE, and `client.archived` alone cannot answer it — the whole
    * question is which of them were running at the time.
    */
-  const running = await repo.findSubscriptionsWithLivePeriods(id);
+  // read FOR the log, so it may not be able to fail the archive: same guard as `createSession`
+  const running = await repo.findSubscriptionsWithLivePeriods(id).catch(() => []);
   await repo.closeLivePeriodsForClient(id, endsBefore, actor.id);
   for (const sub of running) {
     record("subscription.stopped", {

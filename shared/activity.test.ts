@@ -3,6 +3,7 @@ import {
   ACTIVITY_EVENTS,
   ACTIVITY_KEYS,
   PLANNED_EVENT_KEYS,
+  SUBJECT_GATE,
   SUBJECT_GROUP,
   TIER1_REFUSED,
   TIER1_REQUEST,
@@ -41,6 +42,19 @@ describe("the activity registry", () => {
     expect(wrong).toEqual([]);
   });
 
+  /**
+   * Every subject must name a gate, or the reader-side filter silently drops its events — which
+   * would be the log quietly hiding things rather than quietly leaking them. Both failures are
+   * invisible, which is why this is mechanical.
+   */
+  it("files every subject under a gate as well as a group", () => {
+    for (const key of ACTIVITY_KEYS) {
+      const subject = ACTIVITY_EVENTS[key].subject;
+      expect(SUBJECT_GATE[subject], `${subject} names no gate`).toBeTruthy();
+    }
+    expect(Object.keys(SUBJECT_GATE).sort()).toEqual(Object.keys(SUBJECT_GROUP).sort());
+  });
+
   it("files every subject in exactly one group", () => {
     for (const key of ACTIVITY_KEYS) {
       expect(SUBJECT_GROUP[ACTIVITY_EVENTS[key].subject], `${key} has no group`).toBeTruthy();
@@ -76,7 +90,11 @@ describe("the activity registry", () => {
    * is the count that matters and this test is what stops it drifting silently.
    */
   it("holds the measured inventory: 136 events, all of them declared", () => {
-    expect(ACTIVITY_KEYS.length).toBe(136);
+    // 137 since 2026-09-08: the audit added `settings.activity_switched`, because the switch
+    // that decides what the log holds was the one firm setting nothing recorded
+    // 149 since the 2026-09-08 audit: `settings.activity_switched`, and the twelve the Leads
+    // module needed — it was the one part of the product that changed things and recorded none
+    expect(ACTIVITY_KEYS.length).toBe(149);
     // the checklist is empty because the pass is finished — not because it was abandoned
     expect(PLANNED_EVENT_KEYS).toEqual([]);
   });

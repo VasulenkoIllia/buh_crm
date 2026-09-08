@@ -107,6 +107,43 @@ export const SUBJECT_GROUP: Record<ActivitySubject, ActivityGroup> = {
   system: "system",
 };
 
+/**
+ * **Which gate governs each subject — the map that stops the log becoming a way around one.**
+ *
+ * activity-log.md §12 rule 1 says the screen "must not become a way to read what a gate closed",
+ * and until 2026-09-08 that was true only because the `activity` gate ships closed for everyone
+ * but an admin. The moment a firm opens it to a lead — which is the whole reason the gate exists —
+ * a subject label is a client name, and a closed `clients` gate would have stopped meaning
+ * anything. Contained by a default is not contained.
+ *
+ * So a reader sees the subjects they could already open. The gate names are plain strings rather
+ * than `GateKey` because this file imports nothing (the browser loads it); `activity.registry`'s
+ * test holds the two lists to each other.
+ */
+export const SUBJECT_GATE: Record<ActivitySubject, string> = {
+  client: "clients",
+  company: "clients",
+  subscription: "clients",
+  secret: "secrets",
+  lead: "leads",
+  task: "tasks",
+  time_entry: "tasks",
+  meeting: "calendar",
+  invoice: "billing",
+  service: "services",
+  mailout: "mailouts",
+  campaign: "mailouts",
+  mailbox: "mailboxes",
+  // a file belongs to the client or the task it hangs off; `clients` is the wider of the two
+  file: "clients",
+  // who is in the system, and what they were allowed to reach — the Team gate's subject matter
+  user: "team",
+  session: "team",
+  access: "team",
+  settings: "settings",
+  system: "settings",
+};
+
 /** Mirrors the Prisma enum. Declared rather than imported — see the no-imports rule above. */
 export type ActorKind = "user" | "client" | "system";
 export type ActivityOutcome = "ok" | "refused" | "failed";
@@ -1183,6 +1220,131 @@ const EVENTS = {
     enabledByDefault: true,
   },
 
+  // ── lead: a real person's name, phone and email, before they are a client ──
+  //
+  // activity-log.md §4.4 left this subject empty — "the lead cluster's events fold into `client.*`
+  // on conversion; leads have their own board history". The audit of 2026-09-08 overturned that:
+  // the board history records stage moves, not who changed a prospect's phone number and not who
+  // made the row disappear. A `Lead` holds a name, a phone, an email and a company — customer
+  // information by every test §3.1 applies to a client — and Leads was the one module in the
+  // product that changed things and recorded none of them.
+  "lead.created": {
+    subject: "lead",
+    title: "{actor} added the lead {subject}",
+    when: "a prospect is put on the pipeline",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["companyName", "serviceId"],
+    enabledByDefault: true,
+  },
+  "lead.updated": {
+    subject: "lead",
+    title: "{actor} updated the lead {subject}",
+    when: "a prospect's name, contacts, service or note changes",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["name", "companyName", "phone", "email", "serviceId", "sourceId", "description"],
+    enabledByDefault: true,
+  },
+  "lead.stage_changed": {
+    subject: "lead",
+    title: "{actor} moved the lead {subject}",
+    when: "a card moves to another stage of the pipeline",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["stage"],
+    enabledByDefault: true,
+  },
+  /** Where a real client came from — the one lead event that outlives the pipeline. */
+  "lead.converted": {
+    subject: "lead",
+    title: "{actor} converted the lead {subject} into a client",
+    when: "a prospect becomes a client",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["client"],
+    enabledByDefault: true,
+  },
+  "lead.marked_lost": {
+    subject: "lead",
+    title: "{actor} marked the lead {subject} lost",
+    when: "a prospect is closed without becoming a client",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    enabledByDefault: true,
+  },
+  "lead.reopened": {
+    subject: "lead",
+    title: "{actor} reopened the lead {subject}",
+    when: "a lost prospect is put back on the pipeline",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    enabledByDefault: true,
+  },
+  /** Not an outcome — a soft delete, for duplicates, tests and mistakes. */
+  "lead.archived": {
+    subject: "lead",
+    title: "{actor} archived the lead {subject}",
+    when: "a lead is taken off every list — a duplicate, a test, a mistake",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    enabledByDefault: true,
+  },
+  "lead.restored": {
+    subject: "lead",
+    title: "{actor} restored the lead {subject}",
+    when: "an archived lead is brought back",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    enabledByDefault: true,
+  },
+  /** The pipeline's own columns, filed under `settings` beside the task board's. */
+  "settings.stage_created": {
+    subject: "settings",
+    title: "{actor} added the pipeline stage {subject}",
+    when: "a stage is added to the leads board",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    enabledByDefault: true,
+  },
+  "settings.stage_updated": {
+    subject: "settings",
+    title: "{actor} renamed the pipeline stage {subject}",
+    when: "a stage of the leads board is renamed",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["name"],
+    enabledByDefault: true,
+  },
+  "settings.stage_moved": {
+    subject: "settings",
+    title: "{actor} moved the pipeline stage {subject}",
+    when: "the order of the leads board's stages changes",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    enabledByDefault: true,
+  },
+  "settings.stage_deleted": {
+    subject: "settings",
+    title: "{actor} deleted the pipeline stage {subject}",
+    when: "an empty stage is removed from the leads board",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    enabledByDefault: true,
+  },
+
   // ── mailbox: where the firm's mail leaves from ─────────────────────────────
   //
   // Its own subject, split out of `mailouts` the way the gate was: sending a letter and rewriting
@@ -1612,6 +1774,24 @@ const EVENTS = {
     retention: "ordinary",
     enabledByDefault: true,
   },
+  /**
+   * **Who stopped us recording something.**
+   *
+   * The switch that decides what the log holds was itself the one piece of firm configuration
+   * nothing recorded — turning off `file.downloaded` left a bare `PATCH /api/activity/policies/:action`
+   * and no name against it. An audit trail whose own controls are outside the audit trail is the
+   * gap this module exists to close, so it closes it on itself (audit, 2026-09-08).
+   */
+  "settings.activity_switched": {
+    subject: "settings",
+    title: "{actor} changed what is recorded: {subject}",
+    when: "an event is switched on or off in Settings → Activity",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    changeKeys: ["enabled"],
+    enabledByDefault: true,
+  },
   "settings.notification_policy_changed": {
     subject: "settings",
     title: "{actor} changed the notification rule for {subject}",
@@ -1861,8 +2041,6 @@ export const ACTIVITY_KEYS = Object.keys(ACTIVITY_EVENTS) as ActivityKey[];
  * wired, with `server/activity.producers.test.ts` failing in both directions meanwhile.
  */
 export const PLANNED_EVENT_KEYS: readonly string[] = [];
-
-export type PlannedActivityKey = (typeof PLANNED_EVENT_KEYS)[number];
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 

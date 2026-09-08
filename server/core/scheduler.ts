@@ -93,6 +93,8 @@ async function runOnce(job: SchedulerJob, log: FastifyBaseLogger): Promise<void>
         // deduped to one row an hour per job: a job failing every fifteen minutes would otherwise
         // write 96 rows a day and bury everything else (§4.2)
         record("system.job_failed", {
+          // the job failed; the request did not, because there is no request
+          outcome: "failed",
           subjectLabel: job.name,
           dedupeValue: job.name,
           changes: { job: job.name, error },

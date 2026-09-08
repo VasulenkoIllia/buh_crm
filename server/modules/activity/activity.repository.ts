@@ -16,10 +16,18 @@ import type { ActivityQuery } from "@shared/schema/activity.js";
  * worse answer than either.
  */
 
-function where(query: ActivityQuery): Prisma.ActivityEventWhereInput {
-  const filters: Prisma.ActivityEventWhereInput = {};
+function where(query: ActivityQuery, visible: string[]): Prisma.ActivityEventWhereInput {
+  /**
+   * **What this reader may see at all**, intersected before any of their own filters.
+   *
+   * §12 rule 1: the log must not become a way to read what a gate closed. A subject label is a
+   * client name, so a reader whose `clients` gate is shut sees no `client`, `company`, `file` or
+   * `subscription` events — the same answer they would get by opening the client list.
+   */
+  const filters: Prisma.ActivityEventWhereInput = { subject: { in: visible } };
   if (query.actorUserId) filters.actorUserId = query.actorUserId;
-  if (query.subject) filters.subject = query.subject;
+  // a named subject the reader cannot see resolves to an empty set rather than to itself
+  if (query.subject) filters.subject = { in: visible.filter((v) => v === query.subject) };
   if (query.subjectId) filters.subjectId = query.subjectId;
   if (query.clientId) filters.clientId = query.clientId;
   if (query.action) filters.action = query.action;
@@ -29,7 +37,7 @@ function where(query: ActivityQuery): Prisma.ActivityEventWhereInput {
     const subjects = (Object.keys(SUBJECT_GROUP) as ActivitySubject[]).filter(
       (s) => SUBJECT_GROUP[s] === (query.group as ActivityGroup),
     );
-    filters.subject = { in: subjects };
+    filters.subject = { in: subjects.filter((subject) => visible.includes(subject)) };
   }
   if (query.from || query.to) {
     filters.occurredAt = {
@@ -49,10 +57,10 @@ function where(query: ActivityQuery): Prisma.ActivityEventWhereInput {
 }
 
 /** The ids of one page of gestures, newest gesture first. */
-export async function findGestureIds(query: ActivityQuery): Promise<string[]> {
+export async function findGestureIds(query: ActivityQuery, visible: string[]): Promise<string[]> {
   const groups = await prisma.activityEvent.groupBy({
     by: ["correlationId"],
-    where: where(query),
+    where: where(query, visible),
     _max: { occurredAt: true },
     orderBy: { _max: { occurredAt: "desc" } },
     take: query.pageSize,
@@ -61,21 +69,40 @@ export async function findGestureIds(query: ActivityQuery): Promise<string[]> {
   return groups.map((g) => g.correlationId);
 }
 
-/** How many gestures match — the count the pager needs, not the count of rows. */
-export async function countGestures(query: ActivityQuery): Promise<number> {
+/**
+ * **How many gestures match — counted up to a ceiling, and no further.**
+ *
+ * This used to be `findMany({ distinct })` with no limit, whose length was then read in JavaScript.
+ * The database time was never the problem: measured at a million rows with the screen's own 30-day
+ * window it is 8 ms. The problem was the other end — an unfiltered "All" pulled 666 000 uuids
+ * across the wire and built 666 000 JavaScript objects to read `.length`, roughly 50 MB per page
+ * load, per reader (measured 2026-09-08).
+ *
+ * A pager needs to know where it is and whether there is more; it does not need an exact total of
+ * a two-year log. Past the ceiling the screen says "2000+", which is both honest and bounded.
+ */
+const COUNT_CEILING = 2000;
+
+export async function countGestures(
+  query: ActivityQuery,
+  visible: string[],
+): Promise<{ total: number; exact: boolean }> {
   const rows = await prisma.activityEvent.findMany({
-    where: where(query),
+    where: where(query, visible),
     distinct: ["correlationId"],
     select: { correlationId: true },
+    take: COUNT_CEILING + 1,
   });
-  return rows.length;
+  return { total: Math.min(rows.length, COUNT_CEILING), exact: rows.length <= COUNT_CEILING };
 }
 
 /** Every row of the given gestures, oldest first inside each — the order they happened. */
-export async function findRowsFor(correlationIds: string[]) {
+export async function findRowsFor(correlationIds: string[], visible: string[]) {
   if (correlationIds.length === 0) return [];
   return prisma.activityEvent.findMany({
-    where: { correlationId: { in: correlationIds } },
+    // the gesture comes back whole, but only the parts of it this reader may see: saving a client
+    // also touched a subscription, and a reader without `clients` must not meet either
+    where: { correlationId: { in: correlationIds }, subject: { in: visible } },
     orderBy: { occurredAt: "asc" },
   });
 }

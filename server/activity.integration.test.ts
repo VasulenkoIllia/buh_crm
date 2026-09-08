@@ -810,3 +810,123 @@ describe("one save, one lifecycle event", () => {
     expect(rows).toEqual(["task.reopened"]);
   });
 });
+
+/**
+ * **What the audit of 2026-09-08 found, held so it cannot come back.**
+ *
+ * Each of these is a defect that shipped, passed every test in this file, and was invisible from
+ * the outside — which is the only kind worth writing a test for after the fact.
+ */
+describe("the three the audit caught", () => {
+  it("records a job's own failure as a failure, not as a success", async () => {
+    /**
+     * `runWithActivity` flushed with a hard-coded `outcome: "ok"`, and the scheduler catches its
+     * own errors INSIDE that wrapper — so `system.job_failed`, `mailbox.read_failed` and
+     * `campaign.fire_failed` were all written as successful. The screen marks a problem row from
+     * `outcome`, so the one column that says "look at this" said there was nothing to look at.
+     */
+    await runWithActivity({ actor: { kind: "system", label: "The scheduler" } }, async () => {
+      record("system.job_failed", {
+        outcome: "failed",
+        subjectLabel: "nightly-thing",
+        dedupeValue: "nightly-thing",
+        changes: { job: "nightly-thing", error: "boom" },
+      });
+    });
+    const row = await prisma.activityEvent.findFirstOrThrow({
+      where: { action: "system.job_failed" },
+      orderBy: { occurredAt: "desc" },
+    });
+    expect(row.outcome).toBe("failed");
+    await prisma.activityEvent.deleteMany({ where: { action: "system.job_failed" } });
+  });
+
+  it("captures a change of lead source, which the diff could never see", async () => {
+    /**
+     * `client.updated` declared `sourceId`, but the diff was taken over `toClientFields(input)`,
+     * which turns that field into a Prisma relation write (`source: { connect }`). The key was
+     * never `in` the object being diffed, so a source change produced no row — silently, for every
+     * such edit, with the registry test passing because it only checks static shape.
+     */
+    const source = await prisma.sourceOption.findFirstOrThrow();
+    const client = await prisma.client.create({
+      data: { firstName: "Source", lastName: "Probe" },
+    });
+    const before = new Date();
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/clients/${client.id}`,
+      headers: { cookie: adminCookie },
+      payload: { sourceId: source.id },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const row = await waitFor(
+      () =>
+        prisma.activityEvent.findFirst({
+          where: { action: "client.updated", subjectId: client.id, occurredAt: { gte: before } },
+        }),
+      "the source change",
+    );
+    expect(row.changes).toEqual({ sourceId: { from: null, to: source.id } });
+
+    await prisma.activityEvent.deleteMany({ where: { clientId: client.id } });
+    await prisma.client.delete({ where: { id: client.id } });
+  });
+
+  /**
+   * §12 rule 1 — "it must not become a way to read what a gate closed" — was true only because the
+   * `activity` gate ships shut for everyone but an admin. The moment a firm opens it to a lead,
+   * which is the entire reason the gate exists, every client name in the log was readable by
+   * somebody whose client list is closed.
+   */
+  it("hides the subjects a reader's own gates close", async () => {
+    await runWithActivity({ actor: { kind: "user", label: "Gated" } }, async () => {
+      record("client.created", { subjectLabel: "A client name" });
+      record("user.blocked", {
+        subjectLabel: "A colleague",
+        changes: { status: { from: "active", to: "blocked" } },
+      });
+    });
+
+    // open the log for a plain user, and leave their clients gate shut
+    for (const [gate, state] of [
+      ["activity", "open"],
+      ["clients", "closed"],
+    ] as const) {
+      await prisma.accessPolicy.upsert({
+        where: { gate_role_action: { gate, role: "user", action: "*" } },
+        update: { state },
+        create: { gate, role: "user", state },
+      });
+    }
+    invalidateAccessCache();
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/activity?q=A ",
+      headers: { cookie: userCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const seen = (res.json() as { entries: { rows: { action: string }[] }[] }).entries
+      .flatMap((e) => e.rows.map((r) => r.action))
+      .filter((a) => a === "client.created" || a === "user.blocked");
+
+    // `team` is admin-fixed, so a user cannot see `user.*` either — what is left is nothing
+    expect(seen).toEqual([]);
+
+    // and an admin, whose gates are open, sees both
+    const asAdmin = await app.inject({
+      method: "GET",
+      url: "/api/activity?q=A ",
+      headers: { cookie: adminCookie },
+    });
+    const adminSees = (asAdmin.json() as { entries: { rows: { action: string }[] }[] }).entries
+      .flatMap((e) => e.rows.map((r) => r.action));
+    expect(adminSees).toContain("client.created");
+
+    await prisma.accessPolicy.deleteMany();
+    invalidateAccessCache();
+    await prisma.activityEvent.deleteMany({ where: { actorLabel: "Gated" } });
+  });
+});

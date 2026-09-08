@@ -161,6 +161,7 @@ async function sweepMailbox(
      * first one — which is the one that mattered.
      */
     record("mailbox.read_failed", {
+      outcome: "failed",
       subjectId: account.id,
       subjectLabel: account.name,
       dedupeValue: account.name,

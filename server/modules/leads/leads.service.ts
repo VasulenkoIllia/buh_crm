@@ -12,6 +12,7 @@ import { LEAD_LIST_LIMIT } from "@shared/schema/lead.js";
 import type { Prisma, User } from "../../generated/prisma/client.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
 import { applyDefaultClientService } from "../clients/index.js";
+import { diff, record } from "../../core/activity.js";
 import * as repo from "./leads.repository.js";
 
 /** New/changed service on a lead must exist and be active (existing refs stay untouched). */
@@ -81,7 +82,13 @@ export async function createLead(input: CreateLeadInput) {
   if (!first) throw new ValidationError("The pipeline has no stages — add one on the board first");
   // `stageId`, not `stage: { connect }` — the rest of the input is scalars, and one relation
   // form among them flips Prisma to its checked variant, where `serviceId` is not a valid key
-  return toLeadDto(await repo.createLead({ ...input, stageId: first.id }));
+  const lead = await repo.createLead({ ...input, stageId: first.id });
+  record("lead.created", {
+    subjectId: lead.id,
+    subjectLabel: lead.name,
+    changes: { companyName: lead.companyName, serviceId: lead.serviceId },
+  });
+  return toLeadDto(lead);
 }
 
 async function getActiveLead(id: string) {
@@ -111,6 +118,14 @@ export async function moveLead(id: string, input: MoveLeadInput) {
     throw new ValidationError("Reopen this lead before editing or moving it");
   }
   await repo.moveLeadInBoard(id, input.stageId, input.afterLeadId);
+  // only a change of STAGE — re-ordering within one is presentation, exactly as on the task board
+  if (lead.stageId !== input.stageId) {
+    record("lead.stage_changed", {
+      subjectId: id,
+      subjectLabel: lead.name,
+      changes: { stage: { from: lead.stageId, to: input.stageId } },
+    });
+  }
   // re-read rather than patch the copy in hand: the move renumbered its neighbours too, and the
   // row that comes back is the one the board will be compared against
   return toLeadDto(await getActiveLead(id));
@@ -127,7 +142,22 @@ export async function updateLead(id: string, input: UpdateLeadInput) {
   // contacts are optional (user, 2026-07-26): a lead may be a name and a note, and an edit
   // may clear the phone or the email again — only the name has to survive
   await assertActiveService(input.serviceId, lead.serviceId);
-  return toLeadDto(await repo.updateLead(id, input));
+  const updated = await repo.updateLead(id, input);
+  record("lead.updated", {
+    subjectId: id,
+    subjectLabel: updated.name,
+    changes:
+      diff(lead as unknown as Record<string, unknown>, input as Record<string, unknown>, [
+        "name",
+        "companyName",
+        "phone",
+        "email",
+        "serviceId",
+        "sourceId",
+        "description",
+      ]) ?? undefined,
+  });
+  return toLeadDto(updated);
 }
 
 export async function markLost(id: string) {
@@ -135,7 +165,9 @@ export async function markLost(id: string) {
   if (lead.outcome === "won") {
     throw new ValidationError("A converted lead is read-only");
   }
-  return toLeadDto(await repo.updateLead(id, { outcome: "lost" }));
+  const lost = await repo.updateLead(id, { outcome: "lost" });
+  record("lead.marked_lost", { subjectId: id, subjectLabel: lead.name });
+  return toLeadDto(lost);
 }
 
 export async function reopen(id: string) {
@@ -143,7 +175,9 @@ export async function reopen(id: string) {
   if (lead.outcome !== "lost") {
     throw new ValidationError("Only lost leads can be reopened");
   }
-  return toLeadDto(await repo.updateLead(id, { outcome: "in_process" }));
+  const reopened = await repo.updateLead(id, { outcome: "in_process" });
+  record("lead.reopened", { subjectId: id, subjectLabel: lead.name });
+  return toLeadDto(reopened);
 }
 
 /**
@@ -169,6 +203,14 @@ export async function convert(id: string, input: ConvertLeadInput) {
   });
   // a converted lead becomes a new client → give it the default service too (no-op if none)
   await applyDefaultClientService(client.id);
+  // the one lead event that outlives the pipeline: where a real client came from. `clientId` is
+  // filled as well as the subject, so it also shows on the new client's own Activity tab
+  record("lead.converted", {
+    subjectId: id,
+    subjectLabel: lead.name,
+    clientId: client.id,
+    changes: { client: client.id },
+  });
   return { clientId: client.id, lead: toLeadDto(updated) };
 }
 
@@ -186,6 +228,7 @@ export async function archiveLead(id: string, actor: User) {
     throw new ConflictError("A converted lead is the record of where a client came from");
   }
   await repo.updateLead(id, { archivedAt: new Date(), archivedById: actor.id });
+  record("lead.archived", { subjectId: id, subjectLabel: lead.name });
   return { ok: true as const };
 }
 
@@ -195,6 +238,7 @@ export async function restoreLead(id: string) {
   if (!lead) throw new NotFoundError("Lead not found");
   if (!lead.archivedAt) throw new ConflictError("This lead is not archived");
   await repo.updateLead(id, { archivedAt: null, archivedById: null });
+  record("lead.restored", { subjectId: id, subjectLabel: lead.name });
   return toLeadDto(await getActiveLead(id));
 }
 
@@ -216,7 +260,9 @@ export async function addStage(input: CreateLeadStageInput) {
   if (await repo.findStageByName(input.name)) {
     throw new ConflictError("A stage with this name already exists");
   }
-  return repo.createStage(input.name);
+  const stage = await repo.createStage(input.name);
+  record("settings.stage_created", { subjectId: stage.id, subjectLabel: stage.name });
+  return stage;
 }
 
 export async function renameStage(id: string, input: UpdateLeadStageInput) {
@@ -224,13 +270,22 @@ export async function renameStage(id: string, input: UpdateLeadStageInput) {
   if (!stage) throw new NotFoundError("Stage not found");
   const clash = await repo.findStageByName(input.name);
   if (clash && clash.id !== id) throw new ConflictError("A stage with this name already exists");
-  return repo.renameStage(id, input.name);
+  const renamed = await repo.renameStage(id, input.name);
+  if (stage.name !== input.name) {
+    record("settings.stage_updated", {
+      subjectId: id,
+      subjectLabel: input.name,
+      changes: { name: { from: stage.name, to: input.name } },
+    });
+  }
+  return renamed;
 }
 
 export async function moveStage(id: string, input: MoveLeadStageInput) {
   const stage = await repo.findStage(id);
   if (!stage) throw new NotFoundError("Stage not found");
   await repo.moveStage(id, input.afterStageId);
+  record("settings.stage_moved", { subjectId: id, subjectLabel: stage.name });
   return repo.listStages();
 }
 
@@ -254,5 +309,6 @@ export async function removeStage(id: string) {
     throw new ValidationError("A pipeline needs at least one stage");
   }
   await repo.deleteStage(id);
+  record("settings.stage_deleted", { subjectId: id, subjectLabel: stage.name });
   return { ok: true as const };
 }
