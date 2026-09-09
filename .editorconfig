@@ -1,0 +1,23 @@
+# So an editor formatting on save agrees with `npm run format` instead of quietly undoing it.
+#
+# 126 of 273 files had drifted from `.prettierrc.json` before 2026-09-09, in BOTH directions —
+# some too wide to be Prettier's work, some split narrower than it would ever split. That is the
+# signature of editors formatting with their own settings, which is what this file answers.
+#
+# Deliberately NOT set here: `max_line_length`. Prettier reads this file and lets it override
+# `printWidth`, so a number here would silently become the source of truth for line width and the
+# two configs would disagree about which one is in charge. Width lives in `.prettierrc.json`.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.md]
+# Markdown gives a hard line break its meaning through trailing spaces
+trim_trailing_whitespace = false
