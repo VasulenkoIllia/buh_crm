@@ -77,7 +77,7 @@ export interface TaskQuery {
  * not just the rows this page happened to load — and the table pages through the full set
  * while the board takes one capped slice and says so (`truncated`).
  */
-export function useTasks(query: TaskQuery) {
+export function useTasks(query: TaskQuery, opts?: { enabled?: boolean }) {
   const params = new URLSearchParams({ view: query.view, status: query.status });
   if (query.overdue) params.set("overdue", "true");
   if (query.archived) params.set("archived", "true");
@@ -95,6 +95,10 @@ export function useTasks(query: TaskQuery) {
     queryKey: [...TASKS_KEY, "list", params.toString()],
     queryFn: () => api<TaskListResponse>(`/api/tasks?${params}`),
     placeholderData: (prev) => prev,
+    // a screen that shows this list beside others must be able to NOT ask for it: firing a request
+    // the caller's gate has already closed is a 403 on mount and a dead panel (`useClients` has
+    // taken the same option since it was written)
+    enabled: opts?.enabled ?? true,
   });
 }
 

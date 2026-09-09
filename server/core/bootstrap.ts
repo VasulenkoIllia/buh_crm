@@ -154,7 +154,7 @@ export async function recordBootEvents() {
  * design:
  *
  *   • `enabled`, `inApp`, `email`, `defaultInApp`, `defaultEmail` — the firm's. Seeded once and
- *     never touched again, because §9's rollout is "ship all sixteen on, then silence what proves
+ *     never touched again, because §9's rollout is "ship every trigger on, then silence what proves
  *     noisy from the Settings screen" and the next deploy must not undo that.
  *   • `roles` — the REGISTRY's, and re-seeded on every boot. There is no UI for it (§6.3), so the
  *     constant is the only thing that can be said to define it. Leaving it alone was a silent

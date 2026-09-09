@@ -25,22 +25,37 @@ import * as repo from "./activity.repository.js";
  * A subject whose gate is `closed` for them is not in the answer at all. `read_only` counts as
  * open: it means "you may look and not touch", and the log is a thing you look at.
  */
-async function visibleSubjects(user: Pick<User, "id" | "role">): Promise<string[]> {
+async function visibleSubjects(
+  user: Pick<User, "id" | "role">,
+): Promise<{ subjects: string[]; clientsVisible: boolean }> {
   const access = await accessMapFor(user);
-  return (Object.keys(SUBJECT_GATE) as ActivitySubject[]).filter((subject) => {
+  const subjects = (Object.keys(SUBJECT_GATE) as ActivitySubject[]).filter((subject) => {
     const gate = SUBJECT_GATE[subject];
-    // a subject naming a gate this build does not know is hidden rather than shown: the registry
-    // test makes that unreachable, and hiding is the safe direction if it ever happens
+    // a subject naming a gate this build does not know is hidden rather than shown:
+    // `shared/activity.test.ts` makes that unreachable, and hiding is the safe direction anyway
     return isGateKey(gate) && access[gate] !== "closed";
   });
+  /**
+   * **Filtering the SUBJECT was only half of rule 1.**
+   *
+   * `clientId` and `clientLabel` are denormalised onto rows of every subject — a task, an invoice, a
+   * downloaded file all carry whose they were, which is what makes the client card's Activity tab
+   * one query. So a reader with `tasks` open and `clients` closed saw no `client.*` events and read
+   * the client book anyway, one name per task row, on the very screen §12 rule 1 is about. It only
+   * became reachable when the log got a gate of its own — which is the case the gate exists for
+   * (audit, 2026-09-09).
+   */
+  return { subjects, clientsVisible: access.clients !== "closed" };
 }
 
 export async function list(user: Pick<User, "id" | "role">, query: ActivityQuery): Promise<ActivityPage> {
-  const visible = await visibleSubjects(user);
-  const { ids, hasMore } = await repo.findGestureIds(query, visible);
+  const { subjects: visible, clientsVisible } = await visibleSubjects(user);
+  // a reader who cannot open the client list cannot ask this screen for one client's history either
+  const scoped: ActivityQuery = clientsVisible ? query : { ...query, clientId: undefined };
+  const { ids, hasMore } = await repo.findGestureIds(scoped, visible);
   const [rows, count] = await Promise.all([
     repo.findRowsFor(ids, visible),
-    repo.countGestures(query, visible),
+    repo.countGestures(scoped, visible),
   ]);
 
   const byGesture = new Map<string, ActivityEntry>();
@@ -65,8 +80,9 @@ export async function list(user: Pick<User, "id" | "role">, query: ActivityQuery
       subject: row.subject,
       subjectId: row.subjectId,
       subjectLabel: row.subjectLabel,
-      clientId: row.clientId,
-      clientLabel: row.clientLabel,
+      // whose it was, withheld from a reader whose `clients` gate is shut — see `visibleSubjects`
+      clientId: clientsVisible ? row.clientId : null,
+      clientLabel: clientsVisible ? row.clientLabel : null,
       changes: row.changes ?? null,
       outcome: row.outcome,
       refusalCode: row.refusalCode,
@@ -93,7 +109,8 @@ export async function list(user: Pick<User, "id" | "role">, query: ActivityQuery
  *
  * A row with no registry entry is a key a later build removed; it is returned rather than hidden,
  * because a switch for an event nothing writes is exactly the kind of quiet lie this module exists
- * to end. The screen shows it as unknown and offers to forget it.
+ * to end. The screen lists it under "No longer in this version" and offers no control — there is
+ * nothing to switch, and the rows it wrote are still in the log.
  */
 export async function policies() {
   const rows = await repo.listPolicies();

@@ -108,7 +108,7 @@ export interface NotificationTriggerSpec {
    * until somebody turns it on.
    *
    * Set only on the four triggers that address an AUDIENCE rather than a subject. The other
-   * sixteen reach the person the thing is about — the assignee, the participant, the author — and
+   * others reach the person the thing is about — the assignee, the participant, the author — and
    * a gate is meaningless for those.
    *
    * It exists because two systems had started answering "who should see this": notifications by
@@ -139,7 +139,7 @@ export const NOTIFICATION_GROUPS: Record<NotificationGroup, { label: string; ord
   };
 
 /**
- * Sixteen triggers, trimmed from 32 candidates by one rule:
+ * The triggers here were trimmed from a much longer list of candidates by one rule:
  *
  *   > A lifecycle event of a record → yes. A step of ordinary work → no.
  *
@@ -148,10 +148,10 @@ export const NOTIFICATION_GROUPS: Record<NotificationGroup, { label: string; ord
  * priority changed. Those are excluded on purpose (docs/modules/notifications.md §3.4).
  *
  * `defaultSound` is the most conservative of the three, and deliberately so: a chime is the only
- * channel that interrupts somebody who is not looking. It is on for the four triggers where a
- * PERSON just did something that concerns you — an assignment, a comment, an invitation, a moved
- * meeting — and off for every sweep, because those all land at 07:00 together and a chime each
- * would be a burst of noise on the hour. (The browser coalesces a poll to one sound anyway, but
+ * channel that interrupts somebody who is not looking. It is on where a PERSON just did something
+ * that concerns you — an assignment, a comment, an invitation, a meeting moved or called off — and
+ * off for every sweep but the one that fires minutes before you are late, because sweeps land
+ * together and a chime each would be a burst of noise on the hour. (The browser coalesces a poll to one sound anyway, but
  * defaulting them on would still be wrong.)
  *
  * `defaultEmail` is the one judgement call that is not simply "on": the bell is the channel of
@@ -516,7 +516,7 @@ export const MODULE_NOTIFICATIONS: Record<string, readonly NotificationTriggerKe
       "mid-session. Nothing is waiting on a message about it.",
     clients:
       "Editing a client is a step of ordinary work, dozens a day. That is the rule that trimmed the " +
-      "original 32 candidates to 16 (§3.2): a lifecycle event yes, a work step no.",
+      "original candidate list (§3.2): a lifecycle event yes, a work step no.",
     leads:
       "A stage change is already on the board of the person who made it, and means nothing to anybody " +
       "else until it becomes a client — which raises nothing either, for the same reason.",

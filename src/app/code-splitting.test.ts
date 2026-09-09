@@ -69,7 +69,7 @@ describe("code splitting cannot be undone by accident", () => {
    * The same rule, third time, and this one carries the largest single constant in the app.
    *
    * `modules/activity/index.ts` is imported by TWO screens — Settings and the client card — so a
-   * static export would put the 138-event registry and its prose into whatever chunk those two
+   * static export would put the whole event registry and its prose into whatever chunk those two
    * happen to share, on every first visit, for a tab most people open a few times a year. Both
    * exports are `lazy()` and both are rendered inside a `<Suspense>`.
    */

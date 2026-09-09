@@ -51,7 +51,7 @@ export type InvoiceDelivery = z.infer<typeof invoiceDelivery>;
 /**
  * The notification CHANNELS. The trigger keys are deliberately NOT here: they live in
  * `shared/notifications.ts`, which is zero-dependency because the UI reads it, and duplicating the
- * sixteen keys into a zod enum would be the drift the registry exists to prevent.
+ * the registry's keys into a zod enum would be the drift the registry exists to prevent.
  * (`NotificationKind` — task/meeting/invoice/system — was removed in S9: it was a CATEGORY, and a
  * category cannot be configured.)
  */

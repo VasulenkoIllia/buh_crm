@@ -80,7 +80,11 @@ export async function findGestureIds(
     by: ["correlationId"],
     where: where(query, visible),
     _max: { occurredAt: true },
-    orderBy: { _max: { occurredAt: "desc" } },
+    // the correlation id is the tiebreaker, and it is not decoration: a flush writes every row of a
+    // gesture in ONE statement, so two gestures that commit in the same millisecond have equal
+    // `MAX(occurredAt)` — and an unstable sort under LIMIT/OFFSET returns one of them on two pages
+    // and the other on none (audit, 2026-09-09)
+    orderBy: [{ _max: { occurredAt: "desc" } }, { correlationId: "desc" }],
     take: query.pageSize + 1,
     skip: (query.page - 1) * query.pageSize,
   });
@@ -90,41 +94,70 @@ export async function findGestureIds(
   };
 }
 
+const COUNT_CEILING = 2000;
+
 /**
  * **How many gestures match — counted up to a ceiling, and no further.**
  *
- * This used to be `findMany({ distinct })` with no limit, whose length was then read in JavaScript.
- * The database time was never the problem: measured at a million rows with the screen's own 30-day
- * window it is 8 ms. The problem was the other end — an unfiltered "All" pulled 666 000 uuids
- * across the wire and built 666 000 JavaScript objects to read `.length`, roughly 50 MB per page
- * load, per reader (measured 2026-09-08).
+ * An exact total of a two-year log costs a scan of every matching gesture on every page load. A
+ * pager needs to know where it is and whether there is more; past the ceiling the screen says
+ * "2000+", which is both honest and bounded.
  *
- * A pager needs to know where it is and whether there is more; it does not need an exact total of
- * a two-year log. Past the ceiling the screen says "2000+", which is both honest and bounded.
+ * **`groupBy`, not `findMany({ distinct })` — because only one of the two puts a `LIMIT` in the
+ * SQL.**
+ *
+ * Prisma applies `distinct` in the query engine, AFTER the rows have crossed the wire: the
+ * statement it emits for `findMany({ distinct, take })` carries an `OFFSET` and no `LIMIT` at all
+ * (verified against this database, 2026-09-09). So the ceiling above was decorative — the query
+ * still selected every matching row and then counted them in memory, which is the 50 MB-per-load
+ * regression the previous rewrite was for. `groupBy` pushes both the grouping and the limit into
+ * Postgres, which is what `findGestureIds` two functions up has been doing all along.
+ *
+ * A pager needs to know where it is and whether there is more; it does not need an exact total of a
+ * two-year log. Past the ceiling the screen says "2000+", which is both honest and bounded.
  */
-const COUNT_CEILING = 2000;
-
 export async function countGestures(
   query: ActivityQuery,
   visible: string[],
 ): Promise<{ total: number; exact: boolean }> {
-  const rows = await prisma.activityEvent.findMany({
+  const rows = await prisma.activityEvent.groupBy({
+    by: ["correlationId"],
     where: where(query, visible),
-    distinct: ["correlationId"],
-    select: { correlationId: true },
+    // Prisma requires an `orderBy` beside `take`; which order does not matter for a count, so it is
+    // the grouping column itself rather than an aggregate the database would have to compute.
+    orderBy: { correlationId: "asc" },
     take: COUNT_CEILING + 1,
   });
   return { total: Math.min(rows.length, COUNT_CEILING), exact: rows.length <= COUNT_CEILING };
 }
 
-/** Every row of the given gestures, oldest first inside each — the order they happened. */
+/**
+ * Every row of the given gestures, oldest first inside each — the order they happened.
+ *
+ * **`id` breaks the tie, and there is always a tie.** A flush writes a gesture with one
+ * `createMany`, so every row of it carries the identical `occurredAt`; ordering by that column
+ * alone left the order to Postgres, and the screen takes `rows[0]` as the entry's sentence, its
+ * actor and its time. The headline of "Olena updated Petrenko" could differ between two loads of
+ * the same page (audit, 2026-09-09). `id` is a uuid rather than a sequence, so this buys stability
+ * rather than truth — but a stable arbitrary order is what a list needs, and within a gesture the
+ * rows are simultaneous by construction.
+ *
+ * **Deliberately NOT capped**, though a gesture is not bounded by the page size: the scheduler wraps
+ * a whole job in one context, so a night that issues four hundred invoices is ONE correlation id
+ * with four hundred rows while `pageSize` counts gestures. A `take` here would be worse than the
+ * problem — the rows of a page arrive oldest-first across every gesture on it, so a cut would empty
+ * the newest gestures rather than trim the longest one, and `list()` drops an entry with no rows.
+ * Entries vanishing from the top of the feed is not a trade worth making for a payload. Bounding it
+ * properly means a per-gesture limit and a "+N more" count from the server, which is a change to
+ * the read contract and is written up as open work rather than done here (audit, 2026-09-09).
+ */
 export async function findRowsFor(correlationIds: string[], visible: string[]) {
   if (correlationIds.length === 0) return [];
   return prisma.activityEvent.findMany({
     // the gesture comes back whole, but only the parts of it this reader may see: saving a client
     // also touched a subscription, and a reader without `clients` must not meet either
     where: { correlationId: { in: correlationIds }, subject: { in: visible } },
-    orderBy: { occurredAt: "asc" },
+    orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
   });
 }
 

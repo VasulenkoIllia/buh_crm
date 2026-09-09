@@ -25,7 +25,7 @@ import {
  *
  * Everything ships enabled, and a trigger that proves noisy is switched off HERE, without a
  * deploy, because a policy row is data. That is the whole reason this screen exists at all, and it
- * is why its scope is deliberately small: the sixteen triggers, enable/disable, and which channels
+ * is why its scope is deliberately small: the registry's triggers, enable/disable, and which channels
  * they may use.
  *
  * Recipients, the custom user list and `mandatory` are NOT editable in this package. They stay at
@@ -223,7 +223,7 @@ function PolicyLine({
   /**
    * Only the four triggers that address an AUDIENCE may have their recipients edited.
    *
-   * The other sixteen reach the person a thing is ABOUT, and that is the module working rather
+   * Every other trigger reaches the person a thing is ABOUT, and that is the module working rather
    * than a preference — a task notification with its assignee removed is not configured, it is
    * broken. The service refuses those too, so this is the visible half of a rule that holds
    * whether or not anybody uses the screen.

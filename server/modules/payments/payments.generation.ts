@@ -226,7 +226,6 @@ async function issueDue(subs: BillableSubscription[]) {
         subjectId: sub.id,
         subjectLabel: sub.service?.name ?? null,
         clientId: sub.clientId,
-        dedupeValue: sub.id,
         changes: { error: err instanceof Error ? err.message : String(err) },
       });
     }

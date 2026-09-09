@@ -20,7 +20,7 @@ import { useAccess, useAuth, useLogout, ME_QUERY_KEY } from "./auth";
 import { useModuleClosedWatch } from "@/shared/lib/module-closed";
 import { cn } from "@/shared/lib/cn";
 import { UserAvatar } from "@/shared/ui/avatar";
-import { useSettings } from "@/modules/settings";
+import { SETTINGS_GATES, useSettings } from "@/modules/settings";
 import { NotificationTray } from "@/modules/notifications";
 import { TimerBar } from "@/modules/tasks";
 import { FirmClock } from "./firm-clock";
@@ -53,9 +53,10 @@ const NAV: {
   { to: "/reports", label: "Reports", icon: BarChart3, gate: "reports" },
   { to: "/team", label: "Team", icon: Users, gate: "team" },
   { to: "/archive", label: "Archive", icon: Archive, gate: "archive" },
-  // Settings holds three areas behind three different gates. Somebody given only the activity log
-  // must still be able to reach the screen its tab lives on (activity-log.md §12).
-  { to: "/settings", label: "Settings", icon: Settings, gate: ["settings", "activity"] },
+  // Settings holds several areas behind several different gates, and the list is derived from the
+  // tab strip itself (`modules/settings/tabs.ts`): somebody given only the activity log — or only
+  // the access table — must still be able to reach the screen their tab lives on.
+  { to: "/settings", label: "Settings", icon: Settings, gate: [...SETTINGS_GATES] },
 ];
 
 export function AppLayout() {

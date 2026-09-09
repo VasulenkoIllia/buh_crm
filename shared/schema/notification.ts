@@ -4,7 +4,7 @@ import { notificationChannel } from "./enums.js";
 import { NOTIFICATION_TRIGGER_KEYS } from "../notifications.js";
 
 /**
- * The trigger key, validated against the REGISTRY rather than a second list of sixteen strings.
+ * The trigger key, validated against the REGISTRY rather than a second list of the same strings.
  * `shared/notifications.ts` is zero-dependency and the UI reads it; this file already pulls zod,
  * so the dependency only ever points this way.
  */
@@ -49,10 +49,10 @@ export type PreferenceChange = z.infer<typeof preferenceChange>;
 /**
  * Always a LIST, even for one switch.
  *
- * The group toggle on the profile screen sets both channels of every trigger in a group — up to
- * sixteen rows. As sixteen requests those race each other for the same read-modify-write and
- * arrive back out of order, so the screen would settle on whichever response was last rather than
- * on what the person asked for. One request, one answer.
+ * The group toggle on the profile screen sets every channel of every trigger in a group — a
+ * dozen or more rows at once. Sent as separate requests they race each other for the same
+ * read-modify-write and arrive back out of order, so the screen would settle on whichever response
+ * was last rather than on what the person asked for. One request, one answer.
  */
 export const setPreferenceInput = z.object({
   changes: z.array(preferenceChange).min(1).max(64),
@@ -82,7 +82,7 @@ export const updatePolicyInput = z
     defaultSound: z.boolean().optional(),
     /**
      * Who this reaches. Editable only for the four triggers that address an AUDIENCE — the service
-     * refuses it on the other sixteen, because "a task notification reaches its assignee" is the
+     * refuses it on all the rest, because "a task notification reaches its assignee" is the
      * module working, not a setting, and a screen that let somebody clear it would let them break
      * the module quietly.
      *

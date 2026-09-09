@@ -1893,7 +1893,6 @@ async function notifyFailures(
     outcome: "failed",
     subjectId: mailoutId,
     subjectLabel: letter.subject,
-    dedupeValue: letter.subject,
     changes: { failed: failures, reason: "delivery" },
   });
   await notify("ops_mailout_errors", {

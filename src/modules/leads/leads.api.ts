@@ -20,7 +20,11 @@ import { CLIENTS_KEY, LEADS_KEY } from "@/shared/lib/query-keys";
  * The board and the archive are separate queries — each asks the server for its own side of the
  * pipeline rather than pulling every lead the firm ever had and filtering it here.
  */
-export function useLeads(scope: LeadListQuery["scope"] = "all", search?: string) {
+export function useLeads(
+  scope: LeadListQuery["scope"] = "all",
+  search?: string,
+  opts?: { enabled?: boolean },
+) {
   const params = new URLSearchParams({ scope });
   // the SERVER answers the phrase — this list is capped, so filtering the loaded rows in the
   // browser would search the first page and call the rest absent (2026-08-31)
@@ -33,6 +37,8 @@ export function useLeads(scope: LeadListQuery["scope"] = "all", search?: string)
     queryKey: [...LEADS_KEY, "list", params.toString()],
     queryFn: () => api<LeadList>(`/api/leads?${params}`),
     placeholderData: (prev) => prev,
+    // see `useTasks` — a caller whose gate is closed must be able to skip the request entirely
+    enabled: opts?.enabled ?? true,
   });
 }
 

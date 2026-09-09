@@ -182,10 +182,32 @@ export function meetingsStartingBetween(from: Date, to: Date) {
   });
 }
 
-/** Unpaid, uncancelled, past its due day. `paidTotal` is denormalized, so this stays one query. */
+/**
+ * Unpaid, uncancelled, not tidied away, past its due day — **all four asked of the database**.
+ *
+ * Settlement used to be filtered in JavaScript, on the stated grounds that `paidTotal >= amount`
+ * "is not a column comparison Prisma can express". It is: `prisma.invoice.fields.amount` is how
+ * Billing's own overdue chip asks the same question (`payments.repository.ts`, `OWED`). What that
+ * cost was the whole invoice history, joined to its client, loaded into the sweep every night and
+ * again into the forecast — a set that only grows, to answer a question about the handful of
+ * invoices actually past due (audit, 2026-09-09).
+ *
+ * `tidiedAt: null` narrows it further and changes no answer: only a zero-balance invoice may be
+ * tidied, so a tidied one could never have survived the settlement filter anyway. It is here
+ * because `@@index([cancelledAt, tidiedAt, issuedAt])` exists and the working set is what the
+ * firm's live list already means.
+ *
+ * The DAG rule forbids importing `OWED` out of the payments module, so the comparison is written
+ * here — one line, and the same one.
+ */
 export function overdueInvoices(today: Date) {
   return prisma.invoice.findMany({
-    where: { cancelledAt: null, dueDate: { lt: today } },
+    where: {
+      cancelledAt: null,
+      tidiedAt: null,
+      dueDate: { lt: today },
+      paidTotal: { lt: prisma.invoice.fields.amount },
+    },
     select: {
       id: true,
       number: true,

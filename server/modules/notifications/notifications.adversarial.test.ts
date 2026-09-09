@@ -1070,6 +1070,52 @@ describe("routing an audience by permission instead of by role", () => {
     expect(row.reason).toBe("gate");
   });
 
+  /**
+   * **The half that did not work: the gate REPLACES the roles, it does not add to them.**
+   *
+   * The registry states the drift this option ends in both directions — "a bookkeeper given the
+   * billing gate gets no overdue-invoice notice, AND an admin whose billing gate was closed still
+   * gets one, about a screen they cannot open". The gate seeded the recipient set and the role loop
+   * then ran unfiltered, so `resolveRole("admin")` put that admin straight back. Every existing test
+   * here used an admin whose gate was OPEN, so both paths agreed and nothing could see it (audit,
+   * 2026-09-09).
+   */
+  it("does not reach an admin whose own gate is closed", async () => {
+    await prisma.notificationPolicy.update({
+      where: { trigger: "invoice_overdue" },
+      data: { recipientGate: "billing" },
+    });
+    await prisma.accessPolicy.create({
+      data: { gate: "billing", role: "admin", action: "*", state: "closed" },
+    });
+    await raiseInvoice();
+    const rows = await prisma.notification.findMany({ where: { trigger: "invoice_overdue" } });
+    expect(
+      rows.map((r) => r.userId),
+      "an admin whose Billing is closed must not be told about an invoice they cannot open",
+    ).not.toContain(ada);
+    // and the plain user, whose gate is open, still is — the other half of the same sentence
+    expect(rows.map((r) => r.userId)).toContain(bo);
+  });
+
+  /** A named person is the firm pointing by hand, and outlives the gate — the schema says so. */
+  it("still reaches somebody named on the policy row", async () => {
+    await prisma.notificationPolicy.update({
+      where: { trigger: "invoice_overdue" },
+      data: { recipientGate: "billing", customUserIds: [ada] },
+    });
+    await prisma.accessPolicy.create({
+      data: { gate: "billing", role: "admin", action: "*", state: "closed" },
+    });
+    await raiseInvoice();
+    const rows = await prisma.notification.findMany({ where: { trigger: "invoice_overdue" } });
+    expect(rows.map((r) => r.userId)).toContain(ada);
+    await prisma.notificationPolicy.update({
+      where: { trigger: "invoice_overdue" },
+      data: { customUserIds: [] },
+    });
+  });
+
   it("does not take the notification down when the gate no longer exists", async () => {
     await prisma.notificationPolicy.update({
       where: { trigger: "invoice_overdue" },

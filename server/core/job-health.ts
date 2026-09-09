@@ -189,25 +189,57 @@ export interface SweepFailure {
  * failures. A duplicate NOTIFICATION in that case is stopped one layer up, by the dedup key —
  * not here.
  */
-export async function drainSweepFailures(): Promise<SweepFailure[]> {
+/**
+ * **Read, then clear — and clear only what was actually reported** (audit, 2026-09-09).
+ *
+ * This was one function that decremented first and handed the rows back afterwards, so the debt was
+ * gone before anything had tried to tell anybody. `notify()` never throws — it returns
+ * `{ failed: true }` — so an emitter that could not write reported nothing and destroyed the reason
+ * to try again. The comment above already argues that a lost alert "is the exact failure this whole
+ * table exists to prevent"; it closed the read-then-clear gap and left the report-then-clear one
+ * open.
+ *
+ * Two functions, and the caller clears the ones it managed to raise. A trigger the firm has
+ * DISABLED still clears: that is a deliberate silence, not a lost alert.
+ */
+export async function readSweepFailures(): Promise<SweepFailure[]> {
   try {
     const rows = await prisma.jobHealth.findMany({
       where: { unreported: { gt: 0 } },
       select: { name: true, unreported: true, updatedAt: true },
     });
-    if (rows.length === 0) return [];
+    return rows.map((r) => ({ sweep: r.name, count: r.unreported, lastAt: r.updatedAt }));
+  } catch (err) {
+    // never silently: a drain that keeps failing means the sweep reports a quiet night every
+    // morning while jobs are falling over, and nothing else would say so
+    console.error("[job-health] could not read unreported failures:", err);
+    return [];
+  }
+}
+
+export async function clearSweepFailures(reported: SweepFailure[]): Promise<void> {
+  if (reported.length === 0) return;
+  try {
     await prisma.$transaction(
-      rows.map((r) =>
+      reported.map((r) =>
         prisma.jobHealth.updateMany({
-          where: { name: r.name, unreported: { gte: r.unreported } },
-          data: { unreported: { decrement: r.unreported } },
+          where: { name: r.sweep, unreported: { gte: r.count } },
+          data: { unreported: { decrement: r.count } },
         }),
       ),
     );
-    return rows.map((r) => ({ sweep: r.name, count: r.unreported, lastAt: r.updatedAt }));
-  } catch {
-    return [];
+  } catch (err) {
+    // the alert HAS been raised; failing to clear only means it is raised again tomorrow, which the
+    // dedup key turns into nothing. Loud, because a permanent failure here is a daily duplicate.
+    console.error("[job-health] could not clear reported failures:", err);
   }
+}
+
+/** Read and clear in one step — for a caller with nothing to report to. */
+export async function drainSweepFailures(): Promise<SweepFailure[]> {
+  const rows = await readSweepFailures();
+  await clearSweepFailures(rows);
+  return rows;
 }
 
 /** Everything the System screen shows. Nine rows; no paging, no filter, nothing to scope. */

@@ -12,6 +12,8 @@ import { Button } from "@/shared/ui/button";
 import { SearchInput } from "@/shared/ui/search-input";
 import { FilterChips } from "@/shared/ui/tabs";
 import { type ArchiveTab, phraseFor } from "./search-scope";
+import type { GateKey } from "@shared/access";
+import { useAccess } from "@/app/auth";
 
 /**
  * The Archive — one screen for everything that was soft-deleted, and the only place it can be
@@ -28,11 +30,21 @@ import { type ArchiveTab, phraseFor } from "./search-scope";
  * they owe. An unpaid invoice stays in Billing, flagged, however long its client sits here.
  */
 
+/**
+ * **Each tab names the module it is a view OF, and closing that module takes the tab away.**
+ *
+ * The Archive gate only hides the whole screen when all three sources are closed
+ * (`withDerivedGates`), which is right — but the tabs were a bare constant, so somebody with
+ * `tasks` closed and `clients` open opened the Archive, saw a Tasks chip with no count, and got a
+ * dead panel over a request the server had already refused. That is the "screen renders perfectly
+ * and only the buttons are dead" failure this codebase names by date in two other files. The client
+ * card does the same thing correctly and this now copies it (audit, 2026-09-09).
+ */
 const TABS = [
-  { key: "clients", label: "Clients" },
-  { key: "leads", label: "Leads" },
-  { key: "tasks", label: "Tasks" },
-] as const;
+  { key: "clients", label: "Clients", gate: "clients" },
+  { key: "leads", label: "Leads", gate: "leads" },
+  { key: "tasks", label: "Tasks", gate: "tasks" },
+] as const satisfies readonly { key: ArchiveTab; label: string; gate: GateKey }[];
 // the module that owns the scoping rule owns the tab names too, so the two cannot drift
 type TabKey = ArchiveTab;
 
@@ -59,7 +71,14 @@ const SEARCH_HINTS: Record<TabKey, string> = {
 };
 
 export function ArchivePage() {
-  const [tab, setTab] = useState<TabKey>("clients");
+  const access = useAccess();
+  // the tabs this person may actually open — see the note on TABS
+  const tabs = TABS.filter((t) => access(t.gate) !== "closed");
+  const open = (key: TabKey) => tabs.some((t) => t.key === key);
+  const [chosen, setTab] = useState<TabKey>("clients");
+  // a gate closed before the screen opened — or while it was open — leaves `chosen` pointing at a
+  // tab that is gone; fall back to the first one left rather than render an empty panel
+  const tab: TabKey = open(chosen) ? chosen : (tabs[0]?.key ?? "clients");
   const [error, setError] = useState<string | null>(null);
   // one page number per tab: switching tabs must not carry page 3 into a one-page list
   const [page, setPage] = useState<Record<TabKey, number>>({ clients: 1, leads: 1, tasks: 1 });
@@ -95,21 +114,22 @@ export function ArchivePage() {
 
   // all three stay mounted so every chip carries a live count — the same reason the Leads screen
   // keeps both of its lists loaded
-  const clients = useClients({
-    tab: "archived",
-    search: phrase("clients"),
-    page: page.clients,
-    pageSize: PAGE_SIZE,
-  });
-  const leads = useLeads("archived", phrase("leads"));
-  const tasks = useTasks({
-    view: "table",
-    status: "all",
-    archived: true,
-    search: phrase("tasks"),
-    page: page.tasks,
-    pageSize: PAGE_SIZE,
-  });
+  const clients = useClients(
+    { tab: "archived", search: phrase("clients"), page: page.clients, pageSize: PAGE_SIZE },
+    { enabled: open("clients") },
+  );
+  const leads = useLeads("archived", phrase("leads"), { enabled: open("leads") });
+  const tasks = useTasks(
+    {
+      view: "table",
+      status: "all",
+      archived: true,
+      search: phrase("tasks"),
+      page: page.tasks,
+      pageSize: PAGE_SIZE,
+    },
+    { enabled: open("tasks") },
+  );
 
 
   const restoreClient = useRestoreClient();
@@ -161,7 +181,7 @@ export function ArchivePage() {
           setTab(key);
           setError(null);
         }}
-        options={TABS.map((t) => ({ value: t.key, label: t.label, count: counts[t.key] }))}
+        options={tabs.map((t) => ({ value: t.key, label: t.label, count: counts[t.key] }))}
       />
 
       {error && (

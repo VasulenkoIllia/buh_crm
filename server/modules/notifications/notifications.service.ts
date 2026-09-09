@@ -174,7 +174,7 @@ export async function updatePolicy(trigger: string, input: UpdatePolicyInput) {
   /**
    * Only the four AUDIENCE triggers may have their recipients changed.
    *
-   * The other sixteen reach the person the thing is ABOUT — the assignee, the participant, the
+   * Every other trigger reaches the person the thing is ABOUT — the assignee, the participant, the
    * author, you. That is the module working, not a preference, and a task notification with its
    * assignee removed is not a configured notification but a broken one. Refused at the service so
    * a hand-written PATCH cannot do what the screen will not offer.
@@ -185,8 +185,23 @@ export async function updatePolicy(trigger: string, input: UpdatePolicyInput) {
       "This notification always goes to the people it is about — its recipients cannot be changed",
     );
   }
-  if (typeof input.recipientGate === "string" && !isGateKey(input.recipientGate)) {
-    throw new ValidationError("Unknown permission area");
+  /**
+   * And only the area the REGISTRY declares for it.
+   *
+   * `gateOption` is singular — "the permission area this trigger MAY be routed by" — and the screen
+   * only ever offers that one. The server checked merely that the value was a gate, so a
+   * hand-written `PATCH …/invoice_overdue {"recipientGate":"tasks"}` would have mailed invoice
+   * numbers and client names to everybody, `tasks` being open to both roles. The same rule the
+   * check above states in words, applied to the value as well as to the trigger (audit,
+   * 2026-09-09).
+   */
+  const option = NOTIFICATION_TRIGGERS[trigger as NotificationTriggerKey].gateOption;
+  if (typeof input.recipientGate === "string" && input.recipientGate !== option) {
+    throw new ValidationError(
+      isGateKey(input.recipientGate)
+        ? "This notification cannot be routed by that permission area"
+        : "Unknown permission area",
+    );
   }
   if (input.customUserIds?.length) {
     // a named person who has left, or was never real, would be a recipient that silently never
@@ -203,12 +218,23 @@ export async function updatePolicy(trigger: string, input: UpdatePolicyInput) {
   record("settings.notification_policy_changed", {
     subjectLabel: trigger,
     changes:
+      /**
+       * Every field this route can actually write.
+       *
+       * `roles` was declared here and in the registry and could never be produced — the input
+       * schema has no such field — while the three `default*` switches, which decide what everybody
+       * WITHOUT a preference row receives, were written and recorded nowhere. Turning firm-wide
+       * email on for a sweep trigger left a bare `PATCH …` and no name against it (audit,
+       * 2026-09-09).
+       */
       diff(existing as unknown as Record<string, unknown>, input as Record<string, unknown>, [
         "enabled",
         "inApp",
         "email",
         "sound",
-        "roles",
+        "defaultInApp",
+        "defaultEmail",
+        "defaultSound",
         "recipientGate",
         "customUserIds",
       ]) ?? undefined,

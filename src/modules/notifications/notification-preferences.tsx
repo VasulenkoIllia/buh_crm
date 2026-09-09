@@ -81,7 +81,7 @@ export function NotificationPreferences() {
 
       {/*
         One compact row of legends, each with its explanation behind an (i) rather than in front
-        of it (user, 2026-09-06). Two paragraphs of grey prose above sixteen collapsed groups made
+        of it (user, 2026-09-06). Two paragraphs of grey prose above the collapsed groups made
         the screen read as documentation with controls at the bottom.
         Both hints are the kind `InfoHint`'s own note allows: reference, plus a rule the CONTROL
         already enforces — "Default" is a state of the switch you are looking at, and a chime is

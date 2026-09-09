@@ -5,8 +5,9 @@ the companies they hold, leads, a service catalog, tasks with time tracking, inv
 meetings, client mailouts, and the team.
 
 **Status:** in use, built stage by stage. Clients, Leads, Catalog, Tasks, Payments, Calendar,
-Archive, Client secrets and Mailouts are done; Reports and the production hardening pass are not.
-Specs, design and the dev plan are kept in internal docs, not in this repository.
+Archive, Client secrets, Mailouts, Notifications, Permissions and the Activity log are done; Reports
+and the production hardening pass are not. Specs, design and the dev plan are kept in internal docs,
+not in this repository.
 
 **Modules**
 
@@ -21,6 +22,10 @@ Specs, design and the dev plan are kept in internal docs, not in this repository
 | **Mailouts** | letter templates, one-off sends, campaigns on a date or a rhythm, unsubscribe, delivery tracking — every mailbox is read back for bounces, so the log says delivered or not rather than merely sent |
 | **Secrets** | a client's credentials, encrypted, behind a password prompt and an access log |
 | **Archive** | closed work and settled invoices tidied away — never deleted |
+| **Notifications** | a bell and staff email, one registry of triggers; the firm decides which fire and who they reach, each person decides which channels they want |
+| **Permissions** | every API route declares who may call it and one hook decides; the firm switches areas open, read-only or closed, per role and per person |
+| **Activity log** | who did what, when and to whom — every mutating request and every refusal, in one searchable table, grouped by gesture |
+| **Settings** | the firm's own profile and clock, option lists, invoice numbering, and the health of the work the CRM does on its own |
 
 ## Stack
 
@@ -75,8 +80,10 @@ everything the mailouts module holds.
 
 What it keeps, deliberately: the team (users, sessions, reset tokens); the firm's own configuration
 (`FirmProfile` and the sender mailboxes) — requisites and the invoice-number format are settings,
-not client data; and the one service flagged "default for new clients", so a client created
-afterwards still has a paid container. Every other service goes. Priorities, the board's fixed
+not client data; **who may open what** (the access policies and per-person exceptions) and **what
+the app records** (the notification rules, personal notification preferences, and the activity log
+itself — a reset that erased the log would erase the record of the reset); and the one service
+flagged "default for new clients", so a client created afterwards still has a paid container. Every other service goes. Priorities, the board's fixed
 column and the standard lead sources come back on the next boot. `server/schema-invariants.test.ts`
 holds the reset script to every table the database has, so a migration cannot silently make it
 stale.

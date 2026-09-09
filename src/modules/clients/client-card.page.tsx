@@ -200,8 +200,8 @@ export function ClientCardPage() {
       )}
       {activeTab === "files" && <FilesTab clientId={client.id} />}
       {activeTab === "activity" && (
-        // through the barrel, which publishes it already lazy: the feed reaches the whole
-        // 138-event registry, and this card is opened far more often than the tab is
+        // through the barrel, which publishes it already lazy: the feed reaches the whole event
+        // registry, and this card is opened far more often than the tab is
         <Suspense fallback={<p className="text-[13px] text-muted">Loading…</p>}>
           <ActivityFeed clientId={client.id} compact />
         </Suspense>

@@ -2,7 +2,6 @@ import { Suspense, lazy, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ArrowDown, ArrowUp, Trash2 } from "lucide-react";
 import type { Priority, SourceOption } from "@shared/schema/settings";
-import type { GateKey } from "@shared/access";
 import { useAccess, useAuth, useCanOpen } from "@/app/auth";
 import { ApiError } from "@/shared/lib/api";
 import { Button, IconButton } from "@/shared/ui/button";
@@ -24,6 +23,7 @@ import { SWEEP_EARLIEST_HOUR } from "@shared/notifications";
 import { REMINDER_CHOICES } from "@shared/schema/calendar";
 import { pillCls } from "@/shared/ui/pill";
 import { NotificationPolicySection } from "@/modules/notifications";
+import { SETTINGS_TABS, type SettingsTab } from "./tabs";
 
 /**
  * Lazy for the same reason the notifications section is: this tab pulls in the whole job registry
@@ -37,7 +37,7 @@ const AccessSection = lazy(() =>
   import("./access-section").then((m) => ({ default: m.AccessSection })),
 );
 // the log's own tab. Lazy through the activity barrel, which publishes both halves already lazy —
-// the feed alone reaches the whole 138-event registry.
+// the feed alone reaches the whole event registry.
 const ActivitySection = lazy(() =>
   import("./activity-section").then((m) => ({ default: m.ActivitySection })),
 );
@@ -46,33 +46,16 @@ const ActivitySection = lazy(() =>
  * Grouped by WHAT IS BEING CONFIGURED, not by which module owns the code.
  *
  * Six sections stacked in one column read as a pile — and the pile only got worse when the
- * sixteen notification triggers joined it (user, 2026-09-05). The grouping is deliberately
- * boring: the firm's own identity, the option lists every form offers, invoice numbering, and
- * notifications. Anyone looking for a setting can guess which of the four it is in.
+ * the notification triggers joined it (user, 2026-09-05). The grouping is deliberately boring: the
+ * firm's own identity, the option lists every form offers, invoice numbering, and notifications.
+ * Anyone looking for a setting can guess which of the four it is in.
+ *
+ * The strip itself lives in `./tabs`, because the router and the sidebar have to agree with it —
+ * see the note there for what it cost when they did not.
  */
-type Tab = "firm" | "lists" | "invoices" | "notifications" | "system" | "access" | "activity";
+type Tab = SettingsTab;
 
-const TABS: { value: Tab; label: string; gate?: GateKey }[] = [
-  { value: "firm" as const, label: "Firm" },
-  { value: "lists" as const, label: "Lists" },
-  { value: "invoices" as const, label: "Invoices" },
-  {
-    value: "notifications" as const,
-    label: "Notifications",
-    gate: "notification_rules" as const,
-  },
-  { value: "system" as const, label: "System" },
-  // whoever manages people manages their access — the tab is the Team gate, never its own switch
-  { value: "access" as const, label: "Access", gate: "team" as const },
-  /**
-   * Beside Access, and behind a gate of its OWN (activity-log.md §12).
-   *
-   * Not `team`: that gate is `fixedAdmin`, so reading the log would have meant full admin, and
-   * giving a lead their department's record would have meant giving them roles and invitations
-   * with it. Its own gate is one line in `shared/access.ts` and lets the firm decide.
-   */
-  { value: "activity" as const, label: "Activity", gate: "activity" as const },
-];
+const TABS = SETTINGS_TABS;
 
 /**
  * One line each, and one line is the point — the same lesson `mailouts.page.tsx` records.

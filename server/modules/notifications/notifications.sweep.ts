@@ -1,12 +1,13 @@
 /**
  * The one daily pass over everything nothing else can tell you about.
  *
- * Five of the sixteen triggers are facts about the PASSAGE OF TIME rather than about somebody
- * doing something: a deadline arriving, a meeting being today, an invoice going past its due day,
- * a timer that was never stopped. Nobody performs those, so nothing can emit them at a call site.
+ * Every trigger whose `source` is `sweep` is a fact about the PASSAGE OF TIME rather than about
+ * somebody doing something: a deadline arriving, a meeting being today, an invoice going past its
+ * due day, a timer that was never stopped. Nobody performs those, so nothing can emit them at a
+ * call site.
  *
  * Per-item fault isolation throughout, following `payments.generation.ts` and
- * `tasks.generation.ts`: one bad row must not cost the firm the other fifteen notifications, and
+ * `tasks.generation.ts`: one bad row must not cost the firm every other notification of the pass, and
  * the sweep is idempotent through `dedupKey`, so whatever failed is retried tomorrow.
  */
 import { NOTIFICATION_TRIGGERS } from "@shared/notifications.js";
@@ -15,7 +16,7 @@ import { config } from "../../core/config.js";
 import { addDays, isoDayInTz, todayInTz, toUtc, zonedDayStart } from "../../core/dates.js";
 import { clientLabel } from "../../core/names.js";
 import { notify, type NotifyOutcome } from "../../core/notify.js";
-import { drainSweepFailures } from "../../core/job-health.js";
+import { clearSweepFailures, readSweepFailures, type SweepFailure } from "../../core/job-health.js";
 import { SYSTEM_JOBS, isSystemJobKey } from "@shared/system-jobs.js";
 import { plural } from "@shared/text.js";
 import { fmtDayInTz, fmtTimeInTz } from "@shared/dates.js";
@@ -185,12 +186,10 @@ export async function runNotificationSweep(): Promise<SweepResult> {
 
   // ── billing ────────────────────────────────────────────────────────────────
   //
-  // The balance is computed here rather than filtered in SQL because `paidTotal >= amount` is not
-  // a column comparison Prisma can express — and the set is invoices past their due day, which is
-  // small by construction in a firm that chases them.
-  const overdue = (await repo.overdueInvoices(todayUtc)).filter((i) => i.paidTotal < i.amount);
+  // Every part of "still owed and past its due day" is asked of the database — see
+  // `overdueInvoices`, which is where that used to be half true.
   await each(
-    overdue,
+    await repo.overdueInvoices(todayUtc),
     (invoice) =>
       notify("invoice_overdue", {
         dedup: invoice.id,
@@ -249,13 +248,20 @@ export async function runNotificationSweep(): Promise<SweepResult> {
     out,
   );
 
-  // Drained, not read: one bad night is reported once. The next report only happens if a job
-  // fails again (core/job-health.ts). It is a TABLE now rather than a Map, so a restart between
-  // the failure and this run no longer loses the alert.
+  /**
+   * Read, reported, and only THEN cleared — one bad night is reported once, and a night nothing
+   * could be told about is still owed tomorrow.
+   *
+   * It used to clear before it reported, so an emitter that failed threw the debt away with it
+   * (audit, 2026-09-09). A trigger the firm has switched off still clears: that is a silence they
+   * chose, and holding the debt would flood them on the day they switch it back on.
+   */
+  const failures = await readSweepFailures();
+  const reported: SweepFailure[] = [];
   await each(
-    await drainSweepFailures(),
-    (failure) =>
-      notify("ops_sweep_failed", {
+    failures,
+    async (failure) => {
+      const outcome = await notify("ops_sweep_failed", {
         // the day's run: unlike every other sweep key this one names an OCCASION rather than a
         // thing, because the thing being reported IS "the night the sweep could not finish"
         dedup: `${failure.sweep}:${isoDayInTz(failure.lastAt, config.TZ)}`,
@@ -268,9 +274,15 @@ export async function runNotificationSweep(): Promise<SweepResult> {
         // screen exists.
         sub: `${plural(failure.count, "item")} skipped — Settings → System says what and when`,
         link: { type: "system", id: null },
-      }),
+      });
+      // `failed` is the emitter saying it could not write. Anything else — including a trigger the
+      // firm has switched off — means this night has been dealt with.
+      if (!outcome.failed) reported.push(failure);
+      return outcome;
+    },
     out,
   );
+  await clearSweepFailures(reported);
 
   return out;
 }

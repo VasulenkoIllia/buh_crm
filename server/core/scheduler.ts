@@ -96,7 +96,6 @@ async function runOnce(job: SchedulerJob, log: FastifyBaseLogger): Promise<void>
           // the job failed; the request did not, because there is no request
           outcome: "failed",
           subjectLabel: job.name,
-          dedupeValue: job.name,
           changes: { job: job.name, error },
         });
         log.error({ job: job.name, err }, "scheduler job failed");

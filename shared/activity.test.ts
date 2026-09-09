@@ -18,7 +18,7 @@ import {
 /**
  * **The registry's own rules, held mechanically.**
  *
- * At 138 keys an inconsistent vocabulary is what makes a registry unusable (activity-log.md §4.1),
+ * At this size an inconsistent vocabulary is what makes a registry unusable (activity-log.md §4.1),
  * and "somebody will notice in review" is not a mechanism. These are the invariants a person would
  * otherwise have to hold in their head while typing the hundred-and-thirty-ninth entry.
  */
@@ -71,7 +71,7 @@ describe("the activity registry", () => {
   });
 
   /**
-   * The planned keys are the pass's checklist (§4.5's "all 138 in one pass"): each moves into the
+   * The planned keys are the pass's checklist (§4.5's "all of them in one pass"): each moves into the
    * registry when its service is opened and its diff keys stop being a guess. A key in both lists,
    * or in neither, is how that checklist would quietly stop being one.
    */
@@ -93,15 +93,18 @@ describe("the activity registry", () => {
   });
 
   /**
-   * 138 is the number the inventory measured, and this is where it is now kept. §4.4's own columns
-   * summed to 139 and its names to 137 — the drafts counted twice in two places — so the constant
-   * is the count that matters and this test is what stops it drifting silently.
+   * **The one place the count is written down, and it is an assertion rather than a sentence.**
+   *
+   * The drafts carried it in prose in seven places at once — §4.4's column header, its own column
+   * sum, the registry's docblock, this test's TITLE — and they disagreed with each other and with
+   * the registry: 138, 139, 137, 136, while the real number grew past all four. Every one of them
+   * had to be believed by a reader who could not check it. So they are gone, and this line is what
+   * is left: a key added or removed without somebody meaning it fails here (audit, 2026-09-09).
    */
-  it("holds the measured inventory: 136 events, all of them declared", () => {
-    // 137 since 2026-09-08: the audit added `settings.activity_switched`, because the switch
-    // that decides what the log holds was the one firm setting nothing recorded
-    // 149 since the 2026-09-08 audit: `settings.activity_switched`, and the twelve the Leads
-    // module needed — it was the one part of the product that changed things and recorded none
+  it("holds the measured inventory, with every key declared", () => {
+    // grown twice since the first pass: `settings.activity_switched` (the switch that decides what
+    // the log holds was the one firm setting nothing recorded) and the twelve the Leads module
+    // needed — it was the one part of the product that changed things and recorded none
     expect(ACTIVITY_KEYS.length).toBe(149);
     // the checklist is empty because the pass is finished — not because it was abandoned
     expect(PLANNED_EVENT_KEYS).toEqual([]);

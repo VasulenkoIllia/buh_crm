@@ -3,7 +3,6 @@ import type { User } from "../generated/prisma/client.js";
 import type { UserRole } from "@shared/schema/enums.js";
 import {
   allowsMethod,
-  defaultAccessMap,
   GATES,
   GATE_KEYS,
   withDerivedGates,
@@ -39,13 +38,15 @@ export type RouteAccess =
       /**
        * A rule three states cannot express: admin-only INSIDE an otherwise open gate.
        *
-       * Sixteen routes need it — editing or cancelling an invoice, editing or deleting a payment
-       * and its audit trail (Billing must stay open, or nobody could bill), the four routes that
-       * shape the leads pipeline, and the four that shape the task board plus the three time-entry
-       * routes. Every one is a per-ACTION rule, which is §14's stage 2. Carrying them here rather
-       * than leaving `requireAdmin` scattered in the route files keeps §6 true — the hook is still
-       * the only place access is decided — and turns each into a row with a real `action` value on
-       * the day stage 2 lands.
+       * The SHAPE rather than the list, because the list is `route-inventory.json` and a prose
+       * copy of it drifts: this comment named "the three time-entry routes", two of which the
+       * same release deliberately made non-admin (`access-parity.test.ts`), and it omitted
+       * invoice numbering and the activity policies altogether. It is used where an area must
+       * stay OPEN or nobody could work — Billing, the leads pipeline, the task board — while one
+       * shaping or destructive act inside it stays an admin's. Every one is a per-ACTION rule,
+       * which is §14's stage 2. Carrying them here rather than leaving `requireAdmin` scattered
+       * in the route files keeps §6 true — the hook is still the only place access is decided —
+       * and turns each into a row with a real `action` value on the day stage 2 lands.
        */
       adminOnly: boolean;
     }
@@ -145,8 +146,11 @@ interface AccessTables {
 /**
  * Read on every request, so it is read from memory.
  *
- * Thirteen switchable gates times two roles is twenty-six rows, and overrides are sparse by design
- * — ten people would be at most 130 — so the whole of both tables is smaller than a single client.
+ * A row per switchable gate per role is the whole of it — under thirty today — and overrides are
+ * sparse by design, so both tables together are smaller than a single client. The exact counts are
+ * deliberately not written here: `access-matrix.test.ts` computes them from the registry, and a
+ * number in a comment goes stale the next time a gate is added — this one said thirteen switchable
+ * gates after `activity` made it fourteen.
  * Writes invalidate it directly; the TTL is belt-and-braces for anything that changes a row outside
  * the access routes. In tests the cache is disabled outright: a suite that seeds a policy and
  * immediately calls the route must see it.
@@ -162,13 +166,37 @@ interface AccessTables {
  */
 const CACHE_TTL_MS = isTest ? 0 : 30_000;
 let tables: AccessTables | null = null;
+/**
+ * **Bumped by every invalidation, captured before the load, checked before the store.**
+ *
+ * Without it the cache could be repopulated with a snapshot the firm had already superseded, and
+ * then serve it for the whole TTL. The sequence takes three steps and no unusual load (audit,
+ * 2026-09-09):
+ *
+ *   1. a request finds the cache empty and issues the two `findMany`s;
+ *   2. while they are in flight an admin closes a gate; the write commits and calls
+ *      `invalidateAccessCache()`, which sets `tables = null` — a variable the in-flight load is
+ *      about to overwrite;
+ *   3. the queries return the PRE-write rows and are stored with a fresh `loadedAt`.
+ *
+ * For the next thirty seconds every request in the process is decided by the table the admin just
+ * replaced, and nothing says so: the write's own response is built by `getTable()`, which reads the
+ * database and shows the new value. The docblock above promised "a change is live on the next
+ * request" and this was the one way it was not.
+ *
+ * A counter rather than a lock: the load stays concurrent, and a load that raced a write simply
+ * declines to publish its result — the next request reloads.
+ */
+let generation = 0;
 
 export function invalidateAccessCache() {
   tables = null;
+  generation++;
 }
 
 async function loadTables(): Promise<AccessTables> {
   if (tables && Date.now() - tables.loadedAt < CACHE_TTL_MS) return tables;
+  const startedAt = generation;
   /**
    * **`action: "*"` only, and that filter is load-bearing rather than tidy.**
    *
@@ -182,14 +210,17 @@ async function loadTables(): Promise<AccessTables> {
     prisma.accessPolicy.findMany({ where: { action: "*" } }),
     prisma.accessOverride.findMany({ where: { action: "*" } }),
   ]);
-  tables = {
+  const loaded: AccessTables = {
     policies: new Map(policyRows.map((r) => [`${r.gate}:${r.role}`, r.state as AccessState])),
     overrides: new Map(
       overrideRows.map((r) => [`${r.userId}:${r.gate}`, r.state as AccessState]),
     ),
     loadedAt: Date.now(),
   };
-  return tables;
+  // a write landed while these queries were in flight: answer this request from what we read, and
+  // leave the cache empty so the next one reloads. Publishing here is what pinned a stale table.
+  if (generation === startedAt) tables = loaded;
+  return loaded;
 }
 
 /**
@@ -309,5 +340,3 @@ export async function unenforceableGates(): Promise<string[]> {
 export async function closedGateCount(): Promise<number> {
   return prisma.accessPolicy.count({ where: { action: "*", state: { not: "open" } } });
 }
-
-export { defaultAccessMap };

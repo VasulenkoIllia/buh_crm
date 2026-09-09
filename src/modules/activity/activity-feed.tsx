@@ -53,7 +53,7 @@ const SINCE: { value: "7" | "30" | ""; label: string }[] = [
 /**
  * "Client · updated", built from the key rather than from a copy field.
  *
- * 138 events would otherwise need 138 more strings whose only job is to appear in one `<select>`,
+ * Every event would otherwise need one more string whose only job is to appear in one `<select>`,
  * and the naming scheme (`<subject>.<verb_past>`, §4.1) exists precisely so a key can be read.
  */
 function actionLabel(key: string): string {

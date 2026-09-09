@@ -1,6 +1,7 @@
 import { Suspense, lazy } from "react";
 import { createBrowserRouter, Navigate, Outlet, useLocation } from "react-router-dom";
 import { AuthProvider, PublicOnly, RequireAuth, RequireGate } from "./auth";
+import { SETTINGS_GATES } from "@/modules/settings";
 import { AppLayout } from "./layout";
 import { ComingSoon } from "./coming-soon";
 import { ErrorScreen } from "./error-screen";
@@ -156,7 +157,13 @@ export const router = createBrowserRouter([
               { element: <RequireGate gate="reports" />, children: [{ path: "reports", element: <ComingSoon module="Reports" stage="S12" /> }] },
               { element: <RequireGate gate="archive" />, children: [{ path: "archive", element: <ArchivePage /> }] },
               { element: <RequireGate gate="team" />, children: [{ path: "team", element: <TeamPage /> }] },
-              { element: <RequireGate gate={["settings", "activity"]} />, children: [{ path: "settings", element: <SettingsPage /> }] },
+              /**
+               * Settings is a strip of tabs behind FOUR different gates, so the route opens while
+               * any one of them does — and the list is derived from the strip rather than written
+               * out here, because writing it out here is how the Access tab became unreachable
+               * (see `modules/settings/tabs.ts`).
+               */
+              { element: <RequireGate gate={[...SETTINGS_GATES]} />, children: [{ path: "settings", element: <SettingsPage /> }] },
             ],
           },
         ],

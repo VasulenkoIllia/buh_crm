@@ -1,5 +1,5 @@
 /**
- * The sixteenth trigger, `ops_mailout_errors`, end to end against a real (broken) SMTP host.
+ * `ops_mailout_errors`, end to end against a real (broken) SMTP host.
  *
  * It is the one trigger the other probes leave alone, because raising it for real means a mailout
  * run that FAILS — which writes rows into the client mail log, and that log is the firm's record

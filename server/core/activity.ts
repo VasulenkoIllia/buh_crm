@@ -80,8 +80,6 @@ export interface RecordDetails {
   changes?: Record<string, unknown> | null;
   /** overrides the store's actor — for an act the scheduler performs inside a person's request */
   actor?: ActivityActor;
-  /** for a `dedupe` event: the value its window is keyed by (a job name, a mailout id) */
-  dedupeValue?: string | null;
   /**
    * **Overrides the context's outcome, for an event that knows better than the request does.**
    *
@@ -298,9 +296,37 @@ function validateChanges(
   const stray = keys.filter((k) => !allowed.includes(k));
   if (stray.length > 0) {
     fail(`${action} may not carry ${stray.join(", ")} — declared: ${allowed.join(", ")}`);
-    for (const k of stray) delete changes[k];
   }
-  return Object.keys(changes).length > 0 ? changes : null;
+  /**
+   * **A COPY, and every value capped on the way through.**
+   *
+   * Two things were wrong with editing the caller's object in place. It belongs to the service —
+   * `clients.service.ts` passes a repository result it goes on to use — and dropping a stray key
+   * out of it changed what the caller held. And the 200-character cap lived inside `diff()` alone,
+   * so the six sites that build a diff BY HAND (company reconciliation, the postal address) wrote
+   * whole paragraphs into a column read by a screen and kept for two years — the exact incident the
+   * cap was added for on 2026-09-08, still reachable from another door (audit, 2026-09-09).
+   */
+  const clean: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (!allowed.includes(key)) continue;
+    clean[key] = capDeep(changes[key]);
+  }
+  return Object.keys(clean).length > 0 ? clean : null;
+}
+
+/**
+ * The cap, applied to a value or to the `{ from, to }` pair a diff is made of. One level of nesting
+ * is all this column ever holds (§5.1 keeps whole records out of it), so this does not recurse
+ * further than the shape it is written for.
+ */
+function capDeep(value: unknown): unknown {
+  if (value && typeof value === "object" && !Array.isArray(value) && !(value instanceof Date)) {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, normalise(v)]),
+    );
+  }
+  return normalise(value);
 }
 
 /**
@@ -370,9 +396,9 @@ function normalise(v: unknown): unknown {
 // ── the policy: whether an event is recorded at all ──────────────────────────
 
 /**
- * Read on every flush, so it is read from memory. A row per registry key is 138 booleans — smaller
- * than a single client — and the TTL is the same belt-and-braces `core/access.ts` uses for the
- * same reason. Disabled outright under test so a suite that flips a policy sees it immediately.
+ * Read on every flush, so it is read from memory. A row per registry key is a couple of hundred
+ * booleans — smaller than a single client — and the TTL is the same belt-and-braces
+ * `core/access.ts` uses for the same reason. Disabled outright under test so a suite that flips a policy sees it immediately.
  */
 const POLICY_TTL_MS = isTest ? 0 : 30_000;
 let policy: { disabled: Set<string>; loadedAt: number } | null = null;
@@ -449,16 +475,28 @@ async function writeEvents(
      * would put a signed-out browser's stray poll in the same list as "somebody was refused access
      * to Billing", which is the list's whole reason for existing.
      */
+    const disabled = await disabledActions();
+
     if (options?.tier1) {
       if (options.statusCode === 403) {
         pending = [...pending, { action: TIER1_REFUSED, subjectLabel: store.route ?? null }];
-      } else if (pending.length === 0) {
-        pending = [{ action: TIER1_REQUEST, subjectLabel: store.route ?? null }];
+      } else if (pending.every((e) => disabled.has(e.action))) {
+        /**
+         * **Counted against what will be WRITTEN, not against what a service buffered.**
+         *
+         * The test was `pending.length === 0`, decided before the policy was read. So a firm that
+         * switched `client.created` off in Settings → Activity got nothing at all for
+         * `POST /api/clients`: the enriched row was dropped by the filter below and the tier-1 row
+         * had already decided it was not needed. "Every mutating request is recorded, whatever
+         * anybody remembered" — the claim the whole module rests on, and the one the firm's
+         * obligation under (c)(8) rests on with it — was switchable off from a screen whose own
+         * blurb says switching an event off only stops THAT event (audit, 2026-09-09).
+         */
+        pending = [...pending, { action: TIER1_REQUEST, subjectLabel: store.route ?? null }];
       }
     }
     if (pending.length === 0) return 0;
 
-    const disabled = await disabledActions();
     /**
      * **The client's name, resolved once for the whole flush and snapshotted onto every row.**
      *
@@ -535,16 +573,35 @@ async function writeEvents(
  * for jobs, the specialised journal for the rest. Recorded here 2026-09-08 as a deviation from §4.2's
  * "with a count", taken deliberately in favour of §10.
  */
+/**
+ * **Keyed by the identity of the failing THING, read off the row that will be written.**
+ *
+ * It used to be keyed by a separate `dedupeValue` the caller passed, matched against the
+ * `subjectLabel` column — two fields for one idea, and nothing held them to each other. Four call
+ * sites happened to pass the same string twice; the fifth did not.
+ * `subscription.generation_failed` passed `sub.id` while writing the SERVICE NAME as its label, so
+ * the lookup asked for a row that could not exist and the window never matched anything: a
+ * subscription that had been failing to bill for months wrote a fresh row on every run, which is
+ * precisely what the rule was added to stop (audit, 2026-09-09).
+ *
+ * Matching on what the row actually carries removes the second field and the chance of them
+ * disagreeing — and it is strictly narrower, because `subjectId` is an id where a label was a
+ * name: two campaigns called "Newsletter" no longer suppress each other's failures.
+ *
+ * An event with neither id nor label dedupes on the action alone, which is what `system.job_failed`
+ * wants and what the old code did when no value was passed.
+ */
 async function deduped(event: PendingEvent): Promise<boolean> {
   const rule = ACTIVITY_EVENTS[event.action].dedupe;
   if (!rule) return false;
   const since = new Date(Date.now() - rule.windowMinutes * 60_000);
+  const identity = event.subjectId
+    ? { subjectId: event.subjectId }
+    : event.subjectLabel
+      ? { subjectLabel: event.subjectLabel }
+      : {};
   const existing = await prisma.activityEvent.findFirst({
-    where: {
-      action: event.action,
-      occurredAt: { gte: since },
-      ...(event.dedupeValue ? { subjectLabel: event.dedupeValue } : {}),
-    },
+    where: { action: event.action, occurredAt: { gte: since }, ...identity },
     select: { id: true },
   });
   return existing !== null;

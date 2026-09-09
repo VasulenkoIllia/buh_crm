@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { uuid } from "./common.js";
-import { SWEEP_EARLIEST_HOUR } from "../notifications.js";
+import { SWEEP_EARLIEST_HOUR, isValidSweepAt } from "../notifications.js";
 import { REMINDER_CHOICES } from "./calendar.js";
 
 export const prioritySchema = z.object({
@@ -90,12 +90,15 @@ export const updateFirmInput = z.object({
    * Refused before 04:00, and that is a real constraint rather than a preference: the task sweep
    * runs at 03:05 and the invoice sweep at 03:20, so an earlier notification sweep would scan
    * deadlines before the day's generated work exists and warn nobody about it.
+   *
+   * Asked of `isValidSweepAt` rather than a second regex written out here. The rule belongs beside
+   * `sweepCron`, which is what actually runs; two copies of it could disagree about a value the
+   * scheduler would then silently fall back on (audit, 2026-09-09).
    */
   notifySweepAt: z
     .string()
-    .regex(/^([0-9]|[01][0-9]|2[0-3]):[0-5][0-9]$/, "Use HH:MM")
-    .refine((v) => Number(v.split(":")[0]) >= SWEEP_EARLIEST_HOUR, {
-      message: `Not before ${String(SWEEP_EARLIEST_HOUR).padStart(2, "0")}:00 — the task and invoice sweeps have to run first`,
+    .refine(isValidSweepAt, {
+      message: `Use HH:MM, not before ${String(SWEEP_EARLIEST_HOUR).padStart(2, "0")}:00 — the task and invoice sweeps have to run first`,
     })
     .optional(),
   /** how many days ahead `task_deadline_near` warns. 1 = "due tomorrow". */

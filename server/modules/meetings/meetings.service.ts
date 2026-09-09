@@ -585,13 +585,20 @@ export async function updateMeeting(id: string, input: UpdateMeetingInput, actor
     });
   }
 
-  // Turning up to a moved meeting is the failure this prevents, so the dedup key is the new
-  // INSTANT: a meeting pushed twice tells people twice, and a save that did not move it is silent.
+  // Turning up to a moved meeting is the failure this prevents, so a save that did not move it is
+  // silent and a meeting pushed twice tells people twice.
   recordMeetingChanges(existing, title, input, participantIds, movedTo);
 
   if (movedTo && movedTo.getTime() !== existing.startAt.getTime()) {
     await notify("meeting_moved", {
-      dedup: `${id}:${movedTo.toISOString()}`,
+      /**
+       * The WRITE, not the time it wrote. Keyed by the new start, a meeting pushed to Friday,
+       * pulled back to Thursday and pushed to Friday again went silent on the third move — that key
+       * was already spent — which is the opposite of the sentence above it. `updatedAt` is an
+       * instant and cannot recur, the same key `meeting_cancelled` and `meeting_restored` use
+       * (audit, 2026-09-09).
+       */
+      dedup: `${id}:${updated.updatedAt.toISOString()}`,
       actorId: actor.id,
       meetingId: id,
       vars: { meeting: title, when: meetingWhen(movedTo) },

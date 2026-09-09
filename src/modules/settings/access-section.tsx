@@ -1,6 +1,14 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { GATES, SWITCHABLE_GATES, type AccessState, type GateKey } from "@shared/access";
+import {
+  GATES,
+  GATE_KEYS,
+  SWITCHABLE_GATES,
+  withDerivedGates,
+  type AccessMap,
+  type AccessState,
+  type GateKey,
+} from "@shared/access";
 import { GATE_COPY } from "@shared/access-copy";
 import type { AccessTable } from "@shared/schema/access";
 import type { UserRole } from "@shared/schema/enums";
@@ -131,8 +139,20 @@ export function AccessSection() {
    * where they do not. The same resolution the server does in `core/access.ts`, and what the
    * marker on each row is asking about.
    */
-  const effective = (person: { id: string; role: UserRole }, gate: GateKey): AccessState =>
-    overrideOf(person.id, gate) ?? policyOf(gate, person.role);
+  const effective = (person: { id: string; role: UserRole }, gate: GateKey): AccessState => {
+    /**
+     * **Through `withDerivedGates`, or this screen disagrees with the server about the Archive.**
+     *
+     * The Archive is a view over Clients, Leads and Tasks, so closing all three closes it too —
+     * `GET /api/auth/me` says so and the sidebar obeys. Without this the one screen documented as
+     * the authority on access printed "Archive · Open" for somebody whose Archive was, in fact,
+     * gone (audit, 2026-09-09).
+     */
+    const stored = Object.fromEntries(
+      GATE_KEYS.map((g) => [g, overrideOf(person.id, g) ?? policyOf(g, person.role)]),
+    ) as AccessMap;
+    return withDerivedGates(stored)[gate];
+  };
 
   const exceptionsOf = (userId: string) =>
     SWITCHABLE_GATES.map((gate) => ({ gate, state: overrideOf(userId, gate) })).filter(

@@ -1,4 +1,5 @@
 import { ACTIVITY_EVENTS, SUBJECT_GROUP, isActivityKey, type ActivityGroup } from "@shared/activity";
+import { useAuth } from "@/app/auth";
 import { cn } from "@/shared/lib/cn";
 import { InfoHint } from "@/shared/ui/info-hint";
 import { useActivityPolicies, useSetActivityPolicy, type ActivityPolicyRow } from "./activity.api";
@@ -36,6 +37,16 @@ const ORDER: ActivityGroup[] = ["people", "clients", "work", "money", "comms", "
 export function ActivityPolicySection() {
   const { data, isLoading, error } = useActivityPolicies();
   const setPolicy = useSetActivityPolicy();
+  /**
+   * **Reading what is recorded and CHANGING it are two different rights.**
+   *
+   * `GET /api/activity/policies` is the `activity` gate; the `PATCH` is that gate plus
+   * `adminOnly`, which is deliberate — deciding what the firm records is not the same act as
+   * reading what it recorded. The screen did not know, so a lead given the log met a row of live
+   * buttons that answered 403 on click: "the screen renders perfectly and only the buttons are
+   * dead", the failure this codebase names by date in three other files (audit, 2026-09-09).
+   */
+  const isAdmin = useAuth().user?.role === "admin";
 
   if (isLoading) return <p className="text-[13px] text-muted">Loading…</p>;
   if (error || !data)
@@ -57,7 +68,9 @@ export function ActivityPolicySection() {
       <p className="text-[12px] text-muted">
         Switching an event off stops it being recorded from now on. It does not remove what has
         already been written — the log keeps that for two years, and seven for sign-ins, role
-        changes, access changes and records of data being destroyed.
+        changes, access changes and records of data being destroyed. The bare record of the request
+        itself is always kept, whatever is switched off here.
+        {!isAdmin && " Only an administrator can change these."}
       </p>
 
       {ORDER.filter((g) => grouped.has(g)).map((group) => (
@@ -82,21 +95,34 @@ export function ActivityPolicySection() {
                       about.
                     </InfoHint>
                   )}
-                  <button
-                    type="button"
-                    disabled={setPolicy.isPending}
-                    onClick={() =>
-                      setPolicy.mutate({ action: row.action, enabled: !row.enabled })
-                    }
-                    className={cn(
-                      "rounded-(--radius-btn-sm) border px-2.5 py-[5px] text-[11px] font-medium disabled:opacity-50",
-                      row.enabled
-                        ? "border-border bg-surface text-ink"
-                        : "border-border bg-divider text-faint line-through",
-                    )}
-                  >
-                    {row.enabled ? "Recorded" : "Not recorded"}
-                  </button>
+                  {isAdmin ? (
+                    <button
+                      type="button"
+                      disabled={setPolicy.isPending}
+                      onClick={() =>
+                        setPolicy.mutate({ action: row.action, enabled: !row.enabled })
+                      }
+                      className={cn(
+                        "rounded-(--radius-btn-sm) border px-2.5 py-[5px] text-[11px] font-medium disabled:opacity-50",
+                        row.enabled
+                          ? "border-border bg-surface text-ink"
+                          : "border-border bg-divider text-faint line-through",
+                      )}
+                    >
+                      {row.enabled ? "Recorded" : "Not recorded"}
+                    </button>
+                  ) : (
+                    // the same word, as a fact rather than a control — a reader still needs to know
+                    // whether the line they are looking at is being recorded
+                    <span
+                      className={cn(
+                        "px-2.5 py-[5px] text-[11px]",
+                        row.enabled ? "text-muted" : "text-faint line-through",
+                      )}
+                    >
+                      {row.enabled ? "Recorded" : "Not recorded"}
+                    </span>
+                  )}
                 </li>
               ))}
           </ul>

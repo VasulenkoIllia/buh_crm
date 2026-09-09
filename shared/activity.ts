@@ -18,33 +18,32 @@
  * named, and not yet declared.
  *
  * The split is a build mechanic, not a smaller scope. The owner's decision (activity-log.md §4.5)
- * is that all 138 ship in one pass rather than in three, and the reason is that enrichment means
- * opening every service by hand. A spec is written when its service is opened — `changeKeys` says
- * which fields may move, and that is a fact about `updateClient`, not something to guess from a
- * name. So the planned list is the pass's checklist: each key moves up as its service is enriched,
- * and `activity.registry.test.ts` fails if a key is in neither list or in both.
+ * is that every measured event ships in one pass rather than in three, and the reason is that
+ * enrichment means opening every service by hand. A spec is written when its service is opened —
+ * `changeKeys` says which fields may move, and that is a fact about `updateClient`, not something
+ * to guess from a name. So the planned list is the pass's checklist: each key moves up as its
+ * service is enriched, and `shared/activity.test.ts` fails if a key is in neither list or in both.
  *
- * ## The arithmetic, stated because it did not close
+ * ## The count lives in the test, not in this comment
  *
- * activity-log.md §4.4 heads its column `n = 138`; the subjects' own counts sum to 139 and the
- * names actually spelled out come to 137 (the `task` row says 17 and lists 16; `subscription` says
- * 9 and names 8). 137 named + `system.request`, the key tier 1 writes when no service enriched the
- * request, made 138. §4.5's "the 45" likewise names 44. Nothing was missing — the drafts counted
- * twice in two places — and this file is now the count that matters.
+ * `shared/activity.test.ts` asserts the exact number of declared keys, so a key added or removed
+ * without somebody meaning it fails the build. It is deliberately NOT written here or in any of the
+ * six other places that used to carry it: the drafts said 138, then 136, while the registry grew
+ * past both, and every one of those numbers had to be believed by a reader who could not check it.
+ * A number a test does not hold is a number that goes stale (audit, 2026-09-09).
  *
- * **Two were then dropped rather than built, so the count is 136.** §4.4 lists `system.job_ran` and
- * `system.tasks_generated`, and §3.3 of the same document forbids both by name: `JobEvent` already
- * writes every run that did something, with a better note than this module could compose, and the
- * System tab already reads them. Building them would have been this module duplicating a journal it
- * had just finished arguing it must not duplicate. `task.generated` covers the second from the side
- * a person actually asks it from — the board, not the job list.
+ * Two events the spec listed were dropped rather than built: §4.4 named `system.job_ran` and
+ * `system.tasks_generated`, and §3.3 of the same document forbids both — `JobEvent` already writes
+ * every run that did something, with a better note than this module could compose, and the System
+ * tab already reads them. `task.generated` covers the second from the side a person actually asks
+ * it from: the board, not the job list.
  */
 
 // ── the vocabulary ───────────────────────────────────────────────────────────
 
 /**
- * The filter strip on the screen. 138 keys do not fit one row of chips, so the group is
- * load-bearing rather than decorative (activity-log.md §4.5).
+ * The filter strip on the screen. The registry holds far more keys than fit one row of chips, so
+ * the group is load-bearing rather than decorative (activity-log.md §4.5).
  */
 export type ActivityGroup =
   | "people"
@@ -117,8 +116,8 @@ export const SUBJECT_GROUP: Record<ActivitySubject, ActivityGroup> = {
  * anything. Contained by a default is not contained.
  *
  * So a reader sees the subjects they could already open. The gate names are plain strings rather
- * than `GateKey` because this file imports nothing (the browser loads it); `activity.registry`'s
- * test holds the two lists to each other.
+ * than `GateKey` because this file imports nothing (the browser loads it); `shared/activity.test.ts`
+ * holds the two lists to each other.
  */
 export const SUBJECT_GATE: Record<ActivitySubject, string> = {
   client: "clients",
@@ -197,7 +196,7 @@ export interface ActivityEventSpec {
   dedupe?: { key: string; windowMinutes: number };
   /** seeded into `ActivityPolicy`; the firm may switch it afterwards without a deploy */
   enabledByDefault: boolean;
-  /** reading IS the act — the four (three, today) sensitive reads of §3.2 */
+  /** reading IS the act — the sensitive reads of §3.2, where opening a record is the event */
   isRead?: boolean;
 }
 
@@ -1801,7 +1800,23 @@ const EVENTS = {
     granularity: "item",
     actorKinds: ["user"],
     retention: "ordinary",
-    changeKeys: ["enabled", "inApp", "email", "sound", "roles", "recipientGate", "customUserIds"],
+    /**
+     * The fields `PATCH /api/notifications/policies/:trigger` can actually write. `roles` was
+     * declared and had no producer — the input schema has never accepted it — while the three
+     * `default*` switches, which decide what every colleague without a preference row receives,
+     * were writable and undeclared (audit, 2026-09-09).
+     */
+    changeKeys: [
+      "enabled",
+      "inApp",
+      "email",
+      "sound",
+      "defaultInApp",
+      "defaultEmail",
+      "defaultSound",
+      "recipientGate",
+      "customUserIds",
+    ],
     enabledByDefault: true,
   },
 
@@ -2079,7 +2094,7 @@ export function renderTitle(
    * A handful of acts are about a client without naming a thing of their own — unsubscribing them
    * from mail, unlocking their vault — and those rendered as "changed whether — receives mail".
    * The row already carries whose it was; this is one place rather than a label argued into every
-   * such call site (found by scanning all 147 record() calls, 2026-09-08).
+   * such call site (found by scanning every record() call, 2026-09-08).
    */
   const subject = row.subjectLabel?.trim() || row.clientLabel?.trim() || "—";
   return ACTIVITY_EVENTS[key].title

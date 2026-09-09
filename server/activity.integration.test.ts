@@ -249,6 +249,91 @@ describe("refusals, which the permissions module never recorded", () => {
     expect(row?.outcome).toBe("refused");
   });
 
+  /**
+   * **A refused READ is the shape most refusals take, and it was the one never written.**
+   *
+   * The tier-1 block was gated on `MUTATING_METHODS`, so a refused `PATCH` was recorded and
+   * somebody being turned away from a SCREEN — a `GET`, which is what almost every refusal is —
+   * left no trace at all. "A lead was refused Billing" is the sentence the whole `session.gate_refused`
+   * event exists for (audit, 2026-09-09).
+   */
+  it("records a refused GET, which is the shape almost every refusal takes", async () => {
+    await prisma.accessPolicy.upsert({
+      where: { gate_role_action: { gate: "billing", role: "user", action: "*" } },
+      update: { state: "closed" },
+      create: { gate: "billing", role: "user", state: "closed" },
+    });
+    invalidateAccessCache();
+    const before = new Date();
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/invoices",
+      headers: { cookie: userCookie },
+    });
+    expect(res.statusCode).toBe(403);
+
+    const row = await waitFor(
+      () =>
+        prisma.activityEvent.findFirst({
+          where: { occurredAt: { gte: before }, method: "GET", gate: "billing" },
+        }),
+      "the refused invoice list",
+    );
+    expect(row?.action).toBe("session.gate_refused");
+    expect(row?.refusalCode).toBe("module_closed");
+    expect(row?.outcome).toBe("refused");
+
+    await prisma.accessPolicy.deleteMany({ where: { gate: "billing" } });
+    invalidateAccessCache();
+  });
+
+  /**
+   * **Switching one event off must not switch the REQUEST off with it.**
+   *
+   * The tier-1 fallback asked "did a service buffer anything", not "will anything be written". So a
+   * firm that silenced `client.created` from Settings → Activity got NOTHING for `POST
+   * /api/clients` — the enriched row dropped by the policy filter, the bare row never synthesised
+   * because a service had spoken. The screen's own blurb promises the opposite, and the firm's
+   * obligation under (c)(8) rests on the promise (audit, 2026-09-09).
+   */
+  it("still records the request when the event a service raised is switched off", async () => {
+    await prisma.activityPolicy.upsert({
+      where: { action: "client.created" },
+      update: { enabled: false },
+      create: { action: "client.created", enabled: false },
+    });
+    invalidateActivityPolicy();
+    const before = new Date();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/clients",
+      headers: { cookie: adminCookie },
+      payload: { firstName: "Silenced", lastName: "Client" },
+    });
+    expect(res.statusCode).toBe(201);
+
+    const row = await waitFor(
+      () =>
+        prisma.activityEvent.findFirst({
+          where: { occurredAt: { gte: before }, route: "/api/clients", method: "POST" },
+        }),
+      "the tier-1 row for a silenced event",
+    );
+    expect(row?.action).toBe("system.request");
+    expect(
+      await prisma.activityEvent.count({
+        where: { occurredAt: { gte: before }, action: "client.created" },
+      }),
+      "the event itself stays silenced — that is what the switch is for",
+    ).toBe(0);
+
+    await prisma.activityPolicy.update({
+      where: { action: "client.created" },
+      data: { enabled: true },
+    });
+    invalidateActivityPolicy();
+  });
+
   it("records a failure as failed, not as a refusal", async () => {
     const before = new Date();
     await app.inject({
@@ -728,7 +813,7 @@ describe("the three shapes a bulk or late write takes", () => {
  *
  * The wider guarantee is already load-bearing and needs no test of its own: `record()` throws under
  * test when a service passes a key the registry does not declare, so every module suite passing is
- * the assertion that all 136 declarations match the code that writes them.
+ * the assertion that every declaration matches the code that writes them.
  */
 describe("one save, one lifecycle event", () => {
   let taskId: string;
@@ -829,7 +914,6 @@ describe("the three the audit caught", () => {
       record("system.job_failed", {
         outcome: "failed",
         subjectLabel: "nightly-thing",
-        dedupeValue: "nightly-thing",
         changes: { job: "nightly-thing", error: "boom" },
       });
     });
@@ -1016,5 +1100,116 @@ describe("what the second review caught", () => {
     expect(row.clientId).toBe(client.id);
 
     await prisma.activityEvent.deleteMany({ where: { actorLabel: "Snapshot" } });
+  });
+});
+
+describe("what the third audit caught (2026-09-09)", () => {
+  /**
+   * **§12 rule 1 was enforced on the SUBJECT and nowhere else.**
+   *
+   * `clientId`/`clientLabel` are denormalised onto rows of every subject — a task, an invoice, a
+   * downloaded file all carry whose they were, which is what makes the client card's tab one query.
+   * So a reader with `tasks` open and `clients` closed met no `client.*` event and read the client
+   * book anyway, one name per task row. It only became reachable when the log got a gate of its own,
+   * which is the case that gate exists for.
+   */
+  it("withholds the client's name from a reader whose Clients gate is shut", async () => {
+    const client = await prisma.client.create({
+      data: { firstName: "Hidden", lastName: "Person" },
+    });
+    await runWithActivity({ actor: { kind: "user", label: "Containment" } }, async () => {
+      // a TASK event, deliberately: the subject filter lets this reader see it
+      record("task.created", {
+        subjectLabel: "Prepare the return",
+        clientId: client.id,
+        // `task.created` declares changeKeys, and an event that declares them writes nothing
+        // without a diff — the rule that suppresses a save which moved nothing
+        changes: { kind: "once" },
+      });
+    });
+
+    // the log is theirs to read; the client book is not
+    // upsert, not createMany: `ensureBaseData` has already seeded `activity` closed for a user, and
+    // skipDuplicates would leave it that way
+    for (const [gate, state] of [
+      ["activity", "open"],
+      ["clients", "closed"],
+    ] as const) {
+      await prisma.accessPolicy.upsert({
+        where: { gate_role_action: { gate, role: "user", action: "*" } },
+        update: { state },
+        create: { gate, role: "user", state },
+      });
+    }
+    invalidateAccessCache();
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/activity?q=Containment",
+      headers: { cookie: userCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const page = res.json() as {
+      entries: { rows: { action: string; clientLabel: string | null }[] }[];
+    };
+    const rows = page.entries.flatMap((e) => e.rows);
+    expect(rows.some((r) => r.action === "task.created")).toBe(true);
+    expect(
+      rows.map((r) => r.clientLabel),
+      "a closed Clients gate must not be readable one task row at a time",
+    ).not.toContain("Hidden Person");
+
+    // an admin, whose gate is open, still sees whose it was
+    const asAdmin = await app.inject({
+      method: "GET",
+      url: "/api/activity?q=Containment",
+      headers: { cookie: adminCookie },
+    });
+    const adminRows = (
+      asAdmin.json() as { entries: { rows: { clientLabel: string | null }[] }[] }
+    ).entries.flatMap((e) => e.rows);
+    expect(adminRows.map((r) => r.clientLabel)).toContain("Hidden Person");
+
+    await prisma.accessPolicy.deleteMany({ where: { gate: { in: ["activity", "clients"] } } });
+    invalidateAccessCache();
+    await prisma.activityEvent.deleteMany({ where: { actorLabel: "Containment" } });
+    await prisma.client.delete({ where: { id: client.id } });
+  });
+
+  /**
+   * **The dedupe window is keyed by the row's own identity, not by a second field beside it.**
+   *
+   * It used to match a caller-supplied `dedupeValue` against the `subjectLabel` COLUMN. Four call
+   * sites passed the same string twice; `subscription.generation_failed` passed the subscription's
+   * id while writing the service's name as its label, so the lookup asked for a row that could not
+   * exist and the window never matched — a subscription failing to bill wrote a fresh row every
+   * single run.
+   */
+  it("dedupes two failures of the same thing, and not of different things", async () => {
+    const a = randomUUID();
+    const b = randomUUID();
+    const write = (subjectId: string, label: string) =>
+      runWithActivity({ actor: { kind: "system", label: "Dedupe" } }, async () => {
+        record("subscription.generation_failed", {
+          outcome: "failed",
+          subjectId,
+          // the label is the SERVICE's name — deliberately not the identity, which is the shape
+          // that broke the old keying
+          subjectLabel: label,
+          changes: { error: "boom" },
+        });
+      });
+
+    await write(a, "Payroll");
+    await write(a, "Payroll");
+    await write(b, "Payroll");
+
+    const rows = await prisma.activityEvent.findMany({
+      where: { actorLabel: "Dedupe", action: "subscription.generation_failed" },
+      select: { subjectId: true },
+    });
+    expect(rows.map((r) => r.subjectId).sort()).toEqual([a, b].sort());
+
+    await prisma.activityEvent.deleteMany({ where: { actorLabel: "Dedupe" } });
   });
 });

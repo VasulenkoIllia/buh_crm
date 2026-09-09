@@ -149,7 +149,10 @@ const GATE_SPECS = {
     defaults: { admin: "open", user: "open" },
   },
   /**
-   * **The fifteenth gate, and the log's own** (activity-log.md §12, owner 2026-09-08).
+   * **The log's own gate** (activity-log.md §12, owner 2026-09-08).
+   *
+   * Not "the fifteenth": a gate's position in this object is not a fact worth writing down, and the
+   * number was already wrong once (audit, 2026-09-09).
    *
    * The spec's first draft read the log behind `team`. `team` is `fixedAdmin` and has no states at
    * all, so that would have meant full admin to read the log — and giving a lead their
@@ -201,12 +204,6 @@ export function isGateKey(value: string): value is GateKey {
 /** The caller's answer for every gate — what `GET /api/auth/me` carries to the SPA. */
 export const accessMapSchema = z.record(gateKey, accessState);
 export type AccessMap = Record<GateKey, AccessState>;
-
-export function defaultAccessMap(role: UserRole): AccessMap {
-  return Object.fromEntries(
-    GATE_KEYS.map((key) => [key, GATES[key].defaults[role]]),
-  ) as AccessMap;
-}
 
 /**
  * The Archive is DERIVED as well as switched: it is a view over three other modules, so when all

@@ -109,7 +109,7 @@ const near = await repo.tasksWithDeadlineIn({
   lte: toUtc(addDays(today, leadDays)),
 });
 const meetingsToday = await repo.meetingsStartingBetween(dayStart, dayEnd);
-const invoices = (await repo.overdueInvoices(todayUtc)).filter((i) => i.paidTotal < i.amount);
+const invoices = await repo.overdueInvoices(todayUtc);
 const timers = await repo.timersRunningSince(dayStart);
 const mailboxes = await repo.brokenMailboxes();
 

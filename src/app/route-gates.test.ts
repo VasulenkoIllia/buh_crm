@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { GATE_KEYS } from "@shared/access";
+import { SETTINGS_GATES, SETTINGS_TABS } from "@/modules/settings";
 
 /**
  * **Every screen sits behind a gate, or is named here as not needing one.**
@@ -145,6 +146,43 @@ describe("every screen is behind a gate, or says why not", () => {
       "a route declared outside the signed-in shell. It has no gate and no RequireAuth — if that " +
         "is deliberate it belongs in OUTSIDE_SHELL with the reason.",
     ).toEqual(OUTSIDE_SHELL);
+  });
+
+  /**
+   * **A screen holding several areas opens while ANY of them is open.**
+   *
+   * Settings is the only such screen, and it is where this went wrong: the route named
+   * `["settings", "activity"]` while the strip also holds the ACCESS TABLE (`team`) and the
+   * notification rules. Closing `settings` and `activity` for the admin role — two switches, both
+   * offered on the access screen itself — bounced every admin off `/settings` and took away the one
+   * screen that could put either back (audit, 2026-09-09).
+   *
+   * Both the route and the sidebar item now spread `SETTINGS_GATES`, which is derived from the
+   * strip. This asserts they still do, because a hand-written list here is exactly what failed.
+   */
+  it("opens Settings for every gate its tab strip can hold", async () => {
+    const router = await readFile(new URL("./router.tsx", import.meta.url), "utf8");
+    const layout = await readFile(new URL("./layout.tsx", import.meta.url), "utf8");
+
+    const tabGates = SETTINGS_TABS.flatMap((t) => (t.gate ? [t.gate] : []));
+    expect(
+      [...SETTINGS_GATES].sort(),
+      "SETTINGS_GATES must cover `settings` plus every gate a tab names",
+      ).toEqual([...new Set(["settings", ...tabGates])].sort());
+
+    const settingsRoute = router
+      .split("\n")
+      .find((line) => line.includes('path: "settings"'));
+    expect(settingsRoute).toBeDefined();
+    expect(
+      settingsRoute,
+      "the Settings route must spread SETTINGS_GATES — a hand-written list drifts from the strip " +
+        "and locks the Access tab away",
+    ).toContain("...SETTINGS_GATES");
+    expect(
+      layout,
+      "the sidebar item must spread SETTINGS_GATES too, or the screen is reachable and invisible",
+    ).toContain("gate: [...SETTINGS_GATES]");
   });
 
   it("names only gates the registry knows", async () => {

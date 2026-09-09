@@ -9,7 +9,7 @@ export async function registerRoutes(instance: FastifyInstance) {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
   /**
-   * **The fifteenth gate, and the log's own** (activity-log.md §12).
+   * **The log's own gate** (activity-log.md §12).
    *
    * Not `team`: that gate is `fixedAdmin` and has no states, so reading the log would have required
    * full admin and giving a lead their department's record would have meant giving them roles and

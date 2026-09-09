@@ -502,7 +502,6 @@ export async function runDueCampaigns(
         outcome: "failed",
         subjectId: campaign.id,
         subjectLabel: campaign.name,
-        dedupeValue: campaign.name,
         changes: { error: err instanceof Error ? err.message : String(err), period: key },
       });
       console.error(`[campaigns] run failed for campaign=${campaign.id} period=${key}:`, err);

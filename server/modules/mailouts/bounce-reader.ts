@@ -164,7 +164,6 @@ async function sweepMailbox(
       outcome: "failed",
       subjectId: account.id,
       subjectLabel: account.name,
-      dedupeValue: account.name,
       changes: { error: said },
     });
     console.error(`[mailouts] could not read ${account.name}:`, err);

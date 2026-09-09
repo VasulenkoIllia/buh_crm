@@ -745,7 +745,14 @@ async function notifyTaskChanges(
   if (input.deadline !== undefined && !sameInstant(before.deadline, after.deadline)) {
     await notify("task_deadline_changed", {
       ...shared,
-      dedup: `${after.id}:${after.deadline?.toISOString() ?? "none"}`,
+      /**
+       * The WRITE, not the value it wrote. Keyed by the new deadline, moving a date back to one it
+       * has already held was silent — D1→D2 told the assignee, D2→D1 told them, D1→D2 said nothing,
+       * because that key was spent. `updatedAt` is an instant and cannot come round again, which is
+       * what `dedupScope: "occurrence"` means and what `task_done` and `task_reopened` two blocks
+       * down already do (audit, 2026-09-09).
+       */
+      dedup: `${after.id}:${after.updatedAt.toISOString()}`,
       vars: { ...shared.vars, deadline: after.deadline ? isoDay(after.deadline) : "no date" },
     });
   }

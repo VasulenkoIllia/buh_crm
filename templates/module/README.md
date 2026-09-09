@@ -25,7 +25,28 @@ and a trigger nobody remembered look exactly the same. Adding a trigger costs on
 registry and one `notify()` call — no migration, because the policy row is seeded on the next boot.
 
 The same question applies to a new FEATURE inside an existing module, where no test can ask it for
-you. See `docs/modules/notifications.md` §3.2 for the full reasoning.
+you. See `docs/modules/notifications.md` §3.4 for the full reasoning.
+
+## And two more the build also insists on
+
+This file used to ask only the notification question, and it is the only checklist that travels with
+the repository — `docs/` and `AGENTS.md` are gitignored, so a fresh clone gets the failing tests
+without the prompt that explains them (audit, 2026-09-09).
+
+**1. Every route declares who may call it.** `gate("<unit>")`, `shared()`, `own()` or `anonymous()`
+in the route's `config`. A route that declares nothing makes `buildApp()` throw — the server does
+not start and every test fails. `shared()` is reference data any signed-in person may read, and it
+is open to the whole firm for ever, so **when in doubt it is `gate()`**. Regenerate
+`server/route-inventory.json` deliberately and read the diff: that diff is the review.
+
+**2. Every act this module performs is declared as an activity event.** One entry per act in
+`shared/activity.ts` (`<subject>.<verb_past>`, with the `changeKeys` the service actually moves,
+read off the code rather than guessed), and one `record(...)` call from the SERVICE, after the
+repository's transaction has returned. `server/activity.coverage.test.ts` fails if a module with
+mutating routes calls `record()` nowhere and is not named as a deliberate exception with a reason;
+`server/activity.producers.test.ts` fails if a declared event has no producer. The bare request is
+logged either way — what the declaration buys is that the log says *what happened* rather than
+*which URL was called*.
 
 Register in `server/app.ts`:
 

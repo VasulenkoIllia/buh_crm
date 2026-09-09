@@ -5,7 +5,7 @@ import { lazy } from "react";
  *
  * A barrel is shared, so what it reaches statically travels to every module that imports it
  * (AGENTS.md, measured twice on this codebase). Both of these are big: the feed pulls in the whole
- * 138-event registry and the switches pull in its prose, and the two screens that render them —
+ * event registry and the switches pull in its prose, and the two screens that render them —
  * Settings and the client card — are themselves loaded on demand. Exporting either with a plain
  * `export … from` would put the registry in whatever chunk the importer happens to share.
  *

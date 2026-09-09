@@ -194,12 +194,13 @@ async function resolveRole(role: RecipientRole, ctx: NotifyContext): Promise<str
  * One query for the users and a cached map each; the firm has a handful of people, and
  * `accessMapFor` reads tables it already caches.
  */
-async function resolveGate(gate: string): Promise<string[]> {
+async function resolveGate(gate: string): Promise<string[] | null> {
   if (!isGateKey(gate)) {
     // a gate removed from the registry must not take the notification down with it — the same
-    // contract `client_owner` has above
+    // contract `client_owner` has above. `null`, not `[]`: an unknown gate means "no routing", and
+    // an empty ARRAY would mean "routed, and nobody qualifies", which would silence the trigger.
     console.warn(`[notify] recipientGate \`${gate}\` is not a known gate — skipped`);
-    return [];
+    return null;
   }
   const users = await prisma.user.findMany({
     where: { status: "active" },
@@ -234,15 +235,33 @@ async function resolveRecipients(
    * "why am I getting this" answers from. "Because you can open Billing" is a better answer than
    * "because you are an admin", and for these four triggers it is also the true one.
    */
-  if (recipientGate) {
-    for (const id of await resolveGate(recipientGate)) {
-      if (!seen.has(id)) seen.set(id, "gate");
-    }
+  const allowedByGate = recipientGate ? await resolveGate(recipientGate) : null;
+  if (allowedByGate) {
+    for (const id of allowedByGate) if (!seen.has(id)) seen.set(id, "gate");
   }
 
+  /**
+   * **A routed trigger REPLACES its roles; it does not add to them.**
+   *
+   * The registry states the drift this option exists to end in both directions: "a bookkeeper given
+   * the billing gate gets no overdue-invoice notice, AND an admin whose billing gate was closed
+   * still gets one, about a screen they cannot open". Only the first half worked. The gate seeded
+   * the set and then the role loop ran unfiltered, so `resolveRole("admin")` put every admin
+   * straight back — including the one whose gate had just been closed. The checkbox that switches
+   * it on says "follows the permission, not the role"; until now it followed both (audit,
+   * 2026-09-09).
+   *
+   * `custom` is the deliberate exception. The gate is the firm's rule about an AREA; a named person
+   * on the policy row is the firm pointing at somebody by hand, and the schema has always described
+   * that list as "added on top of whatever the gate or the roles resolve to".
+   *
+   * An UNKNOWN gate filters nothing (`resolveGate` returns null): a gate a later release removed
+   * must leave the trigger working, not silence it.
+   */
   for (const role of ordered) {
     const ids = role === "custom" ? customUserIds : await resolveRole(role, ctx);
     for (const id of ids) {
+      if (allowedByGate && role !== "custom" && !allowedByGate.includes(id)) continue;
       if (!seen.has(id)) seen.set(id, role); // FIRST role wins — see the doc comment
     }
   }

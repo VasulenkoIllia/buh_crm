@@ -177,9 +177,17 @@ export async function buildApp() {
       userAgent: request.headers["user-agent"] ?? null,
       gate: declared?.gate ?? null,
       method: request.method,
-      // the PATTERN (`/api/clients/:id`), never the filled URL: it groups, and it keeps record ids
-      // out of a column that is read by a screen
-      route: request.routeOptions?.url ?? request.url,
+      /**
+       * The PATTERN (`/api/clients/:id`), never the filled URL: it groups, and it keeps record ids
+       * out of a column that is read by a screen.
+       *
+       * An UNMATCHED request has no pattern, and the fallback used to be `request.url` — which is
+       * the filled one, query string and all. Fastify copies instance-level hooks into its 404
+       * context, so this pair really does run for a mistyped path, and a typo in
+       * `POST /api/clients/<uuid>/secrets/reveal?token=…` wrote the uuid AND the token into the two
+       * columns the screen prints (audit, 2026-09-09). There is no route to name, so it says so.
+       */
+      route: request.routeOptions?.url ?? "(no route)",
     });
   });
 
@@ -200,9 +208,19 @@ export async function buildApp() {
     const status = reply.statusCode;
     await flushStore(store, {
       outcome: status < 400 ? "ok" : status === 401 || status === 403 ? "refused" : "failed",
-      // Every mutation, automatically — and only mutations. A kanban board polling every minute is
-      // not an act, and a log of it answers nothing (§3.2).
-      tier1: MUTATING_METHODS.has(request.method),
+      /**
+       * Every mutation, automatically — and only mutations. A kanban board polling every minute is
+       * not an act, and a log of it answers nothing (§3.2).
+       *
+       * **Plus every 403, whatever the method.** A gate refusal is recorded as
+       * `session.gate_refused` because the permissions module keeps no record of what it decided —
+       * and the overwhelming majority of refusals are somebody OPENING a screen, which is a `GET`.
+       * Gating the whole tier-1 block on the method meant "a lead was refused Billing" was the one
+       * shape never written, while a refused `PATCH` was (audit, 2026-09-09). 403 and not `refused`,
+       * which also covers 401: being unauthenticated is nobody having asked yet, and a signed-out
+       * browser's stray poll does not belong in that list.
+       */
+      tier1: MUTATING_METHODS.has(request.method) || status === 403,
       statusCode: status,
     });
   });
