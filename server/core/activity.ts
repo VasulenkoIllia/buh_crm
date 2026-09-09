@@ -311,8 +311,119 @@ function validateChanges(
   for (const key of keys) {
     if (!allowed.includes(key)) continue;
     clean[key] = capDeep(changes[key]);
+    noRawIds(action, key, clean[key]);
   }
   return Object.keys(clean).length > 0 ? clean : null;
+}
+
+/**
+ * **The word a person uses for a reference row, from its id.**
+ *
+ * The diff guard below refuses raw ids, and five services needed the same one-line answer to obey
+ * it — a lead's stage, a task's column and priority, a client's source, a campaign's template. Each
+ * would otherwise have grown its own repository function and its own import, and the fifth would
+ * have resolved a name slightly differently from the first.
+ *
+ * Every table here is a small, rarely-written reference list read once per act, so the extra query
+ * is not a hot path. `null` when the row is gone: the log then shows nothing for that field rather
+ * than losing the event, which is the same trade `clientLabel` makes at flush time.
+ */
+export async function labelOf(
+  table: "service" | "sourceOption" | "priority" | "taskColumn" | "emailTemplate" | "company",
+  id: string | null | undefined,
+): Promise<string | null> {
+  if (!id) return null;
+  const found = await (async () => {
+    switch (table) {
+      case "service":
+        return prisma.service.findUnique({ where: { id }, select: { name: true } });
+      case "sourceOption":
+        return prisma.sourceOption.findUnique({ where: { id }, select: { name: true } });
+      case "priority":
+        return prisma.priority.findUnique({ where: { id }, select: { name: true } });
+      case "taskColumn":
+        return prisma.taskColumn.findUnique({ where: { id }, select: { name: true } });
+      case "emailTemplate":
+        return prisma.emailTemplate.findUnique({ where: { id }, select: { name: true } });
+      case "company":
+        return prisma.company.findUnique({ where: { id }, select: { name: true } });
+    }
+  })().catch((error) => {
+    console.error(`activity: could not name the ${table} ${id}`, error);
+    return null;
+  });
+  return found?.name ?? null;
+}
+
+/**
+ * **The same answer for a LIST of people** — "who was added to this meeting", "who was assigned".
+ *
+ * A list of ids is worse on screen than a single one, not better: `added ["3f2a…","9b1c…"]` is the
+ * shape the guard below caught in `meeting.participants_changed`, where the whole point of the row
+ * is which colleagues were pulled into somebody's calendar.
+ *
+ * Returns a NAMING FUNCTION rather than the names, because every caller has two lists — who was
+ * there and who is there now — and resolving them separately is two queries for one question.
+ * Hand it the union once and apply it to each list; order stays the caller's, so "added Olena,
+ * then Serhii" is how it happened.
+ */
+export async function peopleNaming(ids: readonly string[]): Promise<(id: string) => string> {
+  const rows =
+    ids.length === 0
+      ? []
+      : await prisma.user
+          .findMany({
+            where: { id: { in: [...new Set(ids)] } },
+            select: { id: true, firstName: true, lastName: true },
+          })
+          .catch((error) => {
+            console.error("activity: could not name the people in this change", error);
+            return [];
+          });
+  const byId = new Map(rows.map((u) => [u.id, personName(u)]));
+  // a person deleted between the act and the flush keeps their place in the list rather than
+  // shortening it — the count of who was added is part of the answer
+  return (id: string) => byId.get(id) ?? "—";
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * **A uuid in a diff is never an answer.**
+ *
+ * Found on production, 2026-09-09, by the owner: `stage f83779ae-… → f0ec3a90-…` on a lead that
+ * had just moved, and `client 7ddc79e9-…` under a task that had just been created. Both are true
+ * and neither is readable, and the reader's next move — open the database — is the one the log
+ * exists to spare them.
+ *
+ * The rule is not "format ids nicely". It is that an id does not belong in `changes` at all: the
+ * row already has `subjectId`/`subjectLabel` for the thing and `clientId`/`clientLabel` for whose
+ * it is, both snapshotted, both readable. A diff is for the FIELD that moved, and what moved is a
+ * stage NAME, not a stage row's primary key.
+ *
+ * The check is on SHAPE, so a free-text field carrying something uuid-shaped would trip it. That
+ * is a trap for a future test fixture rather than for production, where `fail()` only complains and
+ * the row is written whole — worth knowing before writing sample text that looks like a key.
+ *
+ * Enforced here rather than remembered, because remembering is what failed: nineteen of the
+ * hundred and forty-nine events were written by hand over two days and thirteen of them carried an
+ * id. Under test this throws, so a producer cannot ship one; in production it complains and keeps
+ * the value, because a slightly unreadable log entry still beats losing the act it describes.
+ */
+function noRawIds(action: ActivityKey, key: string, value: unknown) {
+  /**
+   * Walks INTO the value rather than one level down it. The first version of this check looked at
+   * the value and at one level of its properties, which covers a bare id and a `{from, to}` pair
+   * of them — and misses `{from: [uuid], to: [uuid]}`, which is exactly the shape `task.assigned`
+   * and `meeting.participants_changed` write. Both were carrying lists of user ids, and both were
+   * found by widening this walk rather than by reading them again.
+   */
+  const found = (v: unknown, depth = 0): boolean => {
+    if (typeof v === "string") return UUID.test(v);
+    if (depth >= 3 || !v || typeof v !== "object") return false;
+    return Object.values(v as Record<string, unknown>).some((inner) => found(inner, depth + 1));
+  };
+  if (found(value)) fail(`${action}.${key} is a raw id — record the label instead`);
 }
 
 /**
@@ -450,8 +561,18 @@ export async function flushActivity(options: FlushOptions): Promise<number> {
 async function writeEvents(
   store: Pick<
     ActivityStore,
-    "correlationId" | "actor" | "events" | "flushed" | "ip" | "userAgent" | "gate" | "method" | "route" | "refusalCode"
-  > & Partial<ActivityStore>,
+    | "correlationId"
+    | "actor"
+    | "events"
+    | "flushed"
+    | "ip"
+    | "userAgent"
+    | "gate"
+    | "method"
+    | "route"
+    | "refusalCode"
+  > &
+    Partial<ActivityStore>,
   outcome: ActivityOutcome,
   options?: FlushOptions,
 ): Promise<number> {
@@ -506,7 +627,9 @@ async function writeEvents(
      * key — and from then on the row reads without a join, which is the whole point of a
      * snapshot (§5, no foreign keys).
      */
-    const clientIds = [...new Set(pending.map((e) => e.clientId).filter((id): id is string => !!id))];
+    const clientIds = [
+      ...new Set(pending.map((e) => e.clientId).filter((id): id is string => !!id)),
+    ];
     const clientNames = new Map<string, string>();
     if (clientIds.length > 0) {
       const clients = await prisma.client

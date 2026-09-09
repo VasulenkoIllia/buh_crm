@@ -66,7 +66,9 @@ export function findLead(id: string) {
 export function findService(id: string) {
   return prisma.service.findUnique({
     where: { id },
-    select: { id: true, active: true, type: true },
+    // `name` for the activity log: the validating read already has the row, so naming the service
+    // in the entry costs nothing, and a uuid in a diff is not an answer (audit, 2026-09-09)
+    select: { id: true, active: true, type: true, name: true },
   });
 }
 
@@ -79,10 +81,7 @@ export function updateLead(id: string, data: Prisma.LeadUpdateInput) {
 }
 
 /** Convert transaction: create the client + mark the lead won, atomically + race-safe. */
-export function convertLead(
-  leadId: string,
-  clientData: Prisma.ClientCreateInput,
-) {
+export function convertLead(leadId: string, clientData: Prisma.ClientCreateInput) {
   return prisma.$transaction(async (tx) => {
     const client = await tx.client.create({ data: clientData });
     // conditional update: only the first concurrent request wins; the loser rolls back

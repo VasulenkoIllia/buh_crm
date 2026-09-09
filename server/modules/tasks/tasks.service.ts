@@ -29,7 +29,7 @@ import {
 import { clientLabel, personName } from "../../core/names.js";
 import { notify } from "../../core/notify.js";
 import { issueJobInvoice } from "../payments/index.js";
-import { diff, record } from "../../core/activity.js";
+import { diff, labelOf, peopleNaming, record } from "../../core/activity.js";
 import * as repo from "./tasks.repository.js";
 
 /** The job's invoice WITH its settlement state — same derivation rule as the Billing screen. */
@@ -415,7 +415,11 @@ export async function moveTask(taskId: string, input: MoveTaskInput) {
       subjectId: moved.id,
       subjectLabel: moved.title,
       clientId: moved.clientId,
-      changes: { column: { from: before.statusColumnId, to: input.statusColumnId } },
+      changes: {
+        // `column` was fetched above to validate the move, so the destination's name is in hand;
+        // only the column it LEFT has to be asked for
+        column: { from: await labelOf("taskColumn", before.statusColumnId), to: column.name },
+      },
     });
   }
   return toTaskDto(moved, todayBusinessMs(config.TZ));
@@ -532,9 +536,10 @@ export async function createTask(input: CreateTaskInput, actor: User) {
     subjectId: task.id,
     subjectLabel: task.title,
     clientId,
+    // no `client` here: `clientId` is a column on the row and renders as the client's NAME beside
+    // the sentence. Repeating it as a diff field said the same thing twice, and said it as a uuid
     changes: {
       kind,
-      client: clientId,
       deadline: input.deadline ?? null,
     },
   });
@@ -560,12 +565,15 @@ export async function updateTask(id: string, input: UpdateTaskInput, actor: User
       throw new ValidationError("The invoice is already issued — the price is locked");
     }
   }
-  if (input.priorityId && !(await repo.findPriority(input.priorityId))) {
-    throw new ValidationError("Unknown priority");
-  }
-  if (input.statusColumnId && !(await repo.findColumn(input.statusColumnId))) {
-    throw new ValidationError("Unknown column");
-  }
+  /**
+   * Both rows are KEPT rather than tested and dropped. The activity entry needs their names, and
+   * re-reading a row this function already has is a second round trip on the product's busiest
+   * write for a value that is sitting in a local (audit, 2026-09-09).
+   */
+  const priority = input.priorityId ? await repo.findPriority(input.priorityId) : null;
+  if (input.priorityId && !priority) throw new ValidationError("Unknown priority");
+  const column = input.statusColumnId ? await repo.findColumn(input.statusColumnId) : null;
+  if (input.statusColumnId && !column) throw new ValidationError("Unknown column");
   if (input.assignees) {
     await assertAssignable(input.assignees, new Set(task.assignees.map((a) => a.userId)));
   }
@@ -621,7 +629,7 @@ export async function updateTask(id: string, input: UpdateTaskInput, actor: User
   if (input.assignees) await repo.setAssignees(id, input.assignees);
 
   await notifyTaskChanges(task, updated, input, actor);
-  recordTaskChanges(task, updated, input);
+  await recordTaskChanges(task, updated, input, { priority, column });
 
   // one-time job billed on completion: issue the invoice the moment it's marked done
   if (input.done === true && task.kind === "once" && !hasLiveInvoice(task) && task.clientId) {
@@ -668,10 +676,12 @@ export async function updateTask(id: string, input: UpdateTaskInput, actor: User
  * Written beside the notifier rather than inside it because the two must be able to diverge — this
  * one already does, twice.
  */
-function recordTaskChanges(
+async function recordTaskChanges(
   before: repo.TaskRecord,
   after: repo.TaskRecord,
   input: UpdateTaskInput,
+  // the two reference rows `updateTask` already validated: passed in rather than read again
+  moving: { priority: { name: string } | null; column: { name: string } | null },
 ) {
   const subject = {
     subjectId: after.id,
@@ -680,23 +690,40 @@ function recordTaskChanges(
   };
 
   // the ordinary field edit — everything that is not one of the lifecycle facts below
-  record("task.updated", {
-    ...subject,
-    changes:
-      diff(before as unknown as Record<string, unknown>, input as Record<string, unknown>, [
-        "title",
-        "description",
-        "priorityId",
-        "plannedMinutes",
-        "amount",
-      ]) ?? undefined,
-  });
+  // `priorityId` is diffed by id, because that is what moves, and relabelled before it is
+  // recorded — "priority Normal → Urgent" is the answer; a pair of uuids is not
+  const edited =
+    diff(before as unknown as Record<string, unknown>, input as Record<string, unknown>, [
+      "title",
+      "description",
+      "priorityId",
+      "plannedMinutes",
+      "amount",
+    ]) ?? undefined;
+  if (edited?.priorityId) {
+    edited.priority = {
+      from: await labelOf("priority", edited.priorityId.from as string),
+      to: moving.priority?.name ?? null,
+    };
+    delete edited.priorityId;
+  }
+  record("task.updated", { ...subject, changes: edited });
 
   if (input.assignees) {
     const was = before.assignees.map((a) => a.userId).sort();
     const now = [...input.assignees].sort();
     if (was.join() !== now.join()) {
-      record("task.assigned", { ...subject, changes: { assignees: { from: was, to: now } } });
+      // inside the guard, not above it: the task form resends the whole assignee list on every
+      // save, so naming them before knowing anything moved is a query on most edits that make no
+      // assignment at all (audit, 2026-09-09)
+      const naming = await peopleNaming([...was, ...now]);
+      // by NAME. "who is on this job now" is the question, and it was answered with a list of
+      // user ids — the same defect as the meeting's participant list (audit, 2026-09-09)
+      record("task.assigned", {
+        ...subject,
+        // one lookup covering both lists, not one per list
+        changes: { assignees: { from: was.map(naming), to: now.map(naming) } },
+      });
     }
   }
   if (input.deadline !== undefined && !sameInstant(before.deadline, after.deadline)) {
@@ -717,7 +744,12 @@ function recordTaskChanges(
   if (input.statusColumnId && input.statusColumnId !== before.statusColumnId) {
     record("task.column_changed", {
       ...subject,
-      changes: { column: { from: before.statusColumnId, to: input.statusColumnId } },
+      changes: {
+        column: {
+          from: await labelOf("taskColumn", before.statusColumnId),
+          to: moving.column?.name ?? null,
+        },
+      },
     });
   }
 }
@@ -840,7 +872,7 @@ export async function deleteComment(commentId: string, actor: User) {
     subjectId: comment.taskId,
     subjectLabel: task.title,
     clientId: task.clientId,
-    changes: { author: comment.authorId },
+    changes: { author: personName(comment.author) },
   });
   return getTask(comment.taskId);
 }
@@ -1005,7 +1037,8 @@ export async function stopTimer(actor: User, input: StopTimerInput) {
 
 export async function addTimeEntry(admin: User, taskId: string, input: AddTimeEntryInput) {
   const task = liveTaskOr404(await repo.findTask(taskId));
-  if (!(await repo.findUser(input.userId))) throw new ValidationError("Unknown user");
+  const whose = await repo.findUser(input.userId);
+  if (!whose) throw new ValidationError("Unknown user");
 
   const startedAt = input.date ? dateToUtc(input.date) : new Date();
   const seconds = input.minutes * 60;
@@ -1024,7 +1057,7 @@ export async function addTimeEntry(admin: User, taskId: string, input: AddTimeEn
     subjectId: taskId,
     subjectLabel: task.title,
     clientId: task.clientId,
-    changes: { minutes: input.minutes, whose: input.userId },
+    changes: { minutes: input.minutes, whose: personName(whose) },
   });
   return getTask(taskId);
 }
@@ -1167,7 +1200,7 @@ export async function removeTimeEntry(entryId: string, actor: User) {
     changes: {
       seconds: entry.seconds,
       comment: entry.comment,
-      whose: entry.userId,
+      whose: personName(entry.user),
     },
   });
   return getTask(entry.taskId);

@@ -48,7 +48,7 @@ import { fromDate } from "../../core/dates.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
 import { clientLabel, personName } from "../../core/names.js";
 import type { User } from "../../generated/prisma/client.js";
-import { diff, record } from "../../core/activity.js";
+import { diff, labelOf, record } from "../../core/activity.js";
 import * as repo from "./campaigns.repository.js";
 import * as mailRepo from "./mailouts.repository.js";
 import {
@@ -329,30 +329,36 @@ export async function update(id: string, input: CampaignInput): Promise<Campaign
     dedupe(input.recipients),
     dateMs.map((ms) => new Date(ms)),
   );
-  record("campaign.updated", {
-    subjectId: id,
-    subjectLabel: input.name,
-    changes:
-      diff(
-        {
-          rhythm: existing.rhythm,
-          startsOn: existing.startsOn.toISOString().slice(0, 10),
-          endsOn: existing.endsOn?.toISOString().slice(0, 10) ?? null,
-          sendAt: existing.sendAt,
-          templateId: existing.templateId,
-          recipients: existing._count.recipients,
-        },
-        {
-          rhythm: input.rhythm,
-          startsOn: new Date(startsOn).toISOString().slice(0, 10),
-          endsOn: endsOn === null ? null : new Date(endsOn).toISOString().slice(0, 10),
-          sendAt: input.sendAt,
-          templateId: input.templateId,
-          recipients: dedupe(input.recipients).length,
-        },
-        ["rhythm", "startsOn", "endsOn", "sendAt", "templateId", "recipients"],
-      ) ?? undefined,
-  });
+  const changed =
+    diff(
+      {
+        rhythm: existing.rhythm,
+        startsOn: existing.startsOn.toISOString().slice(0, 10),
+        endsOn: existing.endsOn?.toISOString().slice(0, 10) ?? null,
+        sendAt: existing.sendAt,
+        templateId: existing.templateId,
+        recipients: existing._count.recipients,
+      },
+      {
+        rhythm: input.rhythm,
+        startsOn: new Date(startsOn).toISOString().slice(0, 10),
+        endsOn: endsOn === null ? null : new Date(endsOn).toISOString().slice(0, 10),
+        sendAt: input.sendAt,
+        templateId: input.templateId,
+        recipients: dedupe(input.recipients).length,
+      },
+      ["rhythm", "startsOn", "endsOn", "sendAt", "templateId", "recipients"],
+    ) ?? undefined;
+  // relabelled after the comparison: the ids are what moved, the names are what a reader needs
+  if (changed?.templateId) {
+    changed.template = {
+      // the one it WAS is already loaded with the campaign; only the one it became needs asking
+      from: existing.template.name,
+      to: await labelOf("emailTemplate", changed.templateId.to as string),
+    };
+    delete changed.templateId;
+  }
+  record("campaign.updated", { subjectId: id, subjectLabel: input.name, changes: changed });
   return detail(id);
 }
 
@@ -443,9 +449,8 @@ export async function runDueCampaigns(
 
     try {
       const targets = await repo.listCampaignRecipients(campaign.id);
-      let mailoutId: string | null = null;
       if (targets.length > 0) {
-        mailoutId = await runCampaign({
+        await runCampaign({
           id: campaign.id,
           templateId: campaign.templateId,
           kind: campaign.kind as MailoutKind,
@@ -486,7 +491,11 @@ export async function runDueCampaigns(
         // the count it ADDRESSED and the run it produced — not "sent", which this function does not
         // know: `runCampaign` returns the mailout's id, and the delivery log is what knows who
         // actually received anything
-        changes: { recipients: targets.length, mailout: mailoutId },
+        // the TEMPLATE that went out, not the mailout's id: "which letter did this send" is the
+        // question, and a uuid pointing at the run answers it only for somebody with a database.
+        // Read off the row in hand — `findDueCampaigns` already includes the template's name, and
+        // fetching it again would be one extra query per campaign, inside this loop
+        changes: { recipients: targets.length, template: campaign.template.name },
       });
       fired += 1;
     } catch (err) {

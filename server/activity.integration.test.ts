@@ -378,15 +378,52 @@ describe("one gesture, one entry", () => {
 
   it("does not add a bare request row beside a gesture a service described", async () => {
     await runWithActivity({ actor: { kind: "system", label: "The scheduler" } }, async () => {
-      record("invoice.issued", { subjectLabel: "INV-1", changes: { number: "INV-1" } });
+      record("invoice.issued", { subjectLabel: "INV-1", changes: { amount: 100 } });
     });
-    const rows = await prisma.activityEvent.findMany({ where: { actorLabel: "The scheduler" } });
+    const rows = await prisma.activityEvent.findMany({
+      where: { actorLabel: "The scheduler" },
+    });
     expect(rows.map((r) => r.action)).toEqual(["invoice.issued"]);
     await prisma.activityEvent.deleteMany({ where: { actorLabel: "The scheduler" } });
   });
 });
 
 describe("what `changes` may hold", () => {
+  /**
+   * **The guard that makes an unreadable diff impossible rather than unlikely.**
+   *
+   * Production, 2026-09-09: `stage f83779ae-… → f0ec3a90-…` under a lead that had just moved, and
+   * `client 7ddc79e9-…` under a task that had just been created. Thirteen of the hundred and
+   * forty-nine events carried an id somewhere in their diff, written by hand over two days by
+   * somebody who knew the rule. Remembering is what failed, so it is checked instead.
+   */
+  it("refuses a raw id, however deeply it is buried", async () => {
+    const id = randomUUID();
+    // bare
+    expect(() => record("lead.stage_changed", { changes: { stage: id } })).toThrow(/raw id/);
+    // inside a from/to pair
+    expect(() =>
+      record("lead.stage_changed", { changes: { stage: { from: id, to: id } } }),
+    ).toThrow(/raw id/);
+    /**
+     * And inside a LIST inside a pair, which is the shape that slipped past the first version of
+     * this check — `task.assigned` and `meeting.participants_changed` were both writing arrays of
+     * user ids, and neither was found by reading them again.
+     */
+    expect(() =>
+      record("task.assigned", { changes: { assignees: { from: [], to: [id] } } }),
+    ).toThrow(/raw id/);
+  });
+
+  it("lets through the words those ids stand for", () => {
+    expect(() =>
+      record("lead.stage_changed", { changes: { stage: { from: "New", to: "Qualified" } } }),
+    ).not.toThrow();
+    expect(() =>
+      record("task.assigned", { changes: { assignees: { from: ["Olena"], to: ["Serhii"] } } }),
+    ).not.toThrow();
+  });
+
   it("writes nothing when the diff is empty", async () => {
     await runWithActivity({ actor: { kind: "user", label: "Empty" } }, async () => {
       // a client save carrying only `{companies}` still reaches `updateClient`; presence is not
@@ -612,7 +649,9 @@ describe("enrichment — who is in the system, and what they were allowed to rea
   });
 
   it("records blocking, and records nothing when the status did not move", async () => {
-    const target = await prisma.user.findFirstOrThrow({ where: { email: "rex@activity.local" } });
+    const target = await prisma.user.findFirstOrThrow({
+      where: { email: "rex@activity.local" },
+    });
     const before = new Date();
     await app.inject({
       method: "PATCH",
@@ -694,7 +733,11 @@ describe("enrichment — who is in the system, and what they were allowed to rea
   it("records a sign-out, from the session rather than from a currentUser it never has", async () => {
     const cookie = await login("ulf@activity.local");
     const before = new Date();
-    const res = await app.inject({ method: "POST", url: "/api/auth/logout", headers: { cookie } });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/auth/logout",
+      headers: { cookie },
+    });
     expect(res.statusCode).toBe(200);
     const row = await waitFor(
       () =>
@@ -726,7 +769,7 @@ describe("the three shapes a bulk or late write takes", () => {
       record("invoice.issued", {
         subjectLabel: "INV-9",
         clientId,
-        changes: { number: "INV-9", amount: 100 },
+        changes: { amount: 100 },
       });
       record("file.downloaded", { subjectLabel: "statement.pdf", clientId });
     });
@@ -787,16 +830,13 @@ describe("the three shapes a bulk or late write takes", () => {
 
     // the late write is fire-and-forget by design — recording must never make a caller wait, and
     // this one has no request left to hold anyway
-    const rows = await waitFor(
-      async () => {
-        const found = await prisma.activityEvent.findMany({
-          where: { actorLabel: "Late" },
-          orderBy: { occurredAt: "asc" },
-        });
-        return found.length === 2 ? found : null;
-      },
-      "the row written after the flush",
-    );
+    const rows = await waitFor(async () => {
+      const found = await prisma.activityEvent.findMany({
+        where: { actorLabel: "Late" },
+        orderBy: { occurredAt: "asc" },
+      });
+      return found.length === 2 ? found : null;
+    }, "the row written after the flush");
     expect(rows.map((r) => r.action)).toEqual(["client.created", "client.archived"]);
     // the late row keeps the gesture it belongs to, so the screen still shows one entry
     expect(rows[1].correlationId).toBe(correlationId);
@@ -948,11 +988,17 @@ describe("the three the audit caught", () => {
     const row = await waitFor(
       () =>
         prisma.activityEvent.findFirst({
-          where: { action: "client.updated", subjectId: client.id, occurredAt: { gte: before } },
+          where: {
+            action: "client.updated",
+            subjectId: client.id,
+            occurredAt: { gte: before },
+          },
         }),
       "the source change",
     );
-    expect(row.changes).toEqual({ sourceId: { from: null, to: source.id } });
+    // the NAME, not the id: a diff reading `sourceId … → 1f2e…` told a reader that something
+    // changed and nothing about what, which is what production showed on 2026-09-09
+    expect(row.changes).toEqual({ source: { from: null, to: source.name } });
 
     await prisma.activityEvent.deleteMany({ where: { clientId: client.id } });
     await prisma.client.delete({ where: { id: client.id } });
@@ -1005,8 +1051,9 @@ describe("the three the audit caught", () => {
       url: "/api/activity?q=A ",
       headers: { cookie: adminCookie },
     });
-    const adminSees = (asAdmin.json() as { entries: { rows: { action: string }[] }[] }).entries
-      .flatMap((e) => e.rows.map((r) => r.action));
+    const adminSees = (
+      asAdmin.json() as { entries: { rows: { action: string }[] }[] }
+    ).entries.flatMap((e) => e.rows.map((r) => r.action));
     expect(adminSees).toContain("client.created");
 
     await prisma.accessPolicy.deleteMany();
@@ -1070,8 +1117,9 @@ describe("what the second review caught", () => {
       url: "/api/activity?q=Narrow&group=clients&subject=company",
       headers: { cookie: adminCookie },
     });
-    const seen = (res.json() as { entries: { rows: { subject: string }[] }[] }).entries
-      .flatMap((e) => e.rows.map((r) => r.subject));
+    const seen = (res.json() as { entries: { rows: { subject: string }[] }[] }).entries.flatMap(
+      (e) => e.rows.map((r) => r.subject),
+    );
     // both subjects are in the `clients` group; only the one asked for may come back
     expect([...new Set(seen)]).toEqual(["company"]);
 
@@ -1087,7 +1135,7 @@ describe("what the second review caught", () => {
       record("invoice.issued", {
         subjectLabel: "INV-GHOST",
         clientId: client.id,
-        changes: { number: "INV-GHOST", amount: 1 },
+        changes: { amount: 1 },
       });
     });
     await prisma.client.delete({ where: { id: client.id } });

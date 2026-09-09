@@ -12,16 +12,23 @@ import { LEAD_LIST_LIMIT } from "@shared/schema/lead.js";
 import type { Prisma, User } from "../../generated/prisma/client.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
 import { applyDefaultClientService } from "../clients/index.js";
-import { diff, record } from "../../core/activity.js";
+import { diff, labelOf, record } from "../../core/activity.js";
 import * as repo from "./leads.repository.js";
 
 /** New/changed service on a lead must exist and be active (existing refs stay untouched). */
-async function assertActiveService(serviceId: string | null | undefined, current?: string | null) {
-  if (!serviceId || serviceId === current) return;
+async function assertActiveService(
+  serviceId: string | null | undefined,
+  current?: string | null,
+) {
+  if (!serviceId || serviceId === current) return null;
   const service = await repo.findService(serviceId);
   if (!service || !service.active) throw new ValidationError("Unknown or inactive service");
   // internal services are firm-internal recurring tasks — not a lead's/client's service
-  if (service.type === "internal") throw new ValidationError("Internal services aren't client-facing");
+  if (service.type === "internal")
+    throw new ValidationError("Internal services aren't client-facing");
+  // returned so the log can name it: the validating read already has the row, and a second one
+  // just to turn an id into a word is a query bought for nothing
+  return service;
 }
 
 function toLeadDto(lead: repo.LeadRecord) {
@@ -76,17 +83,18 @@ export async function listLeads(query: LeadListQuery) {
 }
 
 export async function createLead(input: CreateLeadInput) {
-  await assertActiveService(input.serviceId);
+  const service = await assertActiveService(input.serviceId);
   // a new lead starts at the front of the pipeline — whichever column the firm has put there
   const first = await repo.firstStage();
-  if (!first) throw new ValidationError("The pipeline has no stages — add one on the board first");
+  if (!first)
+    throw new ValidationError("The pipeline has no stages — add one on the board first");
   // `stageId`, not `stage: { connect }` — the rest of the input is scalars, and one relation
   // form among them flips Prisma to its checked variant, where `serviceId` is not a valid key
   const lead = await repo.createLead({ ...input, stageId: first.id });
   record("lead.created", {
     subjectId: lead.id,
     subjectLabel: lead.name,
-    changes: { companyName: lead.companyName, serviceId: lead.serviceId },
+    changes: { companyName: lead.companyName, service: service?.name ?? null },
   });
   return toLeadDto(lead);
 }
@@ -118,17 +126,20 @@ export async function moveLead(id: string, input: MoveLeadInput) {
     throw new ValidationError("Reopen this lead before editing or moving it");
   }
   await repo.moveLeadInBoard(id, input.stageId, input.afterLeadId);
+  // re-read rather than patch the copy in hand: the move renumbered its neighbours too, and the
+  // row that comes back is the one the board will be compared against
+  const moved = await getActiveLead(id);
   // only a change of STAGE — re-ordering within one is presentation, exactly as on the task board
   if (lead.stageId !== input.stageId) {
     record("lead.stage_changed", {
       subjectId: id,
       subjectLabel: lead.name,
-      changes: { stage: { from: lead.stageId, to: input.stageId } },
+      // the NAMES, from the row before and the row after: "moved from New to Qualified" is the
+      // answer, and the re-read above already holds the second half of it
+      changes: { stage: { from: lead.stage.name, to: moved.stage.name } },
     });
   }
-  // re-read rather than patch the copy in hand: the move renumbered its neighbours too, and the
-  // row that comes back is the one the board will be compared against
-  return toLeadDto(await getActiveLead(id));
+  return toLeadDto(moved);
 }
 
 export async function updateLead(id: string, input: UpdateLeadInput) {
@@ -141,22 +152,42 @@ export async function updateLead(id: string, input: UpdateLeadInput) {
   }
   // contacts are optional (user, 2026-07-26): a lead may be a name and a note, and an edit
   // may clear the phone or the email again — only the name has to survive
-  await assertActiveService(input.serviceId, lead.serviceId);
+  // the validated row is kept: the entry names the service, and asking twice is a round trip
+  const service = await assertActiveService(input.serviceId, lead.serviceId);
   const updated = await repo.updateLead(id, input);
-  record("lead.updated", {
-    subjectId: id,
-    subjectLabel: updated.name,
-    changes:
-      diff(lead as unknown as Record<string, unknown>, input as Record<string, unknown>, [
-        "name",
-        "companyName",
-        "phone",
-        "email",
-        "serviceId",
-        "sourceId",
-        "description",
-      ]) ?? undefined,
-  });
+  /**
+   * The two reference fields are diffed by NAME, not by id.
+   *
+   * `serviceId` and `sourceId` are what the table stores, and a diff of them reads
+   * `sourceId 1f2e… → 9a0b…`, which tells a reader that something changed and nothing about what.
+   * `diff()` compares the ids, because that is what actually moved and comparing names would miss
+   * a rename; the pair is then relabelled before it is recorded.
+   */
+  const moved =
+    diff(lead as unknown as Record<string, unknown>, input as Record<string, unknown>, [
+      "name",
+      "companyName",
+      "phone",
+      "email",
+      "serviceId",
+      "sourceId",
+      "description",
+    ]) ?? undefined;
+  if (moved?.serviceId) {
+    moved.service = {
+      from: await labelOf("service", moved.serviceId.from as string),
+      to: service?.name ?? null,
+    };
+    delete moved.serviceId;
+  }
+  if (moved?.sourceId) {
+    moved.source = {
+      from: await labelOf("sourceOption", moved.sourceId.from as string),
+      to: await labelOf("sourceOption", moved.sourceId.to as string),
+    };
+    delete moved.sourceId;
+  }
+  record("lead.updated", { subjectId: id, subjectLabel: updated.name, changes: moved });
   return toLeadDto(updated);
 }
 
@@ -212,8 +243,9 @@ export async function convert(id: string, input: ConvertLeadInput) {
   record("lead.converted", {
     subjectId: id,
     subjectLabel: lead.name,
+    // no `changes`: `clientId` is a column on the row and renders as the client's NAME beside the
+    // sentence. Repeating it as a diff field said the same thing twice, and said it as a uuid
     clientId: client.id,
-    changes: { client: client.id },
   });
   return { clientId: client.id, lead: toLeadDto(updated) };
 }
@@ -273,7 +305,8 @@ export async function renameStage(id: string, input: UpdateLeadStageInput) {
   const stage = await repo.findStage(id);
   if (!stage) throw new NotFoundError("Stage not found");
   const clash = await repo.findStageByName(input.name);
-  if (clash && clash.id !== id) throw new ConflictError("A stage with this name already exists");
+  if (clash && clash.id !== id)
+    throw new ConflictError("A stage with this name already exists");
   const renamed = await repo.renameStage(id, input.name);
   if (stage.name !== input.name) {
     record("settings.stage_updated", {

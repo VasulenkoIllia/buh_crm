@@ -66,8 +66,9 @@ export interface StoredLine {
 
 const isUniqueOn = (err: unknown, field: string) =>
   (err as { code?: string }).code === "P2002" &&
-  ((err as { meta?: { target?: unknown } }).meta?.target as string[] | undefined)?.includes(field) ===
-    true;
+  ((err as { meta?: { target?: unknown } }).meta?.target as string[] | undefined)?.includes(
+    field,
+  ) === true;
 
 /** The row to write, with the due date resolved from either an explicit date or `dueDays`. */
 function invoiceRow(input: IssueInvoiceInput) {
@@ -130,12 +131,19 @@ export async function issueInvoice(input: IssueInvoiceInput) {
  * than no entry — and here that is not a rule anybody has to remember, because `record()` only
  * buffers and the flush happens once the request (or the job) is done.
  */
-function recordIssued(invoice: { id: string; number: string; amount: number; clientId: string }) {
+function recordIssued(invoice: {
+  id: string;
+  number: string;
+  amount: number;
+  clientId: string;
+}) {
   record("invoice.issued", {
     subjectId: invoice.id,
     subjectLabel: invoice.number,
     clientId: invoice.clientId,
-    changes: { number: invoice.number, amount: invoice.amount },
+    // not `number`: it is already the subject label, and the entry read "Invoice INV-2026-0042
+    // was issued / number INV-2026-0042" — the same string twice, using the one line of the diff
+    changes: { amount: invoice.amount },
   });
 }
 

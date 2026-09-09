@@ -15,7 +15,7 @@ import { ConflictError, NotFoundError, ValidationError } from "../../core/errors
 import { clientLabel, personName } from "../../core/names.js";
 import { notify, notifiedAbout } from "../../core/notify.js";
 import { createTask, listDeadlinesInRange } from "../tasks/index.js";
-import { diff, record } from "../../core/activity.js";
+import { diff, peopleNaming, record } from "../../core/activity.js";
 import * as repo from "./meetings.repository.js";
 import { fmtDayTimeInTz } from "@shared/dates.js";
 
@@ -352,7 +352,7 @@ function notifyInvited(meetingId: string, title: string, startAt: Date, actor: U
  * and "when did this move, and who moved it" is asked about a meeting far more often than any of
  * its other fields.
  */
-function recordMeetingChanges(
+async function recordMeetingChanges(
   before: repo.MeetingRecord,
   /** the title AFTER the edit — `repo.updateMeeting` returns a slim row that has no title */
   title: string,
@@ -394,9 +394,13 @@ function recordMeetingChanges(
     const added = participantIds.filter((id) => !was.includes(id));
     const removed = was.filter((id) => !participantIds.includes(id));
     if (added.length > 0 || removed.length > 0) {
+      const naming = await peopleNaming([...added, ...removed]);
       record("meeting.participants_changed", {
         ...subject,
-        changes: { added, removed },
+        // by NAME: this row exists to say which colleagues were pulled into somebody's calendar,
+        // and a list of uuids answers that for nobody (audit, 2026-09-09). One lookup for both
+        // lists — they are two halves of one question
+        changes: { added: added.map(naming), removed: removed.map(naming) },
       });
     }
   }
@@ -587,7 +591,7 @@ export async function updateMeeting(id: string, input: UpdateMeetingInput, actor
 
   // Turning up to a moved meeting is the failure this prevents, so a save that did not move it is
   // silent and a meeting pushed twice tells people twice.
-  recordMeetingChanges(existing, title, input, participantIds, movedTo);
+  await recordMeetingChanges(existing, title, input, participantIds, movedTo);
 
   if (movedTo && movedTo.getTime() !== existing.startAt.getTime()) {
     await notify("meeting_moved", {

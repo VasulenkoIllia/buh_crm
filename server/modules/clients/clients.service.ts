@@ -12,7 +12,12 @@ import { codeInSearch } from "@shared/schema/client.js";
 import { billsPerJob, rhythmOverridesSchema } from "@shared/schema/catalog.js";
 import type { Prisma, User } from "../../generated/prisma/client.js";
 import { config } from "../../core/config.js";
-import { inForceOn, inForceTodayWhere, notEnded, type InForcePeriod } from "../../core/coverage.js";
+import {
+  inForceOn,
+  inForceTodayWhere,
+  notEnded,
+  type InForcePeriod,
+} from "../../core/coverage.js";
 import { type Day, addDays, dateToUtc, todayInTz, toUtc } from "../../core/dates.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
 import {
@@ -24,7 +29,7 @@ import { countUpcomingMeetingsForClient } from "../meetings/index.js";
 import { countOpenTasksForClient, generateForSubscription } from "../tasks/index.js";
 import { MAX_FILE_SIZE, deleteFileBytes, saveFileBytes } from "../../core/files.js";
 import { clientLabel } from "../../core/names.js";
-import { diff, record } from "../../core/activity.js";
+import { diff, labelOf, record } from "../../core/activity.js";
 import * as repo from "./clients.repository.js";
 
 /**
@@ -201,19 +206,17 @@ export async function listClients(query: ClientListQuery, userId?: string) {
     // column, so the code is matched exactly — and only when the query actually parses as one, so a
     // text search is never narrowed by a clause that cannot match.
     const code = codeInSearch(query.search);
-    and.push(
-      {
-        OR: [
-          ...(code !== null ? [{ code }] : []),
-          { firstName: { contains: query.search, mode: "insensitive" } },
-          { lastName: { contains: query.search, mode: "insensitive" } },
-          { companyName: { contains: query.search, mode: "insensitive" } },
-          { email: { contains: query.search, mode: "insensitive" } },
-          { phone: { contains: query.search, mode: "insensitive" } },
-          { companies: { some: { name: { contains: query.search, mode: "insensitive" } } } },
-        ],
-      },
-    );
+    and.push({
+      OR: [
+        ...(code !== null ? [{ code }] : []),
+        { firstName: { contains: query.search, mode: "insensitive" } },
+        { lastName: { contains: query.search, mode: "insensitive" } },
+        { companyName: { contains: query.search, mode: "insensitive" } },
+        { email: { contains: query.search, mode: "insensitive" } },
+        { phone: { contains: query.search, mode: "insensitive" } },
+        { companies: { some: { name: { contains: query.search, mode: "insensitive" } } } },
+      ],
+    });
   }
   if (and.length > 0) where.AND = and;
 
@@ -436,7 +439,9 @@ export async function createClient(input: CreateClientInput) {
   await assertPeopleServicesClientFacing(input.people);
   // check before writing anything: a refused save must not leave a half-created client behind
   await assertCompanyNamesFree(null, input.companies);
-  const client = await repo.createClient(toClientFields(input, true) as Prisma.ClientCreateInput);
+  const client = await repo.createClient(
+    toClientFields(input, true) as Prisma.ClientCreateInput,
+  );
   if (input.companies.length > 0) await applyCompanies(client.id, input.companies);
   if (input.people.length > 0) {
     await repo.setClientPeople(client.id, mapPeople(input.people));
@@ -538,27 +543,38 @@ export async function updateClient(id: string, input: UpdateClientInput) {
    * time somebody opened and closed the form. `diff()` returns null for an empty change and
    * `record()` drops it.
    */
+  /**
+   * The INPUT, not `toClientFields(input)`. That mapper turns `sourceId` into a Prisma relation
+   * write (`source: { connect }` / `{ disconnect }`), so a diff taken over its output could
+   * never see `sourceId` at all — a declared change key structurally unable to fire, silently,
+   * for every source change anybody made (audit, 2026-09-08).
+   */
+  const edited =
+    diff(existing, input as Record<string, unknown>, [
+      "firstName",
+      "lastName",
+      "companyName",
+      "phone",
+      "email",
+      "address",
+      "sourceId",
+      "description",
+    ]) ?? undefined;
+  // and then relabelled: "where did this client come from" is answered by a word — Referral,
+  // Website — never by the primary key of the row holding that word (audit, 2026-09-09)
+  if (edited?.sourceId) {
+    edited.source = {
+      // the one it WAS comes with the client — `clientInclude` has `source: true`
+      from: existing.source?.name ?? null,
+      to: await labelOf("sourceOption", edited.sourceId.to as string),
+    };
+    delete edited.sourceId;
+  }
   record("client.updated", {
     subjectId: id,
     subjectLabel: clientLabel(existing),
     clientId: id,
-    changes:
-      /**
-       * The INPUT, not `toClientFields(input)`. That mapper turns `sourceId` into a Prisma relation
-       * write (`source: { connect }` / `{ disconnect }`), so a diff taken over its output could
-       * never see `sourceId` at all — a declared change key structurally unable to fire, silently,
-       * for every source change anybody made (audit, 2026-09-08).
-       */
-      diff(existing, input as Record<string, unknown>, [
-        "firstName",
-        "lastName",
-        "companyName",
-        "phone",
-        "email",
-        "address",
-        "sourceId",
-        "description",
-      ]) ?? undefined,
+    changes: edited,
   });
 
   /**
@@ -700,16 +716,21 @@ export async function updateSubscription(
   await getClient(clientId);
   const sub = await repo.findSubscription(clientId, subscriptionId);
   if (!sub) throw new NotFoundError("Subscription not found");
-  if (input.companyId) {
-    const company = await repo.findClientCompany(clientId, input.companyId);
-    if (!company) throw new ValidationError("Company does not belong to this client");
+  // kept rather than tested and dropped: the activity entry needs its name, and it is in hand
+  const company = input.companyId
+    ? await repo.findClientCompany(clientId, input.companyId)
+    : null;
+  if (input.companyId && !company) {
+    throw new ValidationError("Company does not belong to this client");
   }
   // billing timing must stay valid against the MERGED row (partial PATCH skips the Zod refine)
   const trigger =
     input.invoiceTrigger !== undefined ? input.invoiceTrigger : sub.invoiceTrigger;
   const day = input.invoiceDay !== undefined ? input.invoiceDay : sub.invoiceDay;
   if (day != null && trigger !== "on_period_start") {
-    throw new ValidationError("A custom day only applies when billing at the start of the period");
+    throw new ValidationError(
+      "A custom day only applies when billing at the start of the period",
+    );
   }
   // duplicate-target rule also holds when the company changes
   if (input.companyId !== undefined) {
@@ -737,7 +758,10 @@ export async function updateSubscription(
   // the default is what gets picked automatically, so it has to be a service they actually use
   // must AGREE with the automatic claim above: a service agreed for a future date is still the
   // client's service, and forbidding it by hand while the system assigns it would contradict itself
-  if (input.isDefault === true && !notEnded(await repo.listPeriods(subscriptionId), todayInTz(config.TZ))) {
+  if (
+    input.isDefault === true &&
+    !notEnded(await repo.listPeriods(subscriptionId), todayInTz(config.TZ))
+  ) {
     throw new ValidationError("A stopped service can't be the client's default");
   }
   const { isDefault, ...fields } = input;
@@ -762,32 +786,33 @@ export async function updateSubscription(
   }
   // `rhythmOverrides` is deliberately not a change key: it is a map keyed by task-template id, and
   // a diff of it would be unreadable on screen and would say nothing a person could act on
+  const moved =
+    diff(
+      { ...sub, isDefault: sub.isDefault },
+      {
+        ...input,
+        // `periodFor` overrides what the caller asked for — a one-time service stores no period
+        // whatever it was sent — so the diff has to show what was written, not what was wanted
+        ...(fields.period !== undefined
+          ? { period: periodFor(sub.service, fields.period) }
+          : {}),
+        ...(isDefault !== undefined ? { isDefault } : {}),
+      } as Record<string, unknown>,
+      ["amount", "period", "companyId", "invoiceTrigger", "invoiceDay", "dueDays", "isDefault"],
+    ) ?? undefined;
+  // billed TO which company is a name on the invoice, not a key in the table behind it
+  if (moved?.companyId) {
+    moved.company = {
+      from: await labelOf("company", moved.companyId.from as string),
+      to: company?.name ?? null,
+    };
+    delete moved.companyId;
+  }
   record("subscription.updated", {
     subjectId: subscriptionId,
     subjectLabel: sub.service.name,
     clientId,
-    changes:
-      diff(
-        { ...sub, isDefault: sub.isDefault },
-        {
-          ...input,
-          // `periodFor` overrides what the caller asked for — a one-time service stores no period
-          // whatever it was sent — so the diff has to show what was written, not what was wanted
-          ...(fields.period !== undefined
-            ? { period: periodFor(sub.service, fields.period) }
-            : {}),
-          ...(isDefault !== undefined ? { isDefault } : {}),
-        } as Record<string, unknown>,
-        [
-          "amount",
-          "period",
-          "companyId",
-          "invoiceTrigger",
-          "invoiceDay",
-          "dueDays",
-          "isDefault",
-        ],
-      ) ?? undefined,
+    changes: moved,
   });
   return getClient(clientId);
 }

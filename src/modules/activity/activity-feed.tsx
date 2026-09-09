@@ -7,6 +7,7 @@ import {
   renderTitle,
   type ActivityGroup,
 } from "@shared/activity";
+import { fieldLabel, formatChangeValue } from "@shared/activity-format";
 import type { ActivityEntry, ActivityRow } from "@shared/schema/activity";
 import { cn } from "@/shared/lib/cn";
 import { fmtDateTime, relativeTime } from "@/shared/lib/format";
@@ -97,10 +98,12 @@ export function ActivityFeed({ clientId, compact = false }: ActivityFeedProps) {
   // one `now` per render, so every row on screen agrees with every other
   const now = new Date();
 
-  const reset = <T,>(set: (v: T) => void) => (value: T) => {
-    set(value);
-    setPage(1);
-  };
+  const reset =
+    <T,>(set: (v: T) => void) =>
+    (value: T) => {
+      set(value);
+      setPage(1);
+    };
 
   const toggle = (id: string) =>
     setOpen((prev) => {
@@ -169,7 +172,9 @@ export function ActivityFeed({ clientId, compact = false }: ActivityFeedProps) {
       )}
 
       {isLoading && !data && <p className="text-[13px] text-muted">Loading…</p>}
-      {error && <p className="text-[13px] text-danger-text">Failed to load the activity log.</p>}
+      {error && (
+        <p className="text-[13px] text-danger-text">Failed to load the activity log.</p>
+      )}
 
       {data && data.entries.length === 0 && (
         <p className="text-[13px] text-muted">
@@ -376,11 +381,11 @@ function Changes({ row }: { row: ActivityRow }) {
     <ul className="mt-0.5 space-y-0.5">
       {Object.entries(changes).map(([field, value]) => (
         <li key={field} className="flex gap-2">
-          <span className="w-28 flex-none text-muted">{field.replace(/_/g, " ")}</span>
+          <span className="w-28 flex-none text-muted">{fieldLabel(field)}</span>
           {/* one line, with the whole value on hover: a description is a paragraph, and a row
               that grows to hold one buries the diffs above it */}
-          <span className="min-w-0 flex-1 truncate" title={plainPair(value)}>
-            <Value value={value} />
+          <span className="min-w-0 flex-1 truncate" title={plainPair(field, value)}>
+            <Value field={field} value={value} />
           </span>
         </li>
       ))}
@@ -388,7 +393,7 @@ function Changes({ row }: { row: ActivityRow }) {
   );
 }
 
-function Value({ value }: { value: unknown }) {
+function Value({ field, value }: { field: string; value: unknown }) {
   if (isPair(value)) {
     return (
       <>
@@ -397,15 +402,15 @@ function Value({ value }: { value: unknown }) {
           read, and 3.14:1 on white is under the threshold. The hierarchy is bought with the arrow
           and with ink on the current value — 4.8 against 16.9 — not by making half the diff faint.
         */}
-        <span className="text-muted">{plainly(value.from)}</span>
+        <span className="text-muted">{formatChangeValue(field, value.from)}</span>
         <span className="px-1 text-faint" aria-label="became">
           →
         </span>
-        <span className="text-ink">{plainly(value.to)}</span>
+        <span className="text-ink">{formatChangeValue(field, value.to)}</span>
       </>
     );
   }
-  return <span className="text-ink">{plainly(value)}</span>;
+  return <span className="text-ink">{formatChangeValue(field, value)}</span>;
 }
 
 function isPair(value: unknown): value is { from: unknown; to: unknown } {
@@ -418,12 +423,8 @@ function isPair(value: unknown): value is { from: unknown; to: unknown } {
 }
 
 /** The same thing as one string, for the hover title. */
-function plainPair(value: unknown): string {
-  return isPair(value) ? `${plainly(value.from)} → ${plainly(value.to)}` : plainly(value);
-}
-
-function plainly(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "—";
-  if (typeof value === "boolean") return value ? "yes" : "no";
-  return String(value);
+function plainPair(field: string, value: unknown): string {
+  return isPair(value)
+    ? `${formatChangeValue(field, value.from)} → ${formatChangeValue(field, value.to)}`
+    : formatChangeValue(field, value);
 }

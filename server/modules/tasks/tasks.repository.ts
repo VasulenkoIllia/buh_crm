@@ -316,7 +316,12 @@ export function addComment(taskId: string, authorId: string, body: string) {
 }
 
 export function findComment(id: string) {
-  return prisma.taskComment.findUnique({ where: { id } });
+  return prisma.taskComment.findUnique({
+    where: { id },
+    // the author rides along for the activity log: an admin may delete anybody's comment, so the
+    // row has to name whose words went, and that is a person rather than a uuid
+    include: { author: { select: { firstName: true, lastName: true } } },
+  });
 }
 
 export function deleteComment(id: string) {
@@ -353,10 +358,11 @@ export function findActiveService(id: string) {
 export function findClientSubscription(clientId: string, subscriptionId: string) {
   return prisma.subscription.findFirst({
     where: { id: subscriptionId, clientId, ...inForceTodayWhere(config.TZ) },
-    include: { service: { select: { id: true, type: true, invoiceTrigger: true, dueDays: true } } },
+    include: {
+      service: { select: { id: true, type: true, invoiceTrigger: true, dueDays: true } },
+    },
   });
 }
-
 
 export function countActiveUsersByIds(ids: string[]) {
   return prisma.user.count({ where: { id: { in: ids }, status: "active" } });
@@ -431,7 +437,11 @@ export function findEntry(id: string) {
     where: { id },
     // the job's title and its client ride along for the activity log: deleting somebody's recorded
     // time is filed under the TASK and under the client, and neither is worth a second query
-    include: { task: { select: { title: true, clientId: true } } },
+    include: {
+      task: { select: { title: true, clientId: true } },
+      // and whose time it was — the same reasoning, for the same row
+      user: { select: { firstName: true, lastName: true } },
+    },
   });
 }
 
@@ -464,7 +474,10 @@ export async function switchRunningEntry(args: {
   });
 }
 
-export function closeEntry(id: string, data: { stoppedAt: Date; seconds: number; comment: string }) {
+export function closeEntry(
+  id: string,
+  data: { stoppedAt: Date; seconds: number; comment: string },
+) {
   return prisma.timeEntry.update({ where: { id }, data });
 }
 
@@ -541,35 +554,35 @@ export async function findGenerationDefaults() {
 // freeze "today" at server boot and every later sweep would ask about the wrong day.
 const generatingSubscription = () =>
   ({
-  where: {
-    ...inForceTodayWhere(config.TZ),
-    service: { type: "subscription" as const },
-    client: { archivedAt: null },
-  },
-  include: {
-    client: { select: { firstName: true, lastName: true } },
-    company: { select: { name: true } },
-    // an occurrence is generated only if the subscription was in force ON ITS DATE
-    periods: { select: { startsOn: true, endsBefore: true }, orderBy: { startsOn: "asc" } },
-    service: {
-      select: {
-        name: true,
-        taskTemplates: {
-          select: {
-            id: true,
-            name: true,
-            periodicity: true,
-            dayOfPeriod: true,
-            monthOfPeriod: true,
-            deadlineOffsetDays: true,
-            estimatedMinutes: true,
-            defaultChecklist: true,
-            createdAt: true,
+    where: {
+      ...inForceTodayWhere(config.TZ),
+      service: { type: "subscription" as const },
+      client: { archivedAt: null },
+    },
+    include: {
+      client: { select: { firstName: true, lastName: true } },
+      company: { select: { name: true } },
+      // an occurrence is generated only if the subscription was in force ON ITS DATE
+      periods: { select: { startsOn: true, endsBefore: true }, orderBy: { startsOn: "asc" } },
+      service: {
+        select: {
+          name: true,
+          taskTemplates: {
+            select: {
+              id: true,
+              name: true,
+              periodicity: true,
+              dayOfPeriod: true,
+              monthOfPeriod: true,
+              deadlineOffsetDays: true,
+              estimatedMinutes: true,
+              defaultChecklist: true,
+              createdAt: true,
+            },
           },
         },
       },
     },
-  },
   }) satisfies Prisma.SubscriptionFindManyArgs;
 
 export type GeneratingSubscription = Prisma.SubscriptionGetPayload<
@@ -662,7 +675,10 @@ export function listExistingGeneratedKeys(where: Prisma.TaskWhereInput) {
 
 /** The ids of every active team member — internal templates only seed active assignees. */
 export async function listActiveUserIds() {
-  const users = await prisma.user.findMany({ where: { status: "active" }, select: { id: true } });
+  const users = await prisma.user.findMany({
+    where: { status: "active" },
+    select: { id: true },
+  });
   return users.map((u) => u.id);
 }
 

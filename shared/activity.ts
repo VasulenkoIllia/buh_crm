@@ -46,13 +46,7 @@
  * the group is load-bearing rather than decorative (activity-log.md §4.5).
  */
 export type ActivityGroup =
-  | "people"
-  | "clients"
-  | "work"
-  | "money"
-  | "comms"
-  | "files"
-  | "system";
+  "people" | "clients" | "work" | "money" | "comms" | "files" | "system";
 
 /**
  * The thing an event happened TO. Always equal to the segment before the dot in the key — no
@@ -149,12 +143,7 @@ export type ActivityOutcome = "ok" | "refused" | "failed";
 
 /** The journals that keep the DETAIL this log only points at (activity-log.md §9, §4.6). */
 export type ActivityJournal =
-  | "payment"
-  | "secret"
-  | "time_entry"
-  | "user_role"
-  | "subscription_period"
-  | "job_event";
+  "payment" | "secret" | "time_entry" | "user_role" | "subscription_period" | "job_event";
 
 export interface ActivityEventSpec {
   subject: ActivitySubject;
@@ -448,7 +437,7 @@ const EVENTS = {
       "phone",
       "email",
       "address",
-      "sourceId",
+      "source",
       "description",
     ],
     enabledByDefault: true,
@@ -531,7 +520,7 @@ const EVENTS = {
     changeKeys: [
       "amount",
       "period",
-      "companyId",
+      "company",
       "invoiceTrigger",
       "invoiceDay",
       "dueDays",
@@ -764,7 +753,7 @@ const EVENTS = {
     retention: "ordinary",
     // not the client's NAME: `issueInvoice` runs on the nightly sweep and would need a lookup per
     // invoice to carry one, when `clientId` already lets the screen resolve it (2026-09-08)
-    changeKeys: ["number", "amount"],
+    changeKeys: ["amount"],
     enabledByDefault: true,
   },
   "invoice.updated": {
@@ -936,7 +925,7 @@ const EVENTS = {
     granularity: "item",
     actorKinds: ["user"],
     retention: "ordinary",
-    changeKeys: ["kind", "client", "deadline"],
+    changeKeys: ["kind", "deadline"],
     enabledByDefault: true,
   },
   "task.updated": {
@@ -946,7 +935,7 @@ const EVENTS = {
     granularity: "item",
     actorKinds: ["user"],
     retention: "ordinary",
-    changeKeys: ["title", "description", "priorityId", "plannedMinutes", "amount"],
+    changeKeys: ["title", "description", "priority", "plannedMinutes", "amount"],
     enabledByDefault: true,
   },
   "task.assigned": {
@@ -1204,7 +1193,7 @@ const EVENTS = {
     retention: "ordinary",
     // what it ADDRESSED, and the run it produced. Not "sent": the delivery log knows who actually
     // received a letter, and a count here that guessed would be the log's own lie (2026-09-08)
-    changeKeys: ["recipients", "mailout"],
+    changeKeys: ["recipients", "template"],
     enabledByDefault: true,
   },
   "mailout.send_failed": {
@@ -1236,7 +1225,7 @@ const EVENTS = {
     granularity: "item",
     actorKinds: ["user"],
     retention: "ordinary",
-    changeKeys: ["companyName", "serviceId"],
+    changeKeys: ["companyName", "service"],
     enabledByDefault: true,
   },
   "lead.updated": {
@@ -1246,7 +1235,7 @@ const EVENTS = {
     granularity: "item",
     actorKinds: ["user"],
     retention: "ordinary",
-    changeKeys: ["name", "companyName", "phone", "email", "serviceId", "sourceId", "description"],
+    changeKeys: ["name", "companyName", "phone", "email", "service", "source", "description"],
     enabledByDefault: true,
   },
   "lead.stage_changed": {
@@ -1267,7 +1256,6 @@ const EVENTS = {
     granularity: "item",
     actorKinds: ["user"],
     retention: "ordinary",
-    changeKeys: ["client"],
     enabledByDefault: true,
   },
   "lead.marked_lost": {
@@ -1369,7 +1357,15 @@ const EVENTS = {
     granularity: "item",
     actorKinds: ["user"],
     retention: "long",
-    changeKeys: ["name", "fromEmail", "fromName", "smtpHost", "smtpPort", "imapHost", "signature"],
+    changeKeys: [
+      "name",
+      "fromEmail",
+      "fromName",
+      "smtpHost",
+      "smtpPort",
+      "imapHost",
+      "signature",
+    ],
     enabledByDefault: true,
   },
   "mailbox.deleted": {
@@ -1507,7 +1503,7 @@ const EVENTS = {
     granularity: "item",
     actorKinds: ["user"],
     retention: "ordinary",
-    changeKeys: ["rhythm", "startsOn", "endsOn", "sendAt", "templateId", "recipients"],
+    changeKeys: ["rhythm", "startsOn", "endsOn", "sendAt", "template", "recipients"],
     enabledByDefault: true,
   },
   "campaign.started": {
@@ -1694,7 +1690,7 @@ const EVENTS = {
   "settings.source_created": {
     subject: "settings",
     title: "{actor} added the source {subject}",
-    when: "a new \"where did they come from\" option is added",
+    when: 'a new "where did they come from" option is added',
     granularity: "item",
     actorKinds: ["user"],
     retention: "ordinary",
@@ -2086,7 +2082,11 @@ export const TIER1_REFUSED = "session.gate_refused" satisfies ActivityKey;
  */
 export function renderTitle(
   key: ActivityKey,
-  row: { actorLabel?: string | null; subjectLabel?: string | null; clientLabel?: string | null },
+  row: {
+    actorLabel?: string | null;
+    subjectLabel?: string | null;
+    clientLabel?: string | null;
+  },
 ): string {
   /**
    * `{subject}` falls back to the CLIENT before it falls back to an em dash.
