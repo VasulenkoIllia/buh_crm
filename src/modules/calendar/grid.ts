@@ -86,7 +86,10 @@ export function startOfMonth(d: Date): Date {
  * The month view deliberately asks for whole WEEKS, because it draws whole weeks — the leading and
  * trailing days from the neighbouring months are real cells and must not be empty.
  */
-export function windowFor(mode: ViewMode, anchor: Date): { from: string; to: string; days: Date[] } {
+export function windowFor(
+  mode: ViewMode,
+  anchor: Date,
+): { from: string; to: string; days: Date[] } {
   if (mode === "day") {
     const d = new Date(anchor);
     d.setHours(0, 0, 0, 0);

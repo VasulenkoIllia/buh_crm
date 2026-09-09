@@ -152,10 +152,22 @@ describe("leads", () => {
       payload: { name: "Closed Lead", phone: "+380670000009" },
     });
     const closedId = closed.json().id;
-    await app.inject({ method: "POST", url: `/api/leads/${closedId}/mark-lost`, headers: { cookie } });
+    await app.inject({
+      method: "POST",
+      url: `/api/leads/${closedId}/mark-lost`,
+      headers: { cookie },
+    });
 
-    const board = await app.inject({ method: "GET", url: "/api/leads?scope=in_process", headers: { cookie } });
-    const archive = await app.inject({ method: "GET", url: "/api/leads?scope=closed", headers: { cookie } });
+    const board = await app.inject({
+      method: "GET",
+      url: "/api/leads?scope=in_process",
+      headers: { cookie },
+    });
+    const archive = await app.inject({
+      method: "GET",
+      url: "/api/leads?scope=closed",
+      headers: { cookie },
+    });
 
     const boardIds = board.json().items.map((l: { id: string }) => l.id);
     const archiveIds = archive.json().items.map((l: { id: string }) => l.id);
@@ -349,7 +361,11 @@ describe("leads — dragging on the board", () => {
   };
   /** the pipeline is data now, so a test asks for a stage by the name a person would say */
   const stageId = async (name: string) => {
-    const res = await app.inject({ method: "GET", url: "/api/leads/stages", headers: { cookie } });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/leads/stages",
+      headers: { cookie },
+    });
     const stage = res.json().find((s: { name: string }) => s.name === name);
     expect(stage, `no stage named ${name}`).toBeTruthy();
     return stage.id as string;
@@ -362,22 +378,36 @@ describe("leads — dragging on the board", () => {
       payload: { stageId: await stageId(stageName), afterLeadId },
     });
   const stageOf = async (stage: string) => {
-    const res = await app.inject({ method: "GET", url: "/api/leads?scope=in_process", headers: { cookie } });
-    return res
-      .json()
-      .items.filter((l: { stageName: string }) => l.stageName === stage)
-      .sort((a: { boardOrder: number }, b: { boardOrder: number }) => a.boardOrder - b.boardOrder)
-      .map((l: { name: string }) => l.name)
-      // this suite shares a stage with the cases above it; only the ones made here are asserted
-      .filter((n: string) => n.startsWith("Drag "));
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/leads?scope=in_process",
+      headers: { cookie },
+    });
+    return (
+      res
+        .json()
+        .items.filter((l: { stageName: string }) => l.stageName === stage)
+        .sort(
+          (a: { boardOrder: number }, b: { boardOrder: number }) => a.boardOrder - b.boardOrder,
+        )
+        .map((l: { name: string }) => l.name)
+        // this suite shares a stage with the cases above it; only the ones made here are asserted
+        .filter((n: string) => n.startsWith("Drag "))
+    );
   };
 
-  let a = "", b = "", c = "";
+  let a = "",
+    b = "",
+    c = "";
   it("puts three leads in one stage", async () => {
     a = await make("Drag A");
     b = await make("Drag B");
     c = await make("Drag C");
-    for (const [id, after] of [[a, null], [b, a], [c, b]] as const) {
+    for (const [id, after] of [
+      [a, null],
+      [b, a],
+      [c, b],
+    ] as const) {
       expect((await move(id, "First contact", after)).statusCode).toBe(200);
     }
     expect(await stageOf("First contact")).toEqual(["Drag A", "Drag B", "Drag C"]);
@@ -401,7 +431,11 @@ describe("leads — dragging on the board", () => {
   });
 
   it("leaves the stage a clean 0..n-1 run", async () => {
-    const res = await app.inject({ method: "GET", url: "/api/leads?scope=in_process", headers: { cookie } });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/leads?scope=in_process",
+      headers: { cookie },
+    });
     const orders = res
       .json()
       .items.filter((l: { stageName: string }) => l.stageName === "First contact")
@@ -435,19 +469,35 @@ describe("leads — dragging on the board", () => {
  */
 describe("leads — the pipeline's stages", () => {
   const list = async () => {
-    const res = await app.inject({ method: "GET", url: "/api/leads/stages", headers: { cookie: adminCookie } });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/leads/stages",
+      headers: { cookie: adminCookie },
+    });
     expect(res.statusCode).toBe(200);
     return res.json() as { id: string; name: string; order: number }[];
   };
   const add = (name: string) =>
-    app.inject({ method: "POST", url: "/api/leads/stages", headers: { cookie: adminCookie }, payload: { name } });
+    app.inject({
+      method: "POST",
+      url: "/api/leads/stages",
+      headers: { cookie: adminCookie },
+      payload: { name },
+    });
 
   it("holds the six the firm has been working with, each in its own place", async () => {
     const stages = await list();
     // the SET, not the sequence: other suites share this database and may have dragged them, and a
     // test that depends on the order it happens to run in is one that will lie one day
     expect(new Set(stages.map((s) => s.name))).toEqual(
-      new Set(["First contact", "No answer", "Set up meeting", "Thinking", "On hold", "Next time"]),
+      new Set([
+        "First contact",
+        "No answer",
+        "Set up meeting",
+        "Thinking",
+        "On hold",
+        "Next time",
+      ]),
     );
     /**
      * Ascending and distinct — NOT 0..n-1. Deleting a stage leaves the gap it was occupying, and

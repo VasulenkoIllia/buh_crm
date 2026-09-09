@@ -16,7 +16,12 @@ export function findUserById(id: string) {
   return prisma.user.findUnique({ where: { id } });
 }
 
-export function createAuthToken(userId: string, type: AuthTokenType, tokenHash: string, expiresAt: Date) {
+export function createAuthToken(
+  userId: string,
+  type: AuthTokenType,
+  tokenHash: string,
+  expiresAt: Date,
+) {
   return prisma.authToken.create({ data: { userId, type, tokenHash, expiresAt } });
 }
 

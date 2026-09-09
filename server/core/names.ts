@@ -18,6 +18,8 @@ export function clientLabel(c: Nameable): string {
 }
 
 /** A team member's name for audit trails and "recorded by" lines. */
-export function personName(u: { firstName: string | null; lastName: string | null } | null): string {
+export function personName(
+  u: { firstName: string | null; lastName: string | null } | null,
+): string {
   return u ? `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || "—" : "—";
 }

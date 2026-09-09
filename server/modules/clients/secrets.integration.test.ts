@@ -45,8 +45,22 @@ beforeAll(async () => {
   const hash = await argon2.hash(PASSWORD);
   await prisma.user.createMany({
     data: [
-      { firstName: "Sec", lastName: "Admin", email: "sec-admin@test.local", passwordHash: hash, role: "admin", status: "active" },
-      { firstName: "Sec", lastName: "User", email: "sec-user@test.local", passwordHash: hash, role: "user", status: "active" },
+      {
+        firstName: "Sec",
+        lastName: "Admin",
+        email: "sec-admin@test.local",
+        passwordHash: hash,
+        role: "admin",
+        status: "active",
+      },
+      {
+        firstName: "Sec",
+        lastName: "User",
+        email: "sec-user@test.local",
+        passwordHash: hash,
+        role: "user",
+        status: "active",
+      },
     ],
   });
   adminCookie = await login("sec-admin@test.local");
@@ -150,7 +164,9 @@ describe("client secrets", () => {
     expect(unlock.statusCode).toBe(200);
     expect(new Date(unlock.json().expiresAt).getTime()).toBeGreaterThan(Date.now());
 
-    const before = await prisma.secretAuditLog.count({ where: { clientId, action: "revealed" } });
+    const before = await prisma.secretAuditLog.count({
+      where: { clientId, action: "revealed" },
+    });
     const reveal = await app.inject({
       method: "POST",
       url: `/api/clients/${clientId}/secrets/${secretId}/reveal`,
@@ -281,7 +297,9 @@ describe("client secrets", () => {
   it("the log still says WHAT it was about after the secret is gone", async () => {
     // the FK goes null on delete, so the name is snapshotted onto the row when it is written —
     // a log that cannot say what it was about is not worth keeping (user, 2026-08-03)
-    const rows = await prisma.secretAuditLog.findMany({ where: { clientId, action: "revealed" } });
+    const rows = await prisma.secretAuditLog.findMany({
+      where: { clientId, action: "revealed" },
+    });
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.every((r) => r.label !== null)).toBe(true);
   });
@@ -344,7 +362,9 @@ describe("client secrets", () => {
       url: `/api/clients/${clientId}/secrets/audit`,
       headers: { cookie: userCookie },
     });
-    expect(audit.json().items.some((r: { byName: string }) => r.byName === "Sec User")).toBe(true);
+    expect(audit.json().items.some((r: { byName: string }) => r.byName === "Sec User")).toBe(
+      true,
+    );
 
     const drop = await app.inject({
       method: "DELETE",

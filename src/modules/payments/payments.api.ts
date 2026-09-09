@@ -21,7 +21,10 @@ export interface InvoiceListResponse {
   page: number;
   pageSize: number;
   totals: { receivable: number; overdue: number };
-  counts: Record<"all" | "unpaid" | "overdue" | "paid" | "unsent" | "cancelled" | "settled", number>;
+  counts: Record<
+    "all" | "unpaid" | "overdue" | "paid" | "unsent" | "cancelled" | "settled",
+    number
+  >;
 }
 
 export interface AuditEntry {
@@ -32,7 +35,6 @@ export interface AuditEntry {
   after: { amount: number; paidAt: string; reference: string | null } | null;
   createdAt: string;
 }
-
 
 export function useInvoices(query: Partial<InvoiceListQuery>) {
   const params = new URLSearchParams();

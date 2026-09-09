@@ -96,7 +96,9 @@ export function SenderSettings() {
         </div>
       )}
 
-      {!isAdmin && <p className="text-[12px] text-faint">You can read these but not change them.</p>}
+      {!isAdmin && (
+        <p className="text-[12px] text-faint">You can read these but not change them.</p>
+      )}
 
       <SenderAccountModal
         open={creating}
@@ -221,7 +223,9 @@ function AccountCard({
               disabled={setActive.isPending || account.isDefault}
               className={cn(!account.active && "text-muted")}
               onClick={() =>
-                act(() => setActive.mutateAsync({ id: account.id, input: { active: !account.active } }))
+                act(() =>
+                  setActive.mutateAsync({ id: account.id, input: { active: !account.active } }),
+                )
               }
             >
               <Power size={15} />

@@ -120,7 +120,9 @@ export function TimerCommentModal({
       <div className="space-y-3">
         <div>
           <div className="text-[13px] text-muted">{timer.taskTitle}</div>
-          <div className="mt-0.5 text-[22px] font-bold tabular-nums">{fmtDuration(elapsed)}</div>
+          <div className="mt-0.5 text-[22px] font-bold tabular-nums">
+            {fmtDuration(elapsed)}
+          </div>
           {next && (
             <div className="mt-1 text-[12px] text-muted">
               Next up: <span className="font-medium text-ink-700">{next.title}</span>

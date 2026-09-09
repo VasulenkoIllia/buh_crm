@@ -78,9 +78,10 @@ describe("the activity registry", () => {
   it("keeps the declared and the planned lists disjoint, and both well-formed", () => {
     const declared = new Set<string>(ACTIVITY_KEYS);
     const overlap = PLANNED_EVENT_KEYS.filter((k) => declared.has(k));
-    expect(overlap, "a planned key is already declared — delete it from PLANNED_EVENT_KEYS").toEqual(
-      [],
-    );
+    expect(
+      overlap,
+      "a planned key is already declared — delete it from PLANNED_EVENT_KEYS",
+    ).toEqual([]);
 
     const malformed = PLANNED_EVENT_KEYS.filter(
       (k) => !KEY_SHAPE.test(k) || !SUBJECTS.has(k.split(".")[0] as ActivitySubject),
@@ -114,9 +115,10 @@ describe("the activity registry", () => {
     for (const key of ACTIVITY_KEYS) {
       const spec = ACTIVITY_EVENTS[key];
       if (!spec.changeKeys) continue;
-      expect(spec.changeKeys.length, `${key}: empty changeKeys — omit it instead`).toBeGreaterThan(
-        0,
-      );
+      expect(
+        spec.changeKeys.length,
+        `${key}: empty changeKeys — omit it instead`,
+      ).toBeGreaterThan(0);
       expect(new Set(spec.changeKeys).size, `${key}: duplicate changeKey`).toBe(
         spec.changeKeys.length,
       );
@@ -172,9 +174,9 @@ describe("the activity registry", () => {
       }
     }
     expect(stray).toEqual([]);
-    expect(renderTitle("client.created", { actorLabel: "Olena", subjectLabel: "Petrenko" })).toBe(
-      "Olena added the client Petrenko",
-    );
+    expect(
+      renderTitle("client.created", { actorLabel: "Olena", subjectLabel: "Petrenko" }),
+    ).toBe("Olena added the client Petrenko");
     // an event with no subject of its own still reads as a sentence
     expect(renderTitle("secret.vault_unlocked", { actorLabel: "Olena" })).toBe(
       "Olena unlocked the vault",

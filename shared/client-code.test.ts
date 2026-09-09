@@ -23,7 +23,8 @@ describe("clientCode", () => {
     // that; anything shorter is padding or blank, and only a six-figure client base exceeds it.
     expect(clientCode(99999)).toHaveLength(7);
     expect(clientCode(99999)).toBe("C-99999");
-    for (const n of [1, 42, 268, 1000, 99999]) expect(clientCode(n).length).toBeLessThanOrEqual(7);
+    for (const n of [1, 42, 268, 1000, 99999])
+      expect(clientCode(n).length).toBeLessThanOrEqual(7);
   });
 });
 
@@ -42,7 +43,16 @@ describe("codeInSearch", () => {
 
   it("returns null for anything that is not a code, so the clause is left out entirely", () => {
     // a search must never be NARROWED by a condition that cannot match
-    for (const q of ["Ivan", "ivan@example.com", "+1 646 555 0110", "", "  ", "C-", "abc", "4a2"]) {
+    for (const q of [
+      "Ivan",
+      "ivan@example.com",
+      "+1 646 555 0110",
+      "",
+      "  ",
+      "C-",
+      "abc",
+      "4a2",
+    ]) {
       expect(codeInSearch(q)).toBeNull();
     }
   });

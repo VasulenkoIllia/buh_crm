@@ -18,7 +18,11 @@ function cookieOf(res: { headers: Record<string, unknown> }): string {
 }
 
 async function login(email: string, password: string) {
-  const res = await app.inject({ method: "POST", url: "/api/auth/login", payload: { email, password } });
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    payload: { email, password },
+  });
   expect(res.statusCode).toBe(200);
   return cookieOf(res);
 }
@@ -66,7 +70,11 @@ async function makeClient(first: string): Promise<string> {
   return res.json().id;
 }
 
-async function makeInvoice(clientId: string, amount: number, extra: Record<string, unknown> = {}) {
+async function makeInvoice(
+  clientId: string,
+  amount: number,
+  extra: Record<string, unknown> = {},
+) {
   const res = await app.inject({
     method: "POST",
     url: "/api/invoices",
@@ -106,11 +114,26 @@ beforeAll(async () => {
   const pass = await argon2.hash("password-123");
   await prisma.user.createMany({
     data: [
-      { firstName: "Pay", lastName: "Admin", email: "pay-admin@test.local", passwordHash: pass, role: "admin", status: "active" },
-      { firstName: "Pay", lastName: "User", email: "pay-user@test.local", passwordHash: pass, role: "user", status: "active" },
+      {
+        firstName: "Pay",
+        lastName: "Admin",
+        email: "pay-admin@test.local",
+        passwordHash: pass,
+        role: "admin",
+        status: "active",
+      },
+      {
+        firstName: "Pay",
+        lastName: "User",
+        email: "pay-user@test.local",
+        passwordHash: pass,
+        role: "user",
+        status: "active",
+      },
     ],
   });
-  userId = (await prisma.user.findUniqueOrThrow({ where: { email: "pay-user@test.local" } })).id;
+  userId = (await prisma.user.findUniqueOrThrow({ where: { email: "pay-user@test.local" } }))
+    .id;
   adminCookie = await login("pay-admin@test.local", "password-123");
   userCookie = await login("pay-user@test.local", "password-123");
 });
@@ -151,7 +174,11 @@ describe("payments", () => {
     expect(over.statusCode).toBe(400);
 
     // debt on the client card = open balance
-    const client = await app.inject({ method: "GET", url: `/api/clients/${clientId}`, headers: { cookie: userCookie } });
+    const client = await app.inject({
+      method: "GET",
+      url: `/api/clients/${clientId}`,
+      headers: { cookie: userCookie },
+    });
     expect(client.json().debt).toBe(30_000);
 
     // settling the rest flips it to paid and clears the debt
@@ -162,7 +189,11 @@ describe("payments", () => {
       payload: { amount: 30_000, paidAt: today().iso },
     });
     expect(rest.json().status).toBe("paid");
-    const settled = await app.inject({ method: "GET", url: `/api/clients/${clientId}`, headers: { cookie: userCookie } });
+    const settled = await app.inject({
+      method: "GET",
+      url: `/api/clients/${clientId}`,
+      headers: { cookie: userCookie },
+    });
     expect(settled.json().debt).toBe(0);
   });
 
@@ -250,25 +281,43 @@ describe("payments", () => {
     });
     expect(withPayments.statusCode).toBe(400);
 
-    const paymentId = (await app.inject({
-      method: "GET",
-      url: `/api/invoices/${invoice.id}`,
+    const paymentId = (
+      await app.inject({
+        method: "GET",
+        url: `/api/invoices/${invoice.id}`,
+        headers: { cookie: adminCookie },
+      })
+    ).json().payments[0].id;
+    await app.inject({
+      method: "DELETE",
+      url: `/api/invoices/payments/${paymentId}`,
       headers: { cookie: adminCookie },
-    })).json().payments[0].id;
-    await app.inject({ method: "DELETE", url: `/api/invoices/payments/${paymentId}`, headers: { cookie: adminCookie } });
+    });
 
     const cancelled = await app.inject({
       method: "POST",
       url: `/api/invoices/${invoice.id}/cancel`,
       headers: { cookie: adminCookie },
     });
-    expect(cancelled.json()).toMatchObject({ status: "cancelled", balance: 0, cancelledByName: "Pay Admin" });
+    expect(cancelled.json()).toMatchObject({
+      status: "cancelled",
+      balance: 0,
+      cancelledByName: "Pay Admin",
+    });
 
-    const client = await app.inject({ method: "GET", url: `/api/clients/${clientId}`, headers: { cookie: userCookie } });
+    const client = await app.inject({
+      method: "GET",
+      url: `/api/clients/${clientId}`,
+      headers: { cookie: userCookie },
+    });
     expect(client.json().debt).toBe(0);
 
     // gone from the default list, present on its own chip
-    const all = await app.inject({ method: "GET", url: `/api/invoices?clientId=${clientId}`, headers: { cookie: userCookie } });
+    const all = await app.inject({
+      method: "GET",
+      url: `/api/invoices?clientId=${clientId}`,
+      headers: { cookie: userCookie },
+    });
     expect(all.json().items).toHaveLength(0);
     const onlyCancelled = await app.inject({
       method: "GET",
@@ -311,7 +360,9 @@ describe("payments", () => {
       url: `/api/tasks?view=board&clientId=${clientId}`,
       headers: { cookie: userCookie },
     });
-    const task = tasks.json().items.find((t: { title: string }) => t.title === "Send the papers");
+    const task = tasks
+      .json()
+      .items.find((t: { title: string }) => t.title === "Send the papers");
     expect(task.invoice).toMatchObject({ status: "unpaid", paid: 0, balance: 15_000 });
     expect(task.invoice.sentAt).not.toBeNull();
 
@@ -327,7 +378,11 @@ describe("payments", () => {
       url: `/api/tasks/${task.id}`,
       headers: { cookie: userCookie },
     });
-    expect(after.json().invoice).toMatchObject({ status: "partial", paid: 5_000, balance: 10_000 });
+    expect(after.json().invoice).toMatchObject({
+      status: "partial",
+      paid: 5_000,
+      balance: 10_000,
+    });
 
     // and the mark can be taken back (mis-click)
     const undone = await app.inject({
@@ -353,7 +408,9 @@ describe("payments", () => {
       url: `/api/tasks?view=board&clientId=${clientId}`,
       headers: { cookie: userCookie },
     });
-    const task = tasks.json().items.find((t: { title: string }) => t.title === "Year-end filing");
+    const task = tasks
+      .json()
+      .items.find((t: { title: string }) => t.title === "Year-end filing");
     expect(task.invoice.number).toBe(invoice.number);
     expect(task.amount).toBe(25_000);
     expect(task.assignees).toEqual([userId]);
@@ -390,7 +447,11 @@ describe("payments", () => {
     await generatePeriodInvoices();
 
     // served from the period's first day → the period is whole, so it bills automatically
-    const list = await app.inject({ method: "GET", url: `/api/invoices?clientId=${clientId}`, headers: { cookie: userCookie } });
+    const list = await app.inject({
+      method: "GET",
+      url: `/api/invoices?clientId=${clientId}`,
+      headers: { cookie: userCookie },
+    });
     expect(list.json().items).toHaveLength(1);
     const invoice = list.json().items[0];
     expect(invoice.periodKey).toBe(today().monthKey);
@@ -406,7 +467,11 @@ describe("payments", () => {
       data: { createdAt: new Date(Date.now() - 200 * 86_400_000) },
     });
     expect((await generatePeriodInvoices()).created).toBe(0);
-    const after = await app.inject({ method: "GET", url: `/api/invoices?clientId=${clientId}`, headers: { cookie: userCookie } });
+    const after = await app.inject({
+      method: "GET",
+      url: `/api/invoices?clientId=${clientId}`,
+      headers: { cookie: userCookie },
+    });
     expect(after.json().items).toHaveLength(1);
   });
 
@@ -427,7 +492,9 @@ describe("payments", () => {
     const numbers = issued.map((r) => r.json().number);
     expect(new Set(numbers).size).toBe(5); // no collisions under concurrency
 
-    const counters = numbers.map((n: string) => Number(n.split("-").at(-1))).sort((a, b) => a - b);
+    const counters = numbers
+      .map((n: string) => Number(n.split("-").at(-1)))
+      .sort((a, b) => a - b);
     expect(counters).toEqual([1, 2, 3, 4, 5].map((i) => before.invoiceCounter + i)); // no gaps
   });
 
@@ -604,7 +671,10 @@ describe("payments", () => {
 
   it("editing an issued invoice: admin-only, never below what's paid, the job's price follows", async () => {
     const clientId = await makeClient("Halyna");
-    const invoice = await makeInvoice(clientId, 60_000, { withTask: true, taskTitle: "Audit prep" });
+    const invoice = await makeInvoice(clientId, 60_000, {
+      withTask: true,
+      taskTitle: "Audit prep",
+    });
 
     const asUser = await app.inject({
       method: "PATCH",
@@ -804,8 +874,12 @@ describe("payments", () => {
     const invoice = await makeInvoice(clientId, 90_000);
     const stored = () => prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } });
     const real = async () =>
-      (await prisma.payment.aggregate({ where: { invoiceId: invoice.id }, _sum: { amount: true } }))
-        ._sum.amount ?? 0;
+      (
+        await prisma.payment.aggregate({
+          where: { invoiceId: invoice.id },
+          _sum: { amount: true },
+        })
+      )._sum.amount ?? 0;
 
     const first = await app.inject({
       method: "POST",
@@ -959,7 +1033,9 @@ describe("invoice positions", () => {
     const body = edited.json();
 
     // 1.50 h × 200.00 = 300.00 · 3.00 h × 200.00 = 600.00 · flat 12.00
-    expect(body.lines.map((l: { amount: number }) => l.amount)).toEqual([300_00, 600_00, 12_00]);
+    expect(body.lines.map((l: { amount: number }) => l.amount)).toEqual([
+      300_00, 600_00, 12_00,
+    ]);
     expect(body.amount).toBe(912_00);
     expect(body.lines[2].quantity).toBeNull();
     expect(body.lines[2].unitRate).toBeNull();
@@ -976,10 +1052,14 @@ describe("invoice positions", () => {
         payload: { lines: descriptions.map((description) => ({ description, amount: 10_00 })) },
       });
 
-    expect((await put(["A", "B", "C"])).json().lines.map((l: { description: string }) => l.description))
-      .toEqual(["A", "B", "C"]);
-    expect((await put(["C", "A"])).json().lines.map((l: { description: string }) => l.description))
-      .toEqual(["C", "A"]);
+    expect(
+      (await put(["A", "B", "C"]))
+        .json()
+        .lines.map((l: { description: string }) => l.description),
+    ).toEqual(["A", "B", "C"]);
+    expect(
+      (await put(["C", "A"])).json().lines.map((l: { description: string }) => l.description),
+    ).toEqual(["C", "A"]);
   });
 
   it("clears the positions when given an empty list, and the amount decides again", async () => {
@@ -1171,7 +1251,11 @@ describe("a cancelled invoice releases the job it billed", () => {
       url: `/api/invoices/${invoice.id}`,
       headers: { cookie: adminCookie },
     });
-    expect(after.json()).toMatchObject({ status: "cancelled", taskId: task.id, taskTitle: "Audit" });
+    expect(after.json()).toMatchObject({
+      status: "cancelled",
+      taskId: task.id,
+      taskTitle: "Audit",
+    });
   });
 });
 
@@ -1219,9 +1303,15 @@ describe("carrying the total onto the job", () => {
     });
 
     // the invoice moved; neither job was handed the whole of it
-    expect((await prisma.invoice.findFirstOrThrow({ where: { id: invoice.id } })).amount).toBe(300_00);
-    expect((await prisma.task.findFirstOrThrow({ where: { id: first.id } })).amount).toBe(100_00);
-    expect((await prisma.task.findFirstOrThrow({ where: { id: second.id } })).amount).toBe(40_00);
+    expect((await prisma.invoice.findFirstOrThrow({ where: { id: invoice.id } })).amount).toBe(
+      300_00,
+    );
+    expect((await prisma.task.findFirstOrThrow({ where: { id: first.id } })).amount).toBe(
+      100_00,
+    );
+    expect((await prisma.task.findFirstOrThrow({ where: { id: second.id } })).amount).toBe(
+      40_00,
+    );
   });
 });
 

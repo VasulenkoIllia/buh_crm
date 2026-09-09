@@ -37,20 +37,44 @@ async function clean() {
     ).count,
   );
   console.log("subscriptions", (await prisma.subscription.deleteMany(where)).count);
-  console.log("clients     ", (await prisma.client.deleteMany({ where: { email: { endsWith: TAG } } })).count);
+  console.log(
+    "clients     ",
+    (await prisma.client.deleteMany({ where: { email: { endsWith: TAG } } })).count,
+  );
 }
 
 async function seed() {
   const priority = await prisma.priority.findFirst();
   const column = await prisma.taskColumn.findFirst({ where: { isFixed: true } });
-  const services = await prisma.service.findMany({ where: { type: "subscription", active: true } });
+  const services = await prisma.service.findMany({
+    where: { type: "subscription", active: true },
+  });
   const user = await prisma.user.findFirst();
   if (!priority || !column || !services.length || !user) {
-    throw new Error("base data missing — run the app once so bootstrap seeds priorities, columns and a user");
+    throw new Error(
+      "base data missing — run the app once so bootstrap seeds priorities, columns and a user",
+    );
   }
 
-  const F = ["Olena", "Mykhailo", "Iryna", "Andrii", "Nataliia", "Serhii", "Kateryna", "Dmytro"];
-  const L = ["Kovalenko", "Shevchenko", "Bondarenko", "Tkachenko", "Kravchuk", "Melnyk", "Boyko"];
+  const F = [
+    "Olena",
+    "Mykhailo",
+    "Iryna",
+    "Andrii",
+    "Nataliia",
+    "Serhii",
+    "Kateryna",
+    "Dmytro",
+  ];
+  const L = [
+    "Kovalenko",
+    "Shevchenko",
+    "Bondarenko",
+    "Tkachenko",
+    "Kravchuk",
+    "Melnyk",
+    "Boyko",
+  ];
   const t0 = Date.now();
 
   const have = await prisma.client.count({ where: { email: { endsWith: TAG } } });
@@ -96,7 +120,9 @@ async function seed() {
   const firstDay = new Date(Date.UTC(new Date().getUTCFullYear() - 1, 0, 1));
   for (let i = 0; i < noPeriod.length; i += BATCH) {
     await prisma.subscriptionPeriod.createMany({
-      data: noPeriod.slice(i, i + BATCH).map((s) => ({ subscriptionId: s.id, startsOn: firstDay })),
+      data: noPeriod
+        .slice(i, i + BATCH)
+        .map((s) => ({ subscriptionId: s.id, startsOn: firstDay })),
     });
   }
 

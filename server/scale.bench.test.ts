@@ -29,18 +29,26 @@ async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> {
 
 async function seed() {
   const service = await prisma.service.create({
-    data: { name: "Scale bookkeeping", color: "#2f4fd6", type: "subscription", defaultAmount: 10_000 },
+    data: {
+      name: "Scale bookkeeping",
+      color: "#2f4fd6",
+      type: "subscription",
+      defaultAmount: 10_000,
+    },
   });
   const priority = await prisma.priority.findFirstOrThrow({ where: { isDefault: true } });
   const column = await prisma.taskColumn.findFirstOrThrow({ where: { isFixed: true } });
 
   await prisma.client.createMany({
     data: Array.from({ length: CLIENTS }, (_, i) => ({
-            firstName: `Scale${i}`,
+      firstName: `Scale${i}`,
       lastName: `Client${i}`,
     })),
   });
-  const clients = await prisma.client.findMany({ where: { firstName: { startsWith: "Scale" } }, select: { id: true } });
+  const clients = await prisma.client.findMany({
+    where: { firstName: { startsWith: "Scale" } },
+    select: { id: true },
+  });
 
   const now = Date.now();
   await prisma.invoice.createMany({
@@ -118,14 +126,22 @@ describe.runIf(RUN)("scale", () => {
   it("billing, tasks and clients stay fast at firm scale", async () => {
     const get = (url: string) => app.inject({ method: "GET", url, headers: { cookie } });
 
-    const billing = await timed("GET /api/invoices (all + counts + totals)", () => get("/api/invoices"));
+    const billing = await timed("GET /api/invoices (all + counts + totals)", () =>
+      get("/api/invoices"),
+    );
     expect(billing.statusCode).toBe(200);
     expect(billing.json().total).toBe(CLIENTS * INVOICES_PER_CLIENT);
     expect(billing.json().items).toHaveLength(25);
 
-    const unpaid = await timed("GET /api/invoices?filter=unpaid", () => get("/api/invoices?filter=unpaid"));
-    const overdue = await timed("GET /api/invoices?filter=overdue", () => get("/api/invoices?filter=overdue"));
-    const paid = await timed("GET /api/invoices?filter=paid", () => get("/api/invoices?filter=paid"));
+    const unpaid = await timed("GET /api/invoices?filter=unpaid", () =>
+      get("/api/invoices?filter=unpaid"),
+    );
+    const overdue = await timed("GET /api/invoices?filter=overdue", () =>
+      get("/api/invoices?filter=overdue"),
+    );
+    const paid = await timed("GET /api/invoices?filter=paid", () =>
+      get("/api/invoices?filter=paid"),
+    );
     await timed("GET /api/invoices?search=…", () => get("/api/invoices?search=Scale7"));
     await timed("GET /api/invoices (page 200)", () => get("/api/invoices?page=200"));
 
@@ -135,10 +151,14 @@ describe.runIf(RUN)("scale", () => {
     expect(overdue.json().total).toBeGreaterThan(0);
     expect(billing.json().counts.all).toBe(CLIENTS * INVOICES_PER_CLIENT);
 
-    const clients = await timed("GET /api/clients (list + debt per row)", () => get("/api/clients?tab=all"));
+    const clients = await timed("GET /api/clients (list + debt per row)", () =>
+      get("/api/clients?tab=all"),
+    );
     expect(clients.json().items[0].debt).toBeGreaterThan(0);
 
-    const board = await timed("GET /api/tasks?view=board", () => get("/api/tasks?view=board&status=open"));
+    const board = await timed("GET /api/tasks?view=board", () =>
+      get("/api/tasks?view=board&status=open"),
+    );
     expect(board.json().items.length).toBeLessThanOrEqual(500);
     expect(board.json().truncated).toBe(true);
     // names come with the task — no clients page to resolve them against

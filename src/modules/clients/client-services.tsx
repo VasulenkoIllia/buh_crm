@@ -17,7 +17,12 @@ import { fmtBizDate, todayIso } from "@/shared/lib/format";
 import { fmtMoney } from "@/shared/lib/money";
 import { Button, IconButton } from "@/shared/ui/button";
 import { PERIOD_LABEL } from "./recurring";
-import { addStateFor, assignableServices, billingNote, existingFor } from "./subscription-add-rules";
+import {
+  addStateFor,
+  assignableServices,
+  billingNote,
+  existingFor,
+} from "./subscription-add-rules";
 import type { BillingTiming } from "./subscription-add-rules";
 import { Chip } from "@/shared/ui/chip";
 import { ChecklistEditor } from "@/shared/ui/checklist-editor";
@@ -162,7 +167,9 @@ function DueDaysField({
       />
       {/* the "empty means" half is a RULE and stays on the surface — it is what the empty field
           you are looking at actually does */}
-      <span className="whitespace-nowrap text-muted">days — empty = the service&apos;s own setting</span>
+      <span className="whitespace-nowrap text-muted">
+        days — empty = the service&apos;s own setting
+      </span>
     </div>
   );
 }
@@ -245,7 +252,10 @@ export function SubscriptionList({ client }: { client: Client }) {
                 </Chip>
               )}
               {sub.state === "in_force" && sub.inForceUntil && (
-                <Chip tone="amber" title="An end date was set — it stops being served after this">
+                <Chip
+                  tone="amber"
+                  title="An end date was set — it stops being served after this"
+                >
                   until {fmtBizDate(sub.inForceUntil)}
                 </Chip>
               )}
@@ -374,10 +384,16 @@ function ServingModal({
         await resume.mutateAsync({
           ...payload,
           // same reason as the start date above: an untouched "today" is the server's to resolve
-          input: { startsOn: date === todayIso() ? undefined : date, note: note.trim() || undefined },
+          input: {
+            startsOn: date === todayIso() ? undefined : date,
+            note: note.trim() || undefined,
+          },
         });
       } else {
-        await pause.mutateAsync({ ...payload, input: { lastDay: date, note: note.trim() || undefined } });
+        await pause.mutateAsync({
+          ...payload,
+          input: { lastDay: date, note: note.trim() || undefined },
+        });
       }
       onClose();
     } catch {
@@ -418,7 +434,13 @@ function ServingModal({
             </Button>
           )}
           <Button onClick={() => void save()} disabled={!date || mutation.isPending}>
-            {mutation.isPending ? "Saving…" : resuming ? "Resume" : scheduled ? "Save" : "Pause"}
+            {mutation.isPending
+              ? "Saving…"
+              : resuming
+                ? "Resume"
+                : scheduled
+                  ? "Save"
+                  : "Pause"}
           </Button>
         </>
       }
@@ -442,7 +464,9 @@ function ServingModal({
         <FormField label="Note (optional)" htmlFor="serving-note">
           <Input
             id="serving-note"
-            placeholder={resuming ? "e.g. back after the summer" : "e.g. paused at the client's request"}
+            placeholder={
+              resuming ? "e.g. back after the summer" : "e.g. paused at the client's request"
+            }
             value={note}
             onChange={(e) => setNote(e.target.value)}
           />
@@ -477,7 +501,11 @@ function SubscriptionTasks({
 
   const patch = (next: Record<string, TaskOverride>) =>
     update
-      .mutateAsync({ clientId: client.id, subscriptionId: sub.id, input: { rhythmOverrides: next } })
+      .mutateAsync({
+        clientId: client.id,
+        subscriptionId: sub.id,
+        input: { rhythmOverrides: next },
+      })
       .catch(() => {});
 
   const setOverride = (templateId: string, value: TaskOverride | null) => {
@@ -580,9 +608,15 @@ function TaskOverrideModal({
   });
   // checklist: inherit (follow template) | custom (own list) | none (removed for this client)
   const initialMode: "inherit" | "custom" | "none" =
-    override?.checklist === undefined ? "inherit" : override.checklist === null ? "none" : "custom";
+    override?.checklist === undefined
+      ? "inherit"
+      : override.checklist === null
+        ? "none"
+        : "custom";
   const [clMode, setClMode] = useState(initialMode);
-  const [clSteps, setClSteps] = useState<string[]>(override?.checklist ?? template.defaultChecklist);
+  const [clSteps, setClSteps] = useState<string[]>(
+    override?.checklist ?? template.defaultChecklist,
+  );
 
   /** Store ONLY what differs from the template — untouched fields keep tracking catalog edits. */
   const buildOverride = (): TaskOverride | null => {
@@ -641,7 +675,11 @@ function TaskOverrideModal({
     >
       <div className="space-y-3.5">
         <label className="flex cursor-pointer items-center gap-2 text-[13px]">
-          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => setEnabled(e.target.checked)}
+          />
           Include this task for this client
         </label>
         <TaskRhythmFields
@@ -660,7 +698,8 @@ function TaskOverrideModal({
                 type="button"
                 onClick={() => {
                   // switching to custom starts from whatever it currently inherits/had
-                  if (m === "custom" && clSteps.length === 0) setClSteps([...template.defaultChecklist]);
+                  if (m === "custom" && clSteps.length === 0)
+                    setClSteps([...template.defaultChecklist]);
                   setClMode(m);
                 }}
                 className={pillCls(clMode === m)}
@@ -677,7 +716,9 @@ function TaskOverrideModal({
             </p>
           )}
           {clMode === "none" && (
-            <p className="mt-1.5 text-[12px] text-muted">No checklist for this client's tasks.</p>
+            <p className="mt-1.5 text-[12px] text-muted">
+              No checklist for this client's tasks.
+            </p>
           )}
           {clMode === "custom" && (
             <div className="mt-1.5">
@@ -757,7 +798,9 @@ function EditSubscriptionModal({
     >
       <div className="space-y-3">
         <div>
-          <Label>{isOneTime ? "Default job price for this client" : "Price for this client"}</Label>
+          <Label>
+            {isOneTime ? "Default job price for this client" : "Price for this client"}
+          </Label>
           <div className="flex items-center gap-2">
             <span className="text-[13px] text-muted">$</span>
             <Input
@@ -839,7 +882,10 @@ export function AddServiceModal({
   const [serviceId, setServiceId] = useState("");
   const [amount, setAmount] = useState<number | null>(null);
   const [period, setPeriod] = useState<BillingPeriod>("month");
-  const [timing, setTiming] = useState<BillingTiming>({ trigger: "on_period_start", day: null });
+  const [timing, setTiming] = useState<BillingTiming>({
+    trigger: "on_period_start",
+    day: null,
+  });
   const [startsOn, setStartsOn] = useState(todayIso());
   const [dueDays, setDueDays] = useState<number | null>(null);
   const [companyId, setCompanyId] = useState("");
@@ -965,7 +1011,9 @@ export function AddServiceModal({
             Cancel
           </Button>
           <Button
-            disabled={!serviceId || amount == null || add.isPending || blocked?.kind !== "addable"}
+            disabled={
+              !serviceId || amount == null || add.isPending || blocked?.kind !== "addable"
+            }
             onClick={() => void save()}
           >
             {add.isPending ? "Adding…" : "Add to client"}
@@ -982,10 +1030,10 @@ export function AddServiceModal({
               <>
                 Service starts on{" "}
                 <InfoHint label="How a service is dated">
-                  Today or a future date — a service is never agreed backwards; work already done
-                  is billed with a one-off invoice. No end date either: it runs until someone
-                  pauses it. A period served only in part isn&apos;t invoiced automatically —
-                  you&apos;ll get a reminder task to issue that one by hand.
+                  Today or a future date — a service is never agreed backwards; work already
+                  done is billed with a one-off invoice. No end date either: it runs until
+                  someone pauses it. A period served only in part isn&apos;t invoiced
+                  automatically — you&apos;ll get a reminder task to issue that one by hand.
                 </InfoHint>
               </>
             }
@@ -1117,7 +1165,9 @@ export function AddServiceModal({
               <DueDaysField value={dueDays} onChange={setDueDays} />
             </div>
             {billingNote(selected, timing) && (
-              <p className="mt-2.5 text-[12px] text-muted">💰 {billingNote(selected, timing)}</p>
+              <p className="mt-2.5 text-[12px] text-muted">
+                💰 {billingNote(selected, timing)}
+              </p>
             )}
           </div>
         )}

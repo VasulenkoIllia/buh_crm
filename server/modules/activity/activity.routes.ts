@@ -33,7 +33,10 @@ export async function registerRoutes(instance: FastifyInstance) {
     "/policies/:action",
     {
       config: activityAdmin,
-      schema: { params: z.object({ action: z.string().max(80) }), body: setActivityPolicyInput },
+      schema: {
+        params: z.object({ action: z.string().max(80) }),
+        body: setActivityPolicyInput,
+      },
     },
     async (request) => service.setPolicy(request.params.action, request.body.enabled),
   );

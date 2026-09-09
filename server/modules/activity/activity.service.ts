@@ -48,7 +48,10 @@ async function visibleSubjects(
   return { subjects, clientsVisible: access.clients !== "closed" };
 }
 
-export async function list(user: Pick<User, "id" | "role">, query: ActivityQuery): Promise<ActivityPage> {
+export async function list(
+  user: Pick<User, "id" | "role">,
+  query: ActivityQuery,
+): Promise<ActivityPage> {
   const { subjects: visible, clientsVisible } = await visibleSubjects(user);
   // a reader who cannot open the client list cannot ask this screen for one client's history either
   const scoped: ActivityQuery = clientsVisible ? query : { ...query, clientId: undefined };

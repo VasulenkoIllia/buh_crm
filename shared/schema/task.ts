@@ -224,7 +224,9 @@ export type MoveTaskInput = z.infer<typeof moveTaskInput>;
 /** Full replace of the checklist (order = array index). */
 export const setSubtasksInput = z.object({
   subtasks: z
-    .array(z.object({ text: z.string().trim().min(1).max(300), done: z.boolean().default(false) }))
+    .array(
+      z.object({ text: z.string().trim().min(1).max(300), done: z.boolean().default(false) }),
+    )
     .max(50),
 });
 export type SetSubtasksInput = z.infer<typeof setSubtasksInput>;
@@ -348,7 +350,11 @@ export type StopTimerInput = z.infer<typeof stopTimerInput>;
 
 export const addTimeEntryInput = z.object({
   userId: uuid,
-  minutes: z.number().int().min(1).max(24 * 60),
+  minutes: z
+    .number()
+    .int()
+    .min(1)
+    .max(24 * 60),
   comment: z.string().trim().min(1).max(500),
   /** anchor date (defaults to now) */
   date: z.iso.date().optional(),
@@ -357,7 +363,12 @@ export type AddTimeEntryInput = z.infer<typeof addTimeEntryInput>;
 
 export const updateTimeEntryInput = z
   .object({
-    minutes: z.number().int().min(1).max(24 * 60).optional(),
+    minutes: z
+      .number()
+      .int()
+      .min(1)
+      .max(24 * 60)
+      .optional(),
     comment: z.string().trim().min(1).max(500).optional(),
   })
   .refine((v) => v.minutes !== undefined || v.comment !== undefined, {

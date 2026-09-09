@@ -243,7 +243,9 @@ export async function findStalledSends(since: Date) {
   });
   if (rows.length === 0) return [];
 
-  const stalled = rows.filter((r) => !r._max.sentAt || r._max.sentAt < since).map((r) => r.mailoutId);
+  const stalled = rows
+    .filter((r) => !r._max.sentAt || r._max.sentAt < since)
+    .map((r) => r.mailoutId);
   if (stalled.length === 0) return [];
 
   return prisma.mailoutRecipient.findMany({

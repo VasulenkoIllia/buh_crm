@@ -42,7 +42,11 @@ function cookieOf(res: { headers: Record<string, unknown> }): string {
 }
 
 async function login(email: string, password: string) {
-  const res = await app.inject({ method: "POST", url: "/api/auth/login", payload: { email, password } });
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    payload: { email, password },
+  });
   expect(res.statusCode).toBe(200);
   return cookieOf(res);
 }
@@ -69,8 +73,22 @@ beforeAll(async () => {
   const pass = await argon2.hash("password-123");
   await prisma.user.createMany({
     data: [
-      { firstName: "Cat", lastName: "Admin", email: "cat-admin@test.local", passwordHash: pass, role: "admin", status: "active" },
-      { firstName: "Cat", lastName: "User", email: "cat-user@test.local", passwordHash: pass, role: "user", status: "active" },
+      {
+        firstName: "Cat",
+        lastName: "Admin",
+        email: "cat-admin@test.local",
+        passwordHash: pass,
+        role: "admin",
+        status: "active",
+      },
+      {
+        firstName: "Cat",
+        lastName: "User",
+        email: "cat-user@test.local",
+        passwordHash: pass,
+        role: "user",
+        status: "active",
+      },
     ],
   });
   adminCookie = await login("cat-admin@test.local", "password-123");
@@ -108,7 +126,13 @@ describe("catalog", () => {
       method: "POST",
       url: "/api/catalog",
       headers: { cookie: adminCookie },
-      payload: { name: "Bookkeeping", type: "subscription", defaultAmount: 20000, invoiceTrigger: "on_period_start", invoiceDay: 5 },
+      payload: {
+        name: "Bookkeeping",
+        type: "subscription",
+        defaultAmount: 20000,
+        invoiceTrigger: "on_period_start",
+        invoiceDay: 5,
+      },
     });
     expect(res.statusCode).toBe(201);
     const body = res.json();
@@ -127,7 +151,11 @@ describe("catalog", () => {
   });
 
   it("everyone can read the catalog", async () => {
-    const res = await app.inject({ method: "GET", url: "/api/catalog", headers: { cookie: userCookie } });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/catalog",
+      headers: { cookie: userCookie },
+    });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toHaveLength(1);
   });
@@ -152,11 +180,21 @@ describe("catalog", () => {
       method: "POST",
       url: `/api/catalog/${serviceId}/tasks`,
       headers: { cookie: adminCookie },
-      payload: { name: "Bank reconciliation", periodicity: "monthly", dayOfPeriod: 25, deadlineOffsetDays: 2, estimatedMinutes: 90 },
+      payload: {
+        name: "Bank reconciliation",
+        periodicity: "monthly",
+        dayOfPeriod: 25,
+        deadlineOffsetDays: 2,
+        estimatedMinutes: 90,
+      },
     });
     expect(ok.statusCode).toBe(201);
     const tpl = ok.json().taskTemplates[0];
-    expect(tpl).toMatchObject({ name: "Bank reconciliation", dayOfPeriod: 25, estimatedMinutes: 90 });
+    expect(tpl).toMatchObject({
+      name: "Bank reconciliation",
+      dayOfPeriod: 25,
+      estimatedMinutes: 90,
+    });
   });
 
   it("supports last-day (-1) and quarterly month-of-period rhythms", async () => {
@@ -172,7 +210,12 @@ describe("catalog", () => {
       method: "POST",
       url: `/api/catalog/${serviceId}/tasks`,
       headers: { cookie: adminCookie },
-      payload: { name: "Quarterly report", periodicity: "quarterly", monthOfPeriod: 2, dayOfPeriod: -1 },
+      payload: {
+        name: "Quarterly report",
+        periodicity: "quarterly",
+        monthOfPeriod: 2,
+        dayOfPeriod: -1,
+      },
     });
     expect(quarterly.statusCode).toBe(201);
     const tpl = quarterly
@@ -245,9 +288,18 @@ describe("catalog", () => {
     });
     expect(sub.statusCode).toBe(201);
     expect(sub.json().isRegular).toBe(true);
-    expect(sub.json().subscriptions[0]).toMatchObject({ serviceId, amount: 25000, period: "month", active: true });
+    expect(sub.json().subscriptions[0]).toMatchObject({
+      serviceId,
+      amount: 25000,
+      period: "month",
+      active: true,
+    });
 
-    const catalog = await app.inject({ method: "GET", url: "/api/catalog", headers: { cookie: adminCookie } });
+    const catalog = await app.inject({
+      method: "GET",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+    });
     expect(catalog.json()[0].clientsCount).toBe(1);
 
     const subId = sub.json().subscriptions[0].id;
@@ -329,11 +381,21 @@ describe("catalog", () => {
       method: "POST",
       url: `/api/clients/${clientId}/subscriptions`,
       headers: { cookie: adminCookie },
-      payload: { serviceId, amount: 10000, period: "quarter", invoiceTrigger: "on_period_end", ...startedEarlier() },
+      payload: {
+        serviceId,
+        amount: 10000,
+        period: "quarter",
+        invoiceTrigger: "on_period_end",
+        ...startedEarlier(),
+      },
     });
     expect(sub.statusCode).toBe(201);
     const row = sub.json().subscriptions[0];
-    expect(row).toMatchObject({ period: "quarter", invoiceTrigger: "on_period_end", invoiceDay: null });
+    expect(row).toMatchObject({
+      period: "quarter",
+      invoiceTrigger: "on_period_end",
+      invoiceDay: null,
+    });
 
     // switch to a custom day per client
     const patched = await app.inject({
@@ -417,7 +479,11 @@ describe("catalog", () => {
       headers: { cookie: adminCookie },
     });
     expect(gone.statusCode).toBe(200);
-    const list = await app.inject({ method: "GET", url: "/api/catalog", headers: { cookie: adminCookie } });
+    const list = await app.inject({
+      method: "GET",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+    });
     expect(list.json().some((s: { name: string }) => s.name === "Throwaway")).toBe(false);
   });
 
@@ -475,7 +541,13 @@ describe("catalog", () => {
       method: "POST",
       url: `/api/clients/${clientId}/subscriptions`,
       headers: { cookie: adminCookie },
-      payload: { serviceId, amount: 1000, invoiceTrigger: "on_period_start", invoiceDay: 5, ...startedEarlier() },
+      payload: {
+        serviceId,
+        amount: 1000,
+        invoiceTrigger: "on_period_start",
+        invoiceDay: 5,
+        ...startedEarlier(),
+      },
     });
     const subId = sub.json().subscriptions[0].id;
 
@@ -688,7 +760,12 @@ describe("catalog", () => {
       method: "POST",
       url: `/api/catalog/${oneTimeId}/tasks`,
       headers: { cookie: adminCookie },
-      payload: { name: "Prepare documents", periodicity: "once", deadlineOffsetDays: 5, estimatedMinutes: 60 },
+      payload: {
+        name: "Prepare documents",
+        periodicity: "once",
+        deadlineOffsetDays: 5,
+        estimatedMinutes: 60,
+      },
     });
     expect(preset.statusCode).toBe(201);
     const tplId = preset.json().taskTemplates[0].id;
@@ -778,7 +855,12 @@ describe("catalog", () => {
       method: "POST",
       url: "/api/catalog",
       headers: { cookie: adminCookie },
-      payload: { name: "Default OnCreate", type: "one_time", defaultAmount: 3000, autoAddToNewClients: true },
+      payload: {
+        name: "Default OnCreate",
+        type: "one_time",
+        defaultAmount: 3000,
+        autoAddToNewClients: true,
+      },
     });
     expect(createdFlagged.statusCode).toBe(201);
     expect(createdFlagged.json().autoAddToNewClients).toBe(true);
@@ -825,7 +907,9 @@ describe("catalog", () => {
       payload: { serviceId: svcC, amount: 1000, ...startedEarlier() },
     });
     expect(second.statusCode).toBe(201);
-    const defaults = second.json().subscriptions.filter((s: { isDefault: boolean }) => s.isDefault);
+    const defaults = second
+      .json()
+      .subscriptions.filter((s: { isDefault: boolean }) => s.isDefault);
     expect(defaults).toHaveLength(1);
     expect(defaults[0].serviceId).toBe(svcA);
 
@@ -837,8 +921,14 @@ describe("catalog", () => {
       payload: { autoAddToNewClients: true },
     });
     expect(flagB.statusCode).toBe(200);
-    const listAfter = await app.inject({ method: "GET", url: "/api/catalog", headers: { cookie: adminCookie } });
-    const flagged = listAfter.json().filter((s: { autoAddToNewClients: boolean }) => s.autoAddToNewClients);
+    const listAfter = await app.inject({
+      method: "GET",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+    });
+    const flagged = listAfter
+      .json()
+      .filter((s: { autoAddToNewClients: boolean }) => s.autoAddToNewClients);
     expect(flagged).toHaveLength(1);
     expect(flagged[0].id).toBe(svcB);
 
@@ -861,7 +951,9 @@ describe("catalog", () => {
       url: `/api/clients/${convert.json().clientId}`,
       headers: { cookie: adminCookie },
     });
-    expect(converted.json().subscriptions.some((s: { serviceId: string }) => s.serviceId === svcB)).toBe(true);
+    expect(
+      converted.json().subscriptions.some((s: { serviceId: string }) => s.serviceId === svcB),
+    ).toBe(true);
 
     // the ★ only means something while the service is active (same rule as a client's default):
     // deactivating the holder is REFUSED — clear the flag first
@@ -877,9 +969,10 @@ describe("catalog", () => {
       url: "/api/catalog",
       headers: { cookie: adminCookie },
     });
-    expect(
-      stillDefault.json().find((s: { id: string }) => s.id === svcB),
-    ).toMatchObject({ active: true, autoAddToNewClients: true });
+    expect(stillDefault.json().find((s: { id: string }) => s.id === svcB)).toMatchObject({
+      active: true,
+      autoAddToNewClients: true,
+    });
 
     // and the flag can't be handed to an INACTIVE service
     await app.inject({
@@ -945,7 +1038,11 @@ describe("catalog", () => {
     };
 
     const order = async () => {
-      const res = await app.inject({ method: "GET", url: "/api/catalog", headers: { cookie: adminCookie } });
+      const res = await app.inject({
+        method: "GET",
+        url: "/api/catalog",
+        headers: { cookie: adminCookie },
+      });
       return (res.json() as { id: string; name: string }[])
         .filter((s) => s.name.startsWith("Ord "))
         .map((s) => s.name.replace("Ord ", ""));
@@ -961,7 +1058,11 @@ describe("catalog", () => {
 
     beforeAll(async () => {
       ids = {};
-      for (const [n, t] of [["A", "subscription"], ["B", "one_time"], ["C", "subscription"]] as const) {
+      for (const [n, t] of [
+        ["A", "subscription"],
+        ["B", "one_time"],
+        ["C", "subscription"],
+      ] as const) {
         ids[n] = await make(`Ord ${n}`, t);
       }
       ids.INT = await make("Ord INT", "internal");
@@ -985,11 +1086,17 @@ describe("catalog", () => {
     it("a move made on ONE tab leaves the other tab's services where they were", async () => {
       // The Services page splits External from Internal, so a drag only ever sees half the
       // catalog. Renumbering what the dragger can see would shuffle the hidden half.
-      const before = await prisma.service.findUnique({ where: { id: ids.INT }, select: { order: true } });
+      const before = await prisma.service.findUnique({
+        where: { id: ids.INT },
+        select: { order: true },
+      });
       expect((await move(ids.C, null)).statusCode).toBe(200);
       expect(await order()).toEqual(["C", "A", "B", "INT"]);
       // the internal one is still last, and still after every external service
-      const after = await prisma.service.findUnique({ where: { id: ids.INT }, select: { order: true } });
+      const after = await prisma.service.findUnique({
+        where: { id: ids.INT },
+        select: { order: true },
+      });
       expect(after!.order).toBeGreaterThanOrEqual(before!.order - 1);
       const externals = await prisma.service.findMany({
         where: { name: { startsWith: "Ord " }, type: { not: "internal" } },
@@ -1001,7 +1108,11 @@ describe("catalog", () => {
     it("the order reaches every reader, because one query feeds them all", async () => {
       // nothing here filters or re-sorts: the clients screen, every picker and every chip take the
       // catalog exactly as this endpoint hands it over
-      const res = await app.inject({ method: "GET", url: "/api/catalog", headers: { cookie: adminCookie } });
+      const res = await app.inject({
+        method: "GET",
+        url: "/api/catalog",
+        headers: { cookie: adminCookie },
+      });
       const list = res.json() as { name: string; order: number }[];
       const orders = list.map((s) => s.order);
       expect(orders).toEqual([...orders].sort((a, b) => a - b));

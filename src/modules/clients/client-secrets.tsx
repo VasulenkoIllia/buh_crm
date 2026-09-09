@@ -110,9 +110,7 @@ export function SecretsTab({ clientId }: { clientId: string }) {
           onClose={() => setEditing(null)}
         />
       )}
-      {unlockFor && (
-        <UnlockModal clientId={clientId} onClose={() => setUnlockFor(null)} />
-      )}
+      {unlockFor && <UnlockModal clientId={clientId} onClose={() => setUnlockFor(null)} />}
       {auditOpen && <AuditModal clientId={clientId} onClose={() => setAuditOpen(false)} />}
     </div>
   );
@@ -192,7 +190,11 @@ function SecretRow({
       <div className="flex items-center gap-2">
         <span className="font-medium">{secret.label}</span>
         {!secret.hasValue && (
-          <Chip tone="gray" size="sm" title="Nothing is stored here — the description says where it lives">
+          <Chip
+            tone="gray"
+            size="sm"
+            title="Nothing is stored here — the description says where it lives"
+          >
             reference only
           </Chip>
         )}
@@ -207,7 +209,9 @@ function SecretRow({
             </IconButton>
           )}
           <IconButton
-            label={secret.hasValue && !unlocked ? "Edit secret — needs your password" : "Edit secret"}
+            label={
+              secret.hasValue && !unlocked ? "Edit secret — needs your password" : "Edit secret"
+            }
             onClick={onEdit}
           >
             <Pencil size={15} />
@@ -222,7 +226,9 @@ function SecretRow({
         </span>
       </div>
       {secret.description && (
-        <p className="mt-0.5 whitespace-pre-wrap text-[12px] text-muted">{secret.description}</p>
+        <p className="mt-0.5 whitespace-pre-wrap text-[12px] text-muted">
+          {secret.description}
+        </p>
       )}
       {error && <p className="mt-1 text-[12px] text-danger-text">{error}</p>}
       {value !== null && (
@@ -287,8 +293,8 @@ function UnlockModal({ clientId, onClose }: { clientId: string; onClose: () => v
     >
       <div className="space-y-3">
         <p className="text-[13px] text-muted">
-          Enter <strong>your own</strong> password. The window lasts five minutes and covers this
-          client only — every look is written to the access log.
+          Enter <strong>your own</strong> password. The window lasts five minutes and covers
+          this client only — every look is written to the access log.
         </p>
         <FormField label="Your password" htmlFor="secret-pass">
           <Input
@@ -421,7 +427,9 @@ function SecretForm({
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
-          <p className="mt-1 text-[12px] text-muted">Everyone who can open this client reads this.</p>
+          <p className="mt-1 text-[12px] text-muted">
+            Everyone who can open this client reads this.
+          </p>
         </FormField>
 
         <FormField label="Value" htmlFor="secret-value">

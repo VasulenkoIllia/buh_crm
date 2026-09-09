@@ -28,8 +28,7 @@ const VIEWS: { key: InvoiceListQuery["filter"]; label: string }[] = [
  * `minmax(0,1fr)` for the same reason Billing uses it: header and rows are separate grids in one
  * scrolling box, and a content-sized floor drifts them apart (see billing.page.tsx).
  */
-const GRID =
-  "grid-cols-[104px_minmax(0,1fr)_84px_100px_76px_76px_88px_88px]";
+const GRID = "grid-cols-[104px_minmax(0,1fr)_84px_100px_76px_76px_88px_88px]";
 
 /**
  * A client's invoices, for the card's Invoices tab. Same modal as the Billing screen;
@@ -142,7 +141,11 @@ export function EntityInvoices({ client }: { client: Client }) {
               <div className="text-right">Paid</div>
             </div>
             {items.map((invoice) => (
-              <InvoiceRow key={invoice.id} invoice={invoice} onOpen={() => setOpenId(invoice.id)} />
+              <InvoiceRow
+                key={invoice.id}
+                invoice={invoice}
+                onOpen={() => setOpenId(invoice.id)}
+              />
             ))}
           </div>
         ))}

@@ -8,9 +8,4 @@ export { useSettings } from "./settings.api";
  * Safe to publish statically, unlike a screen: `./tabs` is data with a single TYPE import and
  * reaches nothing (`src/app/code-splitting.test.ts` is the rule this is checked against).
  */
-export {
-  SETTINGS_GATES,
-  SETTINGS_TABS,
-  type SettingsTab,
-  type SettingsTabSpec,
-} from "./tabs";
+export { SETTINGS_GATES, SETTINGS_TABS, type SettingsTab, type SettingsTabSpec } from "./tabs";

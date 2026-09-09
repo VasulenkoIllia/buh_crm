@@ -19,8 +19,7 @@ export default tseslint.config(
           patterns: [
             {
               regex: "modules/[^/]+/(?!index(\\.js)?$)[^/]+$",
-              message:
-                "Import other modules only via their index.ts (module public surface).",
+              message: "Import other modules only via their index.ts (module public surface).",
             },
           ],
         },
@@ -46,8 +45,7 @@ export default tseslint.config(
           patterns: [
             {
               regex: "modules/[^/]+/(?!index(\\.js)?$)[^/]+$",
-              message:
-                "Import other modules only via their index.ts (module public surface).",
+              message: "Import other modules only via their index.ts (module public surface).",
             },
             {
               regex: "^\\.\\./[^./][^/]*/(?!index(\\.js)?$)[^/]+$",
@@ -97,8 +95,7 @@ export default tseslint.config(
             },
             {
               regex: "modules/[^/]+/(?!index(\\.js)?$)[^/]+$",
-              message:
-                "Import other modules only via their index.ts (module public surface).",
+              message: "Import other modules only via their index.ts (module public surface).",
             },
             {
               regex: "^\\.\\./[^./][^/]*/(?!index(\\.js)?$)[^/]+$",

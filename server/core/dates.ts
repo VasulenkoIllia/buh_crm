@@ -106,8 +106,10 @@ function zoneOffsetMs(at: Date, tz: string): number {
     second: "2-digit",
   }).formatToParts(at);
   const n = (type: string) => Number(parts.find((p) => p.type === type)!.value);
-  return Date.UTC(n("year"), n("month") - 1, n("day"), n("hour"), n("minute"), n("second")) -
-    Math.floor(at.getTime() / 1000) * 1000;
+  return (
+    Date.UTC(n("year"), n("month") - 1, n("day"), n("hour"), n("minute"), n("second")) -
+    Math.floor(at.getTime() / 1000) * 1000
+  );
 }
 
 /**

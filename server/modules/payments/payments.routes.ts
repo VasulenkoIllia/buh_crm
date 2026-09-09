@@ -91,7 +91,8 @@ export async function registerRoutes(instance: FastifyInstance) {
   app.patch(
     "/:id",
     { config: correction, schema: { params: idParams, body: updateInvoiceInput } },
-    async (request) => service.updateInvoice(request.params.id, request.body, request.currentUser!),
+    async (request) =>
+      service.updateInvoice(request.params.id, request.body, request.currentUser!),
   );
 
   app.post(
@@ -107,7 +108,8 @@ export async function registerRoutes(instance: FastifyInstance) {
   app.post(
     "/:id/delivery",
     { config: billing, schema: { params: idParams, body: setDeliveryInput } },
-    async (request) => service.setDelivery(request.params.id, request.body, request.currentUser!),
+    async (request) =>
+      service.setDelivery(request.params.id, request.body, request.currentUser!),
   );
 
   app.post(
@@ -117,9 +119,7 @@ export async function registerRoutes(instance: FastifyInstance) {
   );
 
   // who changed which payment, before → after
-  app.get(
-    "/:id/audit",
-    { config: correction, schema: { params: idParams } },
-    async (request) => service.listAudit(request.params.id),
+  app.get("/:id/audit", { config: correction, schema: { params: idParams } }, async (request) =>
+    service.listAudit(request.params.id),
   );
 }

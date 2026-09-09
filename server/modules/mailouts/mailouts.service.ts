@@ -152,13 +152,13 @@ export async function createTemplate(input: CreateTemplateInput) {
   if (clash) throw new ConflictError(`A template named “${input.name}” already exists`);
   const created = await repo.createTemplate({
     name: input.name,
-      subject: input.subject,
-      heading: input.heading ?? null,
-      body: input.body,
-      kind: input.kind,
-      senderAccount: input.senderAccountId
-        ? { connect: { id: input.senderAccountId } }
-        : undefined,
+    subject: input.subject,
+    heading: input.heading ?? null,
+    body: input.body,
+    kind: input.kind,
+    senderAccount: input.senderAccountId
+      ? { connect: { id: input.senderAccountId } }
+      : undefined,
   });
   record("mailout.template_created", { subjectId: created.id, subjectLabel: created.name });
   return toTemplate(created);
@@ -697,7 +697,8 @@ export async function createSenderAccount(input: SenderAccountInput): Promise<Ma
     subjectLabel: created.name,
     changes: { fromEmail: created.fromEmail },
   });
-  if (first) record("mailbox.default_changed", { subjectId: created.id, subjectLabel: created.name });
+  if (first)
+    record("mailbox.default_changed", { subjectId: created.id, subjectLabel: created.name });
   return listSenderAccounts();
 }
 

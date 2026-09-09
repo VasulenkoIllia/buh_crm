@@ -131,7 +131,9 @@ export function ClientsPage() {
         <div className="w-56">
           <SearchSelect
             value={serviceId}
-            options={(services ?? []).filter((s) => s.active).map((s) => ({ value: s.id, label: s.name }))}
+            options={(services ?? [])
+              .filter((s) => s.active)
+              .map((s) => ({ value: s.id, label: s.name }))}
             placeholder="Any service"
             emptyLabel="Any service"
             ariaLabel="Filter by service"
@@ -356,8 +358,6 @@ function Initials({ name }: { name: string }) {
   );
 }
 
-
-
 function ClientRow({
   client,
   tab,
@@ -375,8 +375,7 @@ function ClientRow({
   lastPinned?: boolean;
 }) {
   // the companies they actually hold; the plain `companyName` label stands in when there are none
-  const companies =
-    client.companies.map((c) => c.name).join(", ") || client.companyName || "—";
+  const companies = client.companies.map((c) => c.name).join(", ") || client.companyName || "—";
   const debt =
     client.debt > 0 ? (
       <span className="text-danger-text">{fmtMoney(client.debt)}</span>

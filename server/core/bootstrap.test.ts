@@ -15,7 +15,12 @@ beforeEach(async () => {
 });
 
 describe("ensureBootstrapAdmin", () => {
-  const creds = { email: "boss@firm.test", password: "supersecret", firstName: "Boss", lastName: "One" };
+  const creds = {
+    email: "boss@firm.test",
+    password: "supersecret",
+    firstName: "Boss",
+    lastName: "One",
+  };
 
   it("creates the first admin when the users table is empty", async () => {
     const res = await ensureBootstrapAdmin(log, creds);
@@ -87,7 +92,12 @@ describe("ensureBaseData — the default mailbox", () => {
   /** It is the firm's row from then on. A bootstrap that rewrote it would undo edits every deploy. */
   it("never touches a mailbox that already exists", async () => {
     await prisma.mailSenderAccount.create({
-      data: { name: "Theirs", fromName: "Renamed", fromEmail: "them@example.com", isDefault: true },
+      data: {
+        name: "Theirs",
+        fromName: "Renamed",
+        fromEmail: "them@example.com",
+        isDefault: true,
+      },
     });
 
     await ensureBaseData();

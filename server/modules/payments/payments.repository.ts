@@ -30,7 +30,9 @@ const LIST_ORDER = [{ issuedAt: "desc" as const }, { number: "desc" as const }];
  * chips instead of reading invoices to decide. (Field references are a Prisma construct, so
  * they live here rather than in the service.)
  */
-export const OWED: Prisma.InvoiceWhereInput = { paidTotal: { lt: prisma.invoice.fields.amount } };
+export const OWED: Prisma.InvoiceWhereInput = {
+  paidTotal: { lt: prisma.invoice.fields.amount },
+};
 export const SETTLED: Prisma.InvoiceWhereInput = {
   paidTotal: { gte: prisma.invoice.fields.amount },
 };
@@ -40,12 +42,21 @@ export const SETTLED: Prisma.InvoiceWhereInput = {
  * `paidTotal` is stored, so the database does the paging; nothing is scanned in memory.
  */
 export function listInvoicePage(where: Prisma.InvoiceWhereInput, skip: number, take: number) {
-  return prisma.invoice.findMany({ where, include: invoiceInclude, orderBy: LIST_ORDER, skip, take });
+  return prisma.invoice.findMany({
+    where,
+    include: invoiceInclude,
+    orderBy: LIST_ORDER,
+    skip,
+    take,
+  });
 }
 
 /** Receivable / overdue across the WHOLE filtered set (not just the page). */
 export async function sumInvoices(where: Prisma.InvoiceWhereInput) {
-  const agg = await prisma.invoice.aggregate({ where, _sum: { amount: true, paidTotal: true } });
+  const agg = await prisma.invoice.aggregate({
+    where,
+    _sum: { amount: true, paidTotal: true },
+  });
   return (agg._sum.amount ?? 0) - (agg._sum.paidTotal ?? 0);
 }
 
@@ -169,29 +180,31 @@ export function listPeriodKeys(subscriptionIds: string[]) {
 // container started, forever (found in the 2026-07-29 audit).
 const billableSubscription = () =>
   ({
-  where: {
-    ...inForceTodayWhere(config.TZ),
-    service: { type: "subscription" as const },
-    client: { archivedAt: null },
-  },
-  select: {
-    id: true,
-    clientId: true,
-    companyId: true,
-    serviceId: true,
-    amount: true,
-    period: true,
-    invoiceTrigger: true,
-    invoiceDay: true,
-    dueDays: true,
-    createdAt: true,
-    // the served periods ARE the billing window now — a period is invoiced only when the
-    // subscription was in force continuously from its first day through the trigger day
-    periods: { select: { startsOn: true, endsBefore: true }, orderBy: { startsOn: "asc" } },
-    // `name` rides along for the activity log: a sweep that fails on one subscription records
-    // WHICH one, and "8f3a… could not be billed" is not a sentence anybody can act on
-    service: { select: { name: true, invoiceTrigger: true, invoiceDay: true, dueDays: true } },
-  },
+    where: {
+      ...inForceTodayWhere(config.TZ),
+      service: { type: "subscription" as const },
+      client: { archivedAt: null },
+    },
+    select: {
+      id: true,
+      clientId: true,
+      companyId: true,
+      serviceId: true,
+      amount: true,
+      period: true,
+      invoiceTrigger: true,
+      invoiceDay: true,
+      dueDays: true,
+      createdAt: true,
+      // the served periods ARE the billing window now — a period is invoiced only when the
+      // subscription was in force continuously from its first day through the trigger day
+      periods: { select: { startsOn: true, endsBefore: true }, orderBy: { startsOn: "asc" } },
+      // `name` rides along for the activity log: a sweep that fails on one subscription records
+      // WHICH one, and "8f3a… could not be billed" is not a sentence anybody can act on
+      service: {
+        select: { name: true, invoiceTrigger: true, invoiceDay: true, dueDays: true },
+      },
+    },
   }) satisfies Prisma.SubscriptionFindManyArgs;
 
 export type BillableSubscription = Prisma.SubscriptionGetPayload<
@@ -362,7 +375,8 @@ export async function createPaymentChecked(data: Prisma.PaymentUncheckedCreateIn
     });
     const balance = invoice.amount - (paid._sum.amount ?? 0);
     if (balance <= 0) return { payment: null, reason: "settled" as const };
-    if ((data.amount as number) > balance) return { payment: null, reason: "over" as const, balance };
+    if ((data.amount as number) > balance)
+      return { payment: null, reason: "over" as const, balance };
     const payment = await tx.payment.create({ data });
     await syncPaidTotal(tx, data.invoiceId as string);
     return { payment, reason: null };
@@ -382,7 +396,11 @@ async function syncPaidTotal(tx: Prisma.TransactionClient, invoiceId: string) {
   });
 }
 
-export function updatePayment(id: string, invoiceId: string, data: Prisma.PaymentUncheckedUpdateInput) {
+export function updatePayment(
+  id: string,
+  invoiceId: string,
+  data: Prisma.PaymentUncheckedUpdateInput,
+) {
   return prisma.$transaction(async (tx) => {
     const payment = await tx.payment.update({ where: { id }, data });
     await syncPaidTotal(tx, invoiceId);

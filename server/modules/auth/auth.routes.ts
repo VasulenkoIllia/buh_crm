@@ -17,11 +17,15 @@ export async function registerRoutes(instance: FastifyInstance) {
   // stricter limit on credential endpoints
   const authLimit = { rateLimit: { max: isTest ? 1000 : 10, timeWindow: "1 minute" } };
 
-  app.post("/login", { config: { ...authLimit, ...anonymous() }, schema: { body: loginInput } }, async (request, reply) => {
-    const user = await service.login(request.body);
-    await createSession(request, reply, user.id);
-    return toSessionUser(user);
-  });
+  app.post(
+    "/login",
+    { config: { ...authLimit, ...anonymous() }, schema: { body: loginInput } },
+    async (request, reply) => {
+      const user = await service.login(request.body);
+      await createSession(request, reply, user.id);
+      return toSessionUser(user);
+    },
+  );
 
   app.post("/logout", { config: anonymous() }, async (request, reply) => {
     await destroySession(request, reply);

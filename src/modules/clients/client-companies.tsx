@@ -29,9 +29,7 @@ import { useUpdateClient } from "./clients.api";
 /** The list with `company` added, or replacing the entry with the same id. */
 const withCompany = (companies: Company[], company: CompanyInput): CompanyInput[] => {
   const rest = companies.map(toInput);
-  return company.id
-    ? rest.map((c) => (c.id === company.id ? company : c))
-    : [...rest, company];
+  return company.id ? rest.map((c) => (c.id === company.id ? company : c)) : [...rest, company];
 };
 
 const toInput = (c: Company): CompanyInput => ({
@@ -201,7 +199,10 @@ function CompanyModal({
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={() => void save()} disabled={!name.trim() || !!clash || update.isPending}>
+          <Button
+            onClick={() => void save()}
+            disabled={!name.trim() || !!clash || update.isPending}
+          >
             {update.isPending ? "Saving…" : company ? "Save" : "Add company"}
           </Button>
         </>

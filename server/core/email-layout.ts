@@ -254,7 +254,8 @@ function linkifyLine(line: string): string {
   }
 
   const url = safe.match(URL_RE)?.[1];
-  if (url) return safe.replace(url, anchor(url, url.startsWith("http") ? url : `https://${url}`));
+  if (url)
+    return safe.replace(url, anchor(url, url.startsWith("http") ? url : `https://${url}`));
 
   return safe;
 }

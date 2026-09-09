@@ -9,7 +9,6 @@ import { Chip } from "@/shared/ui/chip";
  */
 export const isOverdue = (t: Task) => isTaskOverdue(t);
 
-
 /**
  * What the task is FILED AGAINST, as one chip: internal firm work, a lead, or client work
  * that's included in their plan. A lead task used to render as "internal" — it isn't, it just

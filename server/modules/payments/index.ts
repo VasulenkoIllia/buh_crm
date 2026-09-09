@@ -9,7 +9,10 @@ export async function paymentsModule(app: FastifyInstance) {
 export { issueInvoice, issueJobInvoice } from "./invoicing.js";
 
 // scheduler job #2 + instant per-subscription billing (used by the clients module)
-export { generatePeriodInvoices, generateForSubscriptionInvoices } from "./payments.generation.js";
+export {
+  generatePeriodInvoices,
+  generateForSubscriptionInvoices,
+} from "./payments.generation.js";
 
 // debt rollup (used by the clients module)
 export { debtByClient } from "./payments.service.js";

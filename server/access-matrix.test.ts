@@ -66,13 +66,16 @@ async function setState(gate: GateKey, role: "admin" | "user", state: AccessStat
 beforeAll(async () => {
   app = await buildApp();
   routes = (
-    JSON.parse(await readFile(new URL("route-inventory.json", import.meta.url), "utf8")) as
-      RouteRecord[]
+    JSON.parse(
+      await readFile(new URL("route-inventory.json", import.meta.url), "utf8"),
+    ) as RouteRecord[]
   ).filter((r) => !r.derived);
 
   await prisma.accessOverride.deleteMany();
   await prisma.accessPolicy.deleteMany();
-  await prisma.session.deleteMany({ where: { user: { email: { endsWith: "@matrix.local" } } } });
+  await prisma.session.deleteMany({
+    where: { user: { email: { endsWith: "@matrix.local" } } },
+  });
   await prisma.user.deleteMany({ where: { email: { endsWith: "@matrix.local" } } });
 
   const passwordHash = await argon2.hash("password-123");
@@ -81,7 +84,14 @@ beforeAll(async () => {
     ["user@matrix.local", "user"],
   ] as const) {
     await prisma.user.create({
-      data: { firstName: "Matrix", lastName: role, email, passwordHash, role, status: "active" },
+      data: {
+        firstName: "Matrix",
+        lastName: role,
+        email,
+        passwordHash,
+        role,
+        status: "active",
+      },
     });
   }
   const login = async (email: string) =>
@@ -99,7 +109,9 @@ beforeAll(async () => {
 afterAll(async () => {
   await prisma.accessOverride.deleteMany();
   await prisma.accessPolicy.deleteMany();
-  await prisma.session.deleteMany({ where: { user: { email: { endsWith: "@matrix.local" } } } });
+  await prisma.session.deleteMany({
+    where: { user: { email: { endsWith: "@matrix.local" } } },
+  });
   await prisma.user.deleteMany({ where: { email: { endsWith: "@matrix.local" } } });
   await app?.close();
 });
@@ -173,7 +185,9 @@ describe("the access matrix", () => {
     for (const record of gatedRoutes()) {
       const got = await probe(record, adminCookie);
       if (got.code !== "through") {
-        wrong.push(`${record.method} ${record.url}: admin was refused — ${got.code} [${got.status}]`);
+        wrong.push(
+          `${record.method} ${record.url}: admin was refused — ${got.code} [${got.status}]`,
+        );
       }
     }
     expect(wrong).toEqual([]);
@@ -248,11 +262,11 @@ describe("the access matrix", () => {
    * behaviour suite spot-checks.
    */
   it("lets an override beat the role on every gate, both ways", async () => {
-    const person = await prisma.user.findFirstOrThrow({ where: { email: "user@matrix.local" } });
+    const person = await prisma.user.findFirstOrThrow({
+      where: { email: "user@matrix.local" },
+    });
     const probeGate = async (gate: GateKey) => {
-      const one = routes.find(
-        (r) => r.access === `gate:${gate}` && r.method === "GET",
-      );
+      const one = routes.find((r) => r.access === `gate:${gate}` && r.method === "GET");
       return one ? probe(one, userCookie) : null;
     };
 
@@ -348,7 +362,9 @@ describe("the registry matches the routes it claims to govern", () => {
    * future bug).
    */
   it("cannot be locked out of itself, however the tables are written", async () => {
-    const admin = await prisma.user.findFirstOrThrow({ where: { email: "admin@matrix.local" } });
+    const admin = await prisma.user.findFirstOrThrow({
+      where: { email: "admin@matrix.local" },
+    });
     await prisma.accessPolicy.deleteMany();
     await prisma.accessOverride.deleteMany();
 
@@ -519,7 +535,9 @@ describe("the guarantees a future module depends on", () => {
       ],
     });
     // two rows for one (gate, role) coexist — which is the whole point of the column
-    expect(await prisma.accessPolicy.count({ where: { gate: "billing", role: "user" } })).toBe(2);
+    expect(await prisma.accessPolicy.count({ where: { gate: "billing", role: "user" } })).toBe(
+      2,
+    );
 
     /**
      * And today's resolver reads only the "*" row, so the second changes nothing yet.
@@ -531,7 +549,9 @@ describe("the guarantees a future module depends on", () => {
      */
     const { accessMapFor, invalidateAccessCache: drop } = await import("./core/access.js");
     drop();
-    const person = await prisma.user.findFirstOrThrow({ where: { email: "user@matrix.local" } });
+    const person = await prisma.user.findFirstOrThrow({
+      where: { email: "user@matrix.local" },
+    });
     expect((await accessMapFor(person)).billing).toBe("open");
     await prisma.accessPolicy.deleteMany();
   });

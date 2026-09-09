@@ -73,7 +73,11 @@ export function occurrencesInWindow(
       break;
     }
     case "monthly": {
-      for (let y = from.y, m = from.m; y < to.y || (y === to.y && m <= to.m); m === 12 ? (y++, (m = 1)) : m++) {
+      for (
+        let y = from.y, m = from.m;
+        y < to.y || (y === to.y && m <= to.m);
+        m === 12 ? (y++, (m = 1)) : m++
+      ) {
         push(`${y}-${String(m).padStart(2, "0")}`, calendarDay(y, m, rhythm.dayOfPeriod));
       }
       break;
@@ -155,25 +159,25 @@ function rowsForSubscription(
     return occurrencesInWindow(eff, from, today)
       .filter((occ) => inForceOn(sub.periods, occ.date))
       .map((occ) => ({
-      title: generatedTitle(sub, tpl.name, occ.date),
-      clientId: sub.clientId,
-      companyId: sub.companyId,
-      serviceId: sub.serviceId,
-      kind: "sub" as const,
-      priorityId: deps.priorityId,
-      statusColumnId: deps.columnId,
-      deadline: toUtc(addDays(occ.date, eff.deadlineOffsetDays ?? 0)),
-      plannedMinutes: eff.estimatedMinutes,
-      subscriptionId: sub.id,
-      taskTemplateId: tpl.id,
-      periodKey: occ.periodKey,
-      checklist,
-    }));
+        title: generatedTitle(sub, tpl.name, occ.date),
+        clientId: sub.clientId,
+        companyId: sub.companyId,
+        serviceId: sub.serviceId,
+        kind: "sub" as const,
+        priorityId: deps.priorityId,
+        statusColumnId: deps.columnId,
+        deadline: toUtc(addDays(occ.date, eff.deadlineOffsetDays ?? 0)),
+        plannedMinutes: eff.estimatedMinutes,
+        subscriptionId: sub.id,
+        taskTemplateId: tpl.id,
+        periodKey: occ.periodKey,
+        checklist,
+      }));
   });
 }
 
 /** Distinct non-null values — used to scope the existing-keys pre-check `IN` lists. */
-const uniq = <T,>(xs: (T | null)[]) => [...new Set(xs)].filter((x): x is T => x != null);
+const uniq = <T>(xs: (T | null)[]) => [...new Set(xs)].filter((x): x is T => x != null);
 
 type GeneratedRow = ReturnType<typeof rowsForSubscription>[number];
 
@@ -205,8 +209,11 @@ async function insertGeneratedTasks(rows: GeneratedRow[]): Promise<number> {
 
   // checklist path — createMany can't nest subtasks, so create each NEW row individually.
   if (withChecklist.length > 0) {
-    const key = (r: { subscriptionId: string | null; taskTemplateId: string | null; periodKey: string | null }) =>
-      `${r.subscriptionId}|${r.taskTemplateId}|${r.periodKey}`;
+    const key = (r: {
+      subscriptionId: string | null;
+      taskTemplateId: string | null;
+      periodKey: string | null;
+    }) => `${r.subscriptionId}|${r.taskTemplateId}|${r.periodKey}`;
     // scope the pre-check to exactly the candidate (sub, template, period) space — not all history
     const existing = await repo.listExistingGeneratedKeys({
       subscriptionId: { in: uniq(withChecklist.map((r) => r.subscriptionId)) },
@@ -307,7 +314,11 @@ function internalRows(svc: InternalService, deps: GenerationDeps, today: Day, tz
   return svc.taskTemplates.flatMap((tpl) => {
     // an internal template generates from its own creation day (no subscription start)
     const from = fromDate(tpl.createdAt, tz);
-    const eff = { periodicity: tpl.periodicity, dayOfPeriod: tpl.dayOfPeriod, monthOfPeriod: tpl.monthOfPeriod };
+    const eff = {
+      periodicity: tpl.periodicity,
+      dayOfPeriod: tpl.dayOfPeriod,
+      monthOfPeriod: tpl.monthOfPeriod,
+    };
     // internal firm work belongs to no client, so there is nothing to be "in force" for
     return occurrencesInWindow(eff, from, today).map((occ) => ({
       title: `${svc.name} · ${tpl.name} · ${dayLabel(occ.date)}`,

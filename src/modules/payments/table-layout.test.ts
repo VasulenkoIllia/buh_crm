@@ -52,7 +52,10 @@ describe("scrolling table layout", () => {
       const { tracks, fixed, flexible, minWidth } = parse(source);
       const budget = fixed + (tracks.length - 1) * GAP + PADDING;
 
-      expect(flexible, "a table with no flexible column cannot drift, but also cannot fill").toBeGreaterThan(0);
+      expect(
+        flexible,
+        "a table with no flexible column cannot drift, but also cannot fill",
+      ).toBeGreaterThan(0);
       expect(
         minWidth - budget,
         `${label}: fixed columns (${fixed}) + gaps + padding = ${budget}px, but min-width is ` +

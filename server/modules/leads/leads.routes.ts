@@ -35,9 +35,13 @@ export async function registerRoutes(instance: FastifyInstance) {
    */
   const pipeline = gate("leads", { adminOnly: true });
 
-  app.get("/", { config: shared(), schema: { querystring: leadListQuery } }, async (request) => {
-    return service.listLeads(request.query);
-  });
+  app.get(
+    "/",
+    { config: shared(), schema: { querystring: leadListQuery } },
+    async (request) => {
+      return service.listLeads(request.query);
+    },
+  );
 
   /**
    * The pipeline's own columns. Before `/:id`, or Fastify would read "stages" as a lead id.
@@ -73,10 +77,14 @@ export async function registerRoutes(instance: FastifyInstance) {
     service.getLead(request.params.id),
   );
 
-  app.post("/", { config: leads, schema: { body: createLeadInput } }, async (request, reply) => {
-    const lead = await service.createLead(request.body);
-    return reply.status(201).send(lead);
-  });
+  app.post(
+    "/",
+    { config: leads, schema: { body: createLeadInput } },
+    async (request, reply) => {
+      const lead = await service.createLead(request.body);
+      return reply.status(201).send(lead);
+    },
+  );
 
   app.patch(
     "/:id",
@@ -103,9 +111,13 @@ export async function registerRoutes(instance: FastifyInstance) {
     return service.restoreLead(request.params.id);
   });
 
-  app.post("/:id/mark-lost", { config: leads, schema: { params: idParams } }, async (request) => {
-    return service.markLost(request.params.id);
-  });
+  app.post(
+    "/:id/mark-lost",
+    { config: leads, schema: { params: idParams } },
+    async (request) => {
+      return service.markLost(request.params.id);
+    },
+  );
 
   app.post("/:id/reopen", { config: leads, schema: { params: idParams } }, async (request) => {
     return service.reopen(request.params.id);

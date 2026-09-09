@@ -136,7 +136,10 @@ export function findTemplate(serviceId: string, templateId: string) {
   return prisma.taskTemplate.findFirst({ where: { id: templateId, serviceId } });
 }
 
-export function createTemplate(serviceId: string, data: Prisma.TaskTemplateUncheckedCreateWithoutServiceInput) {
+export function createTemplate(
+  serviceId: string,
+  data: Prisma.TaskTemplateUncheckedCreateWithoutServiceInput,
+) {
   return prisma.taskTemplate.create({ data: { ...data, serviceId } });
 }
 

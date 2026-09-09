@@ -19,24 +19,50 @@ export function parseCsv(text: string): string[][] {
   for (let i = 0; i < src.length; i++) {
     const c = src[i];
     if (quoted) {
-      if (c !== '"') { field += c; continue; }
-      if (src[i + 1] === '"') { field += '"'; i++; continue; }
+      if (c !== '"') {
+        field += c;
+        continue;
+      }
+      if (src[i + 1] === '"') {
+        field += '"';
+        i++;
+        continue;
+      }
       quoted = false;
       continue;
     }
-    if (c === '"') { quoted = true; continue; }
-    if (c === ",") { row.push(field); field = ""; continue; }
+    if (c === '"') {
+      quoted = true;
+      continue;
+    }
+    if (c === ",") {
+      row.push(field);
+      field = "";
+      continue;
+    }
     if (c === "\r") continue;
-    if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; continue; }
+    if (c === "\n") {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+      continue;
+    }
     field += c;
   }
-  if (field || row.length) { row.push(field); rows.push(row); }
+  if (field || row.length) {
+    row.push(field);
+    rows.push(row);
+  }
   return rows.filter((r) => r.some((v) => v.trim()));
 }
 
 /** Trim, collapse runs of whitespace, and fold the non-breaking spaces exports are full of. */
 export const clean = (v: string | undefined): string =>
-  (v ?? "").replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+  (v ?? "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
 /**
  * US numbers to `+1XXXXXXXXXX`; anything of an unrecognised shape is kept verbatim rather than

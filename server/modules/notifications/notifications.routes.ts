@@ -31,13 +31,9 @@ export async function registerRoutes(instance: FastifyInstance) {
     },
   );
 
-  app.post(
-    "/:id/read",
-    { schema: { params: idParams }, config: own() },
-    async (request) => {
-      return service.dismiss(request.currentUser!.id, request.params.id);
-    },
-  );
+  app.post("/:id/read", { schema: { params: idParams }, config: own() }, async (request) => {
+    return service.dismiss(request.currentUser!.id, request.params.id);
+  });
 
   app.post("/read-all", { config: own() }, async (request) => {
     return service.dismissAll(request.currentUser!.id);
@@ -73,7 +69,10 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   app.patch(
     "/policies/:trigger",
-    { schema: { params: triggerParams, body: updatePolicyInput }, config: gate("notification_rules") },
+    {
+      schema: { params: triggerParams, body: updatePolicyInput },
+      config: gate("notification_rules"),
+    },
     async (request) => {
       return service.updatePolicy(request.params.trigger, request.body);
     },

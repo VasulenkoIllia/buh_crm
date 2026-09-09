@@ -84,7 +84,11 @@ export function AssigneeAvatars({
         const u = team.find((x) => x.id === id);
         const blocked = u?.status === "blocked";
         return (
-          <span key={id} title={u ? `${userLabel(u)}${blocked ? " (blocked)" : ""}` : id} className="flex">
+          <span
+            key={id}
+            title={u ? `${userLabel(u)}${blocked ? " (blocked)" : ""}` : id}
+            className="flex"
+          >
             <UserAvatar
               user={u ?? { id, firstName: "", lastName: "", avatarFileId: null }}
               size="xs"

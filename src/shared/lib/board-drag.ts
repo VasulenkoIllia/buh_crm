@@ -144,7 +144,9 @@ export function useBoardDrag<T>({
       new Map([...lists].map(([c, items]) => [c, items.map(idOf)] as const));
     const from = [...base].find(([, ids]) => ids.includes(activeId))?.[0];
     // `over` is a column when the pointer is on its empty space, a card when it is on one
-    const to = base.has(overId) ? overId : [...base].find(([, ids]) => ids.includes(overId))?.[0];
+    const to = base.has(overId)
+      ? overId
+      : [...base].find(([, ids]) => ids.includes(overId))?.[0];
     if (!from || !to || from === to) return;
     const next = new Map([...base].map(([c, ids]) => [c, ids.filter((id) => id !== activeId)]));
     const landing = [...(next.get(to) ?? [])];

@@ -135,36 +135,28 @@ export async function registerRoutes(instance: FastifyInstance) {
    * What has been done to this task's recorded time. Not admin-only: the time log itself is open
    * to everyone who can open the task, and its history is the same information a day later.
    */
-  app.get(
-    "/:id/time/audit",
-    { config: tasks, schema: { params: idParams } },
-    async (request) => service.listTimeAudit(request.params.id),
+  app.get("/:id/time/audit", { config: tasks, schema: { params: idParams } }, async (request) =>
+    service.listTimeAudit(request.params.id),
   );
 
   // ── tasks ──────────────────────────────────────────────────────────────────
-  app.get(
-    "/",
-    { config: tasks, schema: { querystring: taskListQuery } },
-    async (request) => service.listTasks(request.query),
+  app.get("/", { config: tasks, schema: { querystring: taskListQuery } }, async (request) =>
+    service.listTasks(request.query),
   );
 
-  app.post(
-    "/",
-    { config: tasks, schema: { body: createTaskInput } },
-    async (request, reply) =>
-      reply.status(201).send(await service.createTask(request.body, request.currentUser!)),
+  app.post("/", { config: tasks, schema: { body: createTaskInput } }, async (request, reply) =>
+    reply.status(201).send(await service.createTask(request.body, request.currentUser!)),
   );
 
-  app.get(
-    "/:id",
-    { config: tasks, schema: { params: idParams } },
-    async (request) => service.getTask(request.params.id),
+  app.get("/:id", { config: tasks, schema: { params: idParams } }, async (request) =>
+    service.getTask(request.params.id),
   );
 
   app.patch(
     "/:id",
     { config: tasks, schema: { params: idParams, body: updateTaskInput } },
-    async (request) => service.updateTask(request.params.id, request.body, request.currentUser!),
+    async (request) =>
+      service.updateTask(request.params.id, request.body, request.currentUser!),
   );
 
   /**
@@ -184,10 +176,8 @@ export async function registerRoutes(instance: FastifyInstance) {
     async (request) => service.setSubtasks(request.params.id, request.body),
   );
 
-  app.post(
-    "/:id/archive",
-    { config: tasks, schema: { params: idParams } },
-    async (request) => service.archiveTask(request.params.id, request.currentUser!),
+  app.post("/:id/archive", { config: tasks, schema: { params: idParams } }, async (request) =>
+    service.archiveTask(request.params.id, request.currentUser!),
   );
 
   app.post(
@@ -196,10 +186,8 @@ export async function registerRoutes(instance: FastifyInstance) {
     async (request) => service.bulkArchive(request.body, request.currentUser!),
   );
 
-  app.post(
-    "/:id/restore",
-    { config: tasks, schema: { params: idParams } },
-    async (request) => service.restoreTask(request.params.id),
+  app.post("/:id/restore", { config: tasks, schema: { params: idParams } }, async (request) =>
+    service.restoreTask(request.params.id),
   );
 
   app.post(
@@ -208,7 +196,9 @@ export async function registerRoutes(instance: FastifyInstance) {
     async (request, reply) =>
       reply
         .status(201)
-        .send(await service.addTimeEntry(request.currentUser!, request.params.id, request.body)),
+        .send(
+          await service.addTimeEntry(request.currentUser!, request.params.id, request.body),
+        ),
   );
 
   // ── comments (any user adds; delete = own comment or admin) ────────────────

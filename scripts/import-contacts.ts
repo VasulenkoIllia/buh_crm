@@ -38,7 +38,14 @@ interface Identity {
   names: Set<string>;
 }
 
-function indexOf(rows: { firstName: string; lastName: string | null; email: string | null; phone: string | null }[]): Identity {
+function indexOf(
+  rows: {
+    firstName: string;
+    lastName: string | null;
+    email: string | null;
+    phone: string | null;
+  }[],
+): Identity {
   const id: Identity = { emails: new Set(), phones: new Set(), names: new Set() };
   for (const r of rows) {
     if (r.email) id.emails.add(identityKey(r.email));
@@ -51,16 +58,30 @@ function indexOf(rows: { firstName: string; lastName: string | null; email: stri
 // ── the export's own shape ──────────────────────────────────────────────────
 
 const US_STATES = new Set(
-  ("AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ " +
-   "NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC").split(" "),
+  (
+    "AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ " +
+    "NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC"
+  ).split(" "),
 );
 
 /** Spelled-out states appear beside their codes in the same column. */
 const STATE_NAMES: Record<string, string> = {
-  california: "CA", minnesota: "MN", florida: "FL", texas: "TX", newyork: "NY",
-  pennsylvania: "PA", washington: "WA", arizona: "AZ", virginia: "VA", tennessee: "TN",
-  northcarolina: "NC", southcarolina: "SC", massachusetts: "MA", illinois: "IL",
-  kansas: "KS", wyoming: "WY",
+  california: "CA",
+  minnesota: "MN",
+  florida: "FL",
+  texas: "TX",
+  newyork: "NY",
+  pennsylvania: "PA",
+  washington: "WA",
+  arizona: "AZ",
+  virginia: "VA",
+  tennessee: "TN",
+  northcarolina: "NC",
+  southcarolina: "SC",
+  massachusetts: "MA",
+  illinois: "IL",
+  kansas: "KS",
+  wyoming: "WY",
 };
 
 /**
@@ -100,7 +121,8 @@ async function main() {
 
   const col = (name: string) => {
     const i = header.findIndex((h) => clean(h) === name);
-    if (i === -1) throw new Error(`the CSV has no "${name}" column — headers: ${header.join(", ")}`);
+    if (i === -1)
+      throw new Error(`the CSV has no "${name}" column — headers: ${header.join(", ")}`);
     return i;
   };
   const at = {
@@ -120,7 +142,10 @@ async function main() {
   body.forEach((row, i) => {
     const line = i + 2;
     const firstName = cell(row, at.first);
-    if (!firstName) { noName.push(line); return; }
+    if (!firstName) {
+      noName.push(line);
+      return;
+    }
     const rawEmail = cell(row, at.email).toLowerCase();
     drafts.push({
       line,
@@ -143,7 +168,8 @@ async function main() {
   const matchOf = (d: Draft): string | null => {
     if (d.email && existing.emails.has(identityKey(d.email))) return "email";
     if (d.phone && existing.phones.has(phoneKey(d.phone))) return "phone";
-    if (d.lastName && existing.names.has(identityKey(`${d.firstName} ${d.lastName}`))) return "name";
+    if (d.lastName && existing.names.has(identityKey(`${d.firstName} ${d.lastName}`)))
+      return "name";
     return null;
   };
 
@@ -184,14 +210,19 @@ async function main() {
   // ── report ───────────────────────────────────────────────────────────────
   const filled = (f: keyof Draft) => fresh.filter((d) => d[f]).length;
   console.log(`rows read            : ${body.length}`);
-  if (noName.length) console.log(`  no name, skipped   : ${noName.length} (lines ${noName.join(", ")})`);
+  if (noName.length)
+    console.log(`  no name, skipped   : ${noName.length} (lines ${noName.join(", ")})`);
   console.log(`already in the system: ${skipped.length}`);
   for (const [d, why] of skipped) {
-    console.log(`    line ${String(d.line).padStart(3)}  ${`${d.firstName} ${d.lastName ?? ""}`.trim().padEnd(28)} — matched on ${why}`);
+    console.log(
+      `    line ${String(d.line).padStart(3)}  ${`${d.firstName} ${d.lastName ?? ""}`.trim().padEnd(28)} — matched on ${why}`,
+    );
   }
   console.log(`merged within the file: ${merged.length}`);
   for (const [dup, into] of merged) {
-    console.log(`    line ${String(dup.line).padStart(3)}  ${`${dup.firstName} ${dup.lastName ?? ""}`.trim().padEnd(28)} → line ${into.line}`);
+    console.log(
+      `    line ${String(dup.line).padStart(3)}  ${`${dup.firstName} ${dup.lastName ?? ""}`.trim().padEnd(28)} → line ${into.line}`,
+    );
   }
   console.log(`\nto create            : ${fresh.length}`);
   for (const f of ["lastName", "email", "phone", "address"] as const) {
@@ -203,9 +234,13 @@ async function main() {
   console.log(`\nSSNs to store encrypted: ${withSsn.length}`);
   for (const d of withSsn) console.log(`    ${`${d.firstName} ${d.lastName ?? ""}`.trim()}`);
   if (ssnSkipped.length) {
-    console.log(`SSNs NOT stored — the client already exists and is never touched: ${ssnSkipped.length}`);
+    console.log(
+      `SSNs NOT stored — the client already exists and is never touched: ${ssnSkipped.length}`,
+    );
     for (const [d] of ssnSkipped) {
-      console.log(`    ${`${d.firstName} ${d.lastName ?? ""}`.trim()} — add it by hand on their Secrets tab`);
+      console.log(
+        `    ${`${d.firstName} ${d.lastName ?? ""}`.trim()} — add it by hand on their Secrets tab`,
+      );
     }
   }
 
@@ -240,7 +275,11 @@ async function main() {
         // never a plain field: encrypted at rest, admin-only reveal, and the access is journalled
         await createSecret(
           client.id,
-          { label: "SSN", description: "Imported from the contacts export, 2026-08-27", value: d.ssn },
+          {
+            label: "SSN",
+            description: "Imported from the contacts export, 2026-08-27",
+            value: d.ssn,
+          },
           actor,
           null,
         );

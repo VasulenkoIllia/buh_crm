@@ -79,7 +79,8 @@ export function TaskTimerButton({ task, compact }: { task: Task; compact?: boole
   const onClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (mine) setModal("stop");
-    else if (timer) setModal("switch"); // close the other interval with a comment first
+    else if (timer)
+      setModal("switch"); // close the other interval with a comment first
     else start.mutate({ taskId: task.id });
   };
 

@@ -20,7 +20,11 @@ function cookieOf(res: { headers: Record<string, unknown> }): string {
 }
 
 async function login(email: string, password: string) {
-  const res = await app.inject({ method: "POST", url: "/api/auth/login", payload: { email, password } });
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    payload: { email, password },
+  });
   expect(res.statusCode).toBe(200);
   return cookieOf(res);
 }
@@ -29,7 +33,7 @@ async function login(email: string, password: string) {
 function todayParts() {
   const s = new Intl.DateTimeFormat("en-CA", { timeZone: config.TZ }).format(new Date());
   const [y, m, d] = s.split("-").map(Number);
-  const weekday = ((new Date(Date.UTC(y, m - 1, d)).getUTCDay() || 7) as number); // Mon=1
+  const weekday = (new Date(Date.UTC(y, m - 1, d)).getUTCDay() || 7) as number; // Mon=1
   return { y, m, d, weekday, monthKey: `${y}-${String(m).padStart(2, "0")}` };
 }
 
@@ -81,12 +85,28 @@ beforeAll(async () => {
   const pass = await argon2.hash("password-123");
   await prisma.user.createMany({
     data: [
-      { firstName: "Task", lastName: "Admin", email: "task-admin@test.local", passwordHash: pass, role: "admin", status: "active" },
-      { firstName: "Task", lastName: "User", email: "task-user@test.local", passwordHash: pass, role: "user", status: "active" },
+      {
+        firstName: "Task",
+        lastName: "Admin",
+        email: "task-admin@test.local",
+        passwordHash: pass,
+        role: "admin",
+        status: "active",
+      },
+      {
+        firstName: "Task",
+        lastName: "User",
+        email: "task-user@test.local",
+        passwordHash: pass,
+        role: "user",
+        status: "active",
+      },
     ],
   });
-  adminId = (await prisma.user.findUniqueOrThrow({ where: { email: "task-admin@test.local" } })).id;
-  userId = (await prisma.user.findUniqueOrThrow({ where: { email: "task-user@test.local" } })).id;
+  adminId = (await prisma.user.findUniqueOrThrow({ where: { email: "task-admin@test.local" } }))
+    .id;
+  userId = (await prisma.user.findUniqueOrThrow({ where: { email: "task-user@test.local" } }))
+    .id;
   adminCookie = await login("task-admin@test.local", "password-123");
   userCookie = await login("task-user@test.local", "password-123");
 });
@@ -109,7 +129,11 @@ afterAll(async () => {
 
 describe("tasks", () => {
   it("columns: fixed New protected; admin manages; non-empty delete blocked", async () => {
-    const list = await app.inject({ method: "GET", url: "/api/tasks/columns", headers: { cookie: userCookie } });
+    const list = await app.inject({
+      method: "GET",
+      url: "/api/tasks/columns",
+      headers: { cookie: userCookie },
+    });
     expect(list.statusCode).toBe(200);
     const fixed = list.json().find((c: { isFixed: boolean }) => c.isFixed);
     expect(fixed.name).toBe("New");
@@ -224,7 +248,12 @@ describe("tasks", () => {
       method: "POST",
       url: "/api/tasks",
       headers: { cookie: adminCookie },
-      payload: { title: "Sort out their paperwork", clientId, internal: true, assignees: [adminId] },
+      payload: {
+        title: "Sort out their paperwork",
+        clientId,
+        internal: true,
+        assignees: [adminId],
+      },
     });
     expect(attributed.statusCode).toBe(201);
     expect(attributed.json().clientId).toBe(clientId);
@@ -344,10 +373,16 @@ describe("tasks", () => {
       method: "PUT",
       url: `/api/tasks/${task.id}/subtasks`,
       headers: { cookie: userCookie },
-      payload: { subtasks: [{ text: "Collect statements" }, { text: "File the report", done: true }] },
+      payload: {
+        subtasks: [{ text: "Collect statements" }, { text: "File the report", done: true }],
+      },
     });
     expect(subtasks.json().subtasks).toHaveLength(2);
-    expect(subtasks.json().subtasks[1]).toMatchObject({ text: "File the report", done: true, order: 1 });
+    expect(subtasks.json().subtasks[1]).toMatchObject({
+      text: "File the report",
+      done: true,
+      order: 1,
+    });
   });
 
   it("client tasks bill by service type: one-time → invoice, subscription → free", async () => {
@@ -388,7 +423,12 @@ describe("tasks", () => {
       method: "POST",
       url: "/api/catalog",
       headers: { cookie: adminCookie },
-      payload: { name: "Bill One-time", type: "one_time", invoiceTrigger: "on_create", dueDays: 14 },
+      payload: {
+        name: "Bill One-time",
+        type: "one_time",
+        invoiceTrigger: "on_create",
+        dueDays: 14,
+      },
     });
     const otSub = await app.inject({
       method: "POST",
@@ -550,7 +590,11 @@ describe("tasks", () => {
     await make("Client work", { clientId, subscriptionId: subId });
 
     const list = async (qs: string) => {
-      const res = await app.inject({ method: "GET", url: `/api/tasks?${qs}`, headers: { cookie: adminCookie } });
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/tasks?${qs}`,
+        headers: { cookie: adminCookie },
+      });
       expect(res.statusCode).toBe(200);
       return res.json();
     };
@@ -588,7 +632,11 @@ describe("tasks", () => {
     expect(overlap).toHaveLength(0);
 
     // the target filter's option list covers every client with work, not just a loaded page
-    const targets = await app.inject({ method: "GET", url: "/api/tasks/targets", headers: { cookie: adminCookie } });
+    const targets = await app.inject({
+      method: "GET",
+      url: "/api/tasks/targets",
+      headers: { cookie: adminCookie },
+    });
     const names = targets.json().map((c: { name: string }) => c.name);
     expect(names).toContain("Filters Tasks");
     expect(names).not.toContain("Unfiltered Tasks"); // no tasks → not offered as a filter
@@ -836,9 +884,7 @@ describe("tasks", () => {
       url: "/api/tasks?view=board",
       headers: { cookie: adminCookie },
     });
-    const inRollup = rollup
-      .json()
-      .items.find((t: { id: string }) => t.id === taskId);
+    const inRollup = rollup.json().items.find((t: { id: string }) => t.id === taskId);
     expect(inRollup).toBeDefined();
     expect(inRollup.cancelledAt).not.toBeNull(); // …which is only possible because the DTO says so
 
@@ -902,7 +948,9 @@ describe("tasks", () => {
         url: "/api/tasks?view=board&status=open&pageSize=100",
         headers: { cookie: adminCookie },
       });
-      expect(board.json().items.some((t: { id: string }) => t.id === withInvoice.id)).toBe(false);
+      expect(board.json().items.some((t: { id: string }) => t.id === withInvoice.id)).toBe(
+        false,
+      );
     }
 
     // …and one raised by mistake can be taken back
@@ -958,14 +1006,19 @@ describe("tasks", () => {
       headers: { cookie: adminCookie },
       payload: { serviceId: svc.id, amount: 1000, period: "month" },
     });
-    const subscriptionId = sub.json().subscriptions.find(
-      (x: { serviceId: string }) => x.serviceId === svc.id,
-    ).id;
+    const subscriptionId = sub
+      .json()
+      .subscriptions.find((x: { serviceId: string }) => x.serviceId === svc.id).id;
     const created = await app.inject({
       method: "POST",
       url: "/api/tasks",
       headers: { cookie: adminCookie },
-      payload: { title: "Work for a client we dropped", clientId, subscriptionId, assignees: [adminId] },
+      payload: {
+        title: "Work for a client we dropped",
+        clientId,
+        subscriptionId,
+        assignees: [adminId],
+      },
     });
     expect(created.statusCode).toBe(201);
     const taskId = created.json().id;
@@ -1019,32 +1072,47 @@ describe("tasks", () => {
 
   it("filters by service, and 'none' finds the internal work no service covers", async () => {
     const svc = await app.inject({
-      method: "POST", url: "/api/catalog", headers: { cookie: adminCookie },
+      method: "POST",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
       payload: { name: "Filterable service", type: "one_time", defaultAmount: 1000 },
     });
     const serviceId = svc.json().id as string;
     const clientId = await makeClient("FilterByService");
     const sub = await app.inject({
-      method: "POST", url: `/api/clients/${clientId}/subscriptions`, headers: { cookie: adminCookie },
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions`,
+      headers: { cookie: adminCookie },
       payload: { serviceId, amount: 1000, period: "month" },
     });
-    const subscriptionId = sub.json().subscriptions.find(
-      (x: { serviceId: string }) => x.serviceId === serviceId,
-    ).id;
+    const subscriptionId = sub
+      .json()
+      .subscriptions.find((x: { serviceId: string }) => x.serviceId === serviceId).id;
 
     const throughService = await app.inject({
-      method: "POST", url: "/api/tasks", headers: { cookie: adminCookie },
+      method: "POST",
+      url: "/api/tasks",
+      headers: { cookie: adminCookie },
       payload: { title: "Billable via service", clientId, subscriptionId, assignees: [] },
     });
     const internal = await app.inject({
-      method: "POST", url: "/api/tasks", headers: { cookie: adminCookie },
+      method: "POST",
+      url: "/api/tasks",
+      headers: { cookie: adminCookie },
       payload: { title: "Firm's own time", clientId, internal: true, assignees: [] },
     });
     expect(internal.statusCode).toBe(201);
 
     const ids = async (q: string) =>
-      (await app.inject({ method: "GET", url: `/api/tasks?view=board&status=all&${q}`, headers: { cookie: adminCookie } }))
-        .json().items.map((t: { id: string }) => t.id);
+      (
+        await app.inject({
+          method: "GET",
+          url: `/api/tasks?view=board&status=all&${q}`,
+          headers: { cookie: adminCookie },
+        })
+      )
+        .json()
+        .items.map((t: { id: string }) => t.id);
 
     expect(await ids(`serviceId=${serviceId}`)).toContain(throughService.json().id);
     expect(await ids(`serviceId=${serviceId}`)).not.toContain(internal.json().id);
@@ -1058,15 +1126,29 @@ describe("tasks", () => {
   it("windows Done by when it was FINISHED and Cancelled by when it was CALLED OFF", async () => {
     const clientId = await makeClient("Windowed");
     const mk = async (title: string) =>
-      (await app.inject({
-        method: "POST", url: "/api/tasks", headers: { cookie: adminCookie },
-        payload: { title, clientId, internal: true, assignees: [] },
-      })).json().id as string;
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/tasks",
+          headers: { cookie: adminCookie },
+          payload: { title, clientId, internal: true, assignees: [] },
+        })
+      ).json().id as string;
 
     const doneId = await mk("Finished long ago");
     const cancelledId = await mk("Called off long ago");
-    await app.inject({ method: "PATCH", url: `/api/tasks/${doneId}`, headers: { cookie: adminCookie }, payload: { done: true } });
-    await app.inject({ method: "PATCH", url: `/api/tasks/${cancelledId}`, headers: { cookie: adminCookie }, payload: { cancelled: true } });
+    await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/${doneId}`,
+      headers: { cookie: adminCookie },
+      payload: { done: true },
+    });
+    await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/${cancelledId}`,
+      headers: { cookie: adminCookie },
+      payload: { cancelled: true },
+    });
 
     // push both stamps back beyond a 7-day window
     const old = new Date(Date.now() - 30 * 86_400_000);
@@ -1074,8 +1156,15 @@ describe("tasks", () => {
     await prisma.task.update({ where: { id: cancelledId }, data: { cancelledAt: old } });
 
     const ids = async (status: string, q = "") =>
-      (await app.inject({ method: "GET", url: `/api/tasks?view=board&status=${status}${q}`, headers: { cookie: adminCookie } }))
-        .json().items.map((t: { id: string }) => t.id);
+      (
+        await app.inject({
+          method: "GET",
+          url: `/api/tasks?view=board&status=${status}${q}`,
+          headers: { cookie: adminCookie },
+        })
+      )
+        .json()
+        .items.map((t: { id: string }) => t.id);
 
     // no window → everything ever, which is what Cancelled defaults to (user, 2026-08-08)
     expect(await ids("done")).toContain(doneId);
@@ -1093,19 +1182,35 @@ describe("tasks", () => {
   it("archives many at once, and says how many it would not touch", async () => {
     const clientId = await makeClient("BulkArchive");
     const mk = async (title: string) =>
-      (await app.inject({
-        method: "POST", url: "/api/tasks", headers: { cookie: adminCookie },
-        payload: { title, clientId, internal: true, assignees: [] },
-      })).json().id as string;
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/tasks",
+          headers: { cookie: adminCookie },
+          payload: { title, clientId, internal: true, assignees: [] },
+        })
+      ).json().id as string;
 
     const done = await mk("Finished");
     const cancelled = await mk("Called off");
     const open = await mk("Still open");
-    await app.inject({ method: "PATCH", url: `/api/tasks/${done}`, headers: { cookie: adminCookie }, payload: { done: true } });
-    await app.inject({ method: "PATCH", url: `/api/tasks/${cancelled}`, headers: { cookie: adminCookie }, payload: { cancelled: true } });
+    await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/${done}`,
+      headers: { cookie: adminCookie },
+      payload: { done: true },
+    });
+    await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/${cancelled}`,
+      headers: { cookie: adminCookie },
+      payload: { cancelled: true },
+    });
 
     const res = await app.inject({
-      method: "POST", url: "/api/tasks/bulk-archive", headers: { cookie: adminCookie },
+      method: "POST",
+      url: "/api/tasks/bulk-archive",
+      headers: { cookie: adminCookie },
       payload: { taskIds: [done, cancelled, open] },
     });
     expect(res.statusCode).toBe(200);
@@ -1120,7 +1225,9 @@ describe("tasks", () => {
 
     // running it again changes nothing: already-archived rows are not eligible twice
     const again = await app.inject({
-      method: "POST", url: "/api/tasks/bulk-archive", headers: { cookie: adminCookie },
+      method: "POST",
+      url: "/api/tasks/bulk-archive",
+      headers: { cookie: adminCookie },
       payload: { taskIds: [done, cancelled] },
     });
     expect(again.json()).toEqual({ changed: 0, skipped: 2 });
@@ -1128,17 +1235,32 @@ describe("tasks", () => {
 
   it("refuses to bulk-archive a task whose client is archived", async () => {
     const clientId = await makeClient("GoneBulk");
-    const task = (await app.inject({
-      method: "POST", url: "/api/tasks", headers: { cookie: adminCookie },
-      payload: { title: "Closed then orphaned", clientId, internal: true, assignees: [] },
-    })).json().id as string;
-    await app.inject({ method: "PATCH", url: `/api/tasks/${task}`, headers: { cookie: adminCookie }, payload: { done: true } });
-    await app.inject({ method: "POST", url: `/api/clients/${clientId}/archive`, headers: { cookie: adminCookie } });
+    const task = (
+      await app.inject({
+        method: "POST",
+        url: "/api/tasks",
+        headers: { cookie: adminCookie },
+        payload: { title: "Closed then orphaned", clientId, internal: true, assignees: [] },
+      })
+    ).json().id as string;
+    await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/${task}`,
+      headers: { cookie: adminCookie },
+      payload: { done: true },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/archive`,
+      headers: { cookie: adminCookie },
+    });
 
     // it is already invisible; archiving would bury it a level deeper, out of reach of the
     // client's own restore
     const res = await app.inject({
-      method: "POST", url: "/api/tasks/bulk-archive", headers: { cookie: adminCookie },
+      method: "POST",
+      url: "/api/tasks/bulk-archive",
+      headers: { cookie: adminCookie },
       payload: { taskIds: [task] },
     });
     expect(res.json()).toEqual({ changed: 0, skipped: 1 });
@@ -1159,7 +1281,13 @@ describe("tasks", () => {
       method: "POST",
       url: `/api/catalog/${serviceId}/tasks`,
       headers: { cookie: adminCookie },
-      payload: { name: "Monthly close", periodicity: "monthly", dayOfPeriod: d, deadlineOffsetDays: 5, estimatedMinutes: 120 },
+      payload: {
+        name: "Monthly close",
+        periodicity: "monthly",
+        dayOfPeriod: d,
+        deadlineOffsetDays: 5,
+        estimatedMinutes: 120,
+      },
     });
     const templateId = tpl.json().taskTemplates[0].id;
 
@@ -1231,7 +1359,12 @@ describe("tasks", () => {
       headers: { cookie: adminCookie },
       payload: {
         rhythmOverrides: {
-          [templateId]: { enabled: true, periodicity: "weekly", dayOfPeriod: weekday, monthOfPeriod: null },
+          [templateId]: {
+            enabled: true,
+            periodicity: "weekly",
+            dayOfPeriod: weekday,
+            monthOfPeriod: null,
+          },
         },
       },
     });
@@ -1260,7 +1393,9 @@ describe("tasks", () => {
     });
     await generateSubscriptionTasks();
     expect(
-      await prisma.task.count({ where: { subscriptionId: otSub.json().subscriptions.at(-1).id } }),
+      await prisma.task.count({
+        where: { subscriptionId: otSub.json().subscriptions.at(-1).id },
+      }),
     ).toBe(0);
   });
 
@@ -1340,7 +1475,11 @@ describe("tasks", () => {
       where: { subscriptionId: s1.json().subscriptions[0].id },
       include: { subtasks: { orderBy: { order: "asc" } } },
     });
-    expect(t1!.subtasks.map((x) => x.text)).toEqual(["Collect statements", "Reconcile", "File"]);
+    expect(t1!.subtasks.map((x) => x.text)).toEqual([
+      "Collect statements",
+      "Reconcile",
+      "File",
+    ]);
     expect(t1!.subtasks.every((x) => !x.done)).toBe(true);
 
     // a second sweep must NOT duplicate or rewrite the checklist
@@ -1638,7 +1777,11 @@ describe("tasks", () => {
     });
     expect(startA.statusCode).toBe(200);
     expect(startA.json().taskId).toBe(taskA);
-    const aDto = await app.inject({ method: "GET", url: `/api/tasks/${taskA}`, headers: { cookie: userCookie } });
+    const aDto = await app.inject({
+      method: "GET",
+      url: `/api/tasks/${taskA}`,
+      headers: { cookie: userCookie },
+    });
     expect(aDto.json().assignees).toContain(userId);
 
     const active = await app.inject({
@@ -1666,7 +1809,9 @@ describe("tasks", () => {
     expect(switched.statusCode).toBe(200);
     expect(switched.json().taskId).toBe(taskB);
 
-    const closedA = await prisma.timeEntry.findFirstOrThrow({ where: { taskId: taskA, userId } });
+    const closedA = await prisma.timeEntry.findFirstOrThrow({
+      where: { taskId: taskA, userId },
+    });
     expect(closedA.stoppedAt).not.toBeNull();
     expect(closedA.seconds).toBeGreaterThanOrEqual(1);
     expect(closedA.comment).toBe("Reconciled the bank feed");
@@ -1701,7 +1846,15 @@ describe("tasks", () => {
       payload: { comment: "Drafted the invoice list" },
     });
     expect(stop.statusCode).toBe(200);
-    expect((await app.inject({ method: "GET", url: "/api/tasks/timer/active", headers: { cookie: userCookie } })).json()).toBeNull();
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/api/tasks/timer/active",
+          headers: { cookie: userCookie },
+        })
+      ).json(),
+    ).toBeNull();
 
     /**
      * **Own entry or an admin, and every change journalled** (2026-09-07, permissions §8).
@@ -1753,7 +1906,9 @@ describe("tasks", () => {
       payload: { userId, minutes: 45, comment: "Forgot to track the call", date: "2026-07-20" },
     });
     expect(manual.statusCode).toBe(201);
-    const manualEntry = manual.json().timeEntries.find((e: { source: string }) => e.source === "manual");
+    const manualEntry = manual
+      .json()
+      .timeEntries.find((e: { source: string }) => e.source === "manual");
     expect(manualEntry).toMatchObject({ seconds: 2700, createdById: adminId, userId });
     expect(manual.json().trackedSeconds).toBe(1800 + 2700);
 
@@ -2010,7 +2165,9 @@ describe("tasks — dragging a column", () => {
       payload: { afterColumnId },
     });
 
-  let a = "", b = "", c = "";
+  let a = "",
+    b = "",
+    c = "";
   it("sets up three movable columns after the fixed one", async () => {
     a = await add("Alpha");
     b = await add("Beta");
@@ -2083,7 +2240,10 @@ describe("tasks — files", () => {
     return app.inject({
       method: "POST",
       url: `/api/tasks/${taskId}/files`,
-      headers: { cookie: adminCookie, "content-type": `multipart/form-data; boundary=${boundary}` },
+      headers: {
+        cookie: adminCookie,
+        "content-type": `multipart/form-data; boundary=${boundary}`,
+      },
       payload,
     });
   };
@@ -2117,9 +2277,13 @@ describe("tasks — files", () => {
     expect(res.statusCode).toBe(201);
     fileId = res.json().id;
 
-    expect((await list(`/api/tasks/${taskId}/files`)).map((f: { id: string }) => f.id)).toEqual([fileId]);
+    expect((await list(`/api/tasks/${taskId}/files`)).map((f: { id: string }) => f.id)).toEqual(
+      [fileId],
+    );
     // the whole point: it is on the client's card too, without anything being copied
-    expect((await list(`/api/clients/${clientId}/files`)).map((f: { id: string }) => f.id)).toContain(fileId);
+    expect(
+      (await list(`/api/clients/${clientId}/files`)).map((f: { id: string }) => f.id),
+    ).toContain(fileId);
   });
 
   it("downloads as an ATTACHMENT, never inline", async () => {
@@ -2141,7 +2305,9 @@ describe("tasks — files", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(await list(`/api/tasks/${taskId}/files`)).toEqual([]);
-    expect((await list(`/api/clients/${clientId}/files`)).map((f: { id: string }) => f.id)).not.toContain(fileId);
+    expect(
+      (await list(`/api/clients/${clientId}/files`)).map((f: { id: string }) => f.id),
+    ).not.toContain(fileId);
   });
 
   it("a task with no client keeps its files to itself", async () => {
@@ -2156,9 +2322,9 @@ describe("tasks — files", () => {
     const files = await list(`/api/tasks/${internal.json().id}/files`);
     expect(files).toHaveLength(1);
     // and it is filed under nobody — the client lists cannot show it
-    expect((await list(`/api/clients/${clientId}/files`)).map((f: { id: string }) => f.id)).not.toContain(
-      res.json().id,
-    );
+    expect(
+      (await list(`/api/clients/${clientId}/files`)).map((f: { id: string }) => f.id),
+    ).not.toContain(res.json().id);
   });
 
   it("404s a file that belongs to another task", async () => {

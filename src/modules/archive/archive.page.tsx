@@ -91,7 +91,11 @@ export function ArchivePage() {
    * phrases are debounced together — the record only changes identity on a keystroke, so one hook
    * covers the lot without a timer per tab.
    */
-  const [search, setSearch] = useState<Record<TabKey, string>>({ clients: "", leads: "", tasks: "" });
+  const [search, setSearch] = useState<Record<TabKey, string>>({
+    clients: "",
+    leads: "",
+    tasks: "",
+  });
   const settled = useDebounced(search);
 
   const onSearch = (value: string) => {
@@ -130,7 +134,6 @@ export function ArchivePage() {
     },
     { enabled: open("tasks") },
   );
-
 
   const restoreClient = useRestoreClient();
   const restoreLead = useRestoreLead();
@@ -212,7 +215,9 @@ export function ArchivePage() {
                 archivedOn(c.archivedAt),
               ]}
               busy={busy}
-              onRestore={() => run(() => restoreClient.mutateAsync(c.id), clients.data!.items.length)}
+              onRestore={() =>
+                run(() => restoreClient.mutateAsync(c.id), clients.data!.items.length)
+              }
             />
           ))}
         </Panel>
@@ -240,7 +245,9 @@ export function ArchivePage() {
               grid="grid-cols-[1.4fr_1fr_140px_120px]"
               cells={[l.name, l.companyName ?? "—", archivedOn(l.archivedAt)]}
               busy={busy}
-              onRestore={() => run(() => restoreLead.mutateAsync(l.id), leads.data!.items.length)}
+              onRestore={() =>
+                run(() => restoreLead.mutateAsync(l.id), leads.data!.items.length)
+              }
             />
           ))}
         </Panel>
@@ -264,9 +271,15 @@ export function ArchivePage() {
             <Row
               key={t.id}
               grid="grid-cols-[2fr_1fr_140px_120px]"
-              cells={[t.title, t.clientName ?? t.leadName ?? "Internal", archivedOn(t.archivedAt)]}
+              cells={[
+                t.title,
+                t.clientName ?? t.leadName ?? "Internal",
+                archivedOn(t.archivedAt),
+              ]}
               busy={busy}
-              onRestore={() => run(() => restoreTask.mutateAsync(t.id), tasks.data!.items.length)}
+              onRestore={() =>
+                run(() => restoreTask.mutateAsync(t.id), tasks.data!.items.length)
+              }
             />
           ))}
         </Panel>
@@ -298,7 +311,12 @@ function Pager({
   if (pages <= 1) return null;
   return (
     <div className="mt-3 flex items-center justify-end gap-2 text-[13px] text-muted">
-      <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => onChange(page - 1)}>
+      <Button
+        variant="secondary"
+        size="sm"
+        disabled={page <= 1}
+        onClick={() => onChange(page - 1)}
+      >
         Prev
       </Button>
       <span>
@@ -334,12 +352,16 @@ function Panel({
   children: React.ReactNode;
 }) {
   const navigate = useNavigate();
-  if (failed) return <p className="text-[13px] text-danger-text">Failed to load the archive.</p>;
+  if (failed)
+    return <p className="text-[13px] text-danger-text">Failed to load the archive.</p>;
   if (loading) {
     return (
       <div className="rounded-(--radius-panel) border border-border bg-surface p-4">
         {[0, 1, 2].map((i) => (
-          <div key={i} className="mb-2 h-[38px] animate-pulse rounded-(--radius-card) bg-[#f1f3f6]" />
+          <div
+            key={i}
+            className="mb-2 h-[38px] animate-pulse rounded-(--radius-card) bg-[#f1f3f6]"
+          />
         ))}
       </div>
     );

@@ -241,7 +241,8 @@ export async function createInvoice(input: CreateInvoiceInput, user: User) {
     amount,
     lines,
     // a date sets it · explicit null = no due date at all · omitted = inherit the service's dueDays
-    dueDate: input.dueDate === undefined ? undefined : input.dueDate ? dateToUtc(input.dueDate) : null,
+    dueDate:
+      input.dueDate === undefined ? undefined : input.dueDate ? dateToUtc(input.dueDate) : null,
     dueDays,
     createdById: user.id,
   });
@@ -298,7 +299,11 @@ export async function updateInvoice(id: string, input: UpdateInvoiceInput, user:
     throw new ValidationError("The amount can't be less than what's already been paid");
   }
 
-  const before = { amount: invoice.amount, description: invoice.description, dueDate: invoice.dueDate?.toISOString() ?? null };
+  const before = {
+    amount: invoice.amount,
+    description: invoice.description,
+    dueDate: invoice.dueDate?.toISOString() ?? null,
+  };
   const updated = await repo.updateInvoiceWithLines(
     id,
     {
@@ -329,20 +334,30 @@ export async function updateInvoice(id: string, input: UpdateInvoiceInput, user:
     action: "updated",
     byUserId: user.id,
     before,
-    after: { amount: updated.amount, description: updated.description, dueDate: updated.dueDate?.toISOString() ?? null },
+    after: {
+      amount: updated.amount,
+      description: updated.description,
+      dueDate: updated.dueDate?.toISOString() ?? null,
+    },
   });
   record("invoice.updated", {
     subjectId: id,
     subjectLabel: invoice.number,
     clientId: invoice.clientId,
     changes:
-      diff(before, {
-        amount,
-        ...(input.description !== undefined ? { description: input.description ?? null } : {}),
-        ...(input.dueDate !== undefined
-          ? { dueDate: updated.dueDate?.toISOString() ?? null }
-          : {}),
-      }, ["amount", "description", "dueDate"]) ?? undefined,
+      diff(
+        before,
+        {
+          amount,
+          ...(input.description !== undefined
+            ? { description: input.description ?? null }
+            : {}),
+          ...(input.dueDate !== undefined
+            ? { dueDate: updated.dueDate?.toISOString() ?? null }
+            : {}),
+        },
+        ["amount", "description", "dueDate"],
+      ) ?? undefined,
   });
   await unarchiveIfOwed(id);
   return getInvoice(id);
@@ -361,7 +376,11 @@ export async function setTidied(input: BulkTidyInput, user: User) {
     return balanceOf(inv) === 0; // nothing owed (settled or voided)
   });
   if (eligible.length > 0) {
-    await repo.setTidied(eligible.map((inv) => inv.id), input.tidied, user.id);
+    await repo.setTidied(
+      eligible.map((inv) => inv.id),
+      input.tidied,
+      user.id,
+    );
     // per invoice, sharing one correlation id: "what happened to invoice 41" must find the bulk
     // tidy that took it off the list (§4.2, clause 1)
     for (const inv of eligible) {
@@ -404,7 +423,11 @@ export async function setDeliveryMany(input: BulkDeliveryInput, user: User) {
     (inv) => !inv.cancelledAt && (input.sent ? inv.sentAt == null : inv.sentAt != null),
   );
   if (eligible.length > 0) {
-    await repo.setDeliveryMany(eligible.map((inv) => inv.id), input.sent, user.id);
+    await repo.setDeliveryMany(
+      eligible.map((inv) => inv.id),
+      input.sent,
+      user.id,
+    );
     for (const inv of eligible) {
       record(input.sent ? "invoice.marked_sent" : "invoice.sent_unmarked", {
         subjectId: inv.id,
@@ -456,7 +479,12 @@ export async function cancelInvoice(id: string, user: User) {
 
 // ── payments ─────────────────────────────────────────────────────────────────
 
-const snapshot = (p: { id: string; amount: number; paidAt: Date; reference: string | null }) => ({
+const snapshot = (p: {
+  id: string;
+  amount: number;
+  paidAt: Date;
+  reference: string | null;
+}) => ({
   id: p.id,
   amount: p.amount,
   paidAt: p.paidAt.toISOString(),
@@ -538,8 +566,7 @@ export async function updatePayment(id: string, input: UpdatePaymentInput, user:
     subjectId: payment.invoiceId,
     subjectLabel: payment.invoice.number,
     clientId: payment.invoice.clientId,
-    changes:
-      diff(before, snapshot(updated), ["amount", "paidAt", "reference"]) ?? undefined,
+    changes: diff(before, snapshot(updated), ["amount", "paidAt", "reference"]) ?? undefined,
   });
   await unarchiveIfOwed(payment.invoiceId);
   return getInvoice(payment.invoiceId);

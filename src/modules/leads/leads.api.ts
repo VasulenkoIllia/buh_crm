@@ -111,21 +111,28 @@ export function useMoveLead() {
       const isLeadList = (key: readonly unknown[]) => key[0] === "leads" && key[1] === "list";
 
       await queryClient.cancelQueries({ predicate: (q) => isLeadList(q.queryKey) });
-      const previous = queryClient.getQueriesData<LeadList>({ predicate: (q) => isLeadList(q.queryKey) });
-      queryClient.setQueriesData<LeadList>({ predicate: (q) => isLeadList(q.queryKey) }, (list) => {
-        if (!list) return list;
-        const moved = list.items.find((l) => l.id === id);
-        if (!moved) return list;
-        const landed = { ...moved, stageId: input.stageId };
-        const inStage = applyDrop(
-          [...list.items.filter((l) => l.id !== id && l.stageId === input.stageId), landed],
-          id,
-          input.afterLeadId,
-          (l) => l.id,
-        ).map((l, boardOrder) => ({ ...l, boardOrder }));
-        const elsewhere = list.items.filter((l) => l.id !== id && l.stageId !== input.stageId);
-        return { ...list, items: [...elsewhere, ...inStage] };
+      const previous = queryClient.getQueriesData<LeadList>({
+        predicate: (q) => isLeadList(q.queryKey),
       });
+      queryClient.setQueriesData<LeadList>(
+        { predicate: (q) => isLeadList(q.queryKey) },
+        (list) => {
+          if (!list) return list;
+          const moved = list.items.find((l) => l.id === id);
+          if (!moved) return list;
+          const landed = { ...moved, stageId: input.stageId };
+          const inStage = applyDrop(
+            [...list.items.filter((l) => l.id !== id && l.stageId === input.stageId), landed],
+            id,
+            input.afterLeadId,
+            (l) => l.id,
+          ).map((l, boardOrder) => ({ ...l, boardOrder }));
+          const elsewhere = list.items.filter(
+            (l) => l.id !== id && l.stageId !== input.stageId,
+          );
+          return { ...list, items: [...elsewhere, ...inStage] };
+        },
+      );
       return { previous };
     },
     onError: (_err, _vars, context) => {
@@ -155,7 +162,8 @@ export function useReopenLead() {
 export function useArchiveLead() {
   const invalidate = useInvalidateLeads();
   return useMutation({
-    mutationFn: (id: string) => api<{ ok: true }>(`/api/leads/${id}/archive`, { method: "POST" }),
+    mutationFn: (id: string) =>
+      api<{ ok: true }>(`/api/leads/${id}/archive`, { method: "POST" }),
     onSuccess: invalidate,
   });
 }
@@ -235,7 +243,10 @@ export function useMoveLeadStage() {
   const key = [...LEADS_KEY, "stages"];
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: MoveLeadStageInput }) =>
-      api<LeadStageOption[]>(`/api/leads/stages/${id}/position`, { method: "PATCH", body: input }),
+      api<LeadStageOption[]>(`/api/leads/stages/${id}/position`, {
+        method: "PATCH",
+        body: input,
+      }),
     onMutate: async ({ id, input }) => {
       await queryClient.cancelQueries({ queryKey: key });
       const snapshot = queryClient.getQueryData<LeadStageOption[]>(key);

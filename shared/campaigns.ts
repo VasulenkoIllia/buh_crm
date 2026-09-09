@@ -108,7 +108,11 @@ function occurrence(anchor: Date, anchorDay: number, monthsForward: number): num
  * here at all — the answer is a lookup in what somebody typed. Dates are compared as business
  * dates, so the caller may pass them in any order.
  */
-export function nextDateAfter(dates: number[], fromMs: number, endsOnMs: number | null = null): number | null {
+export function nextDateAfter(
+  dates: number[],
+  fromMs: number,
+  endsOnMs: number | null = null,
+): number | null {
   const later = dates.filter((d) => d > fromMs && (endsOnMs === null || d <= endsOnMs));
   return later.length === 0 ? null : Math.min(...later);
 }

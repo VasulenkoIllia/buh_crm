@@ -36,7 +36,13 @@ import {
  * The design's payment modal: totals, payment history, and the record-payment form.
  * Any user may record a payment; deleting one and cancelling the invoice are admin-only.
  */
-export function InvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClose: () => void }) {
+export function InvoiceModal({
+  invoiceId,
+  onClose,
+}: {
+  invoiceId: string;
+  onClose: () => void;
+}) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const { data: invoice, isPending } = useInvoice(invoiceId);
@@ -55,7 +61,10 @@ export function InvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClos
   const [error, setError] = useState<string | null>(null);
 
   const busy =
-    addPayment.isPending || deletePayment.isPending || cancelInvoice.isPending || archive.isPending;
+    addPayment.isPending ||
+    deletePayment.isPending ||
+    cancelInvoice.isPending ||
+    archive.isPending;
 
   // the amount actually being recorded — the single number the button acts on and reports
   const typed = parseMoney(amount);
@@ -123,7 +132,9 @@ export function InvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClos
               className="text-danger-text hover:text-danger-text"
               disabled={busy}
               onClick={() => {
-                if (window.confirm("Cancel this invoice? It stays in history but owes nothing."))
+                if (
+                  window.confirm("Cancel this invoice? It stays in history but owes nothing.")
+                )
                   void run(() => cancelInvoice.mutateAsync(invoiceId));
               }}
             >
@@ -173,257 +184,274 @@ export function InvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClos
               for a table of positions: description, hours, rate and amount cannot share half a
               modal, so the row overflowed and ran under the payment panel (user, 2026-08-21). */}
           {editing && (
-            <EditInvoiceForm invoice={invoice} onDone={() => setEditing(false)} onError={setError} />
+            <EditInvoiceForm
+              invoice={invoice}
+              onDone={() => setEditing(false)}
+              onError={setError}
+            />
           )}
 
           {/* Two columns so the card fits without scrolling: WHAT is owed and what the invoice is
              on the left, the MOVEMENT of money — history, the payment form, the journal — on the
              right (user, 2026-08-01). One column on a narrow window. */}
           <div className="grid items-start gap-x-5 gap-y-4 md:grid-cols-2">
-          <div className="space-y-4">
-          {(
-          /* What's still OWED is the number this screen exists to answer, so it leads; the
+            <div className="space-y-4">
+              {
+                /* What's still OWED is the number this screen exists to answer, so it leads; the
              billed total and what's come in are the context behind it. */
-          <div className="rounded-(--radius-panel) border border-border p-3">
-            <div className="flex items-end justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-faint">
-                  {invoice.balance === 0 ? "Settled" : "Remaining"}
-                  {/* acts on THIS invoice → an icon, the same control the catalog rows use */}
-                  {isAdmin && !invoice.cancelledAt && !editing && (
-                    <IconButton
-                      label="Edit the amount, positions, description or due date"
-                      className="h-6 w-6"
-                      onClick={() => setEditing(true)}
+                <div className="rounded-(--radius-panel) border border-border p-3">
+                  <div className="flex items-end justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-faint">
+                        {invoice.balance === 0 ? "Settled" : "Remaining"}
+                        {/* acts on THIS invoice → an icon, the same control the catalog rows use */}
+                        {isAdmin && !invoice.cancelledAt && !editing && (
+                          <IconButton
+                            label="Edit the amount, positions, description or due date"
+                            className="h-6 w-6"
+                            onClick={() => setEditing(true)}
+                          >
+                            <Pencil size={13} />
+                          </IconButton>
+                        )}
+                      </div>
+                      <div
+                        className={cn(
+                          "text-[26px] font-bold leading-tight tabular-nums",
+                          invoice.balance === 0 && "text-success-text",
+                          invoice.status === "overdue" && "text-danger-text",
+                        )}
+                      >
+                        {fmtMoney(invoice.balance)}
+                      </div>
+                    </div>
+                    <div className="text-right text-[12px] text-muted">
+                      <div>
+                        Billed{" "}
+                        <span className="font-semibold tabular-nums text-ink-700">
+                          {fmtMoney(invoice.amount)}
+                        </span>
+                      </div>
+                      <div>
+                        Paid{" "}
+                        <span className="font-semibold tabular-nums text-success-text">
+                          {fmtMoney(invoice.paid)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              }
+
+              <div className="space-y-1 text-[13px]">
+                {(invoice.serviceName || invoice.description) && (
+                  <div className="text-ink-700">
+                    {[invoice.serviceName, invoice.companyName, invoice.description]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </div>
+                )}
+                {invoice.taskId && (
+                  <div className="text-muted">
+                    Job:{" "}
+                    <Link
+                      className="text-primary-link hover:underline"
+                      to={`/tasks?task=${invoice.taskId}`}
                     >
-                      <Pencil size={13} />
-                    </IconButton>
-                  )}
-                </div>
-                <div
-                  className={cn(
-                    "text-[26px] font-bold leading-tight tabular-nums",
-                    invoice.balance === 0 && "text-success-text",
-                    invoice.status === "overdue" && "text-danger-text",
-                  )}
-                >
-                  {fmtMoney(invoice.balance)}
-                </div>
-              </div>
-              <div className="text-right text-[12px] text-muted">
-                <div>
-                  Billed <span className="font-semibold tabular-nums text-ink-700">{fmtMoney(invoice.amount)}</span>
-                </div>
-                <div>
-                  Paid{" "}
-                  <span className="font-semibold tabular-nums text-success-text">
-                    {fmtMoney(invoice.paid)}
-                  </span>
+                      {invoice.taskTitle}
+                    </Link>
+                  </div>
+                )}
+                <div className="text-muted">
+                  Client:{" "}
+                  <Link
+                    className="text-primary-link hover:underline"
+                    to={`/clients/${invoice.clientId}`}
+                  >
+                    {invoice.clientName}
+                  </Link>
                 </div>
               </div>
-            </div>
-          </div>
-          )}
 
-          <div className="space-y-1 text-[13px]">
-            {(invoice.serviceName || invoice.description) && (
-              <div className="text-ink-700">
-                {[invoice.serviceName, invoice.companyName, invoice.description]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </div>
-            )}
-            {invoice.taskId && (
-              <div className="text-muted">
-                Job:{" "}
-                <Link className="text-primary-link hover:underline" to={`/tasks?task=${invoice.taskId}`}>
-                  {invoice.taskTitle}
-                </Link>
-              </div>
-            )}
-            <div className="text-muted">
-              Client:{" "}
-              <Link className="text-primary-link hover:underline" to={`/clients/${invoice.clientId}`}>
-                {invoice.clientName}
-              </Link>
-            </div>
-          </div>
-
-          {/* The breakdown, when there is one. An invoice without positions shows nothing here and
+              {/* The breakdown, when there is one. An invoice without positions shows nothing here and
               reads exactly as it did before they existed. */}
-          {invoice.lines.length > 0 && (
-            <div className="mt-3 overflow-hidden rounded-(--radius-field) border border-border">
-              {invoice.lines.map((line) => (
-                <div
-                  key={line.id}
-                  className="flex items-baseline gap-3 border-b border-divider px-3 py-2 text-[13px] last:border-0"
-                >
-                  <span className="min-w-0 flex-1 truncate">{line.description}</span>
-                  {line.quantity != null && line.unitRate != null && (
-                    <span className="whitespace-nowrap text-[12px] text-muted tabular-nums">
-                      {(line.quantity / 100).toFixed(2)} h × {fmtMoney(line.unitRate)}
-                    </span>
-                  )}
-                  <span className="w-[110px] text-right tabular-nums">{fmtMoney(line.amount)}</span>
-                </div>
-              ))}
-              <div className="flex items-baseline gap-3 border-t border-border bg-[#fafbfc] px-3 py-2 text-[13px] font-medium">
-                <span className="flex-1">Total</span>
-                <span className="w-[110px] text-right tabular-nums">{fmtMoney(invoice.amount)}</span>
-              </div>
-            </div>
-          )}
-
-          {/* DISCLOSURE, not a row action — so it keeps its word ("History") and wears an icon
-              beside it. An icon alone here would be a riddle: nothing else on the card is hidden. */}
-          {isAdmin && (
-            <div>
-              <button
-                type="button"
-                className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-faint hover:text-ink"
-                onClick={() => setShowAudit((v) => !v)}
-              >
-                <HistoryIcon size={13} />
-                History
-                <ChevronDown
-                  size={13}
-                  className={cn("transition-transform", showAudit && "rotate-180")}
-                />
-              </button>
-              {/* the log grows without bound, so IT scrolls — the card itself must not */}
-              {showAudit && (
-                <div className="mt-1.5 max-h-32 space-y-1 overflow-y-auto pr-1 text-[12px] text-muted">
-                  {audit.data?.length === 0 && <p>No changes recorded.</p>}
-                  {audit.data?.map((entry) => (
-                    <div key={entry.id}>
-                      <span className="capitalize text-ink-700">{entry.action}</span>{" "}
-                      {entry.action === "updated" && entry.before && entry.after
-                        ? `${fmtMoney(entry.before.amount)} → ${fmtMoney(entry.after.amount)}`
-                        : fmtMoney((entry.after ?? entry.before)?.amount ?? 0)}{" "}
-                      · {entry.byUserName} · {fmtDate(entry.createdAt)}
+              {invoice.lines.length > 0 && (
+                <div className="mt-3 overflow-hidden rounded-(--radius-field) border border-border">
+                  {invoice.lines.map((line) => (
+                    <div
+                      key={line.id}
+                      className="flex items-baseline gap-3 border-b border-divider px-3 py-2 text-[13px] last:border-0"
+                    >
+                      <span className="min-w-0 flex-1 truncate">{line.description}</span>
+                      {line.quantity != null && line.unitRate != null && (
+                        <span className="whitespace-nowrap text-[12px] text-muted tabular-nums">
+                          {(line.quantity / 100).toFixed(2)} h × {fmtMoney(line.unitRate)}
+                        </span>
+                      )}
+                      <span className="w-[110px] text-right tabular-nums">
+                        {fmtMoney(line.amount)}
+                      </span>
                     </div>
                   ))}
+                  <div className="flex items-baseline gap-3 border-t border-border bg-[#fafbfc] px-3 py-2 text-[13px] font-medium">
+                    <span className="flex-1">Total</span>
+                    <span className="w-[110px] text-right tabular-nums">
+                      {fmtMoney(invoice.amount)}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* DISCLOSURE, not a row action — so it keeps its word ("History") and wears an icon
+              beside it. An icon alone here would be a riddle: nothing else on the card is hidden. */}
+              {isAdmin && (
+                <div>
+                  <button
+                    type="button"
+                    className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-faint hover:text-ink"
+                    onClick={() => setShowAudit((v) => !v)}
+                  >
+                    <HistoryIcon size={13} />
+                    History
+                    <ChevronDown
+                      size={13}
+                      className={cn("transition-transform", showAudit && "rotate-180")}
+                    />
+                  </button>
+                  {/* the log grows without bound, so IT scrolls — the card itself must not */}
+                  {showAudit && (
+                    <div className="mt-1.5 max-h-32 space-y-1 overflow-y-auto pr-1 text-[12px] text-muted">
+                      {audit.data?.length === 0 && <p>No changes recorded.</p>}
+                      {audit.data?.map((entry) => (
+                        <div key={entry.id}>
+                          <span className="capitalize text-ink-700">{entry.action}</span>{" "}
+                          {entry.action === "updated" && entry.before && entry.after
+                            ? `${fmtMoney(entry.before.amount)} → ${fmtMoney(entry.after.amount)}`
+                            : fmtMoney((entry.after ?? entry.before)?.amount ?? 0)}{" "}
+                          · {entry.byUserName} · {fmtDate(entry.createdAt)}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
-          )}
-          </div>
 
-          <div className="space-y-4">
-          {/* payment history */}
-          <div>
-            <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-faint">
-              Payment history
-            </div>
-            {invoice.payments.length === 0 && (
-              <p className="text-[13px] text-muted">No payments yet.</p>
-            )}
-            <div className="space-y-1.5">
-              {invoice.payments.map((p) => (
-                <div
-                  key={p.id}
-                  className="flex items-center gap-2 rounded-(--radius-field) border border-divider bg-[#fafbfc] px-3 py-2 text-[13px]"
-                >
-                  <span className="font-semibold tabular-nums text-success-text">
-                    {fmtMoney(p.amount)}
-                  </span>
-                  <span className="text-muted">{fmtBizDate(p.paidAt)}</span>
-                  {p.reference && <span className="text-faint">ref: {p.reference}</span>}
-                  <span className="ml-auto text-[12px] text-faint">{p.createdByName}</span>
-                  {isAdmin && (
-                    <IconButton
-                      label="Delete payment"
-                      disabled={busy}
-                      className="-mr-1 hover:text-danger"
-                      onClick={() => {
-                        if (window.confirm("Delete this payment?"))
-                          void run(() => deletePayment.mutateAsync(p.id));
-                      }}
-                    >
-                      <Trash2 size={14} />
-                    </IconButton>
-                  )}
+            <div className="space-y-4">
+              {/* payment history */}
+              <div>
+                <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-faint">
+                  Payment history
                 </div>
-              ))}
-            </div>
-          </div>
+                {invoice.payments.length === 0 && (
+                  <p className="text-[13px] text-muted">No payments yet.</p>
+                )}
+                <div className="space-y-1.5">
+                  {invoice.payments.map((p) => (
+                    <div
+                      key={p.id}
+                      className="flex items-center gap-2 rounded-(--radius-field) border border-divider bg-[#fafbfc] px-3 py-2 text-[13px]"
+                    >
+                      <span className="font-semibold tabular-nums text-success-text">
+                        {fmtMoney(p.amount)}
+                      </span>
+                      <span className="text-muted">{fmtBizDate(p.paidAt)}</span>
+                      {p.reference && <span className="text-faint">ref: {p.reference}</span>}
+                      <span className="ml-auto text-[12px] text-faint">{p.createdByName}</span>
+                      {isAdmin && (
+                        <IconButton
+                          label="Delete payment"
+                          disabled={busy}
+                          className="-mr-1 hover:text-danger"
+                          onClick={() => {
+                            if (window.confirm("Delete this payment?"))
+                              void run(() => deletePayment.mutateAsync(p.id));
+                          }}
+                        >
+                          <Trash2 size={14} />
+                        </IconButton>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
 
-          {invoice.cancelledAt ? (
-            <p className="rounded-(--radius-field) bg-[#eef0f3] px-3 py-2 text-[13px] text-muted">
-              Cancelled {fmtDate(invoice.cancelledAt)}
-              {invoice.cancelledByName ? ` by ${invoice.cancelledByName}` : ""} — nothing is owed.
-            </p>
-          ) : invoice.balance === 0 ? (
-            <p className="rounded-(--radius-field) bg-[#e6f4ea] px-3 py-2 text-[13px] text-success-text">
-              ✓ Invoice fully paid
-            </p>
-          ) : (
-            /* ONE action, and it always records exactly what the field says. There used to be a
+              {invoice.cancelledAt ? (
+                <p className="rounded-(--radius-field) bg-[#eef0f3] px-3 py-2 text-[13px] text-muted">
+                  Cancelled {fmtDate(invoice.cancelledAt)}
+                  {invoice.cancelledByName ? ` by ${invoice.cancelledByName}` : ""} — nothing is
+                  owed.
+                </p>
+              ) : invoice.balance === 0 ? (
+                <p className="rounded-(--radius-field) bg-[#e6f4ea] px-3 py-2 text-[13px] text-success-text">
+                  ✓ Invoice fully paid
+                </p>
+              ) : (
+                /* ONE action, and it always records exactly what the field says. There used to be a
                second button, "Pay remaining", which silently ignored a typed amount — two
                same-sized buttons that did different things with the same form (user, 2026-08-01).
                Paying in full is the common case, so the field simply OPENS on the remaining
                balance; "Full amount" puts it back if you edited it. */
-            <div className="space-y-2.5 rounded-(--radius-panel) border border-border p-3">
-              <div className="flex items-center justify-between">
-                <div className="text-[11px] font-medium uppercase tracking-wide text-faint">
-                  Record a payment
-                </div>
-                {typed !== invoice.balance && (
-                  <button
-                    type="button"
-                    className="text-[12px] font-medium text-primary-link hover:underline"
-                    onClick={() => setAmount(moneyInputValue(invoice.balance))}
-                  >
-                    Full amount ({fmtMoney(invoice.balance)})
-                  </button>
-                )}
-              </div>
-              <div className="flex gap-2">
-                <div className="flex-1">
+                <div className="space-y-2.5 rounded-(--radius-panel) border border-border p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="text-[11px] font-medium uppercase tracking-wide text-faint">
+                      Record a payment
+                    </div>
+                    {typed !== invoice.balance && (
+                      <button
+                        type="button"
+                        className="text-[12px] font-medium text-primary-link hover:underline"
+                        onClick={() => setAmount(moneyInputValue(invoice.balance))}
+                      >
+                        Full amount ({fmtMoney(invoice.balance)})
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <Input
+                        inputMode="decimal"
+                        placeholder="Amount"
+                        value={amount}
+                        onChange={(e) => setAmount(e.target.value)}
+                      />
+                    </div>
+                    <Input
+                      type="date"
+                      className="w-[140px]"
+                      value={paidAt}
+                      onChange={(e) => setPaidAt(e.target.value)}
+                    />
+                  </div>
                   <Input
-                    inputMode="decimal"
-                    placeholder="Amount"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
+                    // short enough to READ in the column — the long form was clipped mid-word
+                    placeholder="Bank / external ref (optional)"
+                    title="For reconciling against the bank or another system"
+                    value={reference}
+                    onChange={(e) => setReference(e.target.value)}
                   />
+                  <Button
+                    variant="positive"
+                    className="w-full"
+                    disabled={busy || typed <= 0 || typed > invoice.balance}
+                    onClick={() => void record(typed)}
+                  >
+                    {typed > invoice.balance
+                      ? `More than the ${fmtMoney(invoice.balance)} left`
+                      : typed > 0
+                        ? `Record payment · ${fmtMoney(typed)}`
+                        : "Record payment"}
+                  </Button>
+                  {typed > 0 && typed < invoice.balance && (
+                    <p className="text-[12px] text-muted">
+                      Part payment — {fmtMoney(invoice.balance - typed)} would still be owed.
+                    </p>
+                  )}
                 </div>
-                <Input
-                  type="date"
-                  className="w-[140px]"
-                  value={paidAt}
-                  onChange={(e) => setPaidAt(e.target.value)}
-                />
-              </div>
-              <Input
-                // short enough to READ in the column — the long form was clipped mid-word
-                placeholder="Bank / external ref (optional)"
-                title="For reconciling against the bank or another system"
-                value={reference}
-                onChange={(e) => setReference(e.target.value)}
-              />
-              <Button
-                variant="positive"
-                className="w-full"
-                disabled={busy || typed <= 0 || typed > invoice.balance}
-                onClick={() => void record(typed)}
-              >
-                {typed > invoice.balance
-                  ? `More than the ${fmtMoney(invoice.balance)} left`
-                  : typed > 0
-                    ? `Record payment · ${fmtMoney(typed)}`
-                    : "Record payment"}
-              </Button>
-              {typed > 0 && typed < invoice.balance && (
-                <p className="text-[12px] text-muted">
-                  Part payment — {fmtMoney(invoice.balance - typed)} would still be owed.
-                </p>
               )}
+
+              {error && <p className="text-[12px] text-danger-text">{error}</p>}
             </div>
-          )}
-
-          {error && <p className="text-[12px] text-danger-text">{error}</p>}
-
-          </div>
           </div>
         </div>
       )}
@@ -459,7 +487,8 @@ function EditInvoiceForm({
 
   async function save() {
     onError(null);
-    if (itemised && filled.length === 0) return onError("Add at least one position, with a name");
+    if (itemised && filled.length === 0)
+      return onError("Add at least one position, with a name");
     if (total <= 0) return onError("Enter an amount");
     try {
       await update.mutateAsync({
@@ -683,7 +712,8 @@ export function NewInvoiceModal({
   useEffect(() => {
     if (subscriptionId || subscriptions.length === 0) return;
     const preferred =
-      subscriptions.find((s) => s.isDefault) ?? (subscriptions.length === 1 ? subscriptions[0] : undefined);
+      subscriptions.find((s) => s.isDefault) ??
+      (subscriptions.length === 1 ? subscriptions[0] : undefined);
     if (preferred) setSubscriptionId(preferred.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the picked client changes
   }, [client.data?.id]);
@@ -695,7 +725,8 @@ export function NewInvoiceModal({
   async function submit() {
     setError(null);
     if (!clientId) return setError("Pick a client");
-    if (itemised && filled.length === 0) return setError("Add at least one position, with a name");
+    if (itemised && filled.length === 0)
+      return setError("Add at least one position, with a name");
     if (total <= 0) return setError("Enter an amount");
     try {
       const invoice = await createInvoice.mutateAsync({
@@ -859,8 +890,8 @@ export function NewInvoiceModal({
                 }
               />
               <p className="mt-1.5 text-[12px] text-faint">
-                The job opens in the New column with this invoice already attached — its price is
-                locked to the invoice.
+                The job opens in the New column with this invoice already attached — its price
+                is locked to the invoice.
               </p>
             </div>
           </div>
@@ -906,7 +937,10 @@ function LinesEditor({
       {lines.map((line, i) => {
         const computed = draftAmount(line);
         return (
-          <div key={i} className="grid grid-cols-[minmax(140px,1fr)_90px_120px_120px_32px] items-center gap-2">
+          <div
+            key={i}
+            className="grid grid-cols-[minmax(140px,1fr)_90px_120px_120px_32px] items-center gap-2"
+          >
             <Input
               value={line.description}
               placeholder="Consultation"

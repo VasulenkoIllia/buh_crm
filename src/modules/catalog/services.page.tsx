@@ -135,12 +135,14 @@ export function ServicesPage() {
    */
   const q = search.trim().toLowerCase();
   const nameHit = (s: Service) => s.name.toLowerCase().includes(q);
-  const templateHit = (s: Service) => s.taskTemplates.some((t) => t.name.toLowerCase().includes(q));
+  const templateHit = (s: Service) =>
+    s.taskTemplates.some((t) => t.name.toLowerCase().includes(q));
   const matches = (s: Service) => !q || nameHit(s) || templateHit(s);
   /** Matched only by something inside it — open the row, or the match is invisible. */
   const matchedInside = (s: Service) => !!q && !nameHit(s) && templateHit(s);
 
-  const inTab = (s: Service) => (tab === "internal" ? s.type === "internal" : s.type !== "internal");
+  const inTab = (s: Service) =>
+    tab === "internal" ? s.type === "internal" : s.type !== "internal";
   const shown = services.filter((s) => inTab(s) && matches(s));
 
   /**
@@ -232,154 +234,165 @@ export function ServicesPage() {
           </div>
           {/* Only an admin can reorder — the catalog's order is the firm's, like every other change
               to it — so only an admin gets a drag context around the rows. */}
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-            <SortableContext items={shown.map((x) => x.id)} strategy={verticalListSortingStrategy}>
-          {shown.map((service) => (
-            <SortableServiceRow key={service.id} id={service.id} draggable={isAdmin}>
-              <div
-                className="grid cursor-pointer grid-cols-[20px_1fr_120px_70px_190px] items-center gap-x-3 border-b border-divider px-4 py-[13px] text-[13px] hover:bg-divider/40"
-                onClick={() => toggle(service.id)}
-              >
-                <span
-                  className={cn(
-                    "text-[11px] text-muted transition-transform",
-                    (expanded.has(service.id) || matchedInside(service)) && "rotate-90",
-                  )}
-                >
-                  ▸
-                </span>
-                <div className="flex min-w-0 items-center gap-2">
-                  <ServiceChip name={service.name} color={service.color} />
-                  <span className="text-[12px] text-[#9aa1ab]">
-                    · {service.taskTemplates.length} tasks
-                  </span>
-                  {service.autoAddToNewClients && (
-                    <Chip
-                      tone="blue"
-                      strong
-                      title="Auto-added to every new client — clear this before deactivating the service"
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={onDragEnd}
+          >
+            <SortableContext
+              items={shown.map((x) => x.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              {shown.map((service) => (
+                <SortableServiceRow key={service.id} id={service.id} draggable={isAdmin}>
+                  <div
+                    className="grid cursor-pointer grid-cols-[20px_1fr_120px_70px_190px] items-center gap-x-3 border-b border-divider px-4 py-[13px] text-[13px] hover:bg-divider/40"
+                    onClick={() => toggle(service.id)}
+                  >
+                    <span
+                      className={cn(
+                        "text-[11px] text-muted transition-transform",
+                        (expanded.has(service.id) || matchedInside(service)) && "rotate-90",
+                      )}
                     >
-                      ★ default
-                    </Chip>
-                  )}
-                  {!service.active && (
-                    <span className="text-[11px] uppercase text-faint">inactive</span>
-                  )}
-                </div>
-                <div>
-                  <span className="rounded-(--radius-chip) bg-divider px-2 py-0.5 text-[12px] font-medium">
-                    {service.type === "subscription"
-                      ? "Subscription"
-                      : service.type === "one_time"
-                        ? "One-time"
-                        : "Internal"}
-                  </span>
-                </div>
-                <div className="text-right text-[#6b7280]">
-                  {service.type === "internal" ? "—" : service.clientsCount}
-                </div>
-                <div
-                  className="flex items-center justify-end gap-1 text-right"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {/* quiet icon strip: text links here wrapped to two lines and drowned the row.
+                      ▸
+                    </span>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <ServiceChip name={service.name} color={service.color} />
+                      <span className="text-[12px] text-[#9aa1ab]">
+                        · {service.taskTemplates.length} tasks
+                      </span>
+                      {service.autoAddToNewClients && (
+                        <Chip
+                          tone="blue"
+                          strong
+                          title="Auto-added to every new client — clear this before deactivating the service"
+                        >
+                          ★ default
+                        </Chip>
+                      )}
+                      {!service.active && (
+                        <span className="text-[11px] uppercase text-faint">inactive</span>
+                      )}
+                    </div>
+                    <div>
+                      <span className="rounded-(--radius-chip) bg-divider px-2 py-0.5 text-[12px] font-medium">
+                        {service.type === "subscription"
+                          ? "Subscription"
+                          : service.type === "one_time"
+                            ? "One-time"
+                            : "Internal"}
+                      </span>
+                    </div>
+                    <div className="text-right text-[#6b7280]">
+                      {service.type === "internal" ? "—" : service.clientsCount}
+                    </div>
+                    <div
+                      className="flex items-center justify-end gap-1 text-right"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {/* quiet icon strip: text links here wrapped to two lines and drowned the row.
                       Every icon carries its meaning in the tooltip / aria-label */}
-                  {isAdmin && (
-                    <>
-                      <IconButton
-                        label="Edit service"
-                        onClick={() => {
-                          setEditing(service);
-                          setEditorOpen(true);
-                        }}
-                      >
-                        <Pencil size={15} />
-                      </IconButton>
-                      {/* only an active one-time service can be the catalog default, and it has
+                      {isAdmin && (
+                        <>
+                          <IconButton
+                            label="Edit service"
+                            onClick={() => {
+                              setEditing(service);
+                              setEditorOpen(true);
+                            }}
+                          >
+                            <Pencil size={15} />
+                          </IconButton>
+                          {/* only an active one-time service can be the catalog default, and it has
                           to be cleared before the service can be deactivated — same rules as a
                           client's default service, so the two controls sit together */}
-                      {service.type === "one_time" && service.active && (
-                        <IconButton
-                          label={
-                            service.autoAddToNewClients
-                              ? "Default for new clients — click to clear"
-                              : "Make default for new clients"
-                          }
-                          disabled={updateService.isPending}
-                          className={cn(
-                            service.autoAddToNewClients &&
-                              "text-[#2f4fd6] hover:text-[#2f4fd6]", // matches the ★ default chip
+                          {service.type === "one_time" && service.active && (
+                            <IconButton
+                              label={
+                                service.autoAddToNewClients
+                                  ? "Default for new clients — click to clear"
+                                  : "Make default for new clients"
+                              }
+                              disabled={updateService.isPending}
+                              className={cn(
+                                service.autoAddToNewClients &&
+                                  "text-[#2f4fd6] hover:text-[#2f4fd6]", // matches the ★ default chip
+                              )}
+                              onClick={() =>
+                                updateService
+                                  .mutateAsync({
+                                    id: service.id,
+                                    input: {
+                                      autoAddToNewClients: !service.autoAddToNewClients,
+                                    },
+                                  })
+                                  .catch(() => {})
+                              }
+                            >
+                              <Star
+                                size={15}
+                                fill={service.autoAddToNewClients ? "currentColor" : "none"}
+                              />
+                            </IconButton>
                           )}
-                          onClick={() =>
-                            updateService
-                              .mutateAsync({
-                                id: service.id,
-                                input: { autoAddToNewClients: !service.autoAddToNewClients },
-                              })
-                              .catch(() => {})
-                          }
-                        >
-                          <Star
-                            size={15}
-                            fill={service.autoAddToNewClients ? "currentColor" : "none"}
-                          />
-                        </IconButton>
+                          <IconButton
+                            label={service.active ? "Deactivate service" : "Activate service"}
+                            title={
+                              service.autoAddToNewClients
+                                ? "Clear the default first — new clients are given this service automatically"
+                                : undefined
+                            }
+                            disabled={updateService.isPending || service.autoAddToNewClients}
+                            className="hover:text-danger"
+                            onClick={() =>
+                              updateService
+                                .mutateAsync({
+                                  id: service.id,
+                                  input: { active: !service.active },
+                                })
+                                .catch(() => {})
+                            }
+                          >
+                            <Power size={15} />
+                          </IconButton>
+                          <IconButton
+                            label="Delete service"
+                            disabled={deleteService.isPending}
+                            className="hover:text-danger"
+                            onClick={() => {
+                              if (
+                                !window.confirm(
+                                  `Delete “${service.name}”? Possible only while no client uses it.`,
+                                )
+                              )
+                                return;
+                              deleteService
+                                .mutateAsync(service.id)
+                                .catch((e) =>
+                                  window.alert(
+                                    e instanceof Error ? e.message : "Delete failed",
+                                  ),
+                                );
+                            }}
+                          >
+                            <Trash2 size={15} />
+                          </IconButton>
+                        </>
                       )}
-                      <IconButton
-                        label={service.active ? "Deactivate service" : "Activate service"}
-                        title={
-                          service.autoAddToNewClients
-                            ? "Clear the default first — new clients are given this service automatically"
-                            : undefined
-                        }
-                        disabled={updateService.isPending || service.autoAddToNewClients}
-                        className="hover:text-danger"
-                        onClick={() =>
-                          updateService
-                            .mutateAsync({
-                              id: service.id,
-                              input: { active: !service.active },
-                            })
-                            .catch(() => {})
-                        }
-                      >
-                        <Power size={15} />
-                      </IconButton>
-                      <IconButton
-                        label="Delete service"
-                        disabled={deleteService.isPending}
-                        className="hover:text-danger"
-                        onClick={() => {
-                          if (
-                            !window.confirm(
-                              `Delete “${service.name}”? Possible only while no client uses it.`,
-                            )
-                          )
-                            return;
-                          deleteService
-                            .mutateAsync(service.id)
-                            .catch((e) =>
-                              window.alert(e instanceof Error ? e.message : "Delete failed"),
-                            );
-                        }}
-                      >
-                        <Trash2 size={15} />
-                      </IconButton>
-                    </>
-                  )}
-                </div>
-              </div>
+                    </div>
+                  </div>
 
-              {(expanded.has(service.id) || matchedInside(service)) && (
-                <ExpandedPanel
-                  service={service}
-                  isAdmin={isAdmin}
-                  onAddTask={() => setTaskModal({ service })}
-                  onEditTask={(template) => setTaskModal({ service, template })}
-                />
-              )}
-            </SortableServiceRow>
-          ))}
+                  {(expanded.has(service.id) || matchedInside(service)) && (
+                    <ExpandedPanel
+                      service={service}
+                      isAdmin={isAdmin}
+                      onAddTask={() => setTaskModal({ service })}
+                      onEditTask={(template) => setTaskModal({ service, template })}
+                    />
+                  )}
+                </SortableServiceRow>
+              ))}
             </SortableContext>
           </DndContext>
         </div>
@@ -427,7 +440,10 @@ function ExpandedPanel({
         </span>
       )}
       {(() => {
-        const total = service.taskTemplates.reduce((sum, t) => sum + (t.estimatedMinutes ?? 0), 0);
+        const total = service.taskTemplates.reduce(
+          (sum, t) => sum + (t.estimatedMinutes ?? 0),
+          0,
+        );
         return total > 0 ? (
           <span className="ml-1.5 inline-flex rounded-[5px] bg-divider px-2 py-[3px] text-[12px] font-medium text-ink-700">
             ⏱ ~{total} min planned{service.type === "one_time" ? " / job" : " / period"}
@@ -501,7 +517,10 @@ function TemplateRow({
 
 const serviceFormSchema = z.object({
   name: z.string().trim().min(1, "Required").max(60),
-  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .optional(),
   type: z.enum(["subscription", "one_time", "internal"]),
   invoiceTrigger: z.enum(["on_create", "on_complete", "on_period_start", "on_period_end"]),
   invoiceDay: z.number().int().min(1).max(31).nullable(),
@@ -531,7 +550,8 @@ function normalizedBilling(service?: Service): {
       day: null,
     };
   }
-  if (service.invoiceTrigger === "on_period_end") return { trigger: "on_period_end", day: null };
+  if (service.invoiceTrigger === "on_period_end")
+    return { trigger: "on_period_end", day: null };
   return { trigger: "on_period_start", day: service.invoiceDay ?? null };
 }
 
@@ -667,8 +687,8 @@ function ServiceEditorModal({
 
         {isInternal && (
           <p className="rounded-(--radius-field) bg-[#f7f8fa] px-3 py-2 text-[12px] text-muted">
-            Internal category — recurring firm-internal tasks, no client and no billing. Add task
-            templates to it (rhythm, deadline, checklist, assignees) below after saving.
+            Internal category — recurring firm-internal tasks, no client and no billing. Add
+            task templates to it (rhythm, deadline, checklist, assignees) below after saving.
           </p>
         )}
 
@@ -697,120 +717,122 @@ function ServiceEditorModal({
         </div>
 
         {!isInternal && (
-        <div className="rounded-[10px] border border-[#e6e9ee] p-3.5">
-          <Label>Billing — when is the invoice issued</Label>
-          <div className="flex flex-wrap gap-1.5">
-            {(type === "one_time" ? ONE_TIME_TRIGGERS : SUB_TRIGGERS).map((t) => {
-              const selected =
-                t.value === "on_period_start"
-                  ? trigger === "on_period_start" && day == null
-                  : trigger === t.value;
-              return (
+          <div className="rounded-[10px] border border-[#e6e9ee] p-3.5">
+            <Label>Billing — when is the invoice issued</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {(type === "one_time" ? ONE_TIME_TRIGGERS : SUB_TRIGGERS).map((t) => {
+                const selected =
+                  t.value === "on_period_start"
+                    ? trigger === "on_period_start" && day == null
+                    : trigger === t.value;
+                return (
+                  <button
+                    key={t.value}
+                    type="button"
+                    onClick={() => {
+                      setValue("invoiceTrigger", t.value, { shouldDirty: true });
+                      setValue("invoiceDay", null, { shouldDirty: true });
+                    }}
+                    className={pillCls(selected)}
+                  >
+                    {t.label}
+                  </button>
+                );
+              })}
+              {type === "subscription" && (
                 <button
-                  key={t.value}
                   type="button"
                   onClick={() => {
-                    setValue("invoiceTrigger", t.value, { shouldDirty: true });
-                    setValue("invoiceDay", null, { shouldDirty: true });
+                    setValue("invoiceTrigger", "on_period_start", { shouldDirty: true });
+                    setValue("invoiceDay", 5, { shouldDirty: true });
                   }}
-                  className={pillCls(selected)}
+                  className={pillCls(trigger === "on_period_start" && day != null)}
                 >
-                  {t.label}
+                  Custom day
                 </button>
-              );
-            })}
-            {type === "subscription" && (
-              <button
-                type="button"
-                onClick={() => {
-                  setValue("invoiceTrigger", "on_period_start", { shouldDirty: true });
-                  setValue("invoiceDay", 5, { shouldDirty: true });
-                }}
-                className={pillCls(trigger === "on_period_start" && day != null)}
-              >
-                Custom day
-              </button>
+              )}
+            </div>
+            {type === "subscription" && trigger === "on_period_start" && day != null && (
+              <div className="mt-2.5 flex items-center gap-2 text-[13px]">
+                <span>On day</span>
+                <Input
+                  className="w-14"
+                  type="number"
+                  min={1}
+                  max={31}
+                  value={day}
+                  onChange={(e) =>
+                    setValue("invoiceDay", e.target.value ? Number(e.target.value) : 1, {
+                      shouldDirty: true,
+                    })
+                  }
+                />
+                <span className="text-muted">of the period</span>
+              </div>
             )}
-          </div>
-          {type === "subscription" && trigger === "on_period_start" && day != null && (
             <div className="mt-2.5 flex items-center gap-2 text-[13px]">
-              <span>On day</span>
+              <span>Expected price</span>
+              <span className="text-muted">$</span>
+              <Input
+                className="w-24"
+                type="number"
+                min={0}
+                value={amount != null ? amount / 100 : ""}
+                onChange={(e) =>
+                  setValue(
+                    "defaultAmount",
+                    e.target.value ? Math.round(Number(e.target.value) * 100) : null,
+                    { shouldDirty: true },
+                  )
+                }
+              />
+            </div>
+            <div className="mt-2.5 flex items-center gap-2 text-[13px]">
+              <span>Invoice overdue after</span>
               <Input
                 className="w-14"
                 type="number"
                 min={1}
-                max={31}
-                value={day}
+                max={365}
+                value={dueDays ?? ""}
                 onChange={(e) =>
-                  setValue("invoiceDay", e.target.value ? Number(e.target.value) : 1, {
+                  setValue("dueDays", e.target.value ? Number(e.target.value) : null, {
                     shouldDirty: true,
                   })
                 }
               />
-              <span className="text-muted">of the period</span>
+              <span className="text-muted">
+                days after the invoice is issued (empty = never)
+              </span>
             </div>
-          )}
-          <div className="mt-2.5 flex items-center gap-2 text-[13px]">
-            <span>Expected price</span>
-            <span className="text-muted">$</span>
-            <Input
-              className="w-24"
-              type="number"
-              min={0}
-              value={amount != null ? amount / 100 : ""}
-              onChange={(e) =>
-                setValue(
-                  "defaultAmount",
-                  e.target.value ? Math.round(Number(e.target.value) * 100) : null,
-                  { shouldDirty: true },
-                )
-              }
-            />
-          </div>
-          <div className="mt-2.5 flex items-center gap-2 text-[13px]">
-            <span>Invoice overdue after</span>
-            <Input
-              className="w-14"
-              type="number"
-              min={1}
-              max={365}
-              value={dueDays ?? ""}
-              onChange={(e) =>
-                setValue("dueDays", e.target.value ? Number(e.target.value) : null, {
-                  shouldDirty: true,
-                })
-              }
-            />
-            <span className="text-muted">days after the invoice is issued (empty = never)</span>
-          </div>
-          <div className="mt-2.5 rounded-[6px] bg-[#eef1fb] px-2.5 py-1.5 text-[12px] font-medium text-[#2f4fd6]">
-            →{" "}
-            {ruleSummary({
-              type,
-              invoiceTrigger: trigger,
-              invoiceDay: day ?? null,
-              defaultAmount: amount ?? null,
-              dueDays: dueDays ?? null,
-            })}
-          </div>
-          {type === "subscription" && (
-            <p className="mt-2 text-[12px] text-faint">
-              How often (monthly / quarterly / yearly) is chosen per client on their
-              subscription — here you only set WHEN in that period the invoice is issued.
-            </p>
-          )}
-          {/* Both are REFERENCE — true, worth knowing once, and not worth two paragraphs under
+            <div className="mt-2.5 rounded-[6px] bg-[#eef1fb] px-2.5 py-1.5 text-[12px] font-medium text-[#2f4fd6]">
+              →{" "}
+              {ruleSummary({
+                type,
+                invoiceTrigger: trigger,
+                invoiceDay: day ?? null,
+                defaultAmount: amount ?? null,
+                dueDays: dueDays ?? null,
+              })}
+            </div>
+            {type === "subscription" && (
+              <p className="mt-2 text-[12px] text-faint">
+                How often (monthly / quarterly / yearly) is chosen per client on their
+                subscription — here you only set WHEN in that period the invoice is issued.
+              </p>
+            )}
+            {/* Both are REFERENCE — true, worth knowing once, and not worth two paragraphs under
               every visit to this form. The rule above them stays on the page: it corrects a
               misreading at the moment of choosing, which an icon cannot do. */}
-          <p className="mt-2 flex items-center gap-1.5 text-[12px] text-faint">
-            Prices and rhythm
-            <InfoHint label="How the price and the rhythm are used">
-              The expected price prefills the per-client form — the final price is set when the
-              service is added to a client. Work rhythm and planned time live on the item&apos;s
-              task templates: expand the row and use “+ Add task template”.
-            </InfoHint>
-          </p>
-        </div>
+            <p className="mt-2 flex items-center gap-1.5 text-[12px] text-faint">
+              Prices and rhythm
+              <InfoHint label="How the price and the rhythm are used">
+                The expected price prefills the per-client form — the final price is set when
+                the service is added to a client. Work rhythm and planned time live on the
+                item&apos;s task templates: expand the row and use “+ Add task template”.
+              </InfoHint>
+            </p>
+          </div>
         )}
 
         {serverError && <p className="text-[12px] text-danger-text">{serverError}</p>}
@@ -967,7 +989,9 @@ function TaskTemplateModal({
           <div className="mb-1.5 block text-[12px] font-medium text-ink-700">
             Default checklist{" "}
             <span className="font-normal text-muted">
-              {isInternal ? "— seeded onto each generated task" : "— seeded onto each task; per-client override on the subscription"}
+              {isInternal
+                ? "— seeded onto each generated task"
+                : "— seeded onto each task; per-client override on the subscription"}
             </span>
           </div>
           <ChecklistEditor

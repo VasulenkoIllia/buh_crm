@@ -183,10 +183,18 @@ describe("password change session invalidation", () => {
     expect(change.statusCode).toBe(200);
     const freshCookie = cookieOf(change); // re-issued session for this device
 
-    const meB = await app.inject({ method: "GET", url: "/api/auth/me", headers: { cookie: cookieB } });
+    const meB = await app.inject({
+      method: "GET",
+      url: "/api/auth/me",
+      headers: { cookie: cookieB },
+    });
     expect(meB.statusCode).toBe(401); // other device is signed out
 
-    const meA = await app.inject({ method: "GET", url: "/api/auth/me", headers: { cookie: freshCookie } });
+    const meA = await app.inject({
+      method: "GET",
+      url: "/api/auth/me",
+      headers: { cookie: freshCookie },
+    });
     expect(meA.statusCode).toBe(200); // this device stays signed in
 
     // restore the password for the rest of the suite
@@ -228,7 +236,12 @@ describe("clients", () => {
       payload: {
         firstName: "Dedup",
         lastName: "Test",
-        companies: [{ name: "Alpha LLC" }, { name: "alpha llc" }, { name: " ALPHA LLC " }, { name: "Beta" }],
+        companies: [
+          { name: "Alpha LLC" },
+          { name: "alpha llc" },
+          { name: " ALPHA LLC " },
+          { name: "Beta" },
+        ],
         people: [],
       },
     });

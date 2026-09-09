@@ -105,7 +105,12 @@ describe("route inventory", () => {
    * count of 8 exactly — no route had been missed.
    */
   it("keeps the unauthenticated surface to the eight routes that are meant to be public", () => {
-    expect(live.filter((r) => !r.derived && r.access === "anonymous").map(key).sort()).toEqual([
+    expect(
+      live
+        .filter((r) => !r.derived && r.access === "anonymous")
+        .map(key)
+        .sort(),
+    ).toEqual([
       "GET /api/mailouts/unsubscribe/:token",
       "GET /health",
       "POST /api/auth/accept-invite",

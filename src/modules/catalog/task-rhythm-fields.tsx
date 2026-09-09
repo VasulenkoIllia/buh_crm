@@ -11,7 +11,18 @@ export const RHYTHM_LABEL: Record<Periodicity, string> = {
 };
 export const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 export const MONTHS = [
-  "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
 ];
 const dayLabel = (d: number) => (d === -1 ? "last day" : `day ${d}`);
 
@@ -99,107 +110,129 @@ export function TaskRhythmFields({
   plannedHint?: string;
   oneTime?: boolean;
 }) {
-  const { periodicity, dayOfPeriod: day, monthOfPeriod: month, deadlineOffsetDays: offset } = value;
+  const {
+    periodicity,
+    dayOfPeriod: day,
+    monthOfPeriod: month,
+    deadlineOffsetDays: offset,
+  } = value;
 
   return (
     <>
       {!oneTime && (
-      <div>
-        <div className="mb-1.5 block text-[12px] font-medium text-ink-700">Rhythm / frequency</div>
-        <div className="flex flex-wrap gap-1.5">
-          {(Object.keys(RHYTHM_LABEL) as Periodicity[]).map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => {
-                // sensible defaults per frequency
-                if (p === "once") onChange({ periodicity: p, dayOfPeriod: null, monthOfPeriod: null });
-                else if (p === "weekly" || p === "monthly")
-                  onChange({ periodicity: p, dayOfPeriod: 1, monthOfPeriod: null });
-                else onChange({ periodicity: p, dayOfPeriod: 1, monthOfPeriod: 1 });
-              }}
-              className={pillCls(periodicity === p)}
-            >
-              {RHYTHM_LABEL[p]}
-            </button>
-          ))}
-        </div>
-
-        {periodicity === "weekly" && (
-          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[13px]">
-            <span>On</span>
-            {WEEKDAYS.map((w, i) => (
+        <div>
+          <div className="mb-1.5 block text-[12px] font-medium text-ink-700">
+            Rhythm / frequency
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {(Object.keys(RHYTHM_LABEL) as Periodicity[]).map((p) => (
               <button
-                key={w}
+                key={p}
                 type="button"
-                onClick={() => onChange({ dayOfPeriod: i + 1 })}
-                className={pillCls(day === i + 1)}
+                onClick={() => {
+                  // sensible defaults per frequency
+                  if (p === "once")
+                    onChange({ periodicity: p, dayOfPeriod: null, monthOfPeriod: null });
+                  else if (p === "weekly" || p === "monthly")
+                    onChange({ periodicity: p, dayOfPeriod: 1, monthOfPeriod: null });
+                  else onChange({ periodicity: p, dayOfPeriod: 1, monthOfPeriod: 1 });
+                }}
+                className={pillCls(periodicity === p)}
               >
-                {w}
+                {RHYTHM_LABEL[p]}
               </button>
             ))}
           </div>
-        )}
 
-        {periodicity === "quarterly" && (
-          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[13px]">
-            <span>In the</span>
-            {[1, 2, 3].map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => onChange({ monthOfPeriod: m })}
-                className={pillCls(month === m)}
-              >
-                {["1st", "2nd", "3rd"][m - 1]}
-              </button>
-            ))}
-            <span>month of the quarter</span>
-          </div>
-        )}
-
-        {periodicity === "yearly" && (
-          <div className="mt-2 flex items-center gap-2 text-[13px]">
-            <span>In</span>
-            <Select
-              className="w-28"
-              value={month ?? 1}
-              onChange={(e) => onChange({ monthOfPeriod: Number(e.target.value) })}
-            >
-              {MONTHS.map((m, i) => (
-                <option key={m} value={i + 1}>
-                  {m}
-                </option>
+          {periodicity === "weekly" && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[13px]">
+              <span>On</span>
+              {WEEKDAYS.map((w, i) => (
+                <button
+                  key={w}
+                  type="button"
+                  onClick={() => onChange({ dayOfPeriod: i + 1 })}
+                  className={pillCls(day === i + 1)}
+                >
+                  {w}
+                </button>
               ))}
-            </Select>
-          </div>
-        )}
+            </div>
+          )}
 
-        {(periodicity === "monthly" || periodicity === "quarterly" || periodicity === "yearly") && (
-          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[13px]">
-            <span>On</span>
-            <button type="button" onClick={() => onChange({ dayOfPeriod: 1 })} className={pillCls(day === 1)}>
-              1st
-            </button>
-            <button type="button" onClick={() => onChange({ dayOfPeriod: 15 })} className={pillCls(day === 15)}>
-              15th
-            </button>
-            <button type="button" onClick={() => onChange({ dayOfPeriod: -1 })} className={pillCls(day === -1)}>
-              Last day
-            </button>
-            <Input
-              className="w-16"
-              type="number"
-              min={1}
-              max={31}
-              placeholder="day"
-              value={dayBoxValue(day)}
-              onChange={(e) => onChange({ dayOfPeriod: dayFromBox(e.target.value) })}
-            />
-            {dayError && <span className="text-[12px] text-danger-text">{dayError}</span>}
-          </div>
-        )}
-      </div>
+          {periodicity === "quarterly" && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[13px]">
+              <span>In the</span>
+              {[1, 2, 3].map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => onChange({ monthOfPeriod: m })}
+                  className={pillCls(month === m)}
+                >
+                  {["1st", "2nd", "3rd"][m - 1]}
+                </button>
+              ))}
+              <span>month of the quarter</span>
+            </div>
+          )}
+
+          {periodicity === "yearly" && (
+            <div className="mt-2 flex items-center gap-2 text-[13px]">
+              <span>In</span>
+              <Select
+                className="w-28"
+                value={month ?? 1}
+                onChange={(e) => onChange({ monthOfPeriod: Number(e.target.value) })}
+              >
+                {MONTHS.map((m, i) => (
+                  <option key={m} value={i + 1}>
+                    {m}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
+
+          {(periodicity === "monthly" ||
+            periodicity === "quarterly" ||
+            periodicity === "yearly") && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[13px]">
+              <span>On</span>
+              <button
+                type="button"
+                onClick={() => onChange({ dayOfPeriod: 1 })}
+                className={pillCls(day === 1)}
+              >
+                1st
+              </button>
+              <button
+                type="button"
+                onClick={() => onChange({ dayOfPeriod: 15 })}
+                className={pillCls(day === 15)}
+              >
+                15th
+              </button>
+              <button
+                type="button"
+                onClick={() => onChange({ dayOfPeriod: -1 })}
+                className={pillCls(day === -1)}
+              >
+                Last day
+              </button>
+              <Input
+                className="w-16"
+                type="number"
+                min={1}
+                max={31}
+                placeholder="day"
+                value={dayBoxValue(day)}
+                onChange={(e) => onChange({ dayOfPeriod: dayFromBox(e.target.value) })}
+              />
+              {dayError && <span className="text-[12px] text-danger-text">{dayError}</span>}
+            </div>
+          )}
+        </div>
       )}
 
       <div>

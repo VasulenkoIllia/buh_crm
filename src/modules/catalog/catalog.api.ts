@@ -76,8 +76,7 @@ export function useMoveService() {
 export function useDeleteService() {
   const invalidate = useInvalidateCatalog();
   return useMutation({
-    mutationFn: (id: string) =>
-      api<{ ok: true }>(`/api/catalog/${id}`, { method: "DELETE" }),
+    mutationFn: (id: string) => api<{ ok: true }>(`/api/catalog/${id}`, { method: "DELETE" }),
     onSettled: invalidate,
   });
 }

@@ -71,37 +71,34 @@ async function runOnce(job: SchedulerJob, log: FastifyBaseLogger): Promise<void>
    * System tab reads. Only the failure is mirrored here, because "a night did not happen" is asked
    * by somebody who does not yet know which job to ask about (§9).
    */
-  await runWithActivity(
-    { actor: { kind: "system", label: "The scheduler" } },
-    async () => {
-      try {
-        const outcome = await job.run();
-        await recordJobRun(job.name, {
-          ok: true,
-          durationMs: Date.now() - started,
-          note: outcome?.note,
-          skipped: outcome?.skipped,
-          did: outcome?.did,
-        });
-      } catch (err) {
-        const error = err instanceof Error ? err.message : String(err);
-        await recordJobRun(job.name, {
-          ok: false,
-          durationMs: Date.now() - started,
-          error,
-        });
-        // deduped to one row an hour per job: a job failing every fifteen minutes would otherwise
-        // write 96 rows a day and bury everything else (§4.2)
-        record("system.job_failed", {
-          // the job failed; the request did not, because there is no request
-          outcome: "failed",
-          subjectLabel: job.name,
-          changes: { job: job.name, error },
-        });
-        log.error({ job: job.name, err }, "scheduler job failed");
-      }
-    },
-  );
+  await runWithActivity({ actor: { kind: "system", label: "The scheduler" } }, async () => {
+    try {
+      const outcome = await job.run();
+      await recordJobRun(job.name, {
+        ok: true,
+        durationMs: Date.now() - started,
+        note: outcome?.note,
+        skipped: outcome?.skipped,
+        did: outcome?.did,
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      await recordJobRun(job.name, {
+        ok: false,
+        durationMs: Date.now() - started,
+        error,
+      });
+      // deduped to one row an hour per job: a job failing every fifteen minutes would otherwise
+      // write 96 rows a day and bury everything else (§4.2)
+      record("system.job_failed", {
+        // the job failed; the request did not, because there is no request
+        outcome: "failed",
+        subjectLabel: job.name,
+        changes: { job: job.name, error },
+      });
+      log.error({ job: job.name, err }, "scheduler job failed");
+    }
+  });
 }
 
 /** One place that turns a job into a running cron task, so start and reschedule cannot diverge. */

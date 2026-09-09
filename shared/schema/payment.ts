@@ -142,7 +142,12 @@ export function hasLiveInvoice(job: {
 }
 
 export function deriveStatus(
-  invoice: { amount: number; paid: number; dueDate: Date | string | null; cancelledAt: Date | string | null },
+  invoice: {
+    amount: number;
+    paid: number;
+    dueDate: Date | string | null;
+    cancelledAt: Date | string | null;
+  },
   todayMs: number = localBusinessTodayMs(),
 ): z.infer<typeof invoiceStatus> {
   if (invoice.cancelledAt) return "cancelled";

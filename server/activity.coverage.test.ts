@@ -82,8 +82,10 @@ describe("every part of the product that changes something says what it changed"
     const known = new Set(prefixes.values());
     expect(Object.keys(TIER1_ONLY).filter((m) => !known.has(m))).toEqual([]);
     for (const [module, why] of Object.entries(TIER1_ONLY)) {
-      expect(why.length, `${module}: an exception without a reason is not an exception`)
-        .toBeGreaterThan(40);
+      expect(
+        why.length,
+        `${module}: an exception without a reason is not an exception`,
+      ).toBeGreaterThan(40);
     }
   });
 });

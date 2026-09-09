@@ -50,7 +50,11 @@ export const fmtBizDate = (iso: string | Date) =>
 
 /** dd/mm of a BUSINESS DATE — compact, for board cards and tight rows. */
 export const fmtBizDay = (iso: string | Date) =>
-  new Date(iso).toLocaleDateString("en-GB", { timeZone: "UTC", day: "2-digit", month: "2-digit" });
+  new Date(iso).toLocaleDateString("en-GB", {
+    timeZone: "UTC",
+    day: "2-digit",
+    month: "2-digit",
+  });
 
 /** Today as "YYYY-MM-DD" on the FIRM's calendar — the value a `<input type="date">` expects. */
 export const todayIso = () => firmToday();

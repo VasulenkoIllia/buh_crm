@@ -42,7 +42,8 @@ export type Service = z.infer<typeof serviceSchema>;
 
 /** Client-assignable (subscription / one-time). Internal services are firm-internal only, so they're
  *  excluded from every client/lead service picker. Keep this the single source of that rule. */
-export const isClientFacing = (s: { type: z.infer<typeof serviceType> }) => s.type !== "internal";
+export const isClientFacing = (s: { type: z.infer<typeof serviceType> }) =>
+  s.type !== "internal";
 
 /**
  * A one-time service is a CONTAINER for manual jobs: its `defaultAmount` is a price per job, and it
@@ -156,7 +157,10 @@ export type RhythmOverrides = z.infer<typeof rhythmOverridesSchema>;
 const serviceFields = z.object({
   name: z.string().trim().min(1).max(60),
   /** omitted on create → the server auto-assigns from the category palette */
-  color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Must be a hex color").optional(),
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/, "Must be a hex color")
+    .optional(),
   /** subscription/one-time = client-facing (billable); internal = firm-internal recurring tasks (no billing) */
   type: serviceType,
   defaultAmount: money.nullable().optional(),

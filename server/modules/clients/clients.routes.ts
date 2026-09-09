@@ -45,9 +45,13 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   // the reader is passed in because PINS are per-user: the same list, ordered differently for
   // each person who opens it
-  app.get("/", { config: shared(), schema: { querystring: clientListQuery } }, async (request) => {
-    return service.listClients(request.query, request.currentUser!.id);
-  });
+  app.get(
+    "/",
+    { config: shared(), schema: { querystring: clientListQuery } },
+    async (request) => {
+      return service.listClients(request.query, request.currentUser!.id);
+    },
+  );
 
   app.get("/:id", { config: shared(), schema: { params: idParams } }, async (request) => {
     // `viewClient`, not `getClient`: opening a card is a recordable act (off by default), and the
@@ -55,10 +59,14 @@ export async function registerRoutes(instance: FastifyInstance) {
     return service.viewClient(request.params.id, request.currentUser!.id);
   });
 
-  app.post("/", { config: clients, schema: { body: createClientInput } }, async (request, reply) => {
-    const client = await service.createClient(request.body);
-    return reply.status(201).send(client);
-  });
+  app.post(
+    "/",
+    { config: clients, schema: { body: createClientInput } },
+    async (request, reply) => {
+      const client = await service.createClient(request.body);
+      return reply.status(201).send(client);
+    },
+  );
 
   app.patch(
     "/:id",
@@ -82,13 +90,21 @@ export async function registerRoutes(instance: FastifyInstance) {
     return { ok: true as const };
   });
 
-  app.post("/:id/archive", { config: clients, schema: { params: idParams } }, async (request) => {
-    return service.archiveClient(request.params.id, request.currentUser!);
-  });
+  app.post(
+    "/:id/archive",
+    { config: clients, schema: { params: idParams } },
+    async (request) => {
+      return service.archiveClient(request.params.id, request.currentUser!);
+    },
+  );
 
-  app.post("/:id/restore", { config: clients, schema: { params: idParams } }, async (request) => {
-    return service.restoreClient(request.params.id);
-  });
+  app.post(
+    "/:id/restore",
+    { config: clients, schema: { params: idParams } },
+    async (request) => {
+      return service.restoreClient(request.params.id);
+    },
+  );
 
   // ── subscriptions (S3) — a client's categories follow from these, nothing to set ──
 
@@ -147,24 +163,27 @@ export async function registerRoutes(instance: FastifyInstance) {
     },
   );
 
-
   // ── files ─────────────────────────────────────────────────────────────────
 
   app.get("/:id/files", { config: clients, schema: { params: idParams } }, async (request) => {
     return service.listFiles(request.params.id);
   });
 
-  app.post("/:id/files", { config: clients, schema: { params: idParams } }, async (request, reply) => {
-    const part = await request.file();
-    if (!part) throw new ValidationError("File is required");
-    const buffer = await part.toBuffer();
-    const file = await service.addFile(request.params.id, request.currentUser!, {
-      buffer,
-      filename: part.filename,
-      mimetype: part.mimetype,
-    });
-    return reply.status(201).send(file);
-  });
+  app.post(
+    "/:id/files",
+    { config: clients, schema: { params: idParams } },
+    async (request, reply) => {
+      const part = await request.file();
+      if (!part) throw new ValidationError("File is required");
+      const buffer = await part.toBuffer();
+      const file = await service.addFile(request.params.id, request.currentUser!, {
+        buffer,
+        filename: part.filename,
+        mimetype: part.mimetype,
+      });
+      return reply.status(201).send(file);
+    },
+  );
 
   app.get(
     "/:id/files/:fileId",
@@ -199,8 +218,10 @@ export async function registerRoutes(instance: FastifyInstance) {
     secrets.listSecrets(request.params.id),
   );
 
-  app.get("/:id/secrets/grant", { config: vault, schema: { params: idParams } }, async (request) =>
-    secrets.grantStatus(request.params.id, request.currentUser!),
+  app.get(
+    "/:id/secrets/grant",
+    { config: vault, schema: { params: idParams } },
+    async (request) => secrets.grantStatus(request.params.id, request.currentUser!),
   );
 
   app.post(
@@ -210,7 +231,12 @@ export async function registerRoutes(instance: FastifyInstance) {
       reply
         .status(201)
         .send(
-          await secrets.createSecret(request.params.id, request.body, request.currentUser!, request.ip),
+          await secrets.createSecret(
+            request.params.id,
+            request.body,
+            request.currentUser!,
+            request.ip,
+          ),
         ),
   );
 
@@ -227,8 +253,16 @@ export async function registerRoutes(instance: FastifyInstance) {
       ),
   );
 
-  app.delete("/:id/secrets/:secretId", { config: vault, schema: { params: secretParams } }, async (request) =>
-    secrets.deleteSecret(request.params.id, request.params.secretId, request.currentUser!, request.ip),
+  app.delete(
+    "/:id/secrets/:secretId",
+    { config: vault, schema: { params: secretParams } },
+    async (request) =>
+      secrets.deleteSecret(
+        request.params.id,
+        request.params.secretId,
+        request.currentUser!,
+        request.ip,
+      ),
   );
 
   // Its OWN rate limit: this route checks a password, and the app-wide 300/min is far too generous
@@ -245,7 +279,10 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   app.post(
     "/:id/secrets/:secretId/reveal",
-    { schema: { params: secretParams }, config: { ...vault, rateLimit: { max: 30, timeWindow: "1 minute" } } },
+    {
+      schema: { params: secretParams },
+      config: { ...vault, rateLimit: { max: 30, timeWindow: "1 minute" } },
+    },
     async (request) =>
       secrets.revealSecret(
         request.params.id,
@@ -257,7 +294,13 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   app.get(
     "/:id/secrets/audit",
-    { config: vault, schema: { params: idParams, querystring: z.object({ page: z.coerce.number().int().min(1).default(1) }) } },
+    {
+      config: vault,
+      schema: {
+        params: idParams,
+        querystring: z.object({ page: z.coerce.number().int().min(1).default(1) }),
+      },
+    },
     async (request) => secrets.listAudit(request.params.id, request.query.page),
   );
 }

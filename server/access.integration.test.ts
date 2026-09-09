@@ -191,8 +191,13 @@ describe("role, override and the absent row", () => {
     await policy("billing", "closed");
     expect((await asUser("GET", "/api/invoices")).statusCode).toBe(403);
     expect(
-      (await app.inject({ method: "GET", url: "/api/invoices", headers: { cookie: adminCookie } }))
-        .statusCode,
+      (
+        await app.inject({
+          method: "GET",
+          url: "/api/invoices",
+          headers: { cookie: adminCookie },
+        })
+      ).statusCode,
     ).toBe(200);
   });
 
@@ -215,9 +220,9 @@ describe("role, override and the absent row", () => {
   it("falls back to the registry default when no policy row exists at all", async () => {
     // nothing seeded — `services` defaults to read_only for a user
     expect((await asUser("GET", "/api/catalog")).statusCode).toBe(200);
-    expect((await asUser("POST", "/api/catalog", { name: "X", type: "one_time" })).statusCode).toBe(
-      403,
-    );
+    expect(
+      (await asUser("POST", "/api/catalog", { name: "X", type: "one_time" })).statusCode,
+    ).toBe(403);
   });
 });
 
@@ -277,7 +282,11 @@ describe("what the hook does not decide", () => {
       method: "POST",
       url: "/api/catalog",
       headers: { cookie: adminCookie },
-      payload: { name: `Access Seam Job ${RUN}`, type: "one_time", invoiceTrigger: "on_complete" },
+      payload: {
+        name: `Access Seam Job ${RUN}`,
+        type: "one_time",
+        invoiceTrigger: "on_complete",
+      },
     });
     createdServices.push(service.json().id);
     const subscription = await app.inject({
@@ -348,7 +357,8 @@ describe("what the hook does not decide", () => {
         clientId: client.json().id,
         subscriptionId: subscription
           .json()
-          .subscriptions.find((s: { serviceId: string }) => s.serviceId === service.json().id).id,
+          .subscriptions.find((s: { serviceId: string }) => s.serviceId === service.json().id)
+          .id,
         assignees: [userId],
         deadline: "2026-07-15",
       },
@@ -453,8 +463,13 @@ describe("the access screen's own API", () => {
   it("is admin-only, because it is behind the Team gate", async () => {
     expect((await asUser("GET", "/api/access")).statusCode).toBe(403);
     expect(
-      (await app.inject({ method: "GET", url: "/api/access", headers: { cookie: adminCookie } }))
-        .statusCode,
+      (
+        await app.inject({
+          method: "GET",
+          url: "/api/access",
+          headers: { cookie: adminCookie },
+        })
+      ).statusCode,
     ).toBe(200);
   });
 
@@ -797,8 +812,10 @@ describe("the rules that were already there", () => {
       headers: { cookie: adminCookie },
       payload: { body: "The admin's" },
     });
-    const idOf = (res: { json: () => { comments: { id: string; body: string }[] } }, body: string) =>
-      res.json().comments.find((c) => c.body === body)!.id;
+    const idOf = (
+      res: { json: () => { comments: { id: string; body: string }[] } },
+      body: string,
+    ) => res.json().comments.find((c) => c.body === body)!.id;
 
     expect(
       (
@@ -851,7 +868,8 @@ describe("the rules that were already there", () => {
         clientId,
         subscriptionId: subscription
           .json()
-          .subscriptions.find((s: { serviceId: string }) => s.serviceId === service.json().id).id,
+          .subscriptions.find((s: { serviceId: string }) => s.serviceId === service.json().id)
+          .id,
         assignees: [adminId],
       },
     });

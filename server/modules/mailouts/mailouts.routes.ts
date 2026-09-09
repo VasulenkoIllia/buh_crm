@@ -266,9 +266,7 @@ export async function registerRoutes(instance: FastifyInstance) {
    */
   app.get("/senders", { config: mailouts }, async () => service.listSenderOptions());
 
-  app.get("/settings/senders", { config: mailboxes }, async () =>
-    service.listSenderAccounts(),
-  );
+  app.get("/settings/senders", { config: mailboxes }, async () => service.listSenderAccounts());
 
   app.post(
     "/settings/senders",

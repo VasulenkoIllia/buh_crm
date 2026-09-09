@@ -13,7 +13,9 @@ describe("renderMailText", () => {
   });
 
   it("tolerates spaces inside the braces, because people type them", () => {
-    expect(renderMailText("Hi {{ first_name }}", { first_name: "Olena" }).text).toBe("Hi Olena");
+    expect(renderMailText("Hi {{ first_name }}", { first_name: "Olena" }).text).toBe(
+      "Hi Olena",
+    );
   });
 
   /**
@@ -39,7 +41,9 @@ describe("renderMailText", () => {
 
   /** Deleting a typo would hide it until a client saw the hole. Leave it standing. */
   it("leaves an unknown variable visible and names it", () => {
-    const r = renderMailText("Due {{deadline_date}} for {{first_name}}", { first_name: "Olena" });
+    const r = renderMailText("Due {{deadline_date}} for {{first_name}}", {
+      first_name: "Olena",
+    });
     expect(r.text).toBe("Due {{deadline_date}} for Olena");
     expect(r.unknown).toEqual(["deadline_date"]);
   });
@@ -55,17 +59,19 @@ describe("renderMailText", () => {
   });
 
   it("does not re-scan substituted values — a name containing braces cannot inject a variable", () => {
-    const r = renderMailText("Hi {{first_name}}", { first_name: "{{company}}", company: "ACME" });
+    const r = renderMailText("Hi {{first_name}}", {
+      first_name: "{{company}}",
+      company: "ACME",
+    });
     expect(r.text).toBe("Hi {{company}}");
   });
 });
 
 describe("usedVariables", () => {
   it("lists what a letter references, in catalog order, across subject and body", () => {
-    expect(usedVariables("{{company}} update", "Dear {{first_name}}, ref {{company}}")).toEqual([
-      "first_name",
-      "company",
-    ]);
+    expect(usedVariables("{{company}} update", "Dear {{first_name}}, ref {{company}}")).toEqual(
+      ["first_name", "company"],
+    );
   });
 
   it("ignores unknown names", () => {

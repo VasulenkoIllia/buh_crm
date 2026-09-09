@@ -27,7 +27,9 @@ describe("zonedDayStart", () => {
   });
 
   it("agrees with dateToUtc only in UTC itself", () => {
-    expect(zonedDayStart("2026-08-10", "UTC").getTime()).toBe(dateToUtc("2026-08-10").getTime());
+    expect(zonedDayStart("2026-08-10", "UTC").getTime()).toBe(
+      dateToUtc("2026-08-10").getTime(),
+    );
     expect(zonedDayStart("2026-08-10", "Europe/Kyiv").getTime()).not.toBe(
       dateToUtc("2026-08-10").getTime(),
     );

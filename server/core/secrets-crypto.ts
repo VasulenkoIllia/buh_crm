@@ -67,9 +67,10 @@ export function open(sealed: SealedSecret): string {
   const decipher = createDecipheriv("aes-256-gcm", k, Buffer.from(sealed.iv));
   decipher.setAuthTag(Buffer.from(sealed.authTag));
   // throws if the ciphertext or the tag was tampered with — which is the point of GCM
-  return Buffer.concat([decipher.update(Buffer.from(sealed.ciphertext)), decipher.final()]).toString(
-    "utf8",
-  );
+  return Buffer.concat([
+    decipher.update(Buffer.from(sealed.ciphertext)),
+    decipher.final(),
+  ]).toString("utf8");
 }
 
 /** Constant-time compare, for anything that comes from a request and gates access. */

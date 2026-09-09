@@ -41,8 +41,7 @@ const FILTERS: { key: Filter; label: string }[] = [
  * every column after it drifted left of its own label (user, 2026-08-27). A zero floor makes the
  * two resolve identically whatever they hold; the cells truncate instead.
  */
-const GRID =
-  "grid-cols-[30px_104px_minmax(0,1fr)_minmax(0,1fr)_72px_72px_84px_84px_76px_96px]";
+const GRID = "grid-cols-[30px_104px_minmax(0,1fr)_minmax(0,1fr)_72px_72px_84px_84px_76px_96px]";
 
 /** Billing / Unpaid — every invoice with what's been paid against it. */
 export function BillingPage() {
@@ -57,7 +56,9 @@ export function BillingPage() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [note, setNote] = useState<{ text: string; hint?: string; skipped: boolean } | null>(null);
+  const [note, setNote] = useState<{ text: string; hint?: string; skipped: boolean } | null>(
+    null,
+  );
 
   // deep links: ?invoice=<id> opens that invoice (from a task card), ?client=<id> narrows the
   // list to one client (drill-through from the client card's Invoices tab)
@@ -68,7 +69,12 @@ export function BillingPage() {
     if (invoiceParam) setOpenId(invoiceParam);
   }, [invoiceParam]);
 
-  const { data, isLoading, error: loadError, refetch } = useInvoices({
+  const {
+    data,
+    isLoading,
+    error: loadError,
+    refetch,
+  } = useInvoices({
     filter,
     search: settledSearch || undefined,
     clientId: clientParam ?? undefined,
@@ -324,7 +330,8 @@ export function BillingPage() {
               {eligible.toTidy < chosen.length && filter !== "settled" && (
                 <p className="mt-1.5 text-[12px] text-muted">
                   {chosen.length - eligible.toTidy} of the selected still have a balance — an
-                  invoice that is still owed can't be tidied away, so it never hides from Billing.
+                  invoice that is still owed can't be tidied away, so it never hides from
+                  Billing.
                 </p>
               )}
             </div>
@@ -442,12 +449,18 @@ function InvoiceRow({
       <div className="flex min-w-0 items-center gap-1.5">
         <span className="truncate font-medium">{invoice.clientName}</span>
         {invoice.clientArchived && (
-          <span className="flex-none text-[11px] text-faint" title="Client archived — still owed">
+          <span
+            className="flex-none text-[11px] text-faint"
+            title="Client archived — still owed"
+          >
             🗄
           </span>
         )}
       </div>
-      <div className="truncate text-ink-700" title={invoice.serviceName ?? invoice.description ?? ""}>
+      <div
+        className="truncate text-ink-700"
+        title={invoice.serviceName ?? invoice.description ?? ""}
+      >
         {invoice.serviceName ?? invoice.description ?? "—"}
         {invoice.periodKey && <span className="text-faint"> · {invoice.periodKey}</span>}
       </div>

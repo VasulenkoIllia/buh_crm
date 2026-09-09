@@ -33,8 +33,10 @@ const NOT_A_CLIENT = new Set(["тренировка", "врач", "созвон 
 const KEEP_WHOLE = /[/+]|\sи\s|\bLLC\b|бухгалтери|партнерств/i;
 
 const US_STATES = new Set(
-  ("AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ " +
-   "NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC").split(" "),
+  (
+    "AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ " +
+    "NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC"
+  ).split(" "),
 );
 
 /** The sheet's own source labels → the SourceOption names the CRM will hold. */
@@ -135,7 +137,13 @@ function toDraft(get: (c: string) => string, line: number): Draft {
   if (/^https?:/i.test(phoneCell)) links.push(phoneCell);
   if (handles.length) notes.push(`Telegram: ${handles.join(", ")}`);
   if (links.length) notes.push(`Соцмережі: ${links.join(" ")}`);
-  if (contact && !email && !handles.length && !links.length && !/^[+\d][\d\-\s().]+$/.test(contact)) {
+  if (
+    contact &&
+    !email &&
+    !handles.length &&
+    !links.length &&
+    !/^[+\d][\d\-\s().]+$/.test(contact)
+  ) {
     notes.push(`Контакт: ${contact}`);
   }
 
@@ -188,13 +196,27 @@ async function main() {
   if (!header) throw new Error("the CSV is empty");
   const col = (name: string) => {
     const i = header.findIndex((h) => clean(h) === name);
-    if (i === -1) throw new Error(`the CSV has no "${name}" column — headers: ${header.join(", ")}`);
+    if (i === -1)
+      throw new Error(`the CSV has no "${name}" column — headers: ${header.join(", ")}`);
     return i;
   };
   const idx = Object.fromEntries(
-    ["Client Name", "Client Type", "Service Type", "Deadline", "Tasks", "Appointment",
-     "Contact Info", "Phone", "Client Address", "Notes", "Quated", "Date Added",
-     "Договор подписан", "Source"].map((n) => [n, col(n)]),
+    [
+      "Client Name",
+      "Client Type",
+      "Service Type",
+      "Deadline",
+      "Tasks",
+      "Appointment",
+      "Contact Info",
+      "Phone",
+      "Client Address",
+      "Notes",
+      "Quated",
+      "Date Added",
+      "Договор подписан",
+      "Source",
+    ].map((n) => [n, col(n)]),
   );
 
   const drafts: Draft[] = [];
@@ -205,7 +227,10 @@ async function main() {
     const line = i + 2;
     const get = (c: string) => row[idx[c]] ?? "";
     const name = clean(get("Client Name"));
-    if (!name) { dropped.push(`line ${line}: no name`); return; }
+    if (!name) {
+      dropped.push(`line ${line}: no name`);
+      return;
+    }
     if (NOT_A_CLIENT.has(name.toLowerCase())) {
       dropped.push(`line ${line}: "${name}" — a calendar entry, not a client`);
       return;
@@ -221,10 +246,13 @@ async function main() {
       seen.address ??= draft.address;
       seen.sourceName ??= draft.sourceName;
       if (draft.description) {
-        seen.description = `${seen.description ?? ""}\n\n— дубль рядка ${line} —\n${draft.description}`.trim();
+        seen.description =
+          `${seen.description ?? ""}\n\n— дубль рядка ${line} —\n${draft.description}`.trim();
       }
       if (draft.createdAt < seen.createdAt) seen.createdAt = draft.createdAt;
-      dropped.push(`line ${line}: "${name}" — merged into line ${seen.line} (same name + phone)`);
+      dropped.push(
+        `line ${line}: "${name}" — merged into line ${seen.line} (same name + phone)`,
+      );
       return;
     }
     byIdentity.set(key, draft);
@@ -236,7 +264,14 @@ async function main() {
   console.log(`clients to import: ${drafts.length}`);
   console.log(`dropped / merged : ${dropped.length}`);
   for (const d of dropped) console.log(`    ${d}`);
-  for (const f of ["lastName", "email", "phone", "address", "sourceName", "description"] as const) {
+  for (const f of [
+    "lastName",
+    "email",
+    "phone",
+    "address",
+    "sourceName",
+    "description",
+  ] as const) {
     console.log(`  ${f.padEnd(12)} filled: ${filled(f)}/${drafts.length}`);
   }
 
@@ -295,7 +330,10 @@ async function main() {
         people: [],
       });
       // the sheet knows when the client actually arrived; the service layer cannot be told
-      await prisma.client.update({ where: { id: created.id }, data: { createdAt: d.createdAt } });
+      await prisma.client.update({
+        where: { id: created.id },
+        data: { createdAt: d.createdAt },
+      });
       done++;
     } catch (err) {
       const who = `${d.firstName} ${d.lastName ?? ""}`.trim();

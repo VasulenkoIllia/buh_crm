@@ -80,7 +80,9 @@ export function TasksPage() {
   const [ticked, setTicked] = useState<string[]>([]);
   const [page, setPage] = useState(1);
 
-  const [targetKind, targetId] = targetFilter ? targetFilter.split(":") : [undefined, undefined];
+  const [targetKind, targetId] = targetFilter
+    ? targetFilter.split(":")
+    : [undefined, undefined];
 
   // The state chips belong to the Active view; Done shows period chips instead. A chip left
   // selected in one view must not keep filtering invisibly in the other — "Overdue" carried
@@ -119,12 +121,31 @@ export function TasksPage() {
   // list must drop it, or Archive would act on rows the person can no longer see
   useEffect(() => {
     setTicked([]);
-  }, [view, layout, pill, targetFilter, assigneeFilter, donePeriod, cancelledPeriod, serviceFilter, page]);
+  }, [
+    view,
+    layout,
+    pill,
+    targetFilter,
+    assigneeFilter,
+    donePeriod,
+    cancelledPeriod,
+    serviceFilter,
+    page,
+  ]);
 
   // any filter change starts the table back at page 1 — page 7 of the old result set is nonsense
   useEffect(() => {
     setPage(1);
-  }, [view, layout, pill, targetFilter, assigneeFilter, donePeriod, cancelledPeriod, serviceFilter]);
+  }, [
+    view,
+    layout,
+    pill,
+    targetFilter,
+    assigneeFilter,
+    donePeriod,
+    cancelledPeriod,
+    serviceFilter,
+  ]);
   const [formOpen, setFormOpen] = useState(false);
   const [formColumnId, setFormColumnId] = useState<string | undefined>();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -144,7 +165,9 @@ export function TasksPage() {
   // vanish mid-action: it leaves the Active list on the refetch, and with nothing to fall back on
   // `selected` went null and unmounted the dialog before the user saw the result (2026-08-01).
   // The header timer bar can point at a completed task too — marking done doesn't stop its timer.
-  const fromList = selectedId ? (data?.items ?? []).find((t) => t.id === selectedId) : undefined;
+  const fromList = selectedId
+    ? (data?.items ?? []).find((t) => t.id === selectedId)
+    : undefined;
   const linked = useTask(selectedId);
   const selected = fromList ?? linked.data ?? null;
 
@@ -166,8 +189,6 @@ export function TasksPage() {
   const targetOptions = taskTargets ?? [];
   const pageCount = Math.max(1, Math.ceil((data?.total ?? 0) / TABLE_PAGE_SIZE));
 
-
-
   return (
     <div className="-m-6 flex h-[calc(100vh-3.5rem)] flex-col">
       {/*
@@ -179,72 +200,72 @@ export function TasksPage() {
       */}
       <div className="flex flex-none items-start justify-between gap-3 border-b border-border bg-surface px-6 pb-3 pt-4">
         <div className="flex min-w-0 flex-wrap items-center gap-3">
-        <h1 className="text-[18px] font-semibold">Tasks</h1>
-        {/* Both closed views take a PERIOD, not a state — "mine"/"overdue" mean nothing for work
+          <h1 className="text-[18px] font-semibold">Tasks</h1>
+          {/* Both closed views take a PERIOD, not a state — "mine"/"overdue" mean nothing for work
             that is finished or called off. They differ only in where they start: Done at a week
             because it piles up, Cancelled at everything because it does not, and the one you are
             hunting for is usually the one you called off by mistake (user, 2026-08-08). */}
-        {closed ? (
-          <FilterChips
-            value={done ? donePeriod : cancelledPeriod}
-            onChange={done ? setDonePeriod : setCancelledPeriod}
-            options={DONE_PERIODS.map((p) => ({ value: p.value, label: p.label }))}
-          />
-        ) : (
-          <FilterChips
-            value={pill}
-            onChange={setPill}
-            options={[
-              { value: "all", label: "All" },
-              { value: "mine", label: "Mine" },
-              { value: "overdue", label: "Overdue" },
-            ]}
-          />
-        )}
-        {/* searchable: this lists every client AND lead with live work — a plain dropdown
+          {closed ? (
+            <FilterChips
+              value={done ? donePeriod : cancelledPeriod}
+              onChange={done ? setDonePeriod : setCancelledPeriod}
+              options={DONE_PERIODS.map((p) => ({ value: p.value, label: p.label }))}
+            />
+          ) : (
+            <FilterChips
+              value={pill}
+              onChange={setPill}
+              options={[
+                { value: "all", label: "All" },
+                { value: "mine", label: "Mine" },
+                { value: "overdue", label: "Overdue" },
+              ]}
+            />
+          )}
+          {/* searchable: this lists every client AND lead with live work — a plain dropdown
             stops being usable long before the firm does */}
-        {/* the catalog service the work goes through. "Internal" is not a service — it is the
+          {/* the catalog service the work goes through. "Internal" is not a service — it is the
             absence of one, and without the option every internal task is unreachable here. */}
-        <div className="w-44">
-          <SearchSelect
-            value={serviceFilter}
-            onChange={setServiceFilter}
-            placeholder="All services"
-            emptyLabel="All services"
-            ariaLabel="Filter by service"
-            options={[
-              { value: "none", label: "Internal — no service" },
-              ...(catalog ?? [])
-                .filter((sv) => sv.active)
-                .map((sv) => ({ value: sv.id, label: sv.name })),
-            ]}
-          />
-        </div>
-        <div className="w-44">
-          <SearchSelect
-            value={targetFilter}
-            onChange={setTargetFilter}
-            placeholder="All clients & leads"
-            emptyLabel="All clients & leads"
-            options={targetOptions.map((t) => ({
-              value: `${t.kind}:${t.id}`,
-              label: t.kind === "lead" ? `${t.name} · lead` : t.name,
-            }))}
-          />
-        </div>
-        <div className={cn("w-44", mineOnly && "pointer-events-none opacity-50")}>
-          {/* "Mine" already IS an assignee filter — the picker goes quiet rather than fighting it */}
-          <SearchSelect
-            value={mineOnly ? "" : assigneeFilter}
-            onChange={setAssigneeFilter}
-            placeholder="All assignees"
-            emptyLabel="All assignees"
-            options={(team ?? []).map((u) => ({
-              value: u.id,
-              label: userLabel(u),
-            }))}
-          />
-        </div>
+          <div className="w-44">
+            <SearchSelect
+              value={serviceFilter}
+              onChange={setServiceFilter}
+              placeholder="All services"
+              emptyLabel="All services"
+              ariaLabel="Filter by service"
+              options={[
+                { value: "none", label: "Internal — no service" },
+                ...(catalog ?? [])
+                  .filter((sv) => sv.active)
+                  .map((sv) => ({ value: sv.id, label: sv.name })),
+              ]}
+            />
+          </div>
+          <div className="w-44">
+            <SearchSelect
+              value={targetFilter}
+              onChange={setTargetFilter}
+              placeholder="All clients & leads"
+              emptyLabel="All clients & leads"
+              options={targetOptions.map((t) => ({
+                value: `${t.kind}:${t.id}`,
+                label: t.kind === "lead" ? `${t.name} · lead` : t.name,
+              }))}
+            />
+          </div>
+          <div className={cn("w-44", mineOnly && "pointer-events-none opacity-50")}>
+            {/* "Mine" already IS an assignee filter — the picker goes quiet rather than fighting it */}
+            <SearchSelect
+              value={mineOnly ? "" : assigneeFilter}
+              onChange={setAssigneeFilter}
+              placeholder="All assignees"
+              emptyLabel="All assignees"
+              options={(team ?? []).map((u) => ({
+                value: u.id,
+                label: userLabel(u),
+              }))}
+            />
+          </div>
         </div>
         <div className="flex flex-none items-center gap-2">
           <Segmented
@@ -286,8 +307,12 @@ export function TasksPage() {
       {error && (
         <div className="m-6 rounded-[10px] border border-[#f0c9c9] bg-surface p-11 text-center">
           <div className="text-[28px]">⚠</div>
-          <div className="text-[15px] font-semibold text-danger-text">Couldn&apos;t load data</div>
-          <p className="mb-3 text-[13px] text-muted">Something went wrong while loading this list.</p>
+          <div className="text-[15px] font-semibold text-danger-text">
+            Couldn&apos;t load data
+          </div>
+          <p className="mb-3 text-[13px] text-muted">
+            Something went wrong while loading this list.
+          </p>
           <Button onClick={() => void refetch()}>Retry</Button>
         </div>
       )}
@@ -374,7 +399,8 @@ export function TasksPage() {
             ticked={closed ? ticked : undefined}
             onTick={
               closed
-                ? (id) => setTicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))
+                ? (id) =>
+                    setTicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))
                 : undefined
             }
           />
@@ -584,92 +610,92 @@ function BoardColumn({
           "before:absolute before:inset-x-0 before:bottom-full before:h-4 before:bg-[#f4f6f8]",
         )}
       >
-      <div className="flex items-center gap-1.5 px-1 pb-2">
-        {/**
-         * A HANDLE, not the whole column. The header holds a rename field and the body holds
-         * cards that are themselves draggable — a column that dragged from anywhere would fight
-         * both, exactly as the service catalog's row would have.
-         *
-         * Admin-only and never on the fixed column, matching what the server will accept.
-         */}
-        {isAdmin && !column.isFixed && (
-          <button
-            type="button"
-            aria-label={`Reorder ${column.name}`}
-            className="-ml-0.5 flex-none cursor-grab touch-none text-[#b6bcc5] hover:text-muted active:cursor-grabbing"
-            {...attributes}
-            {...listeners}
-          >
-            <GripVertical size={13} />
-          </button>
-        )}
-        {isAdmin && !column.isFixed ? (
-          <input
-            className="w-full min-w-0 bg-transparent text-[12px] font-bold uppercase tracking-[.6px] text-ink-700 outline-none"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onBlur={() => {
-              const trimmed = name.trim();
-              if (trimmed && trimmed !== column.name) {
-                rename.mutate(
-                  { id: column.id, input: { name: trimmed } },
-                  {
-                    onError: (err) => {
-                      setName(column.name); // put the field back to what is actually stored
-                      window.alert(
-                        `Could not rename the column.\n\n` +
-                          (err instanceof Error ? err.message : "Please try again."),
-                      );
+        <div className="flex items-center gap-1.5 px-1 pb-2">
+          {/**
+           * A HANDLE, not the whole column. The header holds a rename field and the body holds
+           * cards that are themselves draggable — a column that dragged from anywhere would fight
+           * both, exactly as the service catalog's row would have.
+           *
+           * Admin-only and never on the fixed column, matching what the server will accept.
+           */}
+          {isAdmin && !column.isFixed && (
+            <button
+              type="button"
+              aria-label={`Reorder ${column.name}`}
+              className="-ml-0.5 flex-none cursor-grab touch-none text-[#b6bcc5] hover:text-muted active:cursor-grabbing"
+              {...attributes}
+              {...listeners}
+            >
+              <GripVertical size={13} />
+            </button>
+          )}
+          {isAdmin && !column.isFixed ? (
+            <input
+              className="w-full min-w-0 bg-transparent text-[12px] font-bold uppercase tracking-[.6px] text-ink-700 outline-none"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onBlur={() => {
+                const trimmed = name.trim();
+                if (trimmed && trimmed !== column.name) {
+                  rename.mutate(
+                    { id: column.id, input: { name: trimmed } },
+                    {
+                      onError: (err) => {
+                        setName(column.name); // put the field back to what is actually stored
+                        window.alert(
+                          `Could not rename the column.\n\n` +
+                            (err instanceof Error ? err.message : "Please try again."),
+                        );
+                      },
                     },
-                  },
-                );
-              } else setName(column.name);
-            }}
-          />
-        ) : (
-          <span
-            className={cn(
-              "text-[12px] font-bold uppercase tracking-[.6px]",
-              column.isFixed ? "text-[#8b929c]" : "text-ink-700",
-            )}
-          >
-            {column.name}
+                  );
+                } else setName(column.name);
+              }}
+            />
+          ) : (
+            <span
+              className={cn(
+                "text-[12px] font-bold uppercase tracking-[.6px]",
+                column.isFixed ? "text-[#8b929c]" : "text-ink-700",
+              )}
+            >
+              {column.name}
+            </span>
+          )}
+          {column.isFixed && <span className="text-[10px] text-[#b6bcc5]">🔒</span>}
+          <span className="rounded-[10px] bg-[#e7eaef] px-[7px] py-px text-[11px] font-semibold text-[#8b929c]">
+            {tasks.length}
           </span>
-        )}
-        {column.isFixed && <span className="text-[10px] text-[#b6bcc5]">🔒</span>}
-        <span className="rounded-[10px] bg-[#e7eaef] px-[7px] py-px text-[11px] font-semibold text-[#8b929c]">
-          {tasks.length}
-        </span>
-        {/* No small "+" here. It called exactly the same `onAdd` as the green button three
+          {/* No small "+" here. It called exactly the same `onAdd` as the green button three
             centimetres below it — the same action, into the same column, twice. It arrived first
             (da5099a) and the green one was added later without the older control being taken away
             (user, 2026-08-28). */}
-        <div className="ml-auto flex items-center gap-1">
-          {isAdmin && !column.isFixed && tasks.length === 0 && (
-            <button
-              type="button"
-              aria-label="Delete column"
-              className="text-[15px] text-[#b6bcc5] hover:text-danger"
-              // `tasks.length` is what the FILTERS left in this column, not what it holds: with a
-              // filter on, an empty-looking column can still have work in it and the server
-              // refuses the delete. Saying so beats a button that does nothing (2026-08-27 audit).
-              onClick={() =>
-                remove.mutate(column.id, {
-                  onError: (err) =>
-                    window.alert(
-                      `Could not delete “${column.name}”.\n\n` +
-                        (err instanceof Error
-                          ? err.message
-                          : "It may still hold tasks that the current filters hide."),
-                    ),
-                })
-              }
-            >
-              ×
-            </button>
-          )}
+          <div className="ml-auto flex items-center gap-1">
+            {isAdmin && !column.isFixed && tasks.length === 0 && (
+              <button
+                type="button"
+                aria-label="Delete column"
+                className="text-[15px] text-[#b6bcc5] hover:text-danger"
+                // `tasks.length` is what the FILTERS left in this column, not what it holds: with a
+                // filter on, an empty-looking column can still have work in it and the server
+                // refuses the delete. Saying so beats a button that does nothing (2026-08-27 audit).
+                onClick={() =>
+                  remove.mutate(column.id, {
+                    onError: (err) =>
+                      window.alert(
+                        `Could not delete “${column.name}”.\n\n` +
+                          (err instanceof Error
+                            ? err.message
+                            : "It may still hold tasks that the current filters hide."),
+                      ),
+                  })
+                }
+              >
+                ×
+              </button>
+            )}
+          </div>
         </div>
-      </div>
         {/* the primary way to create a task in this column */}
         <button
           type="button"
@@ -873,7 +899,12 @@ function CardFace({
           {service && <ServiceChip name={service.name} color={service.color} />}
         </div>
       )}
-      <div className={cn("mt-[5px] text-[12px]", overdue ? "font-semibold text-danger" : "text-muted")}>
+      <div
+        className={cn(
+          "mt-[5px] text-[12px]",
+          overdue ? "font-semibold text-danger" : "text-muted",
+        )}
+      >
         {task.deadline ? `Due: ${fmtBizDay(task.deadline)}` : "No deadline"}
       </div>
       <div className="mt-2 flex min-h-5 flex-wrap items-center gap-[5px]">
@@ -983,7 +1014,11 @@ function DoneGrid({
               checked={ticked.includes(t.id)}
               onChange={() => onTick(t.id)}
             />
-            <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onOpen(t)}>
+            <button
+              type="button"
+              className="min-w-0 flex-1 text-left"
+              onClick={() => onOpen(t)}
+            >
               <span className={cn("mr-1", cancelled ? "text-[#b5651d]" : "text-success")}>
                 {cancelled ? "⊘" : "✓"}
               </span>
@@ -1043,7 +1078,11 @@ function Pager({
         <Button variant="secondary" disabled={page <= 1} onClick={() => onPage(page - 1)}>
           Previous
         </Button>
-        <Button variant="secondary" disabled={page >= pageCount} onClick={() => onPage(page + 1)}>
+        <Button
+          variant="secondary"
+          disabled={page >= pageCount}
+          onClick={() => onPage(page + 1)}
+        >
           Next
         </Button>
       </div>
@@ -1078,7 +1117,12 @@ function TaskTable({
   return (
     <div className="flex-1 overflow-auto p-3.5">
       <div className="overflow-hidden rounded-[10px] bg-surface">
-        <div className={cn(grid, "border-b border-[#f2f4f6] px-3.5 py-2.5 text-[11px] font-semibold uppercase tracking-[.4px] text-muted-400")}>
+        <div
+          className={cn(
+            grid,
+            "border-b border-[#f2f4f6] px-3.5 py-2.5 text-[11px] font-semibold uppercase tracking-[.4px] text-muted-400",
+          )}
+        >
           <span />
           <span>Task</span>
           <span>Client / Lead</span>
@@ -1120,7 +1164,9 @@ function TaskTable({
               ) : (
                 <span
                   className="h-2 w-2 rounded-full"
-                  style={{ backgroundColor: overdue ? "#d63c3c" : (priority?.color ?? "#c7ccd3") }}
+                  style={{
+                    backgroundColor: overdue ? "#d63c3c" : (priority?.color ?? "#c7ccd3"),
+                  }}
                 />
               )}
               {selectable ? (
@@ -1147,7 +1193,12 @@ function TaskTable({
                   {t.done ? "done" : (column?.name ?? "—")}
                 </Chip>
               </span>
-              <span className={cn("text-right tabular-nums", overdue && "font-semibold text-danger")}>
+              <span
+                className={cn(
+                  "text-right tabular-nums",
+                  overdue && "font-semibold text-danger",
+                )}
+              >
                 {t.deadline ? fmtBizDay(t.deadline) : "—"}
               </span>
               <span className="text-right">

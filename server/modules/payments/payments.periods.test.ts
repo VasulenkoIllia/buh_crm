@@ -75,8 +75,12 @@ describe("invoice status", () => {
   const on = (isoDay: string) => businessDateMs(`${isoDay}T00:00:00Z`);
 
   it("cancelled and paid win over everything", () => {
-    expect(deriveStatus({ ...base, cancelledAt: at("2026-07-01T00:00:00Z"), paid: 0 })).toBe("cancelled");
-    expect(deriveStatus({ ...base, paid: 10_000, dueDate: at("2020-01-01T00:00:00Z") })).toBe("paid");
+    expect(deriveStatus({ ...base, cancelledAt: at("2026-07-01T00:00:00Z"), paid: 0 })).toBe(
+      "cancelled",
+    );
+    expect(deriveStatus({ ...base, paid: 10_000, dueDate: at("2020-01-01T00:00:00Z") })).toBe(
+      "paid",
+    );
     // an overpayment still reads as paid, never negative
     expect(deriveStatus({ ...base, paid: 12_000 })).toBe("paid");
   });
@@ -86,8 +90,12 @@ describe("invoice status", () => {
     expect(deriveStatus({ ...base, dueDate: due }, on("2026-07-25"))).toBe("unpaid");
     expect(deriveStatus({ ...base, dueDate: due }, on("2026-07-26"))).toBe("overdue");
     // a part-paid invoice past its due day is overdue, not partial
-    expect(deriveStatus({ ...base, paid: 4_000, dueDate: due }, on("2026-07-27"))).toBe("overdue");
-    expect(deriveStatus({ ...base, paid: 4_000, dueDate: due }, on("2026-07-25"))).toBe("partial");
+    expect(deriveStatus({ ...base, paid: 4_000, dueDate: due }, on("2026-07-27"))).toBe(
+      "overdue",
+    );
+    expect(deriveStatus({ ...base, paid: 4_000, dueDate: due }, on("2026-07-25"))).toBe(
+      "partial",
+    );
   });
 
   it("a job invoice due later today is not late yet (timestamp due dates)", () => {
@@ -113,14 +121,26 @@ describe("business dates (the one overdue rule)", () => {
     const deadline = "2026-07-26T00:00:00Z";
     // due today: neither the board's red ring nor the invoice pill fires
     expect(isTaskOverdue({ done: false, deadline }, day("2026-07-26"))).toBe(false);
-    expect(deriveStatus({ amount: 100, paid: 0, dueDate: deadline, cancelledAt: null }, day("2026-07-26"))).toBe("unpaid");
+    expect(
+      deriveStatus(
+        { amount: 100, paid: 0, dueDate: deadline, cancelledAt: null },
+        day("2026-07-26"),
+      ),
+    ).toBe("unpaid");
     // the day after: both do
     expect(isTaskOverdue({ done: false, deadline }, day("2026-07-27"))).toBe(true);
-    expect(deriveStatus({ amount: 100, paid: 0, dueDate: deadline, cancelledAt: null }, day("2026-07-27"))).toBe("overdue");
+    expect(
+      deriveStatus(
+        { amount: 100, paid: 0, dueDate: deadline, cancelledAt: null },
+        day("2026-07-27"),
+      ),
+    ).toBe("overdue");
   });
 
   it("a completed task is never overdue", () => {
-    expect(isTaskOverdue({ done: true, deadline: "2020-01-01T00:00:00Z" }, day("2026-07-26"))).toBe(false);
+    expect(
+      isTaskOverdue({ done: true, deadline: "2020-01-01T00:00:00Z" }, day("2026-07-26")),
+    ).toBe(false);
   });
 
   it("collapses a stored instant to its calendar day, whatever the time of day", () => {

@@ -159,8 +159,8 @@ export function LetterPreviewModal({
       <p className="mt-2 flex items-center gap-1.5 text-[12px] text-muted-400">
         Sample values
         <InfoHint label="What is a sample and what is fixed">
-          The frame — logo, signature, contact buttons, footer — is the same on every letter and is
-          not editable per template.
+          The frame — logo, signature, contact buttons, footer — is the same on every letter and
+          is not editable per template.
         </InfoHint>
       </p>
     </Modal>

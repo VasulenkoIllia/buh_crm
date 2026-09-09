@@ -32,7 +32,9 @@ const SignInPage = lazy(() =>
   import("@/modules/auth/sign-in.page").then((m) => ({ default: m.SignInPage })),
 );
 const ForgotPasswordPage = lazy(() =>
-  import("@/modules/auth/forgot-password.page").then((m) => ({ default: m.ForgotPasswordPage })),
+  import("@/modules/auth/forgot-password.page").then((m) => ({
+    default: m.ForgotPasswordPage,
+  })),
 );
 const SetPasswordPage = lazy(() =>
   import("@/modules/auth/set-password.page").then((m) => ({ default: m.SetPasswordPage })),
@@ -141,7 +143,10 @@ export const router = createBrowserRouter([
                * `RequireGate`. The hook in `server/core/access.ts` is the authority; this is
                * the courtesy.
                */
-              { element: <RequireGate gate="tasks" />, children: [{ path: "tasks", element: <TasksPage /> }] },
+              {
+                element: <RequireGate gate="tasks" />,
+                children: [{ path: "tasks", element: <TasksPage /> }],
+              },
               {
                 element: <RequireGate gate="clients" />,
                 children: [
@@ -149,21 +154,50 @@ export const router = createBrowserRouter([
                   { path: "clients/:id", element: <ClientCardPage /> },
                 ],
               },
-              { element: <RequireGate gate="leads" />, children: [{ path: "leads", element: <LeadsPage /> }] },
-              { element: <RequireGate gate="billing" />, children: [{ path: "billing", element: <BillingPage /> }] },
-              { element: <RequireGate gate="calendar" />, children: [{ path: "calendar", element: <CalendarPage /> }] },
-              { element: <RequireGate gate="services" />, children: [{ path: "services", element: <ServicesPage /> }] },
-              { element: <RequireGate gate="mailouts" />, children: [{ path: "mailouts", element: <MailoutsPage /> }] },
-              { element: <RequireGate gate="reports" />, children: [{ path: "reports", element: <ComingSoon module="Reports" stage="S12" /> }] },
-              { element: <RequireGate gate="archive" />, children: [{ path: "archive", element: <ArchivePage /> }] },
-              { element: <RequireGate gate="team" />, children: [{ path: "team", element: <TeamPage /> }] },
+              {
+                element: <RequireGate gate="leads" />,
+                children: [{ path: "leads", element: <LeadsPage /> }],
+              },
+              {
+                element: <RequireGate gate="billing" />,
+                children: [{ path: "billing", element: <BillingPage /> }],
+              },
+              {
+                element: <RequireGate gate="calendar" />,
+                children: [{ path: "calendar", element: <CalendarPage /> }],
+              },
+              {
+                element: <RequireGate gate="services" />,
+                children: [{ path: "services", element: <ServicesPage /> }],
+              },
+              {
+                element: <RequireGate gate="mailouts" />,
+                children: [{ path: "mailouts", element: <MailoutsPage /> }],
+              },
+              {
+                element: <RequireGate gate="reports" />,
+                children: [
+                  { path: "reports", element: <ComingSoon module="Reports" stage="S12" /> },
+                ],
+              },
+              {
+                element: <RequireGate gate="archive" />,
+                children: [{ path: "archive", element: <ArchivePage /> }],
+              },
+              {
+                element: <RequireGate gate="team" />,
+                children: [{ path: "team", element: <TeamPage /> }],
+              },
               /**
                * Settings is a strip of tabs behind FOUR different gates, so the route opens while
                * any one of them does — and the list is derived from the strip rather than written
                * out here, because writing it out here is how the Access tab became unreachable
                * (see `modules/settings/tabs.ts`).
                */
-              { element: <RequireGate gate={[...SETTINGS_GATES]} />, children: [{ path: "settings", element: <SettingsPage /> }] },
+              {
+                element: <RequireGate gate={[...SETTINGS_GATES]} />,
+                children: [{ path: "settings", element: <SettingsPage /> }],
+              },
             ],
           },
         ],

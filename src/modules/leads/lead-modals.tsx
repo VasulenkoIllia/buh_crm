@@ -62,7 +62,6 @@ export function LeadFormModal({
     },
   });
 
-
   const close = () => {
     reset();
     create.reset();
@@ -126,7 +125,11 @@ export function LeadFormModal({
           </FormField>
           {/* informational, like the client's — carried over as-is on convert */}
           <FormField label="Company (optional)" htmlFor="l-company">
-            <Input id="l-company" placeholder="e.g. Romashka LLC" {...register("companyName")} />
+            <Input
+              id="l-company"
+              placeholder="e.g. Romashka LLC"
+              {...register("companyName")}
+            />
           </FormField>
         </div>
         <div className="grid grid-cols-2 gap-3">

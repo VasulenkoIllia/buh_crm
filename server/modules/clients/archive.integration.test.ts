@@ -141,13 +141,17 @@ describe("archive — the clock stops", () => {
     });
     expect(sub.statusCode).toBe(201);
     const subId = sub.json().subscriptions[0].id as string;
-    expect(await prisma.subscriptionPeriod.findFirst({ where: { subscriptionId: subId } })).toMatchObject({
+    expect(
+      await prisma.subscriptionPeriod.findFirst({ where: { subscriptionId: subId } }),
+    ).toMatchObject({
       endsBefore: null,
     });
 
     expect((await post(`/api/clients/${clientId}/archive`)).statusCode).toBe(200);
 
-    const period = await prisma.subscriptionPeriod.findFirstOrThrow({ where: { subscriptionId: subId } });
+    const period = await prisma.subscriptionPeriod.findFirstOrThrow({
+      where: { subscriptionId: subId },
+    });
     // exclusive end — "ends before tomorrow" is "served through today"
     expect(period.endsBefore?.toISOString().slice(0, 10)).toBe(dayIso(1));
     expect(period.endNote).toBe("Client archived");
@@ -295,7 +299,9 @@ describe("archive — what each list shows", () => {
     const archived = await get("/api/clients?tab=archived");
     const ids = archived.json().items.map((c: { id: string }) => c.id);
     expect(ids).toContain(clientId);
-    expect(archived.json().items.every((c: { archivedAt: string | null }) => c.archivedAt)).toBe(true);
+    expect(
+      archived.json().items.every((c: { archivedAt: string | null }) => c.archivedAt),
+    ).toBe(true);
   });
 
   it("archived tasks appear only under archived=true, including an archived client's", async () => {
@@ -361,11 +367,13 @@ describe("archive — a lead's work goes with it", () => {
     const taskId = task.json().id as string;
 
     const onBoard = async () =>
-      (await get("/api/tasks?view=board&status=all")).json().items.map((t: { id: string }) => t.id);
+      (await get("/api/tasks?view=board&status=all"))
+        .json()
+        .items.map((t: { id: string }) => t.id);
     const onCalendar = async () =>
-      (await get(`/api/calendar?from=${dayIso(2)}&to=${dayIso(3)}`)).json().deadlines.map(
-        (d: { taskId: string }) => d.taskId,
-      );
+      (await get(`/api/calendar?from=${dayIso(2)}&to=${dayIso(3)}`))
+        .json()
+        .deadlines.map((d: { taskId: string }) => d.taskId);
 
     expect(await onBoard()).toContain(taskId);
     expect(await onCalendar()).toContain(taskId);
@@ -420,7 +428,10 @@ describe("archive — leads", () => {
 
   it("won't archive a converted lead — it's the record of where a client came from", async () => {
     const id = await makeLead("Real deal");
-    const converted = await post(`/api/leads/${id}/convert`, { firstName: "New", lastName: "Client" });
+    const converted = await post(`/api/leads/${id}/convert`, {
+      firstName: "New",
+      lastName: "Client",
+    });
     expect(converted.statusCode).toBe(200);
 
     const res = await post(`/api/leads/${id}/archive`);

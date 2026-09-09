@@ -184,13 +184,17 @@ export function ClientCardPage() {
       {/* company view (multi-company clients) */}
       {activeTab === "profile" && <ProfileTab client={client} />}
       {activeTab === "companies" && <CompaniesTab client={client} />}
-      {activeTab === "people" && <PeopleTab client={client} onManage={() => setPeopleOpen(true)} />}
+      {activeTab === "people" && (
+        <PeopleTab client={client} onManage={() => setPeopleOpen(true)} />
+      )}
       {activeTab === "secrets" && <SecretsTab clientId={client.id} />}
       {activeTab === "tasks" && (
         <EntityTasks target={{ kind: "client", id: client.id, label: client.displayName }} />
       )}
       {activeTab === "invoices" && <EntityInvoices client={client} />}
-      {activeTab === "meetings" && <EntityMeetings target={{ kind: "client", id: client.id }} />}
+      {activeTab === "meetings" && (
+        <EntityMeetings target={{ kind: "client", id: client.id }} />
+      )}
       {activeTab === "services" && <ServicesTab client={client} />}
       {/* Keyed by client: the route reuses this page when moving between two cards, so without it
           the Mailouts tab would carry its page number across — landing on page 3 of a client who

@@ -97,7 +97,9 @@ export function SettingsPage() {
    * may open, and `RequireGate` on the route lets them through for the same reason.
    */
   const tabs = TABS.filter((t) => (t.gate ? access(t.gate) !== "closed" : canOpen));
-  const tab: Tab = tabs.some((t) => t.value === raw) ? (raw as Tab) : (tabs[0]?.value ?? "firm");
+  const tab: Tab = tabs.some((t) => t.value === raw)
+    ? (raw as Tab)
+    : (tabs[0]?.value ?? "firm");
   const setTab = (next: Tab) =>
     setParams(
       (prev) => {
@@ -135,9 +137,7 @@ export function SettingsPage() {
 
       {/* the forms stay in a narrow column — a name field the width of the screen is not a
           better name field. Notifications is the exception and takes the full width. */}
-      {!data && tab !== "activity" && (
-        <p className="text-[13px] text-muted">Loading…</p>
-      )}
+      {!data && tab !== "activity" && <p className="text-[13px] text-muted">Loading…</p>}
       {data && tab === "firm" && (
         <div className="max-w-2xl space-y-6">
           <FirmSection name={data.firm.name} hasLogo={!!data.firm.logoFileId} />

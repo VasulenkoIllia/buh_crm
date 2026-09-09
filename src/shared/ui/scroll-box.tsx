@@ -31,10 +31,7 @@ export function ScrollBox({
   return (
     <div
       style={stable ? { height } : { maxHeight: height }}
-      className={cn(
-        "overflow-y-auto rounded-(--radius-field) border border-border",
-        className,
-      )}
+      className={cn("overflow-y-auto rounded-(--radius-field) border border-border", className)}
     >
       {children}
     </div>

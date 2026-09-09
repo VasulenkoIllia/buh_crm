@@ -60,7 +60,9 @@ export interface RouteAccessConfig {
 
 /** Belongs to a gate. The hook decides by the caller's state and by the request method. */
 export function gate(unit: GateKey, opts: { adminOnly?: boolean } = {}): RouteAccessConfig {
-  return { access: { kind: "gate", gate: unit, action: "*", adminOnly: opts.adminOnly === true } };
+  return {
+    access: { kind: "gate", gate: unit, action: "*", adminOnly: opts.adminOnly === true },
+  };
 }
 
 /**
@@ -329,7 +331,10 @@ export async function ensureAccessPolicies() {
  * believes is shut, quietly open. Nothing else would report it, so the server says so at boot.
  */
 export async function unenforceableGates(): Promise<string[]> {
-  const rows = await prisma.accessPolicy.findMany({ select: { gate: true }, distinct: ["gate"] });
+  const rows = await prisma.accessPolicy.findMany({
+    select: { gate: true },
+    distinct: ["gate"],
+  });
   return rows
     .map((r) => r.gate)
     .filter((g) => !(GATE_KEYS as string[]).includes(g))

@@ -15,7 +15,11 @@ const idParams = z.object({ id: uuid });
 /** Asking "would this slot clash?" before committing to it — what the form calls as you type. */
 const conflictQuery = z.object({
   startAt: z.iso.datetime(),
-  durationMinutes: z.coerce.number().int().min(1).max(24 * 60),
+  durationMinutes: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(24 * 60),
   userIds: z
     .string()
     .optional()
@@ -38,25 +42,36 @@ export async function registerRoutes(instance: FastifyInstance) {
   const calendar = gate("calendar");
 
   // the calendar screen's one read: meetings + projected deadlines for a window
-  app.get("/", { config: calendar, schema: { querystring: calendarQuery } }, async (request) => {
-    return service.getCalendar(request.query, request.currentUser!);
-  });
+  app.get(
+    "/",
+    { config: calendar, schema: { querystring: calendarQuery } },
+    async (request) => {
+      return service.getCalendar(request.query, request.currentUser!);
+    },
+  );
 
-  app.get("/conflicts", { config: calendar, schema: { querystring: conflictQuery } }, async (request) => {
-    const { startAt, durationMinutes, userIds, excludeMeetingId } = request.query;
-    return service.findConflicts({
-      startAt: new Date(startAt),
-      durationMinutes,
-      userIds,
-      excludeMeetingId,
-    });
-  });
+  app.get(
+    "/conflicts",
+    { config: calendar, schema: { querystring: conflictQuery } },
+    async (request) => {
+      const { startAt, durationMinutes, userIds, excludeMeetingId } = request.query;
+      return service.findConflicts({
+        startAt: new Date(startAt),
+        durationMinutes,
+        userIds,
+        excludeMeetingId,
+      });
+    },
+  );
 
   // one client's or one lead's meetings, for their card — cancelled ones included and flagged,
   // because "we called that off" is part of the history of a relationship
   app.get(
     "/for",
-    { config: calendar, schema: { querystring: z.object({ client: uuid.optional(), lead: uuid.optional() }) } },
+    {
+      config: calendar,
+      schema: { querystring: z.object({ client: uuid.optional(), lead: uuid.optional() }) },
+    },
     async (request) => {
       const { client, lead } = request.query;
       if (!client && !lead) return [];
@@ -64,14 +79,22 @@ export async function registerRoutes(instance: FastifyInstance) {
     },
   );
 
-  app.get("/meetings/:id", { config: calendar, schema: { params: idParams } }, async (request) => {
-    return service.getMeeting(request.params.id);
-  });
+  app.get(
+    "/meetings/:id",
+    { config: calendar, schema: { params: idParams } },
+    async (request) => {
+      return service.getMeeting(request.params.id);
+    },
+  );
 
-  app.post("/meetings", { config: calendar, schema: { body: createMeetingInput } }, async (request, reply) => {
-    const meeting = await service.createMeeting(request.body, request.currentUser!);
-    return reply.status(201).send(meeting);
-  });
+  app.post(
+    "/meetings",
+    { config: calendar, schema: { body: createMeetingInput } },
+    async (request, reply) => {
+      const meeting = await service.createMeeting(request.body, request.currentUser!);
+      return reply.status(201).send(meeting);
+    },
+  );
 
   app.patch(
     "/meetings/:id",

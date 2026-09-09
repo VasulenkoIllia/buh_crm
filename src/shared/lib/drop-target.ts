@@ -60,7 +60,8 @@ export function resolveDrop(
     // Within one column, a card dragged DOWN onto another lands after it, and one dragged UP lands
     // before it — which is what the eye expects and what the placeholder showed during the drag.
     // Coming from another column it simply takes the place of the card it was dropped on.
-    const movedDown = from === to && source.indexOf(activeId) < (lists.get(to) ?? []).indexOf(overId);
+    const movedDown =
+      from === to && source.indexOf(activeId) < (lists.get(to) ?? []).indexOf(overId);
     at = movedDown ? overAt + 1 : overAt;
   }
 

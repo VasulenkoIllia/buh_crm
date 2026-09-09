@@ -175,7 +175,6 @@ function useInvalidateTasks() {
   return () => queryClient.invalidateQueries({ queryKey: TASKS_KEY });
 }
 
-
 /**
  * Creating or completing a billable one-time job ISSUES AN INVOICE server-side, which moves the
  * client's debt. Those two mutations therefore refresh billing as well — otherwise the Billing
@@ -211,7 +210,8 @@ export function useTimeAudit(taskId: string | null) {
 export function useCreateTask() {
   const invalidate = useInvalidateTasksAndBilling();
   return useMutation({
-    mutationFn: (input: CreateTaskInput) => api<Task>("/api/tasks", { method: "POST", body: input }),
+    mutationFn: (input: CreateTaskInput) =>
+      api<Task>("/api/tasks", { method: "POST", body: input }),
     onSuccess: invalidate,
   });
 }
@@ -280,8 +280,13 @@ export function useMoveTask() {
 export function useSetSubtasks() {
   const invalidate = useInvalidateTasks();
   return useMutation({
-    mutationFn: ({ id, subtasks }: { id: string; subtasks: { text: string; done: boolean }[] }) =>
-      api<Task>(`/api/tasks/${id}/subtasks`, { method: "PUT", body: { subtasks } }),
+    mutationFn: ({
+      id,
+      subtasks,
+    }: {
+      id: string;
+      subtasks: { text: string; done: boolean }[];
+    }) => api<Task>(`/api/tasks/${id}/subtasks`, { method: "PUT", body: { subtasks } }),
     onSuccess: invalidate,
   });
 }
@@ -289,7 +294,8 @@ export function useSetSubtasks() {
 export function useArchiveTask() {
   const invalidate = useInvalidateTasks();
   return useMutation({
-    mutationFn: (id: string) => api<{ ok: true }>(`/api/tasks/${id}/archive`, { method: "POST" }),
+    mutationFn: (id: string) =>
+      api<{ ok: true }>(`/api/tasks/${id}/archive`, { method: "POST" }),
     onSuccess: invalidate,
   });
 }
@@ -382,7 +388,8 @@ export function useMoveColumn() {
 export function useDeleteColumn() {
   const invalidate = useInvalidateTasks();
   return useMutation({
-    mutationFn: (id: string) => api<{ ok: true }>(`/api/tasks/columns/${id}`, { method: "DELETE" }),
+    mutationFn: (id: string) =>
+      api<{ ok: true }>(`/api/tasks/columns/${id}`, { method: "DELETE" }),
     onSuccess: invalidate,
   });
 }
@@ -418,7 +425,10 @@ export function useStopTimer() {
   const invalidate = useInvalidateTimerAndTasks();
   return useMutation({
     mutationFn: (input: { comment: string }) =>
-      api<{ ok: true; taskId: string }>("/api/tasks/timer/stop", { method: "POST", body: input }),
+      api<{ ok: true; taskId: string }>("/api/tasks/timer/stop", {
+        method: "POST",
+        body: input,
+      }),
     onSuccess: invalidate,
   });
 }
@@ -446,7 +456,8 @@ export function useUpdateTimeEntry() {
 export function useDeleteTimeEntry() {
   const invalidate = useInvalidateTasks();
   return useMutation({
-    mutationFn: (entryId: string) => api<Task>(`/api/tasks/time/${entryId}`, { method: "DELETE" }),
+    mutationFn: (entryId: string) =>
+      api<Task>(`/api/tasks/time/${entryId}`, { method: "DELETE" }),
     onSuccess: invalidate,
   });
 }

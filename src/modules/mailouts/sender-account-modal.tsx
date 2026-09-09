@@ -155,7 +155,9 @@ export function SenderAccountModal({
     website: form.contactWebsite,
   };
   const inLetter = contactsInLetter(contactValues);
-  const dropped = CONTACT_ORDER.filter((k) => !!contactValues[k]?.trim() && !inLetter.includes(k));
+  const dropped = CONTACT_ORDER.filter(
+    (k) => !!contactValues[k]?.trim() && !inLetter.includes(k),
+  );
 
   const offerTransportChoice = !account || !account.ownSmtp || transport === "server";
 
@@ -351,14 +353,17 @@ export function SenderAccountModal({
           <span>
             In the letter:{" "}
             <span className="font-medium text-ink-700">
-              {inLetter.length ? inLetter.map((k) => CONTACT_LABELS[k]).join(" · ") : "no buttons"}
+              {inLetter.length
+                ? inLetter.map((k) => CONTACT_LABELS[k]).join(" · ")
+                : "no buttons"}
             </span>
             {dropped.length > 0 && (
               <>
                 {" — "}
                 {dropped.map((k) => CONTACT_LABELS[k]).join(" and ")}{" "}
-                {dropped.length === 1 ? "does" : "do"} not fit. Only {MAX_CONTACT_PILLS} fit across
-                a letter, and the website goes last because the signature already links it.
+                {dropped.length === 1 ? "does" : "do"} not fit. Only {MAX_CONTACT_PILLS} fit
+                across a letter, and the website goes last because the signature already links
+                it.
               </>
             )}
           </span>
@@ -388,10 +393,10 @@ export function SenderAccountModal({
         </div>
 
         {deliveryOpen && (
-        <>
-        <p className="text-[13px] font-semibold">Sends over</p>
+          <>
+            <p className="text-[13px] font-semibold">Sends over</p>
 
-        {/*
+            {/*
           The choice is offered only where it IS one.
 
           Borrowing the server's account is a starting state, not a way to run: `bootstrap` creates
@@ -401,184 +406,187 @@ export function SenderAccountModal({
           so the toggle and its paragraph were four lines of explanation about a road not taken
           (user, 2026-08-31). The way back stays, quietly, underneath.
         */}
-        {offerTransportChoice ? (
-          <Segmented
-            value={transport}
-            onChange={(v) => setTransport(v as "server" | "own")}
-            options={[
-              { value: "server", label: "The server's mailbox" },
-              { value: "own", label: "Its own SMTP" },
-            ]}
-          />
-        ) : (
-          <button
-            type="button"
-            onClick={() => setTransport("server")}
-            className="self-start text-[12px] text-muted underline decoration-dotted underline-offset-2 hover:text-ink"
-          >
-            Use the server's mailbox instead
-          </button>
-        )}
-
-        {transport === "server" ? (
-          <div className="rounded-(--radius-field) border border-border bg-surface px-3 py-2.5">
-            <p className="font-mono text-[12px] text-ink-700">{server.label}</p>
-            {/* reference: what the built-in mailbox IS — read once, then never again */}
-            <p className="mt-1.5 text-[12px] leading-relaxed text-muted flex items-center gap-1.5">
-              Server mailbox
-              <InfoHint label="What the server mailbox is">
-                The account that already sends invites and password resets. Nothing to configure, and it works today — which is why a new firm starts here.
-              </InfoHint>
-            </p>
-            <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
-              It can normally only send as <span className="font-mono">{server.fromEmail}</span>
-              . A different From is worth testing before the first real mailout, and once the
-              firm sends in volume its own SMTP is safer: a spam complaint here damages the
-              address the team needs to sign in.
-            </p>
-          </div>
-        ) : (
-          <>
-            <div className="grid gap-3 sm:grid-cols-[1fr_100px]">
-              <FormField label="Host">
-                <Input
-                  value={form.smtpHost}
-                  onChange={(e) => set("smtpHost")(e.target.value)}
-                  placeholder="mail.illion.tax"
-                />
-              </FormField>
-              <FormField label="Port">
-                <Input
-                  value={form.smtpPort}
-                  onChange={(e) => set("smtpPort")(e.target.value.replace(/\D/g, ""))}
-                  placeholder="587"
-                  inputMode="numeric"
-                />
-              </FormField>
-            </div>
-
-            <Encryption
-              port={form.smtpPort}
-              checked={secure}
-              onChange={setSecure}
-            />
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <FormField label="Username">
-                <Input
-                  value={form.smtpUser}
-                  onChange={(e) => set("smtpUser")(e.target.value)}
-                  placeholder="info@illion.tax"
-                  autoComplete="off"
-                />
-              </FormField>
-              <FormField
-                label={
-                  account?.smtpPassSet ? "Password (stored — type to replace)" : "Password"
-                }
+            {offerTransportChoice ? (
+              <Segmented
+                value={transport}
+                onChange={(v) => setTransport(v as "server" | "own")}
+                options={[
+                  { value: "server", label: "The server's mailbox" },
+                  { value: "own", label: "Its own SMTP" },
+                ]}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setTransport("server")}
+                className="self-start text-[12px] text-muted underline decoration-dotted underline-offset-2 hover:text-ink"
               >
-                <Input
-                  type="password"
-                  value={form.smtpPass}
-                  onChange={(e) => set("smtpPass")(e.target.value)}
-                  placeholder={account?.smtpPassSet ? "••••••••" : ""}
-                  autoComplete="new-password"
-                />
-              </FormField>
+                Use the server's mailbox instead
+              </button>
+            )}
+
+            {transport === "server" ? (
+              <div className="rounded-(--radius-field) border border-border bg-surface px-3 py-2.5">
+                <p className="font-mono text-[12px] text-ink-700">{server.label}</p>
+                {/* reference: what the built-in mailbox IS — read once, then never again */}
+                <p className="mt-1.5 text-[12px] leading-relaxed text-muted flex items-center gap-1.5">
+                  Server mailbox
+                  <InfoHint label="What the server mailbox is">
+                    The account that already sends invites and password resets. Nothing to
+                    configure, and it works today — which is why a new firm starts here.
+                  </InfoHint>
+                </p>
+                <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
+                  It can normally only send as{" "}
+                  <span className="font-mono">{server.fromEmail}</span>. A different From is
+                  worth testing before the first real mailout, and once the firm sends in volume
+                  its own SMTP is safer: a spam complaint here damages the address the team
+                  needs to sign in.
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="grid gap-3 sm:grid-cols-[1fr_100px]">
+                  <FormField label="Host">
+                    <Input
+                      value={form.smtpHost}
+                      onChange={(e) => set("smtpHost")(e.target.value)}
+                      placeholder="mail.illion.tax"
+                    />
+                  </FormField>
+                  <FormField label="Port">
+                    <Input
+                      value={form.smtpPort}
+                      onChange={(e) => set("smtpPort")(e.target.value.replace(/\D/g, ""))}
+                      placeholder="587"
+                      inputMode="numeric"
+                    />
+                  </FormField>
+                </div>
+
+                <Encryption port={form.smtpPort} checked={secure} onChange={setSecure} />
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <FormField label="Username">
+                    <Input
+                      value={form.smtpUser}
+                      onChange={(e) => set("smtpUser")(e.target.value)}
+                      placeholder="info@illion.tax"
+                      autoComplete="off"
+                    />
+                  </FormField>
+                  <FormField
+                    label={
+                      account?.smtpPassSet ? "Password (stored — type to replace)" : "Password"
+                    }
+                  >
+                    <Input
+                      type="password"
+                      value={form.smtpPass}
+                      onChange={(e) => set("smtpPass")(e.target.value)}
+                      placeholder={account?.smtpPassSet ? "••••••••" : ""}
+                      autoComplete="new-password"
+                    />
+                  </FormField>
+                </div>
+              </>
+            )}
+
+            <div className="border-t border-divider pt-3">
+              <p className="text-[13px] font-semibold">Reading bounces</p>
+              <p className="mt-1 text-[12px] leading-relaxed text-muted">
+                A server that refuses a letter after taking it says so by email, to this
+                mailbox. Left off, those replies are never read and a failed letter goes on
+                reading as sent.
+              </p>
             </div>
-          </>
-        )}
-
-        <div className="border-t border-divider pt-3">
-          <p className="text-[13px] font-semibold">Reading bounces</p>
-          <p className="mt-1 text-[12px] leading-relaxed text-muted">
-            A server that refuses a letter after taking it says so by email, to this mailbox.
-            Left off, those replies are never read and a failed letter goes on reading as sent.
-          </p>
-        </div>
-
-        <label className="flex items-center gap-2 text-[13px]">
-          <input
-            type="checkbox"
-            checked={reads}
-            onChange={(e) => setReads(e.target.checked)}
-            className="size-3.5 accent-[var(--color-primary)]"
-          />
-          Read this mailbox for bounces
-        </label>
-
-        {reads && (
-          <>
-            <div className="grid gap-3 sm:grid-cols-[1fr_100px]">
-              <FormField label="IMAP host">
-                <Input
-                  value={form.imapHost}
-                  onChange={(e) => set("imapHost")(e.target.value)}
-                  placeholder="mail.illion.tax"
-                />
-              </FormField>
-              <FormField label="Port">
-                <Input
-                  value={form.imapPort}
-                  onChange={(e) => set("imapPort")(e.target.value.replace(/\D/g, ""))}
-                  placeholder="993"
-                  inputMode="numeric"
-                />
-              </FormField>
-            </div>
-
-            <Encryption
-              port={form.imapPort}
-              checked={imapSecure}
-              onChange={setImapSecure}
-            />
 
             <label className="flex items-center gap-2 text-[13px]">
               <input
                 type="checkbox"
-                checked={imapOwnAuth}
-                onChange={(e) => setImapOwnAuth(e.target.checked)}
+                checked={reads}
+                onChange={(e) => setReads(e.target.checked)}
                 className="size-3.5 accent-[var(--color-primary)]"
               />
-              Sign in with different credentials
+              Read this mailbox for bounces
             </label>
 
-            {imapOwnAuth ? (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <FormField label="Username">
-                  <Input
-                    value={form.imapUser}
-                    onChange={(e) => set("imapUser")(e.target.value)}
-                    placeholder="reminder@illion.tax"
-                    autoComplete="off"
+            {reads && (
+              <>
+                <div className="grid gap-3 sm:grid-cols-[1fr_100px]">
+                  <FormField label="IMAP host">
+                    <Input
+                      value={form.imapHost}
+                      onChange={(e) => set("imapHost")(e.target.value)}
+                      placeholder="mail.illion.tax"
+                    />
+                  </FormField>
+                  <FormField label="Port">
+                    <Input
+                      value={form.imapPort}
+                      onChange={(e) => set("imapPort")(e.target.value.replace(/\D/g, ""))}
+                      placeholder="993"
+                      inputMode="numeric"
+                    />
+                  </FormField>
+                </div>
+
+                <Encryption
+                  port={form.imapPort}
+                  checked={imapSecure}
+                  onChange={setImapSecure}
+                />
+
+                <label className="flex items-center gap-2 text-[13px]">
+                  <input
+                    type="checkbox"
+                    checked={imapOwnAuth}
+                    onChange={(e) => setImapOwnAuth(e.target.checked)}
+                    className="size-3.5 accent-[var(--color-primary)]"
                   />
-                </FormField>
-                <FormField
-                  label={
-                    account?.imapPassSet ? "Password (stored — type to replace)" : "Password"
-                  }
-                >
-                  <Input
-                    type="password"
-                    value={form.imapPass}
-                    onChange={(e) => set("imapPass")(e.target.value)}
-                    placeholder={account?.imapPassSet ? "••••••••" : ""}
-                    autoComplete="new-password"
-                  />
-                </FormField>
-              </div>
-            ) : (
-              // reference: it already wore an info icon AND a paragraph; now only the icon
-              <p className="flex items-center gap-1.5 text-[11px] text-muted-400">
-                Uses the SMTP credentials above
-                <InfoHint label="Which credentials IMAP uses">
-                  The SMTP username and password above are reused — one mailbox, two protocols, which is what nearly every host expects. Test connection proves it either way.
-                </InfoHint>
-              </p>
+                  Sign in with different credentials
+                </label>
+
+                {imapOwnAuth ? (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <FormField label="Username">
+                      <Input
+                        value={form.imapUser}
+                        onChange={(e) => set("imapUser")(e.target.value)}
+                        placeholder="reminder@illion.tax"
+                        autoComplete="off"
+                      />
+                    </FormField>
+                    <FormField
+                      label={
+                        account?.imapPassSet
+                          ? "Password (stored — type to replace)"
+                          : "Password"
+                      }
+                    >
+                      <Input
+                        type="password"
+                        value={form.imapPass}
+                        onChange={(e) => set("imapPass")(e.target.value)}
+                        placeholder={account?.imapPassSet ? "••••••••" : ""}
+                        autoComplete="new-password"
+                      />
+                    </FormField>
+                  </div>
+                ) : (
+                  // reference: it already wore an info icon AND a paragraph; now only the icon
+                  <p className="flex items-center gap-1.5 text-[11px] text-muted-400">
+                    Uses the SMTP credentials above
+                    <InfoHint label="Which credentials IMAP uses">
+                      The SMTP username and password above are reused — one mailbox, two
+                      protocols, which is what nearly every host expects. Test connection proves
+                      it either way.
+                    </InfoHint>
+                  </p>
+                )}
+              </>
             )}
           </>
-        )}
-        </>
         )}
       </div>
     </Modal>
@@ -606,8 +614,8 @@ function Encryption({
   if (known) {
     return (
       <p className="text-[12px] text-muted">
-        Encrypted with <span className="font-medium text-ink">{encryptionLabel(known)}</span>, which
-        is what port {port} means.
+        Encrypted with <span className="font-medium text-ink">{encryptionLabel(known)}</span>,
+        which is what port {port} means.
       </p>
     );
   }

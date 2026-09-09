@@ -179,12 +179,7 @@ export async function removeService(id: string) {
   const service = await repo.findService(id);
   if (!service) throw new NotFoundError("Service not found");
   const usage = await repo.countServiceUsage(id);
-  if (
-    usage.subscriptions > 0 ||
-    usage.people > 0 ||
-    usage.tasks > 0 ||
-    usage.invoices > 0
-  ) {
+  if (usage.subscriptions > 0 || usage.people > 0 || usage.tasks > 0 || usage.invoices > 0) {
     throw new ConflictError(
       "This service has history (subscriptions incl. stopped, people, generated tasks, or invoices) — deactivate it instead of deleting",
     );
@@ -207,7 +202,9 @@ export async function addTemplate(serviceId: string, input: CreateTaskTemplateIn
   if (!service) throw new NotFoundError("Service not found");
   // one-time services hold JOB PRESETS (deadline + planned time) — no rhythm to repeat
   if (service.type === "one_time" && input.periodicity !== "once") {
-    throw new ValidationError("One-time services hold job presets — no repeat rhythm (use once)");
+    throw new ValidationError(
+      "One-time services hold job presets — no repeat rhythm (use once)",
+    );
   }
   await repo.createTemplate(serviceId, {
     name: input.name,
@@ -251,7 +248,9 @@ export async function updateTemplate(
   }
   // one-time services hold job presets — no rhythm to repeat
   if (service.type === "one_time" && merged.periodicity !== "once") {
-    throw new ValidationError("One-time services hold job presets — no repeat rhythm (use once)");
+    throw new ValidationError(
+      "One-time services hold job presets — no repeat rhythm (use once)",
+    );
   }
   await repo.updateTemplate(templateId, input);
   record("service.template_changed", {

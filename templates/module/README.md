@@ -18,7 +18,7 @@ triggers it raises, or the sentence saying why it stays quiet.
 
 The rule that decides it: **a lifecycle event of a record → yes; a step of ordinary work → no.**
 Created, assigned, completed, cancelled, overdue, past its due day — those change what somebody
-does next. Edited, moved, renamed, ticked — those fire dozens of times a day and *are* the work.
+does next. Edited, moved, renamed, ticked — those fire dozens of times a day and _are_ the work.
 
 Both answers are fine. What is not fine is leaving it implicit: afterwards, a trigger nobody wanted
 and a trigger nobody remembered look exactly the same. Adding a trigger costs one entry in the
@@ -45,8 +45,8 @@ read off the code rather than guessed), and one `record(...)` call from the SERV
 repository's transaction has returned. `server/activity.coverage.test.ts` fails if a module with
 mutating routes calls `record()` nowhere and is not named as a deliberate exception with a reason;
 `server/activity.producers.test.ts` fails if a declared event has no producer. The bare request is
-logged either way — what the declaration buys is that the log says *what happened* rather than
-*which URL was called*.
+logged either way — what the declaration buys is that the log says _what happened_ rather than
+_which URL was called_.
 
 Register in `server/app.ts`:
 

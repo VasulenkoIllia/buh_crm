@@ -107,7 +107,10 @@ export function AccessSection() {
 
   const setPolicy = useAccessMutation(
     ({ gate, role, state }: { gate: GateKey; role: UserRole; state: AccessState }) =>
-      api<AccessTable>(`/api/access/policies/${gate}/${role}`, { method: "PUT", body: { state } }),
+      api<AccessTable>(`/api/access/policies/${gate}/${role}`, {
+        method: "PUT",
+        body: { state },
+      }),
   );
   const setOverride = useAccessMutation(
     ({ userId, gate, state }: { userId: string; gate: GateKey; state: AccessState }) =>
@@ -116,8 +119,9 @@ export function AccessSection() {
         body: { state },
       }),
   );
-  const clearOverride = useAccessMutation(({ userId, gate }: { userId: string; gate: GateKey }) =>
-    api<AccessTable>(`/api/access/overrides/${userId}/${gate}`, { method: "DELETE" }),
+  const clearOverride = useAccessMutation(
+    ({ userId, gate }: { userId: string; gate: GateKey }) =>
+      api<AccessTable>(`/api/access/overrides/${userId}/${gate}`, { method: "DELETE" }),
   );
 
   const policyOf = useMemo(() => {
@@ -132,7 +136,8 @@ export function AccessSection() {
   }, [data]);
 
   if (isLoading) return <p className="text-[13px] text-muted">Loading…</p>;
-  if (error || !data) return <p className="text-[13px] text-danger-text">Failed to load access.</p>;
+  if (error || !data)
+    return <p className="text-[13px] text-danger-text">Failed to load access.</p>;
 
   /**
    * What this person actually gets: their own override where they have one, their role's answer
@@ -170,7 +175,8 @@ export function AccessSection() {
         <header className="border-b border-divider px-5 py-4">
           <h2 className="text-[15px] font-semibold">By role</h2>
           <p className="mt-0.5 text-[13px] text-muted">
-            What everybody with that role may open. A person can be given a different answer below.
+            What everybody with that role may open. A person can be given a different answer
+            below.
           </p>
         </header>
 
@@ -188,14 +194,19 @@ export function AccessSection() {
               key={gate}
               className="grid grid-cols-[1fr_200px_200px] items-center gap-x-6 border-b border-divider px-5 py-2.5 last:border-0"
             >
-              <GateName gate={gate} narrowedFor={narrowed.map((r) => `${STATE_LABEL[states[r]]} for ${r}`)} />
+              <GateName
+                gate={gate}
+                narrowedFor={narrowed.map((r) => `${STATE_LABEL[states[r]]} for ${r}`)}
+              />
               {(["admin", "user"] as const).map((role) => (
                 <StatePicker
                   key={role}
                   gate={gate}
                   value={states[role]}
                   disabled={busy}
-                  onChange={(state) => state !== null && setPolicy.mutate({ gate, role, state })}
+                  onChange={(state) =>
+                    state !== null && setPolicy.mutate({ gate, role, state })
+                  }
                 />
               ))}
             </div>
@@ -388,7 +399,9 @@ function StatePicker({
    */
   const orphan = value !== null && !offered.includes(value) ? value : null;
   const options: { value: Choice; label: string }[] = [
-    ...(follows !== undefined ? [{ value: null, label: `Role · ${STATE_LABEL[follows]}` }] : []),
+    ...(follows !== undefined
+      ? [{ value: null, label: `Role · ${STATE_LABEL[follows]}` }]
+      : []),
     ...offered.map((state) => ({ value: state as Choice, label: STATE_LABEL[state] })),
     ...(orphan ? [{ value: orphan as Choice, label: `${STATE_LABEL[orphan]} (kept)` }] : []),
   ];

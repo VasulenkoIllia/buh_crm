@@ -29,7 +29,10 @@ export type AddState =
  * rather than in the screen because the rules below read it and the screen already imports them —
  * the other direction would be a cycle.
  */
-export type BillingTiming = { trigger: "on_period_start" | "on_period_end"; day: number | null };
+export type BillingTiming = {
+  trigger: "on_period_start" | "on_period_end";
+  day: number | null;
+};
 
 /** The services a client may hold at all: live in the catalog, and not firm-internal. */
 export function assignableServices(services: Service[]): Service[] {

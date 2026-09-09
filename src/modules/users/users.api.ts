@@ -9,7 +9,6 @@ import { ME_QUERY_KEY } from "@/app/auth";
 import { api } from "@/shared/lib/api";
 import { USERS_KEY } from "@/shared/lib/query-keys";
 
-
 export function useUsers() {
   return useQuery({
     queryKey: USERS_KEY,

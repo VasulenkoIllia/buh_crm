@@ -94,7 +94,10 @@ export async function listClients(args: {
     pinned = [];
   } else {
     const rank = new Map(args.pinnedIds.map((id, i) => [id, i]));
-    const pinnedAll = await prisma.client.findMany({ where: pinnedWhere, include: clientInclude });
+    const pinnedAll = await prisma.client.findMany({
+      where: pinnedWhere,
+      include: clientInclude,
+    });
     pinnedAll.sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
     // pins that survive the filters — a pinned client the service filter excludes is not shown
     pinnedTotal = pinnedAll.length;
@@ -306,7 +309,9 @@ export async function reconcileClientCompanies(clientId: string, input: CompanyR
         ...create.map((data) => prisma.company.create({ data })),
       ]);
       // the creates are last, and there are exactly `create.length` of them
-      return results.slice(results.length - create.length) as Prisma.CompanyGetPayload<object>[];
+      return results.slice(
+        results.length - create.length,
+      ) as Prisma.CompanyGetPayload<object>[];
     },
   };
 }
@@ -424,11 +429,18 @@ export function countLiveSubscriptions(clientId: string, tz: string) {
 export function setDefaultSubscription(clientId: string, subscriptionId: string | null) {
   return prisma.$transaction(async (tx) => {
     await tx.subscription.updateMany({
-      where: { clientId, isDefault: true, ...(subscriptionId ? { id: { not: subscriptionId } } : {}) },
+      where: {
+        clientId,
+        isDefault: true,
+        ...(subscriptionId ? { id: { not: subscriptionId } } : {}),
+      },
       data: { isDefault: false },
     });
     if (subscriptionId) {
-      await tx.subscription.update({ where: { id: subscriptionId }, data: { isDefault: true } });
+      await tx.subscription.update({
+        where: { id: subscriptionId },
+        data: { isDefault: true },
+      });
     }
   });
 }
@@ -588,7 +600,6 @@ export function listClientFiles(clientId: string) {
 export function countClientFiles(clientId: string) {
   return prisma.file.count({ where: { clientId } });
 }
-
 
 export function createClientFile(data: {
   clientId: string;

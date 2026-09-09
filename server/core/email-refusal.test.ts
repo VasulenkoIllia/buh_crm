@@ -32,7 +32,9 @@ describe("what the mail server refused", () => {
 
   /** nodemailer reports addresses as strings or as objects depending on the transport. */
   it("reads either shape nodemailer reports", () => {
-    expect(refusalOf({ rejected: [{ address: "obj@form.example" }] })).toContain("obj@form.example");
+    expect(refusalOf({ rejected: [{ address: "obj@form.example" }] })).toContain(
+      "obj@form.example",
+    );
   });
 
   it("still refuses when the server explained nothing", () => {

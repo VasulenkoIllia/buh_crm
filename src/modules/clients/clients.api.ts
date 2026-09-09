@@ -1,9 +1,4 @@
-import {
-  useInfiniteQuery,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   Client,
   ClientListQuery,
@@ -35,7 +30,6 @@ export interface ClientFile {
   mime: string;
   createdAt: string;
 }
-
 
 export function useClients(query: Partial<ClientListQuery>, opts?: { enabled?: boolean }) {
   const params = new URLSearchParams();
@@ -141,7 +135,8 @@ export function usePinClient() {
 export function useArchiveClient() {
   const invalidate = useInvalidateClients();
   return useMutation({
-    mutationFn: (id: string) => api<{ ok: true }>(`/api/clients/${id}/archive`, { method: "POST" }),
+    mutationFn: (id: string) =>
+      api<{ ok: true }>(`/api/clients/${id}/archive`, { method: "POST" }),
     onSuccess: invalidate,
   });
 }
@@ -280,7 +275,6 @@ export function useResumeSubscription() {
   });
 }
 
-
 // ── secrets (S7.5) ───────────────────────────────────────────────────────────
 
 const SECRETS_KEY = (clientId: string) => [...CLIENTS_KEY, clientId, "secrets"] as const;
@@ -351,7 +345,13 @@ export const revealSecret = (clientId: string, secretId: string) =>
   );
 
 export interface SecretAuditPage {
-  items: { id: string; action: string; label: string | null; byName: string; createdAt: string }[];
+  items: {
+    id: string;
+    action: string;
+    label: string | null;
+    byName: string;
+    createdAt: string;
+  }[];
   total: number;
   page: number;
   pageSize: number;

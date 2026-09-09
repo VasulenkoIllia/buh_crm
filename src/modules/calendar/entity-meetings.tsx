@@ -24,7 +24,9 @@ export function EntityMeetings({
   const [open, setOpen] = useState<{ id?: string } | null>(null);
 
   const now = Date.now();
-  const upcoming = (data ?? []).filter((m) => !m.cancelledAt && new Date(m.startAt).getTime() >= now);
+  const upcoming = (data ?? []).filter(
+    (m) => !m.cancelledAt && new Date(m.startAt).getTime() >= now,
+  );
   const past = (data ?? []).filter((m) => m.cancelledAt || new Date(m.startAt).getTime() < now);
 
   return (
@@ -36,7 +38,9 @@ export function EntityMeetings({
         </Button>
       </div>
 
-      {error && <p className="px-5 py-4 text-[13px] text-danger-text">Couldn't load meetings.</p>}
+      {error && (
+        <p className="px-5 py-4 text-[13px] text-danger-text">Couldn't load meetings.</p>
+      )}
       {isLoading && <p className="px-5 py-4 text-[13px] text-muted">Loading…</p>}
 
       {data && data.length === 0 && (
@@ -90,7 +94,12 @@ function Group({
           onClick={() => onOpen(m.id)}
           className="flex w-full items-center gap-3 border-b border-[#f2f4f7] px-5 py-2.5 text-left text-[13px] last:border-b-0 hover:bg-divider/40"
         >
-          <span className={cn("min-w-0 flex-1 truncate font-medium", m.cancelledAt && "line-through text-faint")}>
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate font-medium",
+              m.cancelledAt && "line-through text-faint",
+            )}
+          >
             {m.title}
           </span>
           {m.cancelledAt && (

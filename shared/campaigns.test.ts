@@ -10,7 +10,8 @@ import {
 } from "./campaigns.js";
 
 const day = (iso: string) => Date.parse(`${iso}T00:00:00.000Z`);
-const iso = (ms: number | null) => (ms === null ? null : new Date(ms).toISOString().slice(0, 10));
+const iso = (ms: number | null) =>
+  ms === null ? null : new Date(ms).toISOString().slice(0, 10);
 
 describe("when a campaign fires next", () => {
   it("has no next date for a one-off", () => {

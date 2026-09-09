@@ -50,7 +50,9 @@ describe("contactLinks", () => {
   it("strips the punctuation people really type around a number", () => {
     for (const written of ["+1 (704) 726-6994", "1.704.726.6994", "+1-704-726-6994"]) {
       expect(contactLinks({ phone: written })[0].href, written).toBe("tel:+17047266994");
-      expect(contactLinks({ whatsapp: written })[0].href, written).toBe("https://wa.me/17047266994");
+      expect(contactLinks({ whatsapp: written })[0].href, written).toBe(
+        "https://wa.me/17047266994",
+      );
     }
   });
 
@@ -58,7 +60,9 @@ describe("contactLinks", () => {
   it("takes a Telegram @username or a phone, and uses the right URL for each", () => {
     expect(contactLinks({ telegram: "@illion_tax" })[0].href).toBe("https://t.me/illion_tax");
     expect(contactLinks({ telegram: "illion_tax" })[0].href).toBe("https://t.me/illion_tax");
-    expect(contactLinks({ telegram: "+1 (704) 726-6994" })[0].href).toBe("https://t.me/+17047266994");
+    expect(contactLinks({ telegram: "+1 (704) 726-6994" })[0].href).toBe(
+      "https://t.me/+17047266994",
+    );
   });
 
   it("builds a Viber deep link", () => {
@@ -69,7 +73,9 @@ describe("contactLinks", () => {
 
   it("adds https:// to a bare domain, and leaves a full URL alone", () => {
     expect(contactLinks({ website: "illion.tax" })[0].href).toBe("https://illion.tax");
-    expect(contactLinks({ website: "https://illion.tax/en" })[0].href).toBe("https://illion.tax/en");
+    expect(contactLinks({ website: "https://illion.tax/en" })[0].href).toBe(
+      "https://illion.tax/en",
+    );
   });
 
   /**
@@ -147,7 +153,9 @@ describe("renderLetter", () => {
 
   /** The preview and the send need different sources; a hard-coded `cid:` broke every preview. */
   it("draws whatever source it is handed, and the wordmark when handed none", () => {
-    expect(renderLetter({ ...shell, logoSrc: "cid:firm-logo" })).toContain('src="cid:firm-logo"');
+    expect(renderLetter({ ...shell, logoSrc: "cid:firm-logo" })).toContain(
+      'src="cid:firm-logo"',
+    );
     expect(renderLetter({ ...shell, logoSrc: "data:image/png;base64,AAA" })).toContain(
       'src="data:image/png;base64,AAA"',
     );
@@ -158,7 +166,13 @@ describe("renderLetter", () => {
 
   it("uses no technique Outlook or Gmail would drop", () => {
     const html = renderLetter(shell);
-    for (const banned of ["display:flex", "display:grid", "<style", "background-image", "<svg"]) {
+    for (const banned of [
+      "display:flex",
+      "display:grid",
+      "<style",
+      "background-image",
+      "<svg",
+    ]) {
       expect(html, banned).not.toContain(banned);
     }
   });
@@ -191,7 +205,10 @@ describe("the transactional blocks", () => {
     postalAddress: null,
     unsubscribeUrl: null,
     facts: [{ label: "Account", value: "illia@illion.tax" }],
-    cta: { label: "Set a new password", url: "https://buhcrm.workflo.space/reset?token=ABC&x=1" },
+    cta: {
+      label: "Set a new password",
+      url: "https://buhcrm.workflo.space/reset?token=ABC&x=1",
+    },
   };
 
   it("draws the button as a table, not a padded link", () => {

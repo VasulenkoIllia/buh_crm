@@ -114,7 +114,10 @@ describe("clients", () => {
     const body = res.json();
     individualId = body.id;
     expect(body.displayName).toBe("Ivan Petrenko");
-    expect(body.companies.map((c: { name: string }) => c.name)).toEqual(["Alpha LLC", "Beta Inc"]);
+    expect(body.companies.map((c: { name: string }) => c.name)).toEqual([
+      "Alpha LLC",
+      "Beta Inc",
+    ]);
     expect(body.people).toHaveLength(1);
     expect(body.people[0]).toMatchObject({ name: "Olena Book", serviceLabel: "Bookkeeping" });
     expect(body.isRegular).toBe(false);
@@ -253,7 +256,9 @@ describe("clients", () => {
       method: "PATCH",
       url: `/api/clients/${created.json().id}`,
       headers: { cookie },
-      payload: { companies: [{ id: company.id, name: "Detailed Group", email: "ap@detailed.co" }] },
+      payload: {
+        companies: [{ id: company.id, name: "Detailed Group", email: "ap@detailed.co" }],
+      },
     });
     expect(renamed.statusCode).toBe(200);
     expect(renamed.json().companies[0].id).toBe(company.id);
@@ -341,8 +346,12 @@ describe("clients", () => {
     expect(client.json().isRegular).toBe(false);
 
     const [oneTime, monthly] = await Promise.all([
-      prisma.service.create({ data: { name: "Derived one-off", color: "#000", type: "one_time" } }),
-      prisma.service.create({ data: { name: "Derived monthly", color: "#000", type: "subscription" } }),
+      prisma.service.create({
+        data: { name: "Derived one-off", color: "#000", type: "one_time" },
+      }),
+      prisma.service.create({
+        data: { name: "Derived monthly", color: "#000", type: "subscription" },
+      }),
     ]);
 
     // a one-time service is only a container for ad-hoc jobs — it never makes anyone regular
@@ -436,7 +445,8 @@ describe("clients", () => {
 
     // …and a resume can't reach backwards either, or the same hole reopens
     await backdateStart(subId, 30);
-    await app.inject({ // it is this client's first service, so it holds the default flag
+    await app.inject({
+      // it is this client's first service, so it holds the default flag
       method: "PATCH",
       url: `/api/clients/${clientId}/subscriptions/${subId}`,
       headers: { cookie },
@@ -494,7 +504,12 @@ describe("clients", () => {
 
   it("a planned pause can be moved and called off, and a mistyped date can't erase service", async () => {
     const service = await prisma.service.create({
-      data: { name: "Planned pause svc", color: "#2f4fd6", type: "subscription", defaultAmount: 9_000 },
+      data: {
+        name: "Planned pause svc",
+        color: "#2f4fd6",
+        type: "subscription",
+        defaultAmount: 9_000,
+      },
     });
     const created = await app.inject({
       method: "POST",
@@ -610,8 +625,12 @@ describe("clients", () => {
     });
     const clientId = created.json().id;
     const [first, second] = await Promise.all([
-      prisma.service.create({ data: { name: "Default first", color: "#000", type: "subscription" } }),
-      prisma.service.create({ data: { name: "Default second", color: "#000", type: "subscription" } }),
+      prisma.service.create({
+        data: { name: "Default first", color: "#000", type: "subscription" },
+      }),
+      prisma.service.create({
+        data: { name: "Default second", color: "#000", type: "subscription" },
+      }),
     ]);
 
     // the first service is the default by itself — with one option there is nothing to choose
@@ -621,7 +640,9 @@ describe("clients", () => {
       headers: { cookie },
       payload: { serviceId: first.id, amount: 1000, period: "month", ...startedEarlier() },
     });
-    const subA = one.json().subscriptions.find((s: { serviceId: string }) => s.serviceId === first.id);
+    const subA = one
+      .json()
+      .subscriptions.find((s: { serviceId: string }) => s.serviceId === first.id);
     expect(subA.isDefault).toBe(true);
     await backdateStart(subA.id);
 
@@ -632,7 +653,9 @@ describe("clients", () => {
       headers: { cookie },
       payload: { serviceId: second.id, amount: 2000, period: "month", ...startedEarlier() },
     });
-    const subB = two.json().subscriptions.find((s: { serviceId: string }) => s.serviceId === second.id);
+    const subB = two
+      .json()
+      .subscriptions.find((s: { serviceId: string }) => s.serviceId === second.id);
     expect(subB.isDefault).toBe(false);
     await backdateStart(subB.id);
 
@@ -668,9 +691,7 @@ describe("clients", () => {
       payload: { lastDay: null },
     });
     expect(removed.statusCode).toBe(200);
-    const reopened = removed
-      .json()
-      .subscriptions.find((s: { id: string }) => s.id === subB.id);
+    const reopened = removed.json().subscriptions.find((s: { id: string }) => s.id === subB.id);
     expect(reopened.inForceUntil).toBeNull();
     expect(reopened.isDefault).toBe(true);
     // setting one on the default is still refused, though
@@ -716,7 +737,9 @@ describe("clients", () => {
       headers: { cookie },
       payload: { isDefault: false },
     });
-    expect(cleared.json().subscriptions.every((s: { isDefault: boolean }) => !s.isDefault)).toBe(true);
+    expect(
+      cleared.json().subscriptions.every((s: { isDefault: boolean }) => !s.isDefault),
+    ).toBe(true);
     const lastStop = await app.inject({
       method: "POST",
       url: `/api/clients/${clientId}/subscriptions/${subB.id}/pause`,
@@ -729,8 +752,16 @@ describe("clients", () => {
   // the two tabs partition every client: there is no third state and no manual override
   it("the tabs split every client between them, with no overlap", async () => {
     const [regular, oneTime] = await Promise.all([
-      app.inject({ method: "GET", url: "/api/clients?tab=regular&pageSize=100", headers: { cookie } }),
-      app.inject({ method: "GET", url: "/api/clients?tab=one_time&pageSize=100", headers: { cookie } }),
+      app.inject({
+        method: "GET",
+        url: "/api/clients?tab=regular&pageSize=100",
+        headers: { cookie },
+      }),
+      app.inject({
+        method: "GET",
+        url: "/api/clients?tab=one_time&pageSize=100",
+        headers: { cookie },
+      }),
     ]);
     const regularIds = regular.json().items.map((c: { id: string }) => c.id);
     const oneTimeIds = oneTime.json().items.map((c: { id: string }) => c.id);
@@ -809,7 +840,12 @@ describe("clients", () => {
     // companies used to be deleted+recreated on every save, so the new ids silently blanked
     // (FK SetNull) the company on subscriptions, tasks and ISSUED INVOICES
     const service = await prisma.service.create({
-      data: { name: "Company FK service", color: "#2f4fd6", type: "subscription", defaultAmount: 5_000 },
+      data: {
+        name: "Company FK service",
+        color: "#2f4fd6",
+        type: "subscription",
+        defaultAmount: 5_000,
+      },
     });
     const created = await app.inject({
       method: "POST",
@@ -847,12 +883,15 @@ describe("clients", () => {
       method: "PATCH",
       url: `/api/clients/${client.id}`,
       headers: { cookie },
-      payload: { phone: "+380000000000", companies: [{ name: "Alpha Ltd" }, { name: "Beta Ltd" }] },
+      payload: {
+        phone: "+380000000000",
+        companies: [{ name: "Alpha Ltd" }, { name: "Beta Ltd" }],
+      },
     });
     expect(resaved.statusCode).toBe(200);
-    expect(resaved.json().companies.find((c: { name: string }) => c.name === "Alpha Ltd").id).toBe(
-      alpha.id,
-    );
+    expect(
+      resaved.json().companies.find((c: { name: string }) => c.name === "Alpha Ltd").id,
+    ).toBe(alpha.id);
     expect(resaved.json().subscriptions[0].companyId).toBe(alpha.id);
 
     const invoices = await app.inject({
@@ -891,7 +930,12 @@ describe("clients", () => {
     });
     const client = created.json();
     const service = await prisma.service.create({
-      data: { name: "Archived client job", color: "#1f8f3a", type: "one_time", defaultAmount: 1_000 },
+      data: {
+        name: "Archived client job",
+        color: "#1f8f3a",
+        type: "one_time",
+        defaultAmount: 1_000,
+      },
     });
     const sub = await app.inject({
       method: "POST",
@@ -912,13 +956,29 @@ describe("clients", () => {
       },
     });
 
-    const before = await app.inject({ method: "GET", url: "/api/tasks?view=board", headers: { cookie } });
-    expect(before.json().items.some((t: { clientId: string }) => t.clientId === client.id)).toBe(true);
+    const before = await app.inject({
+      method: "GET",
+      url: "/api/tasks?view=board",
+      headers: { cookie },
+    });
+    expect(
+      before.json().items.some((t: { clientId: string }) => t.clientId === client.id),
+    ).toBe(true);
 
-    await app.inject({ method: "POST", url: `/api/clients/${client.id}/archive`, headers: { cookie } });
+    await app.inject({
+      method: "POST",
+      url: `/api/clients/${client.id}/archive`,
+      headers: { cookie },
+    });
 
-    const after = await app.inject({ method: "GET", url: "/api/tasks?view=board", headers: { cookie } });
-    expect(after.json().items.some((t: { clientId: string }) => t.clientId === client.id)).toBe(false);
+    const after = await app.inject({
+      method: "GET",
+      url: "/api/tasks?view=board",
+      headers: { cookie },
+    });
+    expect(after.json().items.some((t: { clientId: string }) => t.clientId === client.id)).toBe(
+      false,
+    );
 
     // the money stays visible — archiving a client must not hide what they owe
     const invoices = await app.inject({
@@ -962,9 +1022,9 @@ describe("clients", () => {
         payload: { serviceId: service.id, amount: 50_000, ...(period ? { period } : {}) },
       });
       expect(res.statusCode).toBe(201);
-      return res.json().subscriptions.find(
-        (x: { serviceId: string }) => x.serviceId === service.id,
-      );
+      return res
+        .json()
+        .subscriptions.find((x: { serviceId: string }) => x.serviceId === service.id);
     };
 
     it("stores NO period for a one-time service, even when one is sent", async () => {
@@ -1099,19 +1159,31 @@ describe("clients", () => {
       // Zulu first, then Alpha — the reverse of name order and of creation order, so only pin
       // time can produce it. This is the whole point: an existing pin must not move when the
       // reader changes the sort (user, 2026-08-26).
-      await app.inject({ method: "PUT", url: `/api/clients/${ids.Zulu}/pin`, headers: { cookie } });
-      await app.inject({ method: "PUT", url: `/api/clients/${ids.Alpha}/pin`, headers: { cookie } });
+      await app.inject({
+        method: "PUT",
+        url: `/api/clients/${ids.Zulu}/pin`,
+        headers: { cookie },
+      });
+      await app.inject({
+        method: "PUT",
+        url: `/api/clients/${ids.Alpha}/pin`,
+        headers: { cookie },
+      });
 
       for (const sort of ["", "&sort=name", "&sort=updated"]) {
         const items = await list(sort);
-        expect(items.slice(0, 2).map((c) => c.firstName), `sort=${sort || "recent"}`).toEqual([
-          "Zulu",
-          "Alpha",
-        ]);
+        expect(
+          items.slice(0, 2).map((c) => c.firstName),
+          `sort=${sort || "recent"}`,
+        ).toEqual(["Zulu", "Alpha"]);
       }
 
       // a THIRD pin lands underneath the other two and moves neither
-      await app.inject({ method: "PUT", url: `/api/clients/${ids.Mike}/pin`, headers: { cookie } });
+      await app.inject({
+        method: "PUT",
+        url: `/api/clients/${ids.Mike}/pin`,
+        headers: { cookie },
+      });
       expect((await list("&sort=name")).slice(0, 3).map((c) => c.firstName)).toEqual([
         "Zulu",
         "Alpha",
@@ -1119,22 +1191,46 @@ describe("clients", () => {
       ]);
 
       for (const id of Object.values(ids)) {
-        await app.inject({ method: "DELETE", url: `/api/clients/${id}/pin`, headers: { cookie } });
+        await app.inject({
+          method: "DELETE",
+          url: `/api/clients/${id}/pin`,
+          headers: { cookie },
+        });
       }
     });
 
     it("re-pinning sends the client to the BOTTOM of the block, where a new pin belongs", async () => {
-      await app.inject({ method: "PUT", url: `/api/clients/${ids.Zulu}/pin`, headers: { cookie } });
-      await app.inject({ method: "PUT", url: `/api/clients/${ids.Alpha}/pin`, headers: { cookie } });
+      await app.inject({
+        method: "PUT",
+        url: `/api/clients/${ids.Zulu}/pin`,
+        headers: { cookie },
+      });
+      await app.inject({
+        method: "PUT",
+        url: `/api/clients/${ids.Alpha}/pin`,
+        headers: { cookie },
+      });
       expect((await list()).slice(0, 2).map((c) => c.firstName)).toEqual(["Zulu", "Alpha"]);
 
       // unpin then pin again — it is a new pin, so it goes last
-      await app.inject({ method: "DELETE", url: `/api/clients/${ids.Zulu}/pin`, headers: { cookie } });
-      await app.inject({ method: "PUT", url: `/api/clients/${ids.Zulu}/pin`, headers: { cookie } });
+      await app.inject({
+        method: "DELETE",
+        url: `/api/clients/${ids.Zulu}/pin`,
+        headers: { cookie },
+      });
+      await app.inject({
+        method: "PUT",
+        url: `/api/clients/${ids.Zulu}/pin`,
+        headers: { cookie },
+      });
       expect((await list()).slice(0, 2).map((c) => c.firstName)).toEqual(["Alpha", "Zulu"]);
 
       for (const id of Object.values(ids)) {
-        await app.inject({ method: "DELETE", url: `/api/clients/${id}/pin`, headers: { cookie } });
+        await app.inject({
+          method: "DELETE",
+          url: `/api/clients/${id}/pin`,
+          headers: { cookie },
+        });
       }
     });
 
@@ -1175,12 +1271,24 @@ describe("clients", () => {
     });
 
     it("pinning twice is a no-op, not a duplicate row", async () => {
-      await app.inject({ method: "PUT", url: `/api/clients/${ids.Mike}/pin`, headers: { cookie } });
-      await app.inject({ method: "PUT", url: `/api/clients/${ids.Mike}/pin`, headers: { cookie } });
+      await app.inject({
+        method: "PUT",
+        url: `/api/clients/${ids.Mike}/pin`,
+        headers: { cookie },
+      });
+      await app.inject({
+        method: "PUT",
+        url: `/api/clients/${ids.Mike}/pin`,
+        headers: { cookie },
+      });
       expect(await prisma.clientPin.count({ where: { clientId: ids.Mike } })).toBe(1);
       const items = await list("&sort=name");
       expect(items.map((c) => c.firstName)).toEqual(["Mike", "Alpha", "Zulu"]);
-      await app.inject({ method: "DELETE", url: `/api/clients/${ids.Mike}/pin`, headers: { cookie } });
+      await app.inject({
+        method: "DELETE",
+        url: `/api/clients/${ids.Mike}/pin`,
+        headers: { cookie },
+      });
     });
 
     it("a pin reorders the page without changing what is on it", async () => {
@@ -1192,7 +1300,11 @@ describe("clients", () => {
       });
       expect(before.json().total).toBe(3);
 
-      await app.inject({ method: "PUT", url: `/api/clients/${ids.Zulu}/pin`, headers: { cookie } });
+      await app.inject({
+        method: "PUT",
+        url: `/api/clients/${ids.Zulu}/pin`,
+        headers: { cookie },
+      });
 
       const page1 = await app.inject({
         method: "GET",
@@ -1212,11 +1324,19 @@ describe("clients", () => {
       );
       expect(seen).toEqual(["Zulu", "Alpha", "Mike"]);
 
-      await app.inject({ method: "DELETE", url: `/api/clients/${ids.Zulu}/pin`, headers: { cookie } });
+      await app.inject({
+        method: "DELETE",
+        url: `/api/clients/${ids.Zulu}/pin`,
+        headers: { cookie },
+      });
     });
 
     it("a pin is one reader's, not the firm's", async () => {
-      await app.inject({ method: "PUT", url: `/api/clients/${ids.Zulu}/pin`, headers: { cookie } });
+      await app.inject({
+        method: "PUT",
+        url: `/api/clients/${ids.Zulu}/pin`,
+        headers: { cookie },
+      });
 
       await prisma.user.create({
         data: {
@@ -1248,7 +1368,11 @@ describe("clients", () => {
       ]);
       expect(theirs.json().items.every((c: { pinned: boolean }) => !c.pinned)).toBe(true);
 
-      await app.inject({ method: "DELETE", url: `/api/clients/${ids.Zulu}/pin`, headers: { cookie } });
+      await app.inject({
+        method: "DELETE",
+        url: `/api/clients/${ids.Zulu}/pin`,
+        headers: { cookie },
+      });
       await prisma.session.deleteMany({ where: { user: { email: "other@clients.local" } } });
       await prisma.user.deleteMany({ where: { email: "other@clients.local" } });
     });
@@ -1291,35 +1415,59 @@ describe("clients", () => {
     });
 
     it("archiving takes the client out of the pinned block, and un-archiving does not restore it", async () => {
-      await app.inject({ method: "PUT", url: `/api/clients/${ids.Mike}/pin`, headers: { cookie } });
+      await app.inject({
+        method: "PUT",
+        url: `/api/clients/${ids.Mike}/pin`,
+        headers: { cookie },
+      });
       expect((await list())[0].firstName).toBe("Mike");
 
-      await app.inject({ method: "POST", url: `/api/clients/${ids.Mike}/archive`, headers: { cookie } });
+      await app.inject({
+        method: "POST",
+        url: `/api/clients/${ids.Mike}/archive`,
+        headers: { cookie },
+      });
       expect(await prisma.clientPin.count({ where: { clientId: ids.Mike } })).toBe(0);
 
       // a stale pin would otherwise float them to the top of the Archive screen, which reads as a
       // mistake — and like the stopped services, the pin is not brought back on restore
-      await app.inject({ method: "POST", url: `/api/clients/${ids.Mike}/restore`, headers: { cookie } });
+      await app.inject({
+        method: "POST",
+        url: `/api/clients/${ids.Mike}/restore`,
+        headers: { cookie },
+      });
       const back = await list();
       expect(back.find((c) => c.firstName === "Mike")?.pinned).toBe(false);
     });
 
     it("refuses to pin an archived client", async () => {
-      await app.inject({ method: "POST", url: `/api/clients/${ids.Alpha}/archive`, headers: { cookie } });
+      await app.inject({
+        method: "POST",
+        url: `/api/clients/${ids.Alpha}/archive`,
+        headers: { cookie },
+      });
       const res = await app.inject({
         method: "PUT",
         url: `/api/clients/${ids.Alpha}/pin`,
         headers: { cookie },
       });
       expect(res.statusCode).toBe(404);
-      await app.inject({ method: "POST", url: `/api/clients/${ids.Alpha}/restore`, headers: { cookie } });
+      await app.inject({
+        method: "POST",
+        url: `/api/clients/${ids.Alpha}/restore`,
+        headers: { cookie },
+      });
     });
 
     it("a page past the pinned block still lands on the right rows", async () => {
       // the repository takes a cheaper branch once `skip` is past the block — it must produce
       // exactly the same sequence as walking through it
       for (const n of ["Zulu", "Alpha"]) {
-        await app.inject({ method: "PUT", url: `/api/clients/${ids[n]}/pin`, headers: { cookie } });
+        await app.inject({
+          method: "PUT",
+          url: `/api/clients/${ids[n]}/pin`,
+          headers: { cookie },
+        });
       }
       const pages: string[] = [];
       for (const page of [1, 2, 3]) {
@@ -1332,7 +1480,11 @@ describe("clients", () => {
       }
       expect(pages).toEqual(["Zulu", "Alpha", "Mike"]);
       for (const id of Object.values(ids)) {
-        await app.inject({ method: "DELETE", url: `/api/clients/${id}/pin`, headers: { cookie } });
+        await app.inject({
+          method: "DELETE",
+          url: `/api/clients/${id}/pin`,
+          headers: { cookie },
+        });
       }
     });
 

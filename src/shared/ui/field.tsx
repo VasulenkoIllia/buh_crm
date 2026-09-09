@@ -36,32 +36,24 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
 Select.displayName = "Select";
 
 /** Multiline text input. Pass a height via className (e.g. `h-[74px]`). */
-export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(
-  ({ className, ...props }, ref) => (
-    <textarea
-      ref={ref}
-      className={cn(
-        "w-full resize-none rounded-(--radius-field) border border-border px-3 py-2 text-[13px] outline-none focus:border-primary",
-        className,
-      )}
-      {...props}
-    />
-  ),
-);
+export const Textarea = forwardRef<
+  HTMLTextAreaElement,
+  TextareaHTMLAttributes<HTMLTextAreaElement>
+>(({ className, ...props }, ref) => (
+  <textarea
+    ref={ref}
+    className={cn(
+      "w-full resize-none rounded-(--radius-field) border border-border px-3 py-2 text-[13px] outline-none focus:border-primary",
+      className,
+    )}
+    {...props}
+  />
+));
 Textarea.displayName = "Textarea";
 
-export function Label({
-  children,
-  htmlFor,
-}: {
-  children: React.ReactNode;
-  htmlFor?: string;
-}) {
+export function Label({ children, htmlFor }: { children: React.ReactNode; htmlFor?: string }) {
   return (
-    <label
-      htmlFor={htmlFor}
-      className="mb-1.5 block text-[12px] font-medium text-ink-700"
-    >
+    <label htmlFor={htmlFor} className="mb-1.5 block text-[12px] font-medium text-ink-700">
       {children}
     </label>
   );

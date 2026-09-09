@@ -1,8 +1,17 @@
-import { ACTIVITY_EVENTS, SUBJECT_GROUP, isActivityKey, type ActivityGroup } from "@shared/activity";
+import {
+  ACTIVITY_EVENTS,
+  SUBJECT_GROUP,
+  isActivityKey,
+  type ActivityGroup,
+} from "@shared/activity";
 import { useAuth } from "@/app/auth";
 import { cn } from "@/shared/lib/cn";
 import { InfoHint } from "@/shared/ui/info-hint";
-import { useActivityPolicies, useSetActivityPolicy, type ActivityPolicyRow } from "./activity.api";
+import {
+  useActivityPolicies,
+  useSetActivityPolicy,
+  type ActivityPolicyRow,
+} from "./activity.api";
 
 /**
  * **What is recorded at all — the firm's own switch, one row per event.**
@@ -32,7 +41,15 @@ const GROUP_LABEL: Record<ActivityGroup, string> = {
   system: "The system itself",
 };
 
-const ORDER: ActivityGroup[] = ["people", "clients", "work", "money", "comms", "files", "system"];
+const ORDER: ActivityGroup[] = [
+  "people",
+  "clients",
+  "work",
+  "money",
+  "comms",
+  "files",
+  "system",
+];
 
 export function ActivityPolicySection() {
   const { data, isLoading, error } = useActivityPolicies();
@@ -68,8 +85,8 @@ export function ActivityPolicySection() {
       <p className="text-[12px] text-muted">
         Switching an event off stops it being recorded from now on. It does not remove what has
         already been written — the log keeps that for two years, and seven for sign-ins, role
-        changes, access changes and records of data being destroyed. The bare record of the request
-        itself is always kept, whatever is switched off here.
+        changes, access changes and records of data being destroyed. The bare record of the
+        request itself is always kept, whatever is switched off here.
         {!isAdmin && " Only an administrator can change these."}
       </p>
 
@@ -91,8 +108,8 @@ export function ActivityPolicySection() {
                   {row.spec?.retention === "long" && (
                     <InfoHint label="Kept seven years">
                       Sign-ins, role changes, access changes and records of data being destroyed
-                      outlive the two-year rule: they are the ones a dispute or an examination asks
-                      about.
+                      outlive the two-year rule: they are the ones a dispute or an examination
+                      asks about.
                     </InfoHint>
                   )}
                   {isAdmin ? (
@@ -135,8 +152,8 @@ export function ActivityPolicySection() {
         <section>
           <h3 className="mb-2 text-[13px] font-semibold">No longer in this version</h3>
           <p className="mb-2 text-[12px] text-muted">
-            These were switched on or off by an earlier release and nothing writes them now. They
-            are harmless; the rows they wrote are still in the log.
+            These were switched on or off by an earlier release and nothing writes them now.
+            They are harmless; the rows they wrote are still in the log.
           </p>
           <ul className="text-[12px] text-faint">
             {unknown.map((row) => (

@@ -23,7 +23,8 @@ const REQUIRED = [
   {
     name: "Task_internal_template_period",
     guarantees: "internal templates generate a period's task once (the sweep is idempotent)",
-    mustMatch: /ON public\."Task".*"taskTemplateId".*"periodKey".*WHERE.*"subscriptionId" IS NULL/is,
+    mustMatch:
+      /ON public\."Task".*"taskTemplateId".*"periodKey".*WHERE.*"subscriptionId" IS NULL/is,
   },
   {
     name: "Service_single_default_for_new_clients",
@@ -32,13 +33,15 @@ const REQUIRED = [
   },
   {
     name: "Subscription_one_default_per_client",
-    guarantees: "a client has at most one default service (the one that prefills their pickers)",
+    guarantees:
+      "a client has at most one default service (the one that prefills their pickers)",
     mustMatch: /ON public\."Subscription".*\("clientId"\).*WHERE.*"isDefault"/is,
   },
   {
     // a FUNCTIONAL index — Prisma can't express lower(name) either, so it lands here too
     name: "Company_name_key_ci",
-    guarantees: "a company name identifies one company across the whole firm (case-insensitive)",
+    guarantees:
+      "a company name identifies one company across the whole firm (case-insensitive)",
     mustMatch: /ON public\."Company".*lower\(name\)/is,
   },
   {
@@ -46,14 +49,16 @@ const REQUIRED = [
     guarantees:
       "a subscription is in force in at most one open-ended period — two would make 'was it " +
       "served on day X' ambiguous, and coverage is what decides both billing and task generation",
-    mustMatch: /ON public\."SubscriptionPeriod".*\("subscriptionId"\).*WHERE.*"endsBefore" IS NULL/is,
+    mustMatch:
+      /ON public\."SubscriptionPeriod".*\("subscriptionId"\).*WHERE.*"endsBefore" IS NULL/is,
   },
   {
     name: "Task_system_period",
     guarantees:
       "a system-raised task exists once per (subscription, period) — the sweeps run daily and on " +
       "every boot, so without it the same reminder would be posted every morning",
-    mustMatch: /ON public\."Task".*"subscriptionId".*"periodKey".*WHERE.*"systemKind" IS NOT NULL/is,
+    mustMatch:
+      /ON public\."Task".*"subscriptionId".*"periodKey".*WHERE.*"systemKind" IS NOT NULL/is,
   },
   {
     name: "MailoutRecipient_one_client_row",
@@ -61,14 +66,16 @@ const REQUIRED = [
       "one letter reaches a client's own address once. The table's UNIQUE(mailoutId, clientId, " +
       "companyId) cannot say this on its own: companyId is NULL for the client's own row, and " +
       "Postgres treats every NULL as distinct, so the same person would be mailable twice",
-    mustMatch: /ON public\."MailoutRecipient".*\("mailoutId", "clientId"\).*WHERE.*"companyId" IS NULL/is,
+    mustMatch:
+      /ON public\."MailoutRecipient".*\("mailoutId", "clientId"\).*WHERE.*"companyId" IS NULL/is,
   },
   {
     name: "CampaignRecipient_one_client_row",
     guarantees:
       "a campaign writes to a client's own address once per run. Same NULL problem as the sent " +
       "letters: UNIQUE(campaignId, clientId, companyId) cannot see two NULL companyIds as equal",
-    mustMatch: /ON public\."CampaignRecipient".*\("campaignId", "clientId"\).*WHERE.*"companyId" IS NULL/is,
+    mustMatch:
+      /ON public\."CampaignRecipient".*\("campaignId", "clientId"\).*WHERE.*"companyId" IS NULL/is,
   },
   {
     name: "Mailout_campaignId_periodKey_key",
@@ -120,10 +127,7 @@ describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
    * the DATABASE what tables exist and hold the script to all of them.
    */
   it("wipes every table on --reset, or names it as deliberately kept", async () => {
-    const sql = await readFile(
-      new URL("../scripts/reset-data.sql", import.meta.url),
-      "utf8",
-    );
+    const sql = await readFile(new URL("../scripts/reset-data.sql", import.meta.url), "utf8");
     const rows = await prisma.$queryRaw<{ tablename: string }[]>`
       SELECT tablename FROM pg_tables WHERE schemaname = 'public'
     `;

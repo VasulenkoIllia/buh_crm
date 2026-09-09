@@ -65,7 +65,9 @@ export async function listSecrets(clientId: string) {
     label: s.label,
     description: s.description,
     hasValue: s.ciphertext !== null,
-    createdByName: s.createdBy ? `${s.createdBy.firstName} ${s.createdBy.lastName}`.trim() : null,
+    createdByName: s.createdBy
+      ? `${s.createdBy.firstName} ${s.createdBy.lastName}`.trim()
+      : null,
     updatedAt: s.updatedAt.toISOString(),
   }));
 }
@@ -159,7 +161,12 @@ export async function updateSecret(
       to: sealed ? "stored" : "none",
     };
   }
-  record("secret.updated", { subjectId: secretId, subjectLabel: input.label, clientId, changes: changed });
+  record("secret.updated", {
+    subjectId: secretId,
+    subjectLabel: input.label,
+    clientId,
+    changes: changed,
+  });
   return listSecrets(clientId);
 }
 
@@ -203,7 +210,9 @@ export async function unlock(
 ) {
   if (!(await repo.clientExists(clientId))) throw new NotFoundError("Client not found");
 
-  const ok = actor.passwordHash ? await argon2.verify(actor.passwordHash, input.password) : false;
+  const ok = actor.passwordHash
+    ? await argon2.verify(actor.passwordHash, input.password)
+    : false;
   if (!ok) {
     await repo.writeAudit({
       secretId: null,
@@ -258,7 +267,9 @@ export async function revealSecret(
   const secret = await repo.findSecret(clientId, secretId);
   if (!secret) throw new NotFoundError("Secret not found");
   if (!secret.ciphertext || !secret.iv || !secret.authTag) {
-    throw new ValidationError("This entry holds no value — see its description for where it lives");
+    throw new ValidationError(
+      "This entry holds no value — see its description for where it lives",
+    );
   }
   assertConfigured();
 

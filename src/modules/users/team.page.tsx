@@ -9,12 +9,7 @@ import { Button } from "@/shared/ui/button";
 import { FormField, Input, Select } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
 import { StatusPill } from "@/shared/ui/pill";
-import {
-  useInviteUser,
-  useResendInvite,
-  useUpdateUser,
-  useUsers,
-} from "./users.api";
+import { useInviteUser, useResendInvite, useUpdateUser, useUsers } from "./users.api";
 
 export function TeamPage() {
   const { user: me } = useAuth();
@@ -22,9 +17,7 @@ export function TeamPage() {
   const [inviteOpen, setInviteOpen] = useState(false);
 
   if (me?.role !== "admin") {
-    return (
-      <p className="text-[13px] text-muted">Only admins can manage the team.</p>
-    );
+    return <p className="text-[13px] text-muted">Only admins can manage the team.</p>;
   }
   if (isLoading) return <p className="text-[13px] text-muted">Loading…</p>;
   if (error) return <p className="text-[13px] text-danger-text">Failed to load the team.</p>;

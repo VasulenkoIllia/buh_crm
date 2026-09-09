@@ -1,5 +1,13 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { fmtBizDate, fmtBizDay, fmtDate, fmtDateTime, fmtTime, todayIso, todayPlus } from "./format";
+import {
+  fmtBizDate,
+  fmtBizDay,
+  fmtDate,
+  fmtDateTime,
+  fmtTime,
+  todayIso,
+  todayPlus,
+} from "./format";
 import { firmToday, setFirmTimezone } from "./tz";
 
 /**

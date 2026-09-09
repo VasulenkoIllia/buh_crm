@@ -42,12 +42,20 @@ interface Period {
 const lastDayOf = (y: number, m: number): Day => ({ y, m, d: daysInMonth(y, m) });
 
 /** Billing periods (month/quarter/year) that overlap [from .. to], `from`'s period first. */
-export function periodsInWindow(period: "month" | "quarter" | "year", from: Day, to: Day): Period[] {
+export function periodsInWindow(
+  period: "month" | "quarter" | "year",
+  from: Day,
+  to: Day,
+): Period[] {
   const out: Period[] = [];
   if (cmp(from, to) > 0) return out;
 
   if (period === "month") {
-    for (let y = from.y, m = from.m; y < to.y || (y === to.y && m <= to.m); m === 12 ? ((y += 1), (m = 1)) : (m += 1)) {
+    for (
+      let y = from.y, m = from.m;
+      y < to.y || (y === to.y && m <= to.m);
+      m === 12 ? ((y += 1), (m = 1)) : (m += 1)
+    ) {
       out.push({
         key: `${y}-${String(m).padStart(2, "0")}`,
         start: { y, m, d: 1 },
@@ -88,7 +96,9 @@ export function periodsInWindow(period: "month" | "quarter" | "year", from: Day,
  */
 export function issueDayFor(period: Period, trigger: string, invoiceDay: number | null): Day {
   if (trigger === "on_period_end") return period.end;
-  return invoiceDay == null ? period.start : calendarDay(period.start.y, period.start.m, invoiceDay);
+  return invoiceDay == null
+    ? period.start
+    : calendarDay(period.start.y, period.start.m, invoiceDay);
 }
 
 /**

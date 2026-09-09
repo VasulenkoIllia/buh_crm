@@ -10,7 +10,14 @@ import { useSettings } from "@/modules/settings";
 import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
 import { plural } from "@shared/text";
-import { fmtBizDate, fmtBytes, fmtDate, fmtDateTime, todayIso, todayPlus } from "@/shared/lib/format";
+import {
+  fmtBizDate,
+  fmtBytes,
+  fmtDate,
+  fmtDateTime,
+  todayIso,
+  todayPlus,
+} from "@/shared/lib/format";
 import { fmtMoney } from "@/shared/lib/money";
 import { AssigneePicker } from "@/shared/ui/assignee-picker";
 import { userLabel } from "@/shared/ui/avatar";
@@ -49,8 +56,7 @@ import {
 
 /** A resolved task target: a client (through one of its subscriptions) or a lead. */
 export type Target =
-  | { kind: "client"; id: string; label: string }
-  | { kind: "lead"; id: string; label: string };
+  { kind: "client"; id: string; label: string } | { kind: "lead"; id: string; label: string };
 
 export function TaskFormModal({
   task,
@@ -88,13 +94,17 @@ export function TaskFormModal({
   const [subscriptionId, setSubscriptionId] = useState(task?.subscriptionId ?? "");
   const [title, setTitle] = useState(task?.title ?? "");
   const [priorityId, setPriorityId] = useState(task?.priorityId ?? "");
-  const [statusColumnId, setStatusColumnId] = useState(task?.statusColumnId ?? presetColumnId ?? "");
+  const [statusColumnId, setStatusColumnId] = useState(
+    task?.statusColumnId ?? presetColumnId ?? "",
+  );
   // a new task is due TODAY unless someone says otherwise (user, 2026-08-01) — most work is
   // same-day, and an empty deadline made every task invisible to the Overdue filter by default
   const [deadline, setDeadline] = useState(
     task ? (task.deadline ? task.deadline.slice(0, 10) : "") : todayIso(),
   );
-  const [plannedMinutes, setPlannedMinutes] = useState<number | null>(task?.plannedMinutes ?? null);
+  const [plannedMinutes, setPlannedMinutes] = useState<number | null>(
+    task?.plannedMinutes ?? null,
+  );
   const [amount, setAmount] = useState<number | null>(task?.amount ?? null);
   const [description, setDescription] = useState(task?.description ?? "");
   // new task → the creator is the default assignee (removable); edit → keep current
@@ -165,7 +175,8 @@ export function TaskFormModal({
   useEffect(() => {
     if (editing || subscriptionId || !client) return;
     const active = client.subscriptions.filter((s) => s.active);
-    const preferred = active.find((s) => s.isDefault) ?? (active.length === 1 ? active[0] : undefined);
+    const preferred =
+      active.find((s) => s.isDefault) ?? (active.length === 1 ? active[0] : undefined);
     if (preferred) pickSubscription(preferred.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- re-run only when the client changes
   }, [client?.id]);
@@ -177,7 +188,8 @@ export function TaskFormModal({
     if (tpl.deadlineOffsetDays != null) setDeadline(todayPlus(tpl.deadlineOffsetDays));
     if (tpl.estimatedMinutes != null) setPlannedMinutes(tpl.estimatedMinutes);
     // prefill the checklist from the preset (don't clobber steps already typed)
-    if (subtasks.length === 0 && tpl.defaultChecklist.length) setSubtasks([...tpl.defaultChecklist]);
+    if (subtasks.length === 0 && tpl.defaultChecklist.length)
+      setSubtasks([...tpl.defaultChecklist]);
   };
 
   const toggleAssignee = (id: string) =>
@@ -306,7 +318,9 @@ export function TaskFormModal({
       footer={
         <>
           {missing.length > 0 && (
-            <span className="mr-auto text-[12px] text-muted">Add {missing.join(", ")} to continue</span>
+            <span className="mr-auto text-[12px] text-muted">
+              Add {missing.join(", ")} to continue
+            </span>
           )}
           <Button variant="secondary" onClick={onClose}>
             Cancel
@@ -371,7 +385,9 @@ export function TaskFormModal({
           {!editing && (
             <div>
               <Label>
-                {type === "internal" ? "Client or lead (optional — for reporting)" : "Client or lead"}
+                {type === "internal"
+                  ? "Client or lead (optional — for reporting)"
+                  : "Client or lead"}
               </Label>
               {targetLocked ? (
                 <div className="flex items-center gap-2 rounded-(--radius-field) border border-border bg-[#f7f8fa] px-3 py-2 text-[13px]">
@@ -401,57 +417,60 @@ export function TaskFormModal({
 
           {!editing && type === "client" && (
             <>
-            {target?.kind === "client" &&
-              (client ? (
-                client.subscriptions.filter((s) => s.active).length > 0 ? (
-                  <div>
-                    <Label>Which service (company is set by it)</Label>
-                    {/* a multi-company client can carry a long list — searchable */}
-                    <SearchSelect
-                      value={subscriptionId}
-                      onChange={pickSubscription}
-                      placeholder="Search this client's services…"
-                      emptyLabel="— pick a service —"
-                      // the moment the reader learns the client hasn't got it: offer the
-                      // catalog right there, carrying the phrase they just typed
-                      emptyAction={{
-                        label: "+ Add it to this client from the catalog",
-                        onSelect: (q) => setAddServiceQuery(q),
-                      }}
-                      options={client.subscriptions
-                        .filter((s) => s.active)
-                        .map((s) => {
-                          const svc = services?.find((x) => x.id === s.serviceId);
-                          const co = s.companyId
-                            ? client.companies.find((c) => c.id === s.companyId)?.name
-                            : "main";
-                          return {
-                            value: s.id,
-                            label: `${svc?.name ?? "service"} · ${co}`,
-                            hint: svc?.type === "one_time" ? "· one-time (billable)" : "· included",
-                          };
-                        })}
-                    />
-                    <div className="mt-1">{addServiceLink}</div>
-                  </div>
-                ) : (
-                  // not a dead end any more: client work cannot exist without a subscription, so
-                  // the way out of this message is the only thing worth putting in it
-                  <div className="rounded-(--radius-field) bg-[#fdf5f5] px-3 py-2">
-                    <p className="text-[12px] text-danger-text">
-                      This client has no active services, and client work has to hang off one.
-                    </p>
-                    <div className="mt-1">{addServiceLink}</div>
-                  </div>
-                )
-              ) : null)}
+              {target?.kind === "client" &&
+                (client ? (
+                  client.subscriptions.filter((s) => s.active).length > 0 ? (
+                    <div>
+                      <Label>Which service (company is set by it)</Label>
+                      {/* a multi-company client can carry a long list — searchable */}
+                      <SearchSelect
+                        value={subscriptionId}
+                        onChange={pickSubscription}
+                        placeholder="Search this client's services…"
+                        emptyLabel="— pick a service —"
+                        // the moment the reader learns the client hasn't got it: offer the
+                        // catalog right there, carrying the phrase they just typed
+                        emptyAction={{
+                          label: "+ Add it to this client from the catalog",
+                          onSelect: (q) => setAddServiceQuery(q),
+                        }}
+                        options={client.subscriptions
+                          .filter((s) => s.active)
+                          .map((s) => {
+                            const svc = services?.find((x) => x.id === s.serviceId);
+                            const co = s.companyId
+                              ? client.companies.find((c) => c.id === s.companyId)?.name
+                              : "main";
+                            return {
+                              value: s.id,
+                              label: `${svc?.name ?? "service"} · ${co}`,
+                              hint:
+                                svc?.type === "one_time"
+                                  ? "· one-time (billable)"
+                                  : "· included",
+                            };
+                          })}
+                      />
+                      <div className="mt-1">{addServiceLink}</div>
+                    </div>
+                  ) : (
+                    // not a dead end any more: client work cannot exist without a subscription, so
+                    // the way out of this message is the only thing worth putting in it
+                    <div className="rounded-(--radius-field) bg-[#fdf5f5] px-3 py-2">
+                      <p className="text-[12px] text-danger-text">
+                        This client has no active services, and client work has to hang off one.
+                      </p>
+                      <div className="mt-1">{addServiceLink}</div>
+                    </div>
+                  )
+                ) : null)}
 
-            {addedLater && (
-              <p className="rounded-(--radius-field) bg-[#f7f8fa] px-3 py-2 text-[12px] text-muted">
-                Added — but it starts {fmtBizDate(addedLater)}, so work can only go on it from that
-                day. Pick another service for this task.
-              </p>
-            )}
+              {addedLater && (
+                <p className="rounded-(--radius-field) bg-[#f7f8fa] px-3 py-2 text-[12px] text-muted">
+                  Added — but it starts {fmtBizDate(addedLater)}, so work can only go on it from
+                  that day. Pick another service for this task.
+                </p>
+              )}
 
               {subscription && (
                 <p className="rounded-(--radius-field) bg-[#f7f8fa] px-3 py-2 text-[12px] text-muted">
@@ -466,7 +485,12 @@ export function TaskFormModal({
                 <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
                   <span className="text-muted">Preset:</span>
                   {subService.taskTemplates.map((t) => (
-                    <button key={t.id} type="button" className={pillCls(false)} onClick={() => applyPreset(t.id)}>
+                    <button
+                      key={t.id}
+                      type="button"
+                      className={pillCls(false)}
+                      onClick={() => applyPreset(t.id)}
+                    >
                       {t.name}
                     </button>
                   ))}
@@ -494,7 +518,8 @@ export function TaskFormModal({
 
           {editing && task!.invoice && (
             <p className="rounded-(--radius-field) bg-[#eef1fb] px-3 py-2 text-[12px] text-primary-link">
-              💰 Invoice {task!.invoice.number} · {fmtMoney(task!.invoice.amount)} — price locked.
+              💰 Invoice {task!.invoice.number} · {fmtMoney(task!.invoice.amount)} — price
+              locked.
             </p>
           )}
         </div>
@@ -504,7 +529,10 @@ export function TaskFormModal({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Column</Label>
-              <Select value={statusColumnId} onChange={(e) => setStatusColumnId(e.target.value)}>
+              <Select
+                value={statusColumnId}
+                onChange={(e) => setStatusColumnId(e.target.value)}
+              >
                 <option value="">New (default)</option>
                 {(columns ?? [])
                   .filter((c) => !c.isFixed)
@@ -535,12 +563,18 @@ export function TaskFormModal({
                 type="number"
                 min={1}
                 value={plannedMinutes ?? ""}
-                onChange={(e) => setPlannedMinutes(e.target.value ? Number(e.target.value) : null)}
+                onChange={(e) =>
+                  setPlannedMinutes(e.target.value ? Number(e.target.value) : null)
+                }
               />
             </div>
             <div>
               <Label>Deadline (optional)</Label>
-              <Input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+              <Input
+                type="date"
+                value={deadline}
+                onChange={(e) => setDeadline(e.target.value)}
+              />
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
@@ -563,7 +597,11 @@ export function TaskFormModal({
                 +{d} days
               </button>
             ))}
-            <button type="button" className={pillCls(deadline === "")} onClick={() => setDeadline("")}>
+            <button
+              type="button"
+              className={pillCls(deadline === "")}
+              onClick={() => setDeadline("")}
+            >
               none
             </button>
           </div>
@@ -691,12 +729,20 @@ export function ClientLeadSearch({
       {(onNewClient ?? onNewLead) && (
         <div className="mt-1 flex gap-3 text-[12px]">
           {onNewClient && (
-            <button type="button" className="font-medium text-primary-link hover:underline" onClick={onNewClient}>
+            <button
+              type="button"
+              className="font-medium text-primary-link hover:underline"
+              onClick={onNewClient}
+            >
               + New client
             </button>
           )}
           {onNewLead && (
-            <button type="button" className="font-medium text-primary-link hover:underline" onClick={onNewLead}>
+            <button
+              type="button"
+              className="font-medium text-primary-link hover:underline"
+              onClick={onNewLead}
+            >
               + New lead
             </button>
           )}
@@ -810,7 +856,11 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
               className="mr-auto text-danger-text hover:text-danger-text"
               disabled={update.isPending}
               onClick={() => {
-                if (window.confirm("Cancel this task? It leaves the board but is kept in history."))
+                if (
+                  window.confirm(
+                    "Cancel this task? It leaves the board but is kept in history.",
+                  )
+                )
                   patch({ cancelled: true });
               }}
             >
@@ -821,7 +871,9 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
             <Button
               variant="secondary"
               onClick={() => {
-                if (window.confirm("Archive this task? It leaves the board but stays in Archive.")) {
+                if (
+                  window.confirm("Archive this task? It leaves the board but stays in Archive.")
+                ) {
                   archive
                     .mutateAsync(task.id)
                     .then(onClose)
@@ -841,7 +893,11 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
       <div className="space-y-4">
         {/* title (inline) + done / completed control */}
         <div className="flex items-start gap-3">
-          <InlineTitle value={task.title} disabled={locked} onSave={(title) => patch({ title })} />
+          <InlineTitle
+            value={task.title}
+            disabled={locked}
+            onSave={(title) => patch({ title })}
+          />
           {/* Closed either way — but WHICH way matters: "completed" and "called off" are different
               answers about the same work, so they never share a badge (2026-08-01). */}
           {task.cancelledAt ? (
@@ -892,8 +948,8 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
         {task.cancelledAt && (
           <p className="rounded-(--radius-field) bg-[#f7ede2] px-3 py-2 text-[13px] text-[#b5651d]">
             ⊘ Cancelled {fmtDate(task.cancelledAt)}
-            {task.cancelledByName ? ` by ${task.cancelledByName}` : ""} — kept in history; restore
-            it to work on it again.
+            {task.cancelledByName ? ` by ${task.cancelledByName}` : ""} — kept in history;
+            restore it to work on it again.
           </p>
         )}
 
@@ -916,113 +972,129 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
             {/* inline meta grid */}
             <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-[13px]">
               <Field label="Column">
-            <Select
-              value={task.statusColumnId}
-              disabled={locked}
-              onChange={(e) => patch({ statusColumnId: e.target.value })}
-            >
-              {(columns ?? []).map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Priority">
-            {/* tint the control by the current priority so its color scheme is visible at a glance */}
-            <Select
-              value={task.priorityId}
-              disabled={locked}
-              onChange={(e) => patch({ priorityId: e.target.value })}
-              className="font-medium"
-              style={
-                currentPriority
-                  ? {
-                      color: currentPriority.color,
-                      borderColor: currentPriority.color,
-                      backgroundColor: `${currentPriority.color}1a`,
-                    }
-                  : undefined
-              }
-            >
-              {(settings?.priorities ?? []).map((p) => (
-                <option key={p.id} value={p.id} style={{ color: p.color }}>
-                  {p.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label={task.leadId ? "Lead" : "Client"}>
-            {task.clientId && task.clientName ? (
-              <Link to={`/clients/${task.clientId}`} className="text-primary-link hover:underline">
-                {task.clientName}
-                {task.companyName ? <span className="text-muted"> · {task.companyName}</span> : null}
-              </Link>
-            ) : task.leadId && task.leadName ? (
-              // a lead has no page of its own — its card is a modal on the pipeline, opened
-              // by ?lead=<id>, so work filed against a prospect is one click from the task
-              <Link to={`/leads?lead=${task.leadId}`} className="text-primary-link hover:underline">
-                {task.leadName}
-              </Link>
-            ) : (
-              <span className="text-muted">—</span>
-            )}
-          </Field>
-          <Field label="Service">
-            {service ? <ServiceChip name={service.name} color={service.color} /> : <span className="text-muted">—</span>}
-          </Field>
-          <Field label="Deadline">
-            <Input
-              className="w-40"
-              type="date"
-              disabled={locked}
-              value={task.deadline ? task.deadline.slice(0, 10) : ""}
-              onChange={(e) => patch({ deadline: e.target.value || null })}
-            />
-          </Field>
-          <Field label="Planned / tracked">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <InlineNumber
-                value={task.plannedMinutes}
-                disabled={locked}
-                onSave={(v) => patch({ plannedMinutes: v })}
-              />
-              <span className="text-muted">min ·</span>
-              <TrackedTime seconds={task.trackedSeconds} over={trackedOver} emptyAs="dash" />
-              {trackedOver && (
-                <span className="rounded-(--radius-chip) bg-danger-soft px-1.5 py-[1px] text-[11px] font-medium text-danger-text">
-                  over
-                </span>
-              )}
-            </div>
-          </Field>
-          {editableAmount && (
-            <Field label="Job price">
-              <div className="flex items-center gap-1">
-                <span className="text-muted">$</span>
-                <InlineNumber
-                  min={0}
+                <Select
+                  value={task.statusColumnId}
                   disabled={locked}
-                  value={task.amount != null ? task.amount / 100 : null}
-                  onSave={(v) => patch({ amount: v != null ? Math.round(v * 100) : null })}
+                  onChange={(e) => patch({ statusColumnId: e.target.value })}
+                >
+                  {(columns ?? []).map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Priority">
+                {/* tint the control by the current priority so its color scheme is visible at a glance */}
+                <Select
+                  value={task.priorityId}
+                  disabled={locked}
+                  onChange={(e) => patch({ priorityId: e.target.value })}
+                  className="font-medium"
+                  style={
+                    currentPriority
+                      ? {
+                          color: currentPriority.color,
+                          borderColor: currentPriority.color,
+                          backgroundColor: `${currentPriority.color}1a`,
+                        }
+                      : undefined
+                  }
+                >
+                  {(settings?.priorities ?? []).map((p) => (
+                    <option key={p.id} value={p.id} style={{ color: p.color }}>
+                      {p.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label={task.leadId ? "Lead" : "Client"}>
+                {task.clientId && task.clientName ? (
+                  <Link
+                    to={`/clients/${task.clientId}`}
+                    className="text-primary-link hover:underline"
+                  >
+                    {task.clientName}
+                    {task.companyName ? (
+                      <span className="text-muted"> · {task.companyName}</span>
+                    ) : null}
+                  </Link>
+                ) : task.leadId && task.leadName ? (
+                  // a lead has no page of its own — its card is a modal on the pipeline, opened
+                  // by ?lead=<id>, so work filed against a prospect is one click from the task
+                  <Link
+                    to={`/leads?lead=${task.leadId}`}
+                    className="text-primary-link hover:underline"
+                  >
+                    {task.leadName}
+                  </Link>
+                ) : (
+                  <span className="text-muted">—</span>
+                )}
+              </Field>
+              <Field label="Service">
+                {service ? (
+                  <ServiceChip name={service.name} color={service.color} />
+                ) : (
+                  <span className="text-muted">—</span>
+                )}
+              </Field>
+              <Field label="Deadline">
+                <Input
+                  className="w-40"
+                  type="date"
+                  disabled={locked}
+                  value={task.deadline ? task.deadline.slice(0, 10) : ""}
+                  onChange={(e) => patch({ deadline: e.target.value || null })}
                 />
-              </div>
-            </Field>
-          )}
-          {task.invoice && <InvoiceField invoice={task.invoice} />}
-        </div>
+              </Field>
+              <Field label="Planned / tracked">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <InlineNumber
+                    value={task.plannedMinutes}
+                    disabled={locked}
+                    onSave={(v) => patch({ plannedMinutes: v })}
+                  />
+                  <span className="text-muted">min ·</span>
+                  <TrackedTime
+                    seconds={task.trackedSeconds}
+                    over={trackedOver}
+                    emptyAs="dash"
+                  />
+                  {trackedOver && (
+                    <span className="rounded-(--radius-chip) bg-danger-soft px-1.5 py-[1px] text-[11px] font-medium text-danger-text">
+                      over
+                    </span>
+                  )}
+                </div>
+              </Field>
+              {editableAmount && (
+                <Field label="Job price">
+                  <div className="flex items-center gap-1">
+                    <span className="text-muted">$</span>
+                    <InlineNumber
+                      min={0}
+                      disabled={locked}
+                      value={task.amount != null ? task.amount / 100 : null}
+                      onSave={(v) => patch({ amount: v != null ? Math.round(v * 100) : null })}
+                    />
+                  </div>
+                </Field>
+              )}
+              {task.invoice && <InvoiceField invoice={task.invoice} />}
+            </div>
 
-        <div>
-          <Label>Assignees</Label>
-          {/* assignees is a full-array replace read from the task prop; block a second
+            <div>
+              <Label>Assignees</Label>
+              {/* assignees is a full-array replace read from the task prop; block a second
               toggle until the first PATCH's refetch lands (else it clobbers). Locked (done) → read-only. */}
-          <AssigneePicker
-            users={team ?? []}
-            selected={(id) => task.assignees.includes(id)}
-            onToggle={toggleAssignee}
-            disabled={locked || update.isPending}
-          />
-        </div>
+              <AssigneePicker
+                users={team ?? []}
+                selected={(id) => task.assignees.includes(id)}
+                onToggle={toggleAssignee}
+                disabled={locked || update.isPending}
+              />
+            </div>
 
             <div>
               <Label>Description</Label>
@@ -1229,7 +1301,9 @@ function SubtasksSection({ task, disabled }: { task: Task; disabled?: boolean })
             type="checkbox"
             checked={s.done}
             disabled={disabled || setSubtasks.isPending}
-            onChange={(e) => apply(rows.map((r, j) => (j === i ? { ...r, done: e.target.checked } : r)))}
+            onChange={(e) =>
+              apply(rows.map((r, j) => (j === i ? { ...r, done: e.target.checked } : r)))
+            }
           />
           <span className={cn("min-w-0 flex-1 truncate", s.done && "text-faint line-through")}>
             {s.text}
@@ -1314,7 +1388,9 @@ function FilesSection({ task, disabled }: { task: Task; disabled: boolean }) {
           e.target.value = ""; // so picking the same file twice still fires
           if (!file) return;
           setError(null);
-          upload.mutateAsync(file).catch((err) => setError(err instanceof Error ? err.message : "Upload failed"));
+          upload
+            .mutateAsync(file)
+            .catch((err) => setError(err instanceof Error ? err.message : "Upload failed"));
         }}
       />
       {(files ?? []).length === 0 ? (
@@ -1345,7 +1421,9 @@ function FilesSection({ task, disabled }: { task: Task; disabled: boolean }) {
                       setError(null);
                       remove
                         .mutateAsync(file.id)
-                        .catch((err) => setError(err instanceof Error ? err.message : "Delete failed"));
+                        .catch((err) =>
+                          setError(err instanceof Error ? err.message : "Delete failed"),
+                        );
                     }}
                   >
                     ×
@@ -1358,8 +1436,8 @@ function FilesSection({ task, disabled }: { task: Task; disabled: boolean }) {
       )}
       {task.clientId && (files ?? []).length > 0 && (
         <p className="mt-1 text-[11px] text-faint">
-          Also on the client&apos;s Files tab — it is the same file, so removing it here removes it
-          there.
+          Also on the client&apos;s Files tab — it is the same file, so removing it here removes
+          it there.
         </p>
       )}
       {error && <p className="mt-1 text-[12px] text-danger-text">{error}</p>}
@@ -1398,12 +1476,13 @@ function CommentsSection({
       {task.comments.length === 0 && <p className="text-[12px] text-faint">No notes yet.</p>}
       <div className="space-y-2">
         {task.comments.map((c) => (
-          <div key={c.id} className="rounded-(--radius-field) bg-[#f7f8fa] px-3 py-2 text-[13px]">
+          <div
+            key={c.id}
+            className="rounded-(--radius-field) bg-[#f7f8fa] px-3 py-2 text-[13px]"
+          >
             <div className="mb-0.5 flex items-center gap-2 text-[11px] text-muted">
               <span className="font-medium text-ink-700">{userName(c.authorId)}</span>
-              <span>
-                {fmtDateTime(c.createdAt)}
-              </span>
+              <span>{fmtDateTime(c.createdAt)}</span>
               {!disabled && (isAdmin || c.authorId === currentUserId) && (
                 <button
                   type="button"
@@ -1537,15 +1616,22 @@ function TimeLog({
         <p className="text-[12px] text-faint">Nothing tracked yet.</p>
       )}
       {task.timeEntries.map((e) => (
-        <div key={e.id} className="flex items-start gap-2 border-b border-divider py-1.5 text-[13px] last:border-0">
+        <div
+          key={e.id}
+          className="flex items-start gap-2 border-b border-divider py-1.5 text-[13px] last:border-0"
+        >
           <span className="font-medium">{userName(e.userId)}</span>
           {e.stoppedAt === null ? (
-            <span className="animate-pulse text-[12px] font-semibold text-primary">running…</span>
+            <span className="animate-pulse text-[12px] font-semibold text-primary">
+              running…
+            </span>
           ) : (
             <span className="tabular-nums text-muted">{fmtDuration(e.seconds ?? 0)}</span>
           )}
           {e.source === "manual" && (
-            <span className="rounded-[5px] bg-[#f6efdc] px-1.5 text-[11px] text-[#8b6a1f]">manual</span>
+            <span className="rounded-[5px] bg-[#f6efdc] px-1.5 text-[11px] text-[#8b6a1f]">
+              manual
+            </span>
           )}
           <span className="min-w-0 flex-1 truncate text-muted" title={e.comment ?? ""}>
             {e.comment ?? ""}
@@ -1663,7 +1749,10 @@ function AddTimeModal({ taskId, onClose }: { taskId: string; onClose: () => void
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button disabled={!userId || !comment.trim() || addEntry.isPending} onClick={() => void save()}>
+          <Button
+            disabled={!userId || !comment.trim() || addEntry.isPending}
+            onClick={() => void save()}
+          >
             Add
           </Button>
         </>
@@ -1691,7 +1780,12 @@ function AddTimeModal({ taskId, onClose }: { taskId: string; onClose: () => void
             onChange={(e) => setMinutes(Number(e.target.value) || 1)}
           />
           <span className="text-muted">min on</span>
-          <Input className="w-36" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <Input
+            className="w-36"
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+          />
         </div>
         <div>
           <Label>What was done</Label>

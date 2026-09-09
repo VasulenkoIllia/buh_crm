@@ -145,8 +145,8 @@ export function LeadsPage() {
 
       {leads?.truncated && (
         <p className="flex-none bg-[#f7ede2] px-6 py-2 text-[12px] text-[#b5651d]">
-          Showing the {leads.items.length} newest of {leads.total} — a pipeline this long usually
-          means old leads need closing.
+          Showing the {leads.items.length} newest of {leads.total} — a pipeline this long
+          usually means old leads need closing.
         </p>
       )}
       {isLoading && <p className="p-6 text-[13px] text-muted">Loading…</p>}
@@ -569,37 +569,34 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
           merely reachable today.
         */}
         <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="grid grid-cols-2 gap-x-6 gap-y-3.5 border-b border-[#eef0f3] px-5 py-[18px]">
-          <LeadField label="Phone" value={lead.phone} />
-          <LeadField label="Email" value={lead.email} />
-          <LeadField label="Service" value={serviceName ?? null} />
-          <LeadField label="Source" value={sourceName ?? null} />
-          <LeadField
-            label="Created"
-            value={fmtDate(lead.createdAt)}
-          />
-          <div className="col-span-2">
-            <div className="mb-[3px] text-[11px] uppercase tracking-[.4px] text-muted-400">
-              Background
-            </div>
-            <Background text={lead.description} />
-          </div>
-          {locked && lead.convertedClientId && (
+          <div className="grid grid-cols-2 gap-x-6 gap-y-3.5 border-b border-[#eef0f3] px-5 py-[18px]">
+            <LeadField label="Phone" value={lead.phone} />
+            <LeadField label="Email" value={lead.email} />
+            <LeadField label="Service" value={serviceName ?? null} />
+            <LeadField label="Source" value={sourceName ?? null} />
+            <LeadField label="Created" value={fmtDate(lead.createdAt)} />
             <div className="col-span-2">
-              <Link
-                to={`/clients/${lead.convertedClientId}`}
-                className="text-[13px] font-medium text-primary-link hover:underline"
-              >
-                → Open the converted client
-              </Link>
+              <div className="mb-[3px] text-[11px] uppercase tracking-[.4px] text-muted-400">
+                Background
+              </div>
+              <Background text={lead.description} />
             </div>
-          )}
-        </div>
+            {locked && lead.convertedClientId && (
+              <div className="col-span-2">
+                <Link
+                  to={`/clients/${lead.convertedClientId}`}
+                  className="text-[13px] font-medium text-primary-link hover:underline"
+                >
+                  → Open the converted client
+                </Link>
+              </div>
+            )}
+          </div>
 
-        {/* tasks for this lead (free internal work) */}
-        <div className="border-b border-[#eef0f3] px-5 py-[18px]">
-          <EntityTasks target={{ kind: "lead", id: lead.id, label: lead.name }} />
-        </div>
+          {/* tasks for this lead (free internal work) */}
+          <div className="border-b border-[#eef0f3] px-5 py-[18px]">
+            <EntityTasks target={{ kind: "lead", id: lead.id, label: lead.name }} />
+          </div>
         </div>
 
         {/*
@@ -619,7 +616,12 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
               disabled={archiveLead.isPending}
               className="text-muted hover:text-ink-700"
               onClick={() => {
-                if (!window.confirm("Archive this lead? It leaves the pipeline — restorable from Archive.")) return;
+                if (
+                  !window.confirm(
+                    "Archive this lead? It leaves the pipeline — restorable from Archive.",
+                  )
+                )
+                  return;
                 archiveLead.mutate(lead.id, { onSuccess: onClose });
               }}
             >
@@ -650,7 +652,11 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
                 <span className="flex items-center gap-1.5 whitespace-nowrap text-[13px] font-semibold text-danger-text">
                   <X size={15} /> Marked as lost
                 </span>
-                <Button variant="text" disabled={reopen.isPending} onClick={() => reopen.mutate(lead.id)}>
+                <Button
+                  variant="text"
+                  disabled={reopen.isPending}
+                  onClick={() => reopen.mutate(lead.id)}
+                >
                   Reopen
                 </Button>
               </>

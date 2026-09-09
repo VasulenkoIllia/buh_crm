@@ -53,13 +53,19 @@ describe("meeting overlap", () => {
 
   it("different days never collide", () => {
     expect(
-      spansOverlap(at("23:30", 60), { startAt: "2026-08-11T10:00:00.000Z", durationMinutes: 60 }),
+      spansOverlap(at("23:30", 60), {
+        startAt: "2026-08-11T10:00:00.000Z",
+        durationMinutes: 60,
+      }),
     ).toBe(false);
   });
 
   it("a meeting running past midnight collides with the next morning", () => {
     expect(
-      spansOverlap(at("23:30", 90), { startAt: "2026-08-11T00:30:00.000Z", durationMinutes: 30 }),
+      spansOverlap(at("23:30", 90), {
+        startAt: "2026-08-11T00:30:00.000Z",
+        durationMinutes: 30,
+      }),
     ).toBe(true);
   });
 

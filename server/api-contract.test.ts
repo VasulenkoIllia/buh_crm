@@ -201,7 +201,11 @@ describe("the API sends what the screens are typed against", () => {
 
   it("mailouts", async () => {
     keeps(mailoutListSchema, await get("/api/mailouts"), "GET /api/mailouts");
-    keeps(mailoutDetailSchema, await get(`/api/mailouts/${mailoutId}`), "GET /api/mailouts/:id");
+    keeps(
+      mailoutDetailSchema,
+      await get(`/api/mailouts/${mailoutId}`),
+      "GET /api/mailouts/:id",
+    );
     keeps(mailSenderStateSchema, await get("/api/mailouts/settings/senders"), "GET senders");
   });
 

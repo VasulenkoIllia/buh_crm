@@ -56,7 +56,10 @@ export async function updatePriority(id: string, input: UpdatePriorityInput) {
     // only the DEFAULT. A rename or a colour is presentation; the default decides what every task
     // created from now on starts at, including the ones the nightly sweep generates
     if (!priority.isDefault) {
-      record("settings.priority_default_changed", { subjectId: id, subjectLabel: priority.name });
+      record("settings.priority_default_changed", {
+        subjectId: id,
+        subjectLabel: priority.name,
+      });
     }
   }
   if (Object.keys(rest).length > 0) {

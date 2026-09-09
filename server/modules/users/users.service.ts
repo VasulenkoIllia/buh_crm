@@ -1,5 +1,9 @@
 import argon2 from "argon2";
-import type { InviteUserInput, UpdateProfileInput, UpdateUserInput } from "@shared/schema/user.js";
+import type {
+  InviteUserInput,
+  UpdateProfileInput,
+  UpdateUserInput,
+} from "@shared/schema/user.js";
 import type { User } from "../../generated/prisma/client.js";
 import { destroyAllUserSessions, generateToken } from "../../core/auth.js";
 import { sendEmail, webOrigin } from "../../core/email.js";
@@ -69,7 +73,11 @@ export async function updateUser(id: string, input: UpdateUserInput, actor: User
   if (user.id === actor.id) {
     throw new ValidationError("You cannot change your own role or status");
   }
-  if (input.status && !["active", "blocked"].includes(user.status) && input.status === "active") {
+  if (
+    input.status &&
+    !["active", "blocked"].includes(user.status) &&
+    input.status === "active"
+  ) {
     throw new ValidationError("Invited users become active by accepting the invite");
   }
 

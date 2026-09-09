@@ -35,11 +35,17 @@ function firmInstant(dayIso: string, hhmm: string): string {
     const p = new Intl.DateTimeFormat("en-US", {
       timeZone: config.TZ,
       hourCycle: "h23",
-      year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
     }).formatToParts(probe);
     const n = (t: string) => Number(p.find((x) => x.type === t)!.value);
-    return Date.UTC(n("year"), n("month") - 1, n("day"), n("hour"), n("minute")) -
-      Math.floor(probe.getTime() / 60_000) * 60_000;
+    return (
+      Date.UTC(n("year"), n("month") - 1, n("day"), n("hour"), n("minute")) -
+      Math.floor(probe.getTime() / 60_000) * 60_000
+    );
   };
   const first = new Date(guess.getTime() - offset(guess));
   return new Date(guess.getTime() - offset(first)).toISOString();
@@ -177,12 +183,14 @@ describe("meetings — booking", () => {
     });
     const id = created.json().id;
     const onCalendar = async () =>
-      (await get(`/api/calendar?from=${day(4)}&to=${day(5)}`)).json().meetings.map(
-        (m: { id: string }) => m.id,
-      );
+      (await get(`/api/calendar?from=${day(4)}&to=${day(5)}`))
+        .json()
+        .meetings.map((m: { id: string }) => m.id);
 
     expect(await onCalendar()).toContain(id);
-    expect((await patch(`/api/calendar/meetings/${id}`, { cancelled: true })).statusCode).toBe(200);
+    expect((await patch(`/api/calendar/meetings/${id}`, { cancelled: true })).statusCode).toBe(
+      200,
+    );
     expect(await onCalendar()).not.toContain(id);
 
     // one row, not two: a meeting called off and put back on is the same meeting
@@ -244,7 +252,12 @@ describe("meetings — the conflict boundary", () => {
     expect(res.statusCode).toBe(201);
   });
 
-  const conflicts = async (hhmm: string, minutes: number, users = [mateId], exclude?: string) => {
+  const conflicts = async (
+    hhmm: string,
+    minutes: number,
+    users = [mateId],
+    exclude?: string,
+  ) => {
     const q = new URLSearchParams({
       startAt: at(day(7), hhmm),
       durationMinutes: String(minutes),
@@ -336,12 +349,12 @@ describe("meetings — the task opened alongside", () => {
       amount: 50_000,
       period: "month",
     });
-    subscriptionId = a.json().subscriptions.find(
-      (s: { serviceId: string }) => s.serviceId === sub.json().id,
-    ).id;
-    oneTimeSubId = b.json().subscriptions.find(
-      (s: { serviceId: string }) => s.serviceId === once.json().id,
-    ).id;
+    subscriptionId = a
+      .json()
+      .subscriptions.find((s: { serviceId: string }) => s.serviceId === sub.json().id).id;
+    oneTimeSubId = b
+      .json()
+      .subscriptions.find((s: { serviceId: string }) => s.serviceId === once.json().id).id;
     expect(subscriptionId).toBeTruthy();
     expect(oneTimeSubId).toBeTruthy();
   });
@@ -537,9 +550,9 @@ describe("meetings — edges found by probing the live module (2026-08-06)", () 
     });
     const id = created.json().id as string;
     const onCalendar = async () =>
-      (await get(`/api/calendar?from=${day(15)}&to=${day(16)}`)).json().meetings.map(
-        (m: { id: string }) => m.id,
-      );
+      (await get(`/api/calendar?from=${day(15)}&to=${day(16)}`))
+        .json()
+        .meetings.map((m: { id: string }) => m.id);
     const clashes = async () =>
       (
         await get(
@@ -568,9 +581,9 @@ describe("meetings — edges found by probing the live module (2026-08-06)", () 
       durationMinutes: 30,
     });
     const onCalendar = async () =>
-      (await get(`/api/calendar?from=${day(16)}&to=${day(17)}`)).json().meetings.map(
-        (m: { id: string }) => m.id,
-      );
+      (await get(`/api/calendar?from=${day(16)}&to=${day(17)}`))
+        .json()
+        .meetings.map((m: { id: string }) => m.id);
 
     expect(await onCalendar()).toContain(created.json().id);
     await post(`/api/leads/${leadId}/archive`);
@@ -723,7 +736,9 @@ describe("calendar — the two lanes", () => {
       participantIds: [mateId],
     });
 
-    const mine = (await get(`/api/calendar?from=${day(25)}&to=${day(26)}&userId=${mateId}`)).json();
+    const mine = (
+      await get(`/api/calendar?from=${day(25)}&to=${day(26)}&userId=${mateId}`)
+    ).json();
     expect(mine.deadlines.map((d: { title: string }) => d.title)).toEqual(["Mate's job"]);
     expect(mine.meetings).toHaveLength(1);
   });
@@ -825,7 +840,9 @@ describe("meetings — the contact at the client", () => {
     expect(moved.statusCode).toBe(200);
     expect(moved.json().personName).toBe("Second");
 
-    const cleared = await patch(`/api/calendar/meetings/${created.json().id}`, { personId: null });
+    const cleared = await patch(`/api/calendar/meetings/${created.json().id}`, {
+      personId: null,
+    });
     expect(cleared.json().personId).toBeNull();
   });
 

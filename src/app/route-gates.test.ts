@@ -108,15 +108,16 @@ describe("every screen is behind a gate, or says why not", () => {
   it("gates every route in the signed-in shell", async () => {
     const source = await readFile(new URL("./router.tsx", import.meta.url), "utf8");
     const all = entries(layoutChildren(source));
-    expect(all.length, "the parse found no routes — router.tsx has changed shape").toBeGreaterThan(
-      5,
-    );
+    expect(
+      all.length,
+      "the parse found no routes — router.tsx has changed shape",
+    ).toBeGreaterThan(5);
 
     const ungated = all.filter((e) => !e.includes("RequireGate")).flatMap(pathsIn);
 
     expect(
       ungated.sort(),
-      "a screen reachable while signed in with no gate on it. Wrap it in <RequireGate gate=\"…\" " +
+      'a screen reachable while signed in with no gate on it. Wrap it in <RequireGate gate="…" ' +
         "/>, or — if it genuinely must be open to everybody — add it to EXEMPT above with the " +
         "reason, which is a decision somebody reviews rather than a test somebody quiets.",
     ).toEqual([...EXEMPT].sort());
@@ -168,19 +169,26 @@ describe("every screen is behind a gate, or says why not", () => {
     expect(
       [...SETTINGS_GATES].sort(),
       "SETTINGS_GATES must cover `settings` plus every gate a tab names",
-      ).toEqual([...new Set(["settings", ...tabGates])].sort());
+    ).toEqual([...new Set(["settings", ...tabGates])].sort());
 
-    const settingsRoute = router
-      .split("\n")
-      .find((line) => line.includes('path: "settings"'));
-    expect(settingsRoute).toBeDefined();
+    /**
+     * Read with whitespace collapsed, and by looking for the guard NEAREST the route rather than
+     * on the same line as it. The first version of this asserted both halves appeared on one
+     * source line, which is a fact about line breaks and not about access: running the repository's
+     * own `npm run format` reflowed the router and failed this test while the routing was correct
+     * (2026-09-09). A test that a formatter can break is a test that will be silenced.
+     */
+    const flat = router.replace(/\s+/g, " ");
+    const route = flat.indexOf('path: "settings"');
+    expect(route, "the Settings route is gone from the router").toBeGreaterThan(-1);
+    const guard = flat.lastIndexOf("<RequireGate", route);
     expect(
-      settingsRoute,
+      guard === -1 ? "" : flat.slice(guard, route),
       "the Settings route must spread SETTINGS_GATES — a hand-written list drifts from the strip " +
         "and locks the Access tab away",
     ).toContain("...SETTINGS_GATES");
     expect(
-      layout,
+      layout.replace(/\s+/g, " "),
       "the sidebar item must spread SETTINGS_GATES too, or the screen is reachable and invisible",
     ).toContain("gate: [...SETTINGS_GATES]");
   });

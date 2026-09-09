@@ -28,7 +28,11 @@ export function SignInPage() {
   });
 
   const serverError =
-    login.error instanceof ApiError ? login.error.message : login.error ? "Sign-in failed" : null;
+    login.error instanceof ApiError
+      ? login.error.message
+      : login.error
+        ? "Sign-in failed"
+        : null;
 
   return (
     <AuthCard title="Sign in">

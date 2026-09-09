@@ -55,7 +55,10 @@ describe("code splitting cannot be undone by accident", () => {
    * pills. Through `lazy()` it is its own 6.59 kB chunk and task-modals moves by 0.34 kB.
    */
   it("the clients barrel reaches the subscription screen only through lazy()", async () => {
-    const barrel = await readFile(new URL("../modules/clients/index.ts", import.meta.url), "utf8");
+    const barrel = await readFile(
+      new URL("../modules/clients/index.ts", import.meta.url),
+      "utf8",
+    );
     expect(
       /^\s*export\s.*from\s+["']\.\/client-services["']/m.test(barrel),
       "Re-exporting ./client-services statically welds the subscription screen to every module " +
@@ -74,7 +77,10 @@ describe("code splitting cannot be undone by accident", () => {
    * exports are `lazy()` and both are rendered inside a `<Suspense>`.
    */
   it("the activity barrel reaches the registry only through lazy()", async () => {
-    const barrel = await readFile(new URL("../modules/activity/index.ts", import.meta.url), "utf8");
+    const barrel = await readFile(
+      new URL("../modules/activity/index.ts", import.meta.url),
+      "utf8",
+    );
     expect(
       /^\s*export\s.*from\s+["']\.\//m.test(barrel),
       "The activity barrel must not re-export anything statically: it is imported by Settings and " +

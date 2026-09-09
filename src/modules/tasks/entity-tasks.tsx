@@ -48,7 +48,10 @@ export function EntityTasks({ target }: { target: Target }) {
     <div className="rounded-(--radius-panel) border border-border bg-surface p-5">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-[15px] font-semibold">
-          Tasks{tasks.length > 0 && <span className="ml-1.5 text-[13px] text-muted">{tasks.length}</span>}
+          Tasks
+          {tasks.length > 0 && (
+            <span className="ml-1.5 text-[13px] text-muted">{tasks.length}</span>
+          )}
         </h2>
         <Button variant="secondary" size="sm" onClick={() => setFormOpen(true)}>
           + New task
@@ -134,7 +137,9 @@ function TaskRow({
     <button
       type="button"
       onClick={onOpen}
-      style={!overdue && priorityColor ? { borderLeft: `3px solid ${priorityColor}` } : undefined}
+      style={
+        !overdue && priorityColor ? { borderLeft: `3px solid ${priorityColor}` } : undefined
+      }
       className={cn(
         "mb-1.5 flex w-full items-center gap-2 rounded-[8px] border border-border bg-surface px-3 py-2 text-left text-[13px] hover:bg-divider/30",
         overdue && "border-2 border-danger",
@@ -160,9 +165,7 @@ function TaskRow({
           📅 auto
         </Chip>
       )}
-      {task.invoice && (
-        <InvoiceStatusPill status={task.invoice.status} prefix="💰" size="sm" />
-      )}
+      {task.invoice && <InvoiceStatusPill status={task.invoice.status} prefix="💰" size="sm" />}
       <TaskKindChip task={task} size="sm" />
       <span className="ml-auto flex-none text-[12px] text-muted">
         {assigneeNames || "unassigned"}
