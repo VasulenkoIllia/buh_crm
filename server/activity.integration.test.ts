@@ -567,6 +567,35 @@ describe("enrichment — who is in the system, and what they were allowed to rea
     expect(session?.ip).toBeTruthy();
   });
 
+  /**
+   * **A caller must not be able to choose what the log says about them.**
+   *
+   * `CF-Connecting-IP` is trusted only when the request demonstrably arrived through Cloudflare —
+   * which it does not here, and does not for anybody who reaches the origin directly. The unit
+   * tests in `core/client-ip.test.ts` cover the ranges; this covers the wiring, which is the half
+   * that would silently stop being applied if a call site went back to `request.ip`.
+   */
+  it("does not let a forged CF-Connecting-IP into the record", async () => {
+    const before = new Date();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      headers: { "cf-connecting-ip": "203.0.113.99" },
+      payload: { email: "ada@activity.local", password: "password-123" },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const row = await waitFor(
+      () =>
+        prisma.activityEvent.findFirst({
+          where: { action: "session.signed_in", occurredAt: { gte: before } },
+          orderBy: { occurredAt: "desc" },
+        }),
+      "the sign-in",
+    );
+    expect(row.ip).not.toBe("203.0.113.99");
+  });
+
   it("records a failed sign-in, its reason, and does not blame the account holder", async () => {
     const before = new Date();
     const res = await app.inject({

@@ -18,6 +18,7 @@ import { staticCacheControl } from "./core/static-cache.js";
 import { errorHandler } from "./core/errors.js";
 import { accessHook, anonymous } from "./core/access.js";
 import { actorFromUser, enterActivityContext, flushStore } from "./core/activity.js";
+import { clientIp } from "./core/client-ip.js";
 import { collectRouteInventory, type RouteRecord } from "./core/route-inventory.js";
 import { accessModule } from "./modules/access/index.js";
 import { activityModule } from "./modules/activity/index.js";
@@ -69,6 +70,10 @@ export async function buildApp() {
      * every sign-in and every mutation stores an address somebody may later be asked to account
      * for. `TRUST_PROXY_HOPS` defaults to the two real hops here (Cloudflare, then Traefik) and is
      * an env var because that is a deployment fact — see core/config.ts.
+     *
+     * It is not, on its own, enough to name the caller: Traefik replaces the `X-Forwarded-For` it
+     * receives, so the caller's address never reaches this header and no hop count can find it.
+     * `core/client-ip.ts` is where that is solved, and why.
      */
     trustProxy: isProd ? config.TRUST_PROXY_HOPS : false,
     logger: {
@@ -149,7 +154,9 @@ export async function buildApp() {
     keyGenerator: (request) => {
       const raw = request.cookies?.[SESSION_COOKIE];
       const unsigned = raw ? request.unsignCookie(raw) : null;
-      return unsigned?.valid && unsigned.value ? `s:${unsigned.value}` : request.ip;
+      // `clientIp`, not `request.ip`: without a session the key IS the address, and while that
+      // was Cloudflare's every sign-in arriving through one edge shared a single budget
+      return unsigned?.valid && unsigned.value ? `s:${unsigned.value}` : clientIp(request);
     },
   });
   await app.register(multipart, { limits: { fileSize: 25 * 1024 * 1024, files: 1 } });
@@ -166,14 +173,15 @@ export async function buildApp() {
    * not logged" (activity-log.md §3.2) true without an allow-list of routes.
    */
   app.addHook("onRequest", async (request) => {
-    const declared = (request.routeOptions?.config as { access?: { gate?: string } } | undefined)
-      ?.access;
+    const declared = (
+      request.routeOptions?.config as { access?: { gate?: string } } | undefined
+    )?.access;
     request.activity = enterActivityContext({
       // Anonymous until the access hook resolves somebody. A service may pin it earlier — signing
       // in is the case: `createSession` knows who it just admitted, and the request that carried
       // it has no `currentUser` at all, because /login is an anonymous route.
       actor: actorFromUser(null),
-      ip: request.ip,
+      ip: clientIp(request),
       userAgent: request.headers["user-agent"] ?? null,
       gate: declared?.gate ?? null,
       method: request.method,

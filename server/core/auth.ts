@@ -3,6 +3,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import type { User } from "../generated/prisma/client.js";
 import { prisma } from "./db.js";
 import { record, setActivityActor } from "./activity.js";
+import { clientIp } from "./client-ip.js";
 import { personName } from "./names.js";
 
 // Cookie sessions, Postgres-backed (decision 2026-07-17):
@@ -58,7 +59,7 @@ export async function createSession(
       id: sid,
       userId,
       expiresAt: new Date(Date.now() + SESSION_TTL_MS),
-      ip: request.ip,
+      ip: clientIp(request),
       userAgent: request.headers["user-agent"] ?? null,
     },
   });
@@ -83,7 +84,10 @@ export async function createSession(
    * cookie was already set: signed in, and told they were not (audit, 2026-09-08).
    */
   const user = await prisma.user
-    .findUnique({ where: { id: userId }, select: { id: true, firstName: true, lastName: true } })
+    .findUnique({
+      where: { id: userId },
+      select: { id: true, firstName: true, lastName: true },
+    })
     .catch((error) => {
       console.error("activity: could not name the person signing in", error);
       return null;
