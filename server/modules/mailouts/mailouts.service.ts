@@ -525,13 +525,22 @@ export async function listSenderAccounts(): Promise<MailSenderState> {
 
 /** The firm's postal address — one address, not per mailbox, so it is saved on its own. */
 export async function updateFirmMail(input: UpdateFirmMailInput): Promise<MailSenderState> {
+  /**
+   * An omitted field means "leave it", not "clear it". This was `input.postalAddress ?? null`, so a
+   * PATCH that did not carry the field ERASED the address — and CAN-SPAM requires it in every
+   * commercial letter, so an erased address stops the firm's mail-outs. Found by the activity-log
+   * audit (2026-09-10): the access matrix's generic `{}` was clearing it in the test database.
+   * `null`, or an empty string the schema turns into `null`, still clears it — on purpose.
+   */
+  if (input.postalAddress === undefined) return listSenderAccounts();
+  const next = input.postalAddress;
   const before = (await repo.getFirmProfile()).postalAddress;
-  await repo.updateFirmProfile({ postalAddress: input.postalAddress ?? null });
+  await repo.updateFirmProfile({ postalAddress: next });
   // CAN-SPAM requires this address in every commercial letter, so it decides whether the firm may
   // send one at all — which is why it is worth a row of its own rather than a firm-profile diff
-  if (before !== (input.postalAddress ?? null)) {
+  if (before !== next) {
     record("settings.firm_mail_changed", {
-      changes: { postalAddress: { from: before, to: input.postalAddress ?? null } },
+      changes: { postalAddress: { from: before, to: next } },
     });
   }
   return listSenderAccounts();

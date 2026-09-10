@@ -1311,7 +1311,9 @@ function SubtasksSection({ task, disabled }: { task: Task; disabled?: boolean })
           {!disabled && (
             <button
               type="button"
-              className="text-[13px] text-[#b6bcc5] hover:text-danger"
+              aria-label={`Remove ${s.text}`}
+              className="text-[13px] text-[#b6bcc5] hover:text-danger disabled:opacity-30"
+              disabled={setSubtasks.isPending}
               onClick={() => apply(rows.filter((_, j) => j !== i))}
             >
               ×
@@ -1330,7 +1332,14 @@ function SubtasksSection({ task, disabled }: { task: Task; disabled?: boolean })
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && text.trim()) {
+              /**
+               * Not while a save is in flight. `rows` is the server's list until it answers, so a
+               * second step added on top of it sent a list WITHOUT the first, and the last write
+               * won: two Enters 10 ms apart kept one step (found in the UI test, 2026-09-10). The
+               * checkboxes already waited for this; the add and the remove did not. The text stays
+               * in the box — nothing typed is lost — and Enter again adds it.
+               */
+              if (e.key === "Enter" && text.trim() && !setSubtasks.isPending) {
                 apply([...rows, { text: text.trim(), done: false }]);
                 setText("");
               }

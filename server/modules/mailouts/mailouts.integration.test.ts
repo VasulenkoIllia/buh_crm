@@ -1989,3 +1989,31 @@ describe("a send that died mid-flight", () => {
     expect(after).toBeGreaterThan(0);
   });
 });
+
+describe("the firm's mailing address", () => {
+  /**
+   * CAN-SPAM requires this address in every commercial letter, so erasing it stops the firm's
+   * mail-outs. A PATCH that did not carry the field used to do exactly that (`?? null`).
+   */
+  it("is left alone by a PATCH that does not carry it, and cleared only when asked", async () => {
+    const patch = (payload: Record<string, unknown>) =>
+      app.inject({
+        method: "PATCH",
+        url: "/api/mailouts/settings/firm-mail",
+        headers: { cookie },
+        payload,
+      });
+    const original = (await prisma.firmProfile.findFirst())?.postalAddress ?? null;
+    try {
+      expect((await patch({ postalAddress: "1 Main St, Springfield" })).statusCode).toBe(200);
+      expect((await patch({})).statusCode).toBe(200);
+      expect((await prisma.firmProfile.findFirst())?.postalAddress).toBe(
+        "1 Main St, Springfield",
+      );
+      expect((await patch({ postalAddress: null })).statusCode).toBe(200);
+      expect((await prisma.firmProfile.findFirst())?.postalAddress).toBeNull();
+    } finally {
+      await patch({ postalAddress: original });
+    }
+  });
+});
