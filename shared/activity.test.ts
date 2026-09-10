@@ -103,10 +103,13 @@ describe("the activity registry", () => {
    * is left: a key added or removed without somebody meaning it fails here (audit, 2026-09-09).
    */
   it("holds the measured inventory, with every key declared", () => {
-    // grown twice since the first pass: `settings.activity_switched` (the switch that decides what
-    // the log holds was the one firm setting nothing recorded) and the twelve the Leads module
-    // needed — it was the one part of the product that changed things and recorded none
-    expect(ACTIVITY_KEYS.length).toBe(149);
+    // grown three times since the first pass: `settings.activity_switched` (the switch that decides
+    // what the log holds was the one firm setting nothing recorded); the twelve the Leads module
+    // needed — the one part of the product that changed things and recorded none; and the seven a
+    // run of the whole suite found leaving only bare rows — the timer's start and stop, a job's
+    // checklist, a client's own unsubscribe, a priority's rename and its order, the catalog's
+    // order (2026-09-10)
+    expect(ACTIVITY_KEYS.length).toBe(156);
     // the checklist is empty because the pass is finished — not because it was abandoned
     expect(PLANNED_EVENT_KEYS).toEqual([]);
   });

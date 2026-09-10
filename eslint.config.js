@@ -82,6 +82,9 @@ export default tseslint.config(
       "server/server.ts", // the entry point closes the connection on shutdown
       "server/**/*.repository.ts",
       "server/**/*.test.ts", // tests seed and assert against the database directly
+      // test infrastructure is part of the suite, not a layer of the app: the setup file that
+      // registers the route log, and the check that reads it after the run
+      "server/test/**",
     ],
     rules: {
       "no-restricted-imports": [

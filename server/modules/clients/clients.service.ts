@@ -9,7 +9,11 @@ import type {
   ResumeSubscriptionInput,
 } from "@shared/schema/client.js";
 import { codeInSearch } from "@shared/schema/client.js";
-import { billsPerJob, rhythmOverridesSchema } from "@shared/schema/catalog.js";
+import {
+  billsPerJob,
+  rhythmOverridesSchema,
+  type RhythmOverrides,
+} from "@shared/schema/catalog.js";
 import type { Prisma, User } from "../../generated/prisma/client.js";
 import { config } from "../../core/config.js";
 import {
@@ -708,6 +712,31 @@ export async function addSubscription(clientId: string, input: CreateSubscriptio
   return getClient(clientId);
 }
 
+/**
+ * **Which of a subscription's tasks changed their own schedule, by name.**
+ *
+ * The overrides are a map keyed by task-template id, which is why they were left out of the diff
+ * entirely — and why a change to WHEN a client's tasks are generated was the one subscription edit
+ * the log could not describe (audit, 2026-09-10). Compared with keys sorted: Postgres keeps JSON in
+ * its own key order, so a plain stringify would call every stored override "changed".
+ */
+async function rhythmChange(before: unknown, after: RhythmOverrides | undefined) {
+  if (after === undefined) return null;
+  const was = rhythmOverridesSchema.catch({}).parse(before ?? {});
+  const ids = [...new Set([...Object.keys(was), ...Object.keys(after)])].filter(
+    (id) => sortedJson(was[id]) !== sortedJson(after[id]),
+  );
+  if (ids.length === 0) return null;
+  return Promise.all(ids.map(async (id) => (await labelOf("taskTemplate", id)) ?? "—"));
+}
+
+function sortedJson(value: unknown): string | undefined {
+  return JSON.stringify(value, (_key, v: unknown) =>
+    v && typeof v === "object" && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b)))
+      : v,
+  );
+}
 export async function updateSubscription(
   clientId: string,
   subscriptionId: string,
@@ -784,8 +813,8 @@ export async function updateSubscription(
   if (input.rhythmOverrides !== undefined) {
     await generateForSubscription(subscriptionId).catch(() => {});
   }
-  // `rhythmOverrides` is deliberately not a change key: it is a map keyed by task-template id, and
-  // a diff of it would be unreadable on screen and would say nothing a person could act on
+  // `rhythmOverrides` is not diffed here — it is a map keyed by task-template id. It is described
+  // by task NAME below (`rhythmChange`), so a schedule change is no longer the one edit with no row
   const moved =
     diff(
       { ...sub, isDefault: sub.isDefault },
@@ -808,11 +837,12 @@ export async function updateSubscription(
     };
     delete moved.companyId;
   }
+  const rhythm = await rhythmChange(sub.rhythmOverrides, input.rhythmOverrides);
   record("subscription.updated", {
     subjectId: subscriptionId,
     subjectLabel: sub.service.name,
     clientId,
-    changes: moved,
+    changes: rhythm ? { ...(moved ?? {}), rhythm } : moved,
   });
   return getClient(clientId);
 }

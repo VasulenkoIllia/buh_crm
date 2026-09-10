@@ -9,6 +9,7 @@ import { billingRuleValid, defaultTriggerFor, rhythmValid } from "@shared/schema
 import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
 import { diff, record } from "../../core/activity.js";
 import * as repo from "./catalog.repository.js";
+import { reorder } from "../../core/order.js";
 
 /** Default chip palette (design tokens) — auto-assigned round-robin when no color is picked. */
 const PALETTE = ["#2f4fd6", "#7a4fd6", "#1f7a8c", "#b5651d", "#c23434", "#1f8f3a", "#6b7280"];
@@ -54,7 +55,13 @@ export async function moveService(id: string, input: MoveServiceInput) {
   if (input.afterServiceId === id) {
     throw new ValidationError("A service cannot be dropped after itself");
   }
-  await repo.moveService(id, input.afterServiceId);
+  // the comparison reads ids only: `listServices` carries every template and subscription, and
+  // reading it twice just to compare two orders was the heavier half of this function (review)
+  const { moved } = await reorder(
+    () => repo.listServiceOrder(),
+    () => repo.moveService(id, input.afterServiceId),
+  );
+  if (moved) record("service.moved", { subjectId: id, subjectLabel: service.name });
   return listServices();
 }
 

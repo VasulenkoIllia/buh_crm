@@ -525,6 +525,7 @@ const EVENTS = {
       "invoiceDay",
       "dueDays",
       "isDefault",
+      "rhythm",
     ],
     journal: "subscription_period",
     enabledByDefault: true,
@@ -626,6 +627,23 @@ const EVENTS = {
     actorKinds: ["user"],
     retention: "ordinary",
     changeKeys: ["subscribed"],
+    enabledByDefault: true,
+  },
+  /**
+   * The client's OWN click, which `client.mail_subscription_changed` does not cover — that one is the
+   * firm changing it, with a person behind it. Left out at first because "nobody in the firm did
+   * this", which is exactly why it matters: the only trace of a client withdrawing from mail was a
+   * bare "Anonymous sent /api/mailouts/unsubscribe/:token" naming no client (audit, 2026-09-10).
+   * The client is the actor; the log has had a `client` actor kind since its first migration.
+   */
+  "client.unsubscribed": {
+    subject: "client",
+    title: "{subject} unsubscribed from mail using the link in a letter",
+    when: "a client clicks unsubscribe in a letter the firm sent",
+    granularity: "item",
+    actorKinds: ["client"],
+    retention: "ordinary",
+    changeKeys: ["letter"],
     enabledByDefault: true,
   },
   /**
@@ -1146,9 +1164,24 @@ const EVENTS = {
     enabledByDefault: true,
   },
   /**
-   * An admin entering time on somebody else's behalf. The ordinary case — a person running their
-   * own timer — is NOT recorded: it happens dozens of times a day and IS the work, which is the
-   * same line the notifications module draws.
+   * The checklist inside a job, as COUNTS. The steps' text is the work itself, which §5.1 keeps out
+   * of this log, and "ticked three steps off Payroll" is what a reader needs — the steps are on the
+   * card. Until 2026-09-10 this was a bare "sent /api/tasks/:id/subtasks" naming no task (owner,
+   * production log).
+   */
+  "task.subtasks_changed": {
+    subject: "task",
+    title: "{actor} updated the checklist of {subject}",
+    when: "steps are added to, removed from or ticked off a job's checklist",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["added", "removed", "done", "undone"],
+    enabledByDefault: true,
+  },
+  /**
+   * An admin entering time on somebody else's behalf. A person running their OWN timer has the two
+   * events below, since 2026-09-10.
    */
   "time_entry.created_manually": {
     subject: "time_entry",
@@ -1159,6 +1192,32 @@ const EVENTS = {
     retention: "ordinary",
     changeKeys: ["minutes", "whose"],
     journal: "time_entry",
+    enabledByDefault: true,
+  },
+  /**
+   * **A person's own timer.** Left out on purpose at first — it happens dozens of times a day and IS
+   * the work, the line the notifications module draws. But the request tier records every mutating
+   * request whatever a service decides, so "not recorded" was never true: it was recorded as "Maryna
+   * sent /api/tasks/timer/stop", naming no task, and on production those were 40% of all bare rows
+   * (owner, 2026-09-10). Describing it adds no rows — the described event replaces the bare one.
+   */
+  "time_entry.started": {
+    subject: "time_entry",
+    title: "{actor} started the timer on {subject}",
+    when: "somebody starts tracking their time on a job",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    enabledByDefault: true,
+  },
+  "time_entry.stopped": {
+    subject: "time_entry",
+    title: "{actor} stopped the timer on {subject}",
+    when: "a running timer is stopped — by hand, or by starting it on another job",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["seconds"],
     enabledByDefault: true,
   },
   "time_entry.updated": {
@@ -1729,6 +1788,31 @@ const EVENTS = {
     retention: "ordinary",
     enabledByDefault: true,
   },
+  /**
+   * A rename or a new colour. The first version called these presentation and recorded only the
+   * default — but a stage, a lead source and a board column all record their renames, and a
+   * priority's name is what every card on the board shows (audit, 2026-09-10).
+   */
+  "settings.priority_updated": {
+    subject: "settings",
+    title: "{actor} changed the priority {subject}",
+    when: "a task priority is renamed, recoloured, or given a position directly",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["name", "color", "order"],
+    enabledByDefault: true,
+  },
+  "settings.priority_moved": {
+    subject: "settings",
+    title: "{actor} moved the priority {subject}",
+    when: "two task priorities swap places in the list",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["swappedWith"],
+    enabledByDefault: true,
+  },
   "settings.column_created": {
     subject: "settings",
     title: "{actor} added the board column {subject}",
@@ -1877,6 +1961,15 @@ const EVENTS = {
     actorKinds: ["user"],
     retention: "long",
     changeKeys: ["type"],
+    enabledByDefault: true,
+  },
+  "service.moved": {
+    subject: "service",
+    title: "{actor} moved {subject} in the catalog",
+    when: "the order of the service catalog changes",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
     enabledByDefault: true,
   },
   "service.made_default": {

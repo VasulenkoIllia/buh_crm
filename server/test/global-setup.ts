@@ -1,4 +1,6 @@
 import { execSync } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { Client } from "pg";
 
 const ADMIN_URL = "postgresql://buh_crm:buh_crm_dev@localhost:5432/buh_crm";
@@ -21,4 +23,16 @@ export default async function globalSetup() {
     env: { ...process.env, DATABASE_URL: TEST_URL },
     stdio: "pipe",
   });
+
+  /**
+   * Where every successful request writes which route it took and whether anything described it —
+   * read afterwards by `server/test/check-activity-routes.ts`, which `npm run verify` runs after the
+   * suite. Emptied here so a run only ever reports on itself. Inherited by the test workers, which
+   * start after this returns (measured, 2026-09-10).
+   */
+  const routeLog = new URL("../../node_modules/.cache/activity-routes.jsonl", import.meta.url)
+    .pathname;
+  mkdirSync(dirname(routeLog), { recursive: true });
+  writeFileSync(routeLog, "");
+  process.env.ACTIVITY_ROUTE_LOG = routeLog;
 }

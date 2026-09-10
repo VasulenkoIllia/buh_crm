@@ -14,6 +14,7 @@ import { ConflictError, NotFoundError, ValidationError } from "../../core/errors
 import { applyDefaultClientService } from "../clients/index.js";
 import { diff, labelOf, record } from "../../core/activity.js";
 import * as repo from "./leads.repository.js";
+import { reorder } from "../../core/order.js";
 
 /** New/changed service on a lead must exist and be active (existing refs stay untouched). */
 async function assertActiveService(
@@ -321,14 +322,13 @@ export async function renameStage(id: string, input: UpdateLeadStageInput) {
 export async function moveStage(id: string, input: MoveLeadStageInput) {
   const stage = await repo.findStage(id);
   if (!stage) throw new NotFoundError("Stage not found");
-  const before = (await repo.listStages()).map((x) => x.id).join();
-  await repo.moveStage(id, input.afterStageId);
-  const stages = await repo.listStages();
   // a drag that lands where it started is not a move — the same rule the board's cards follow
-  if (before !== stages.map((x) => x.id).join()) {
-    record("settings.stage_moved", { subjectId: id, subjectLabel: stage.name });
-  }
-  return stages;
+  const { moved, after } = await reorder(
+    () => repo.listStages(),
+    () => repo.moveStage(id, input.afterStageId),
+  );
+  if (moved) record("settings.stage_moved", { subjectId: id, subjectLabel: stage.name });
+  return after;
 }
 
 /**

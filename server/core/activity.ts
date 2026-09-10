@@ -14,6 +14,7 @@ import {
 import { prisma } from "./db.js";
 import { isTest } from "./config.js";
 import { clientLabel, personName } from "./names.js";
+import { reportFinishedRequest } from "./request-observer.js";
 
 /**
  * **Recording an act, in one place.**
@@ -329,7 +330,14 @@ function validateChanges(
  * than losing the event, which is the same trade `clientLabel` makes at flush time.
  */
 export async function labelOf(
-  table: "service" | "sourceOption" | "priority" | "taskColumn" | "emailTemplate" | "company",
+  table:
+    | "service"
+    | "sourceOption"
+    | "priority"
+    | "taskColumn"
+    | "emailTemplate"
+    | "company"
+    | "taskTemplate",
   id: string | null | undefined,
 ): Promise<string | null> {
   if (!id) return null;
@@ -347,6 +355,8 @@ export async function labelOf(
         return prisma.emailTemplate.findUnique({ where: { id }, select: { name: true } });
       case "company":
         return prisma.company.findUnique({ where: { id }, select: { name: true } });
+      case "taskTemplate":
+        return prisma.taskTemplate.findUnique({ where: { id }, select: { name: true } });
     }
   })().catch((error) => {
     console.error(`activity: could not name the ${table} ${id}`, error);
@@ -675,6 +685,16 @@ async function writeEvents(
         outcome: event.outcome ?? outcome,
         refusalCode: store.refusalCode ?? null,
         correlationId: store.correlationId,
+      });
+    }
+    // for the suite's route check: what is WRITTEN, after the policy and dedupe filters above — not
+    // what a service buffered (review, 2026-09-10). Nothing in production is listening
+    if (options?.tier1 && store.method && store.route && options.statusCode) {
+      reportFinishedRequest({
+        method: store.method,
+        route: store.route,
+        statusCode: options.statusCode,
+        described: rows.some((r) => r.action !== TIER1_REQUEST && r.action !== TIER1_REFUSED),
       });
     }
     if (rows.length === 0) return 0;

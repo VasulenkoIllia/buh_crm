@@ -428,7 +428,8 @@ export function listUserDirectory() {
 export function findRunningEntry(userId: string) {
   return prisma.timeEntry.findFirst({
     where: { userId, stoppedAt: null },
-    include: { task: { select: { id: true, title: true } } },
+    // the client rides along for the activity log: a stopped timer is filed under the job's client
+    include: { task: { select: { id: true, title: true, clientId: true } } },
   });
 }
 

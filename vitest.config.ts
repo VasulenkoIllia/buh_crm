@@ -12,6 +12,8 @@ export default defineConfig({
     include: ["server/**/*.test.ts", "shared/**/*.test.ts", "src/**/*.test.ts?(x)"],
     environment: "node",
     globalSetup: "./server/test/global-setup.ts",
+    // registers the observer that writes the route log `check:activity-routes` reads
+    setupFiles: ["./server/test/route-log.ts"],
     fileParallelism: false, // integration tests share one test database
     env: {
       NODE_ENV: "test",

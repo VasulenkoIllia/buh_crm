@@ -14,12 +14,13 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "vitest run",
-    "verify": "npm run format:check && npm run typecheck && npm run lint && npm run test",
+    "verify": "npm run format:check && npm run typecheck && npm run lint && npm run test && npm run check:activity-routes",
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
     "start": "tsx server/server.ts",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "check:activity-routes": "tsx server/test/check-activity-routes.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

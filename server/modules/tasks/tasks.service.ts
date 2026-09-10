@@ -818,9 +818,47 @@ const sameInstant = (a: Date | null, b: Date | null) =>
 const isoDay = (d: Date) => d.toISOString().slice(0, 10);
 
 export async function setSubtasks(id: string, input: SetSubtasksInput) {
-  liveTaskOr404(await repo.findTask(id));
+  const task = liveTaskOr404(await repo.findTask(id));
   await repo.setSubtasks(id, input.subtasks);
+  const moved = checklistChanges(task.subtasks, input.subtasks);
+  if (moved) {
+    record("task.subtasks_changed", {
+      subjectId: id,
+      subjectLabel: task.title,
+      clientId: task.clientId,
+      changes: moved,
+    });
+  }
   return getTask(id);
+}
+
+/**
+ * What moved in a checklist, as counts. Matched by TEXT: the list is replaced whole on every save,
+ * so no step keeps an id to match on. Only the non-zero counts are returned — "added 0 · removed 0
+ * · done 3" buries the one number that moved.
+ */
+function checklistChanges(
+  before: readonly { text: string; done: boolean }[],
+  after: readonly { text: string; done: boolean }[],
+) {
+  const was = new Map<string, boolean[]>();
+  for (const step of before) was.set(step.text, [...(was.get(step.text) ?? []), step.done]);
+  let added = 0;
+  let done = 0;
+  let undone = 0;
+  for (const step of after) {
+    const prior = was.get(step.text);
+    if (!prior || prior.length === 0) {
+      added += 1;
+      continue;
+    }
+    const wasDone = prior.shift();
+    if (!wasDone && step.done) done += 1;
+    else if (wasDone && !step.done) undone += 1;
+  }
+  const removed = [...was.values()].reduce((n, left) => n + left.length, 0);
+  const counts = Object.entries({ added, removed, done, undone }).filter(([, n]) => n > 0);
+  return counts.length > 0 ? Object.fromEntries(counts) : null;
 }
 
 // ── comments (any authenticated user; delete = own comment or admin) ───────────
@@ -1006,6 +1044,7 @@ export async function startTimer(actor: User, input: StartTimerInput) {
     );
   }
 
+  const closedSeconds = running ? elapsedSeconds(running.startedAt) : 0;
   await repo.switchRunningEntry({
     userId: actor.id,
     taskId: input.taskId,
@@ -1013,10 +1052,25 @@ export async function startTimer(actor: User, input: StartTimerInput) {
       ? {
           id: running.id,
           stoppedAt: new Date(),
-          seconds: elapsedSeconds(running.startedAt),
+          seconds: closedSeconds,
           comment: input.closeComment!,
         }
       : undefined,
+  });
+  // starting on another job closes the one that was running: two acts, and a reader looking at
+  // either job should find its own half
+  if (running) {
+    record("time_entry.stopped", {
+      subjectId: running.task.id,
+      subjectLabel: running.task.title,
+      clientId: running.task.clientId,
+      changes: { seconds: closedSeconds },
+    });
+  }
+  record("time_entry.started", {
+    subjectId: task.id,
+    subjectLabel: task.title,
+    clientId: task.clientId,
   });
   return getActiveTimer(actor);
 }
@@ -1025,10 +1079,14 @@ export async function startTimer(actor: User, input: StartTimerInput) {
 export async function stopTimer(actor: User, input: StopTimerInput) {
   const running = await repo.findRunningEntry(actor.id);
   if (!running) throw new NotFoundError("No running timer");
-  await repo.closeEntry(running.id, {
-    stoppedAt: new Date(),
-    seconds: elapsedSeconds(running.startedAt),
-    comment: input.comment,
+  const seconds = elapsedSeconds(running.startedAt);
+  await repo.closeEntry(running.id, { stoppedAt: new Date(), seconds, comment: input.comment });
+  // the comment stays out: it is the work, in the person's own words (§5.1)
+  record("time_entry.stopped", {
+    subjectId: running.task.id,
+    subjectLabel: running.task.title,
+    clientId: running.task.clientId,
+    changes: { seconds },
   });
   return { ok: true as const, taskId: running.taskId };
 }

@@ -24,6 +24,8 @@ describe("change values, as a person reads them", () => {
     expect(formatChangeValue("minutes", 90)).toBe("1 h 30 m");
     expect(formatChangeValue("plannedMinutes", 120)).toBe("2 h");
     expect(formatChangeValue("seconds", 3600)).toBe("1 h");
+    // under a minute stays in seconds — the timer stopped after 41 s must not read "1 m"
+    expect(formatChangeValue("seconds", 41)).toBe("41 s");
     expect(formatChangeValue("bytes", 2048)).toBe("2 KB");
   });
 
@@ -50,6 +52,9 @@ describe("change values, as a person reads them", () => {
     expect(fieldLabel("companyName")).toBe("company name");
     expect(fieldLabel("paidAt")).toBe("paid at");
     expect(fieldLabel("invoice_day")).toBe("invoice day");
+    // a unit-named field is labelled by what it means, beside a value already in the right unit
+    expect(fieldLabel("seconds")).toBe("time");
+    expect(fieldLabel("plannedMinutes")).toBe("planned time");
   });
 });
 

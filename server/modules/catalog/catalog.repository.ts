@@ -27,6 +27,14 @@ export function listServices() {
   });
 }
 
+/** The catalog's order and nothing else — for telling whether a drag moved anything. */
+export function listServiceOrder() {
+  return prisma.service.findMany({
+    select: { id: true },
+    orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+  });
+}
+
 export function findService(id: string) {
   return prisma.service.findUnique({ where: { id }, include: serviceInclude() });
 }

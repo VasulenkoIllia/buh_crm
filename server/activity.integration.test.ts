@@ -884,6 +884,220 @@ describe("the three shapes a bulk or late write takes", () => {
  * test when a service passes a key the registry does not declare, so every module suite passing is
  * the assertion that every declaration matches the code that writes them.
  */
+/**
+ * **The acts that used to leave only "sent /api/…".** Found by running the whole suite with a mark
+ * on every bare row, then on production: a timer and a checklist named no job, and a bare row was
+ * 27% of the log (owner, 2026-09-10). These check what the rows SAY; that every changing route says
+ * something at all is `server/test/check-activity-routes.ts`.
+ */
+describe("the acts that used to leave a bare row", () => {
+  let taskId: string;
+
+  beforeAll(async () => {
+    const column = await prisma.taskColumn.findFirstOrThrow({ where: { isFixed: true } });
+    const priority = await prisma.priority.findFirstOrThrow();
+    const task = await prisma.task.create({
+      data: {
+        title: "Bare no more",
+        kind: "free",
+        priorityId: priority.id,
+        statusColumnId: column.id,
+      },
+    });
+    taskId = task.id;
+  });
+
+  afterAll(async () => {
+    await prisma.timeEntry.deleteMany({ where: { taskId } });
+    await prisma.task.deleteMany({ where: { id: taskId } });
+  });
+
+  const rowsSince = (since: Date, action: string) =>
+    prisma.activityEvent.findMany({
+      where: { action, subjectId: taskId, occurredAt: { gte: since } },
+      orderBy: { occurredAt: "asc" },
+    });
+
+  it("names the job a timer ran on, and for how long", async () => {
+    const before = new Date();
+    const start = await app.inject({
+      method: "POST",
+      url: "/api/tasks/timer/start",
+      headers: { cookie: adminCookie },
+      // a comment in case another test left this person's timer running: starting here closes it
+      payload: { taskId, closeComment: "switching jobs for the test" },
+    });
+    expect(start.statusCode).toBeLessThan(300);
+    const stop = await app.inject({
+      method: "POST",
+      url: "/api/tasks/timer/stop",
+      headers: { cookie: adminCookie },
+      payload: { comment: "done" },
+    });
+    expect(stop.statusCode).toBeLessThan(300);
+
+    const stopped = await waitFor(
+      async () => (await rowsSince(before, "time_entry.stopped"))[0] ?? null,
+      "the stop",
+    );
+    const [started] = await rowsSince(before, "time_entry.started");
+    expect(started?.subjectLabel).toBe("Bare no more");
+    expect(stopped.subjectLabel).toBe("Bare no more");
+    expect(typeof (stopped.changes as { seconds?: unknown }).seconds).toBe("number");
+    // and not the bare row the same two requests used to leave
+    expect(
+      await prisma.activityEvent.count({
+        where: {
+          action: "system.request",
+          route: { startsWith: "/api/tasks/timer" },
+          occurredAt: { gte: before },
+        },
+      }),
+    ).toBe(0);
+  });
+
+  it("counts what moved in a checklist, and names the job", async () => {
+    const put = (subtasks: { text: string; done: boolean }[]) =>
+      app.inject({
+        method: "PUT",
+        url: `/api/tasks/${taskId}/subtasks`,
+        headers: { cookie: adminCookie },
+        payload: { subtasks },
+      });
+
+    const first = new Date();
+    expect(
+      (
+        await put([
+          { text: "Collect W-2s", done: false },
+          { text: "File 941", done: true },
+        ])
+      ).statusCode,
+    ).toBe(200);
+    const one = await waitFor(
+      async () => (await rowsSince(first, "task.subtasks_changed"))[0] ?? null,
+      "the first checklist save",
+    );
+    expect(one.subjectLabel).toBe("Bare no more");
+    expect(one.changes).toEqual({ added: 2 });
+
+    const second = new Date();
+    expect(
+      (
+        await put([
+          { text: "Collect W-2s", done: true },
+          { text: "Call the client", done: false },
+        ])
+      ).statusCode,
+    ).toBe(200);
+    const two = await waitFor(
+      async () => (await rowsSince(second, "task.subtasks_changed"))[0] ?? null,
+      "the second checklist save",
+    );
+    // one step ticked, one added, one gone — matched by text, since the list is replaced whole
+    expect(two.changes).toEqual({ added: 1, removed: 1, done: 1 });
+  });
+
+  /**
+   * The firm's mailing address had no functional test at all — only the access matrix's generic
+   * requests, and every field of this route is optional, so a generic request is a save with
+   * nothing changed. `check:activity-routes` caught it as a route that never describes itself; the
+   * service was right all along. This makes it do the one thing it exists to do, on every run.
+   */
+  it("records a changed firm mailing address, and nothing for the same one saved again", async () => {
+    const original = (await prisma.firmProfile.findFirst())?.postalAddress ?? null;
+    const address = `12 Audit Lane, Springfield ${Date.now()}`;
+    const patch = (postalAddress: string | null) =>
+      app.inject({
+        method: "PATCH",
+        url: "/api/mailouts/settings/firm-mail",
+        headers: { cookie: adminCookie },
+        payload: { postalAddress },
+      });
+    try {
+      const before = new Date();
+      expect((await patch(address)).statusCode).toBe(200);
+      const row = await waitFor(
+        () =>
+          prisma.activityEvent.findFirst({
+            where: { action: "settings.firm_mail_changed", occurredAt: { gte: before } },
+          }),
+        "the address change",
+      );
+      expect((row.changes as { postalAddress?: { to?: unknown } }).postalAddress?.to).toBe(
+        address,
+      );
+
+      // the same address again changes nothing: the bare request row, and no event
+      const again = new Date();
+      expect((await patch(address)).statusCode).toBe(200);
+      await waitFor(
+        () =>
+          prisma.activityEvent.findFirst({
+            where: {
+              action: "system.request",
+              route: "/api/mailouts/settings/firm-mail",
+              occurredAt: { gte: again },
+            },
+          }),
+        "the unchanged save",
+      );
+      expect(
+        await prisma.activityEvent.count({
+          where: { action: "settings.firm_mail_changed", occurredAt: { gte: again } },
+        }),
+      ).toBe(0);
+    } finally {
+      await patch(original);
+    }
+  });
+
+  it("hides a successful bare row unless asked, and never hides a failed one", async () => {
+    const before = new Date();
+    // one that went through and changed nothing on the firm's records…
+    const read = await app.inject({
+      method: "POST",
+      url: "/api/notifications/read-all",
+      headers: { cookie: adminCookie },
+    });
+    expect(read.statusCode).toBeLessThan(300);
+    // …and one that failed, which no service got far enough to describe
+    const failed = await app.inject({
+      method: "PUT",
+      url: `/api/tasks/${randomUUID()}/subtasks`,
+      headers: { cookie: adminCookie },
+      payload: { subtasks: [] },
+    });
+    expect(failed.statusCode).toBe(404);
+    await waitFor(async () => {
+      const n = await prisma.activityEvent.count({
+        where: { action: "system.request", occurredAt: { gte: before } },
+      });
+      return n >= 2 ? n : null;
+    }, "both bare rows");
+
+    const bareOutcomes = async (extra: string) => {
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/activity?from=${encodeURIComponent(before.toISOString())}${extra}`,
+        headers: { cookie: adminCookie },
+      });
+      expect(res.statusCode).toBe(200);
+      const page = res.json() as { entries: { rows: { action: string; outcome: string }[] }[] };
+      return page.entries
+        .flatMap((e) => e.rows)
+        .filter((r) => r.action === "system.request")
+        .map((r) => r.outcome)
+        .sort();
+    };
+    expect(await bareOutcomes("")).toEqual(["failed"]);
+    expect(await bareOutcomes("&technical=false")).toEqual(["failed"]);
+    expect(await bareOutcomes("&technical=true")).toEqual(["failed", "ok"]);
+    // picking that exact key from the action list is asking for it too
+    expect(await bareOutcomes("&action=system.request")).toEqual(["failed", "ok"]);
+  });
+});
+
 describe("one save, one lifecycle event", () => {
   let taskId: string;
   let columnId: string;

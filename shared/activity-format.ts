@@ -100,14 +100,30 @@ export function formatChangeValue(field: string, value: unknown): string {
   if (Number.isFinite(n) && typeof value !== "object") {
     if (kind === "money") return fmtMoney(n);
     if (kind === "minutes") return duration(n);
-    if (kind === "seconds") return duration(Math.round(n / 60));
+    // under a minute is said in seconds: 41 s rounded to "1 m" was a claim nobody made
+    if (kind === "seconds") return n < 60 ? `${Math.round(n)} s` : duration(Math.round(n / 60));
     if (kind === "bytes") return bytes(n);
   }
   return String(value);
 }
 
+/**
+ * Fields whose NAME is a unit, relabelled by what they mean. The value is already formatted in the
+ * unit that reads best — "seconds · 1 m" was the first thing the timer's event showed a reader
+ * (found in the UI test, 2026-09-10).
+ */
+const FIELD_LABEL: Record<string, string> = {
+  seconds: "time",
+  minutes: "time",
+  plannedMinutes: "planned time",
+  durationMinutes: "duration",
+  remindMinutesBefore: "reminder",
+  meetingRemindMinutes: "meeting reminder",
+};
+
 /** `companyName` → "company name", `paid_at` → "paid at". The column beside the value. */
 export function fieldLabel(field: string): string {
+  if (FIELD_LABEL[field]) return FIELD_LABEL[field];
   return field
     .replace(/_/g, " ")
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")

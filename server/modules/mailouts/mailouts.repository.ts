@@ -117,8 +117,18 @@ export async function ensureMailPreferences(clientIds: string[]) {
 export function findByUnsubscribeToken(token: string) {
   return prisma.clientMailPreference.findUnique({
     where: { token },
-    select: { clientId: true, unsubscribedAt: true, client: { select: { archivedAt: true } } },
+    // the name rides along for the activity log: the client is the actor of their own unsubscribe
+    select: {
+      clientId: true,
+      unsubscribedAt: true,
+      client: { select: { firstName: true, lastName: true } },
+    },
   });
+}
+
+/** A letter's subject line — "unsubscribed using the link in <this letter>". */
+export function mailoutSubject(id: string) {
+  return prisma.mailout.findUnique({ where: { id }, select: { subject: true } });
 }
 
 /**

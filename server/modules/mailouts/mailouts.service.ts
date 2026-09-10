@@ -83,7 +83,7 @@ import { clientLabel, personName } from "../../core/names.js";
 import { open, seal, secretsConfigured } from "../../core/secrets-crypto.js";
 import type { User } from "../../generated/prisma/client.js";
 import * as campaignRepo from "./campaigns.repository.js";
-import { diff, record } from "../../core/activity.js";
+import { diff, record, setActivityActor } from "../../core/activity.js";
 import * as repo from "./mailouts.repository.js";
 
 /** A stored DATE as `YYYY-MM-DD`, read off the UTC-midnight instant days are stored on. */
@@ -2250,7 +2250,7 @@ export async function reviveAddress(actor: User, clientId: string, email: string
 export async function setSubscription(actor: User, clientId: string, subscribed: boolean) {
   await repo.setUnsubscribed(clientId, subscribed ? null : new Date(), actor.id);
   // the FIRM doing it, which is a different act from the client clicking unsubscribe — that one
-  // has no actor in the firm at all and is not recorded here
+  // is `client.unsubscribed`, with the client as its actor
   record("client.mail_subscription_changed", {
     subjectId: clientId,
     clientId,
@@ -2288,6 +2288,21 @@ export async function unsubscribeByToken(
     }
   }
   await repo.setUnsubscribed(pref.clientId, new Date(), null, source);
+  /**
+   * The client did this, so the client is the actor. The request is anonymous — the token is the
+   * credential — and without this it would read "Anonymous", which is the one thing a record of
+   * somebody withdrawing their consent should not say. `letter` is always present, `null` when the
+   * link carried no letter we could verify, because a declared change key with nothing in it would
+   * drop the event (§4.2) and this act must not be droppable.
+   */
+  const name = clientLabel(pref.client);
+  setActivityActor({ kind: "client", clientId: pref.clientId, label: name });
+  record("client.unsubscribed", {
+    subjectId: pref.clientId,
+    subjectLabel: name,
+    clientId: pref.clientId,
+    changes: { letter: source ? ((await repo.mailoutSubject(source))?.subject ?? null) : null },
+  });
 }
 
 export async function unsubscribeTokenExists(token: string): Promise<boolean> {

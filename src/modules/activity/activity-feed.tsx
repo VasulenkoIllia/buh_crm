@@ -74,6 +74,7 @@ export function ActivityFeed({ clientId, compact = false }: ActivityFeedProps) {
   const [group, setGroup] = useState<ActivityGroup | "">("");
   const [action, setAction] = useState("");
   const [q, setQ] = useState("");
+  const [technical, setTechnical] = useState(false);
   const [since, setSince] = useState<"7" | "30" | "">(compact ? "" : "30");
   const [page, setPage] = useState(1);
   const [open, setOpen] = useState<Set<string>>(new Set());
@@ -90,6 +91,7 @@ export function ActivityFeed({ clientId, compact = false }: ActivityFeedProps) {
     group: group || undefined,
     action: action || undefined,
     q: q.trim() || undefined,
+    technical: technical || undefined,
     from,
     page,
     pageSize: compact ? 15 : 25,
@@ -166,6 +168,21 @@ export function ActivityFeed({ clientId, compact = false }: ActivityFeedProps) {
               placeholder="Who, or what it happened to"
               className="w-64"
             />
+            {/* the bare "sent /api/…" rows: kept for the audit, hidden from reading unless asked */}
+            <button
+              type="button"
+              aria-pressed={technical}
+              onClick={() => reset(setTechnical)(!technical)}
+              title="Requests that went through and that no service described — a notification marked read, a letter previewed. Kept in the log and shown when you ask. A failed one is always shown."
+              className={cn(
+                "rounded-(--radius-field) border px-2.5 py-1 text-[12px]",
+                technical
+                  ? "border-primary bg-primary/8 text-primary"
+                  : "border-border text-muted hover:text-ink",
+              )}
+            >
+              Technical
+            </button>
             <Segmented value={since} onChange={reset(setSince)} options={SINCE} />
           </div>
         </div>

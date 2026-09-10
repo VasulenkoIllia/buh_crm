@@ -1,5 +1,5 @@
 import argon2 from "argon2";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../../app.js";
 import { prisma } from "../../core/db.js";
 import { testOutbox } from "../../core/email.js";
@@ -388,6 +388,31 @@ describe("unsubscribe", () => {
     expect(res.statusCode).toBe(200);
     const pref = await prisma.clientMailPreference.findUnique({ where: { clientId: clientA } });
     expect(pref!.unsubscribedAt).not.toBeNull();
+  });
+
+  it("records the client as the one who did it — not Anonymous", async () => {
+    const token = await tokenFor(clientA);
+    const before = new Date();
+    const res = await app.inject({ method: "POST", url: `/api/mailouts/unsubscribe/${token}` });
+    expect(res.statusCode).toBe(200);
+    const row = await vi.waitFor(
+      async () => {
+        const found = await prisma.activityEvent.findFirst({
+          where: {
+            action: "client.unsubscribed",
+            subjectId: clientA,
+            occurredAt: { gte: before },
+          },
+        });
+        if (!found) throw new Error("not written yet");
+        return found;
+      },
+      { timeout: 3000 },
+    );
+    expect(row.actorKind).toBe("client");
+    expect(row.actorClientId).toBe(clientA);
+    expect(row.actorLabel).not.toBe("Anonymous");
+    expect(row.actorLabel).toBe(row.subjectLabel);
   });
 
   /**

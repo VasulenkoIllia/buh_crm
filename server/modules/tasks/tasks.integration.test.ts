@@ -1,5 +1,5 @@
 import argon2 from "argon2";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../../app.js";
 import { ensureBaseData } from "../../core/bootstrap.js";
 import { config } from "../../core/config.js";
@@ -1339,6 +1339,19 @@ describe("tasks", () => {
       headers: { cookie: adminCookie },
       payload: { rhythmOverrides: { [templateId]: { enabled: false } } },
     });
+    // the schedule change names the task it changed, never the template's id (audit, 2026-09-10)
+    const template = await prisma.taskTemplate.findUniqueOrThrow({ where: { id: templateId } });
+    const logged = await vi.waitFor(
+      async () => {
+        const row = await prisma.activityEvent.findFirst({
+          where: { action: "subscription.updated", subjectId: sub2Id },
+        });
+        if (!row) throw new Error("not written yet");
+        return row;
+      },
+      { timeout: 3000 },
+    );
+    expect((logged.changes as { rhythm?: string[] }).rhythm).toEqual([template.name]);
     await prisma.task.deleteMany({ where: { subscriptionId: sub2Id } });
     await generateSubscriptionTasks();
     expect(await prisma.task.count({ where: { subscriptionId: sub2Id } })).toBe(0);

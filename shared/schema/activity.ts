@@ -25,6 +25,14 @@ export const activityQuery = z.object({
   to: z.iso.datetime().optional(),
   /** free text over the snapshotted labels — the actor's name or the subject's */
   q: z.string().max(120).optional(),
+  /**
+   * Include the SUCCESSFUL bare request rows — "Maryna sent /api/…" — that no service described.
+   * Off by default: on production they were 27% of the log, more than half of them somebody marking
+   * their own notification read (owner, 2026-09-10). A failed one is shown either way. They stay in
+   * the table; this decides only what the screen shows. `stringbool`, because `coerce.boolean`
+   * reads "false" as true.
+   */
+  technical: z.stringbool().optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
 });

@@ -53,8 +53,8 @@ export async function updatePriority(id: string, input: UpdatePriorityInput) {
   const { isDefault, ...rest } = input;
   if (isDefault) {
     await repo.moveDefaultPriority(id);
-    // only the DEFAULT. A rename or a colour is presentation; the default decides what every task
-    // created from now on starts at, including the ones the nightly sweep generates
+    // the default has its own event: it decides what every task created from now on starts at,
+    // including the ones the nightly sweep generates. A rename or a colour is recorded below
     if (!priority.isDefault) {
       record("settings.priority_default_changed", {
         subjectId: id,
@@ -63,7 +63,19 @@ export async function updatePriority(id: string, input: UpdatePriorityInput) {
     }
   }
   if (Object.keys(rest).length > 0) {
-    return repo.updatePriority(id, rest);
+    // `order` too: this route accepts it, and a write the event cannot describe leaves a bare row
+    const updated = await repo.updatePriority(id, rest);
+    record("settings.priority_updated", {
+      subjectId: id,
+      subjectLabel: updated.name,
+      changes:
+        diff(priority as unknown as Record<string, unknown>, rest as Record<string, unknown>, [
+          "name",
+          "color",
+          "order",
+        ]) ?? undefined,
+    });
+    return updated;
   }
   return repo.findPriority(id);
 }
@@ -73,6 +85,13 @@ export async function swapPriorities(aId: string, bId: string) {
   const [a, b] = await Promise.all([repo.findPriority(aId), repo.findPriority(bId)]);
   if (!a || !b) throw new NotFoundError("Priority not found");
   await repo.swapPriorityOrders(aId, bId);
+  if (a.id !== b.id) {
+    record("settings.priority_moved", {
+      subjectId: a.id,
+      subjectLabel: a.name,
+      changes: { swappedWith: b.name },
+    });
+  }
   return repo.listPriorities();
 }
 

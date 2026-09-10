@@ -1,6 +1,11 @@
 import type { Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../core/db.js";
-import { SUBJECT_GROUP, type ActivityGroup, type ActivitySubject } from "@shared/activity.js";
+import {
+  TIER1_REQUEST,
+  SUBJECT_GROUP,
+  type ActivityGroup,
+  type ActivitySubject,
+} from "@shared/activity.js";
 import type { ActivityQuery } from "@shared/schema/activity.js";
 
 /**
@@ -31,6 +36,11 @@ function where(query: ActivityQuery, visible: string[]): Prisma.ActivityEventWhe
   if (query.subjectId) filters.subjectId = query.subjectId;
   if (query.clientId) filters.clientId = query.clientId;
   if (query.action) filters.action = query.action;
+  // a SUCCESSFUL bare request row is kept and not shown unless asked for — by the switch, or by
+  // picking that exact key from the action list. A FAILED one stays in view: a request that went
+  // wrong and that no service described is a signal an audit log exists to show, and hiding it with
+  // the noise was the first version's mistake (security review, 2026-09-10)
+  else if (!query.technical) filters.NOT = { action: TIER1_REQUEST, outcome: "ok" };
   if (query.group) {
     // a group is a set of subjects, resolved from the registry rather than stored on the row: one
     // place decides which group a subject is in, and it is beside the registry (§4.3)

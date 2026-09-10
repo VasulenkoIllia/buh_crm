@@ -1,3 +1,4 @@
+import { QUIET_ROUTES } from "./test/quiet-routes.js";
 import { readdir, readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import inventory from "./route-inventory.json" with { type: "json" };
@@ -75,6 +76,23 @@ describe("every part of the product that changes something says what it changed"
         "service — see AGENTS.md, 'The activity log' — or add the module to TIER1_ONLY with a " +
         "reason about the acts rather than about the effort.",
     ).toEqual([]);
+  });
+
+  it("keeps the quiet-route list honest — each names a changing route that exists, and why", async () => {
+    const inventory = JSON.parse(
+      await readFile(new URL("route-inventory.json", import.meta.url), "utf8"),
+    ) as { method: string; url: string }[];
+    const changing = new Set(
+      inventory
+        .filter((r) => /^(POST|PUT|PATCH|DELETE)$/.test(r.method))
+        .map((r) => `${r.method} ${r.url}`),
+    );
+    for (const [route, why] of Object.entries(QUIET_ROUTES)) {
+      expect(changing.has(route), `${route} is not a changing route in the inventory`).toBe(
+        true,
+      );
+      expect(why.length, `${route} needs a reason, not a word`).toBeGreaterThan(20);
+    }
   });
 
   it("keeps the exception list honest — an exception must name a module that exists", async () => {
