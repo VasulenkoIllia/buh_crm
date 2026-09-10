@@ -99,24 +99,42 @@ function toBits(address: string): { value: bigint; width: 32 | 128 } | null {
   return { value, width: 128 };
 }
 
-function inRange(address: string, cidr: string): boolean {
+/**
+ * Each range parsed ONCE, when the module loads. This runs on every request, up to twice, and the
+ * first version re-parsed the address and all 22 ranges on every call — 44 parses to answer one
+ * yes-or-no (security review, 2026-09-10). A range that does not parse fails at import, which the
+ * test suite reaches long before a deploy does.
+ */
+const RANGES = CLOUDFLARE.map((cidr) => {
   const [network, bits] = cidr.split("/");
-  const one = toBits(address);
-  const other = toBits(network);
-  if (!one || !other || one.width !== other.width) return false;
-  const prefix = Number(bits);
-  const host = BigInt(one.width - prefix);
-  return one.value >> host === other.value >> host;
-}
+  const parsed = toBits(network);
+  if (!parsed) throw new Error(`client-ip: unparseable Cloudflare range ${cidr}`);
+  const host = BigInt(parsed.width - Number(bits));
+  return { width: parsed.width, host, network: parsed.value >> host };
+});
 
 /** Whether this address is one of Cloudflare's edges — i.e. whether we are behind it right now. */
 export function isCloudflare(address: string): boolean {
-  return CLOUDFLARE.some((cidr) => inRange(address, cidr));
+  const one = toBits(address);
+  if (!one) return false;
+  return RANGES.some((r) => r.width === one.width && one.value >> r.host === r.network);
 }
 
-/** Whether a string is an address at all, so a forged header cannot put prose in the column. */
+/** Digits, hex, colons and dots — every character an address in this header can contain. */
+const ADDRESS_ONLY = /^[0-9a-f:.]+$/i;
+
+/**
+ * Whether a string is an address and NOTHING ELSE, so a forged header cannot put prose in the column.
+ *
+ * Checked on the characters first, then on the structure. The first version checked only the
+ * structure — of a copy with any IPv6 zone id (`%…`) and brackets cut off — and the caller returned
+ * the original, so `1.2.3.4%<anything>` was an "address" and the whole string was stored (security
+ * review, 2026-09-10). Cloudflare never sends a zone id or brackets in `CF-Connecting-IP`; one of
+ * them means somebody else wrote the header.
+ */
 export function isAddress(value: string): boolean {
-  return toBits(value) !== null;
+  const trimmed = value.trim();
+  return ADDRESS_ONLY.test(trimmed) && toBits(trimmed) !== null;
 }
 
 /**

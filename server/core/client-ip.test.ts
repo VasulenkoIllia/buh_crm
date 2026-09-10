@@ -90,6 +90,22 @@ describe("the caller's address", () => {
     );
   });
 
+  /**
+   * **What is returned must be what was validated.** The first version checked a zone-id-stripped
+   * copy (`split("%")[0]`) and then returned the RAW header — so `1.2.3.4%<anything>` passed as an
+   * address and the whole string went into the log and the rate-limit key. Found by the security
+   * review, 2026-09-10. Cloudflare never sends a zone id or brackets in this header, so any such
+   * character means somebody other than Cloudflare wrote it.
+   */
+  it("refuses a header that is an address plus something else", () => {
+    const edge = "108.162.237.159";
+    expect(ask(edge, { "cf-connecting-ip": "1.2.3.4%<img src=x>-anything" })).toBe(edge);
+    expect(ask(edge, { "cf-connecting-ip": "fe80::1%eth0" })).toBe(edge);
+    expect(ask(edge, { "cf-connecting-ip": "[2606:4700::1]" })).toBe(edge);
+    expect(isAddress("1.2.3.4%x")).toBe(false);
+    expect(isAddress("[::1]")).toBe(false);
+  });
+
   it("takes the first value if the header somehow arrives twice", () => {
     expect(ask("108.162.237.159", { "cf-connecting-ip": ["91.202.128.5", "1.2.3.4"] })).toBe(
       "91.202.128.5",
