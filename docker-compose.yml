@@ -54,7 +54,9 @@ services:
       db:
         condition: service_healthy
     volumes:
-      - ./data/uploads:/app/uploads # client files + avatars (backed up with ./data)
+      # client files + avatars. NOT BACKED UP BY ANYTHING TODAY — this comment claimed it was,
+      # which is most of the reason nobody built it. See docs/modules/backups.md.
+      - ./data/uploads:/app/uploads
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     # migrations run automatically on every start (idempotent); Dockerfile CMD:
