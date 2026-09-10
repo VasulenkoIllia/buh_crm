@@ -15,6 +15,7 @@ import {
 } from "@shared/schema/client.js";
 import { gate, shared } from "../../core/access.js";
 import { ValidationError } from "../../core/errors.js";
+import { clientIp } from "../../core/client-ip.js";
 import { readFileStream } from "../../core/files.js";
 import * as secrets from "./secrets.service.js";
 import * as service from "./clients.service.js";
@@ -235,7 +236,7 @@ export async function registerRoutes(instance: FastifyInstance) {
             request.params.id,
             request.body,
             request.currentUser!,
-            request.ip,
+            clientIp(request),
           ),
         ),
   );
@@ -249,7 +250,7 @@ export async function registerRoutes(instance: FastifyInstance) {
         request.params.secretId,
         request.body,
         request.currentUser!,
-        request.ip,
+        clientIp(request),
       ),
   );
 
@@ -261,7 +262,7 @@ export async function registerRoutes(instance: FastifyInstance) {
         request.params.id,
         request.params.secretId,
         request.currentUser!,
-        request.ip,
+        clientIp(request),
       ),
   );
 
@@ -274,7 +275,7 @@ export async function registerRoutes(instance: FastifyInstance) {
       config: { ...vault, rateLimit: { max: 10, timeWindow: "1 minute" } },
     },
     async (request) =>
-      secrets.unlock(request.params.id, request.body, request.currentUser!, request.ip),
+      secrets.unlock(request.params.id, request.body, request.currentUser!, clientIp(request)),
   );
 
   app.post(
@@ -288,7 +289,7 @@ export async function registerRoutes(instance: FastifyInstance) {
         request.params.id,
         request.params.secretId,
         request.currentUser!,
-        request.ip,
+        clientIp(request),
       ),
   );
 

@@ -55,7 +55,8 @@ the module's repository; Zod schemas in `shared/` validate the API and type the 
 npm install
 npm run dev          # frontend (Vite)
 npm run dev:server   # backend (tsx watch)
-npm run typecheck
+npm run verify       # format check → typecheck → lint → tests; run before every commit
+npm run format       # fixes formatting — `verify` only checks it
 npm run build
 ```
 

@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { clientIp, isAddress, isCloudflare } from "./client-ip.js";
 
@@ -102,5 +104,46 @@ describe("the caller's address", () => {
 
   it("is unchanged in development, where there is no proxy at all", () => {
     expect(ask("127.0.0.1")).toBe("127.0.0.1");
+  });
+});
+
+/**
+ * **Nothing on the server reads the raw address except the resolver.**
+ *
+ * The first version of this fix rewired the activity log, the session and the rate limiter, and
+ * missed the five secret-vault routes — which passed `request.ip` straight into `SecretAuditLog`,
+ * the one journal built to answer "who tried to open this client's secrets, and from where". It
+ * would have gone on recording Cloudflare's edge after the deploy that was meant to stop that.
+ * Found by the pre-deploy review, 2026-09-10; missed because the search for call sites looked in
+ * `server/core` and not in the modules. So it is not searched for any more — it is checked.
+ */
+describe("the one way to read an address", () => {
+  it("is `clientIp()` — a raw `request.ip` anywhere else fails", () => {
+    const root = new URL("..", import.meta.url).pathname; // server/
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of readdirSync(dir)) {
+        const path = join(dir, name);
+        if (statSync(path).isDirectory()) {
+          if (name !== "generated" && name !== "node_modules") walk(path);
+          continue;
+        }
+        if (!/\.ts$/.test(name) || /\.test\.ts$/.test(name) || name === "client-ip.ts")
+          continue;
+        // comments may talk about `request.ip`; code may not use it
+        const code = readFileSync(path, "utf8")
+          .replace(/\/\*[\s\S]*?\*\//g, "")
+          .replace(/(^|[^:])\/\/.*$/gm, "$1");
+        code.split("\n").forEach((line, i) => {
+          if (/\b(request|req)\.ip\b/.test(line))
+            offenders.push(`${path.slice(root.length)}:${i + 1}`);
+        });
+      }
+    };
+    walk(root);
+    expect(
+      offenders,
+      "read the address through clientIp(request) — see core/client-ip.ts",
+    ).toEqual([]);
   });
 });
