@@ -81,18 +81,25 @@
   },
   {
     "method": "POST",
+    "url": "/api/auth/login/2fa",
+    "access": "anonymous"
+  },
+  {
+    "method": "POST",
     "url": "/api/auth/logout",
     "access": "anonymous"
   },
   {
     "method": "GET",
     "url": "/api/auth/me",
-    "access": "own"
+    "access": "own",
+    "beforeTwoFactor": true
   },
   {
     "method": "HEAD",
     "url": "/api/auth/me",
     "access": "own",
+    "beforeTwoFactor": true,
     "derived": true
   },
   {
@@ -1147,6 +1154,62 @@
     "method": "POST",
     "url": "/api/tasks/timer/stop",
     "access": "own"
+  },
+  {
+    "method": "GET",
+    "url": "/api/two-factor/me",
+    "access": "own",
+    "beforeTwoFactor": true
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/two-factor/me",
+    "access": "own",
+    "beforeTwoFactor": true,
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/two-factor/me/confirm",
+    "access": "own",
+    "beforeTwoFactor": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/two-factor/me/disable",
+    "access": "own"
+  },
+  {
+    "method": "POST",
+    "url": "/api/two-factor/me/recovery-codes",
+    "access": "own"
+  },
+  {
+    "method": "POST",
+    "url": "/api/two-factor/me/setup",
+    "access": "own",
+    "beforeTwoFactor": true
+  },
+  {
+    "method": "PUT",
+    "url": "/api/two-factor/policy",
+    "access": "gate:team"
+  },
+  {
+    "method": "GET",
+    "url": "/api/two-factor/team",
+    "access": "gate:team"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/two-factor/team",
+    "access": "gate:team",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/two-factor/users/:id/reset",
+    "access": "gate:team"
   },
   {
     "method": "GET",

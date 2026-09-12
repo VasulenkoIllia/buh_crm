@@ -32,6 +32,7 @@ import { notificationsModule } from "./modules/notifications/index.js";
 import { paymentsModule } from "./modules/payments/index.js";
 import { settingsModule } from "./modules/settings/index.js";
 import { tasksModule } from "./modules/tasks/index.js";
+import { twoFactorModule } from "./modules/two-factor/index.js";
 import { usersModule } from "./modules/users/index.js";
 
 // Build the Fastify instance: core plugins + module registration.
@@ -297,6 +298,7 @@ export async function buildApp() {
   await app.register(mailoutsModule, { prefix: "/api/mailouts" }); // S10
   await app.register(accessModule, { prefix: "/api/access" }); // S14 — who may open what
   await app.register(activityModule, { prefix: "/api/activity" }); // S15 — who did what
+  await app.register(twoFactorModule, { prefix: "/api/two-factor" }); // S16 — the second factor
 
   // ── Serve the built SPA in production (single-container: API + web) ────────
   // Vite builds the frontend into ./dist; this app serves it and falls back to

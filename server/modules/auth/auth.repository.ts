@@ -12,10 +12,6 @@ export function findUserByEmail(email: string) {
   });
 }
 
-export function findUserById(id: string) {
-  return prisma.user.findUnique({ where: { id } });
-}
-
 export function createAuthToken(
   userId: string,
   type: AuthTokenType,

@@ -511,10 +511,16 @@ export const MODULE_NOTIFICATIONS: Record<string, readonly NotificationTriggerKe
     // ── decided to stay silent ────────────────────────────────────────────────
     auth:
       "Invitations, password resets and sign-in are letters a person asked for, not news about " +
-      "somebody else's work. A refused sign-in is a security question and belongs to the activity log.",
+      "somebody else's work. A refused sign-in is a security question: it belongs to the activity " +
+      "log, and a run of them earns the account's owner and the admins a letter that no preference " +
+      "can silence.",
     users:
       "Adding or blocking a colleague is felt at once — they get an invitation, or they lose access " +
       "mid-session. Nothing is waiting on a message about it.",
+    "two-factor":
+      "Its letters are security mail on the invitation channel — to the account's owner, and to the " +
+      "admins for an attack or a reset — and deliberately outside the preference system: nobody " +
+      "may silence being told their own account is under attack.",
     clients:
       "Editing a client is a step of ordinary work, dozens a day. That is the rule that trimmed the " +
       "original candidate list (§3.2): a lifecycle event yes, a work step no.",

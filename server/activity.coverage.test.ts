@@ -32,12 +32,20 @@ const TIER1_ONLY: Record<string, string> = {
     "subject, so the grep for this module's directory does not see it.",
 };
 
-/** `app.register(clientsModule, { prefix: "/api/clients" })` → { "/api/clients": "clients" } */
+/**
+ * `app.register(clientsModule, { prefix: "/api/clients" })` → { "/api/clients": "clients" }
+ *
+ * A module named in more than one word keeps its words apart on disk:
+ * `twoFactorModule` lives in `modules/two-factor/`.
+ */
 async function moduleByPrefix(): Promise<Map<string, string>> {
   const app = await readFile(new URL("app.ts", import.meta.url), "utf8");
   const out = new Map<string, string>();
   for (const m of app.matchAll(/register\((\w+)Module,\s*\{\s*prefix:\s*"([^"]+)"/g)) {
-    out.set(m[2], m[1]);
+    out.set(
+      m[2],
+      m[1].replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`),
+    );
   }
   return out;
 }

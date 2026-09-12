@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   InviteUserInput,
   PublicUser,
+  SessionUser,
   UpdateProfileInput,
   UpdateUserInput,
 } from "@shared/schema/user";
@@ -41,29 +42,39 @@ export function useUpdateUser() {
   });
 }
 
-export function useUpdateProfile() {
+/**
+ * The profile routes answer with the PUBLIC user — name, email, avatar — not the session payload,
+ * so what they return is laid over the cached session rather than put in its place. Replacing it
+ * used to drop `access` (the sidebar fell back to the registry defaults until the next refetch)
+ * and, since two-factor sign-in, `twoFactor` (audit, 2026-09-12).
+ */
+function useMergeIntoSession() {
   const queryClient = useQueryClient();
+  return (user: PublicUser) => {
+    queryClient.setQueryData<SessionUser | null>(ME_QUERY_KEY, (session) =>
+      session ? { ...session, ...user } : session,
+    );
+    void queryClient.invalidateQueries({ queryKey: USERS_KEY }); // Team shows the new name/avatar
+  };
+}
+
+export function useUpdateProfile() {
+  const merge = useMergeIntoSession();
   return useMutation({
     mutationFn: (input: UpdateProfileInput) =>
       api<PublicUser>("/api/users/me", { method: "PATCH", body: input }),
-    onSuccess: (user) => {
-      queryClient.setQueryData(ME_QUERY_KEY, user);
-      void queryClient.invalidateQueries({ queryKey: USERS_KEY }); // Team list shows the new name
-    },
+    onSuccess: merge,
   });
 }
 
 export function useUploadAvatar() {
-  const queryClient = useQueryClient();
+  const merge = useMergeIntoSession();
   return useMutation({
     mutationFn: (file: File) => {
       const formData = new FormData();
       formData.append("file", file);
       return api<PublicUser>("/api/users/me/avatar", { method: "PUT", formData });
     },
-    onSuccess: (user) => {
-      queryClient.setQueryData(ME_QUERY_KEY, user);
-      void queryClient.invalidateQueries({ queryKey: USERS_KEY }); // Team list shows the new avatar
-    },
+    onSuccess: merge,
   });
 }

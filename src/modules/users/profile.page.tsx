@@ -11,6 +11,7 @@ import { Button } from "@/shared/ui/button";
 import { FormField, Input } from "@/shared/ui/field";
 import { Tabs } from "@/shared/ui/tabs";
 import { NotificationPreferences } from "@/modules/notifications";
+import { TwoFactorSection } from "./two-factor-section";
 import { useUpdateProfile, useUploadAvatar } from "./users.api";
 
 const nameSchema = z.object({
@@ -32,15 +33,18 @@ const passwordSchema = z
 type PasswordValues = z.infer<typeof passwordSchema>;
 
 /**
- * Three tabs, in the shape the Settings and Mailouts screens use.
+ * Four tabs, in the shape the Settings and Mailouts screens use.
  *
- * Who you are · how you get in · what reaches you. The password form is its own tab rather than a
- * third card under the name: it is the one thing here somebody arrives wanting to do, and it
- * should not be found by scrolling past an avatar picker.
+ * Who you are · how you get in, twice · what reaches you. The password form is its own tab rather
+ * than a third card under the name: it is the one thing here somebody arrives wanting to do, and it
+ * should not be found by scrolling past an avatar picker. Two-factor sign-in is beside it for the
+ * same reason, and it is where the firm's rule sends somebody who must turn it on.
  */
 const TABS = [
   { value: "account" as const, label: "Account" },
   { value: "password" as const, label: "Password" },
+  // "Security", not "Two-factor": the hyphen let the label break onto two lines in a narrow window
+  { value: "security" as const, label: "Security" },
   { value: "notifications" as const, label: "Notifications" },
 ];
 type Tab = (typeof TABS)[number]["value"];
@@ -49,6 +53,7 @@ type Tab = (typeof TABS)[number]["value"];
 const BLURB: Record<Tab, string> = {
   account: "Your name and picture, as the rest of the team sees them.",
   password: "Set a new one. You will need your current password to do it.",
+  security: "A code from your phone as well as your password.",
   notifications: "Which of the firm's notifications reach you, and whether by email too.",
 };
 
@@ -57,7 +62,15 @@ export function ProfilePage() {
   // the tab lives in the URL, so it survives a refresh and can be linked to
   const [params, setParams] = useSearchParams();
   const raw = params.get("tab");
-  const tab: Tab = TABS.some((t) => t.value === raw) ? (raw as Tab) : "account";
+  // somebody the firm's two-factor rule is holding back gets the one tab that answers them
+  // (two-factor.md §6.4) — every other tab would only fill with refusals
+  const mustEnrol = user?.twoFactor?.mustEnrol === true;
+  const tabs = mustEnrol ? TABS.filter((t) => t.value === "security") : TABS;
+  const tab: Tab = mustEnrol
+    ? "security"
+    : TABS.some((t) => t.value === raw)
+      ? (raw as Tab)
+      : "account";
   const setTab = (next: Tab) =>
     setParams(
       (prev) => {
@@ -77,7 +90,7 @@ export function ProfilePage() {
         <span className="text-[13px] text-muted-400">{BLURB[tab]}</span>
       </div>
 
-      <Tabs className="mb-4" value={tab} onChange={setTab} options={TABS} />
+      <Tabs className="mb-4" value={tab} onChange={setTab} options={tabs} />
 
       {tab === "account" && (
         <div className="max-w-lg space-y-6">
@@ -88,6 +101,11 @@ export function ProfilePage() {
       {tab === "password" && (
         <div className="max-w-lg">
           <PasswordSection />
+        </div>
+      )}
+      {tab === "security" && (
+        <div className="max-w-lg">
+          <TwoFactorSection />
         </div>
       )}
       {/* the personal contour (S9). Full width, unlike the forms: two channel switches per

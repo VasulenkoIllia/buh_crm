@@ -2,6 +2,7 @@ import { z } from "zod";
 import { uuid } from "./common.js";
 import { userRole, userStatus } from "./enums.js";
 import { accessMapSchema } from "../access.js";
+import { twoFactorSessionSchema } from "./two-factor.js";
 
 export const userSchema = z.object({
   id: uuid,
@@ -41,7 +42,11 @@ export type PublicUser = z.infer<typeof publicUserSchema>;
  * keeps the stale sidebar until it refetches. What must not happen is that the screen behind it
  * fails as a generic error — hence the `module_closed` code.
  */
-export const sessionUserSchema = publicUserSchema.extend({ access: accessMapSchema });
+export const sessionUserSchema = publicUserSchema.extend({
+  access: accessMapSchema,
+  /** where this person stands with the firm's two-factor rule (docs/modules/two-factor.md §6.4) */
+  twoFactor: twoFactorSessionSchema,
+});
 export type SessionUser = z.infer<typeof sessionUserSchema>;
 
 // ── Auth & user-management DTOs ──────────────────────────────────────────────

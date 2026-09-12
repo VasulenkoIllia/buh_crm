@@ -15,6 +15,7 @@ import { prisma } from "./db.js";
 import { isTest } from "./config.js";
 import { AppError, UnauthorizedError } from "./errors.js";
 import { resolveUser } from "./auth.js";
+import { mustEnrol } from "./two-factor-policy.js";
 
 /**
  * **Every route under `/api` declares what it is, and one hook enforces the answer.**
@@ -51,7 +52,17 @@ export type RouteAccess =
       adminOnly: boolean;
     }
   | { kind: "shared" }
-  | { kind: "own" }
+  | {
+      kind: "own";
+      /**
+       * Answers a person the firm's two-factor rule is holding back (two-factor.md §6.4). Every
+       * other route — `own()` included — refuses them with `two_factor_required`: their own tray
+       * and timer carry task and client names, which is firm data. Only what signing in and
+       * enrolling need carries this: who am I, and the three enrolment routes.
+       * `route-inventory.test.ts` holds the list, literally.
+       */
+      beforeTwoFactor?: boolean;
+    }
   | { kind: "anonymous" };
 
 export interface RouteAccessConfig {
@@ -83,8 +94,10 @@ export function shared(): RouteAccessConfig {
  * helper today. It is also what stops an admin-only Team gate from locking every user out of
  * their own password.
  */
-export function own(): RouteAccessConfig {
-  return { access: { kind: "own" } };
+export function own(opts: { beforeTwoFactor?: boolean } = {}): RouteAccessConfig {
+  return {
+    access: opts.beforeTwoFactor ? { kind: "own", beforeTwoFactor: true } : { kind: "own" },
+  };
 }
 
 /** Deliberately public: sign-in, the token links, the unsubscribe pages, `/health`. */
@@ -131,6 +144,21 @@ export class ModuleClosedError extends AppError {
         ? `${GATE_COPY[gateKey].label} is open to you for reading only`
         : `${GATE_COPY[gateKey].label} is closed for your account`,
       { gate: gateKey, state: readOnly ? "read_only" : "closed" },
+    );
+  }
+}
+
+/**
+ * **The fourth 403: the firm requires a second factor and this person has not set one up**
+ * (two-factor.md §6.4). Its own code for the same reason `module_closed` has one — the SPA has to
+ * tell it apart and answer it with the profile's enrolment, not with "something went wrong".
+ */
+export class TwoFactorRequiredError extends AppError {
+  constructor() {
+    super(
+      403,
+      "two_factor_required",
+      "Your firm requires two-factor sign-in. Turn it on in your profile to continue.",
     );
   }
 }
@@ -278,6 +306,22 @@ export async function accessHook(request: FastifyRequest, reply: FastifyReply) {
 
   request.currentUser = await resolveUser(request, reply);
   if (!request.currentUser) throw new UnauthorizedError();
+
+  /**
+   * **The firm's two-factor rule, enforced here rather than by where the screen sends somebody**
+   * (two-factor.md §6.4). A person the rule covers, past the fortnight, with no second factor,
+   * reaches who-am-I and the three enrolment routes — `own({ beforeTwoFactor: true })` — and
+   * nothing else: not even their own tray or timer, which carry task and client names. The first
+   * version let every `own()` route through; the security review of 2026-09-12 found it.
+   *
+   * Asked on every request, so it holds for sessions opened before the rule was switched on and for
+   * the one `accept-invite` creates, which never passes through the login branch at all. Free while
+   * the rule is off.
+   */
+  const enrolmentRoute = declared.kind === "own" && declared.beforeTwoFactor === true;
+  if (!enrolmentRoute && (await mustEnrol(request.currentUser))) {
+    throw new TwoFactorRequiredError();
+  }
   if (declared.kind === "shared" || declared.kind === "own") return;
 
   const state = await stateFor(request.currentUser, declared.gate);

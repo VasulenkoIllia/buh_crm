@@ -1,4 +1,5 @@
 import type { FastifyError, FastifyReply, FastifyRequest } from "fastify";
+import { plural } from "@shared/text.js";
 import { setActivityRefusal } from "./activity.js";
 
 // Consistent error shape across the whole API:
@@ -46,6 +47,21 @@ export class ConflictError extends AppError {
   }
 }
 
+/**
+ * Too many wrong passwords or codes in a row (two-factor.md §9). Carries how long to wait, which the
+ * handler sends as `Retry-After` — a refusal, never a pause: a server that sleeps on an attempt
+ * holds a connection for it, and an attacker simply opens more of them.
+ */
+export class TooManyAttemptsError extends AppError {
+  constructor(public readonly retryAfterSeconds: number) {
+    super(
+      429,
+      "too_many_attempts",
+      `Too many attempts. Try again in ${plural(retryAfterSeconds, "second")}.`,
+    );
+  }
+}
+
 export function errorHandler(
   error: FastifyError | AppError,
   request: FastifyRequest,
@@ -63,6 +79,9 @@ export function errorHandler(
      */
     if (error.statusCode === 401 || error.statusCode === 403) {
       setActivityRefusal(error.code, request.activity);
+    }
+    if (error instanceof TooManyAttemptsError) {
+      reply.header("Retry-After", String(error.retryAfterSeconds));
     }
     return reply.status(error.statusCode).send({
       error: { code: error.code, message: error.message, details: error.details },

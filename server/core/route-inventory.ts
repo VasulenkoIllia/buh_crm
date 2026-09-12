@@ -34,6 +34,11 @@ export interface RouteRecord {
    * made the three totals disagree in the first place.
    */
   derived?: true;
+  /**
+   * An `own()` route that still answers somebody the firm's two-factor rule is holding back
+   * (`own({ beforeTwoFactor: true })`, two-factor.md §6.4). Recorded so the list is reviewable.
+   */
+  beforeTwoFactor?: true;
 }
 
 export function describeAccess(access: RouteAccess): string {
@@ -75,9 +80,15 @@ export function collectRouteInventory(app: FastifyInstance): RouteRecord[] {
     }
 
     const access = describeAccess(declared);
+    const beforeTwoFactor = declared.kind === "own" && declared.beforeTwoFactor === true;
     const methods = Array.isArray(route.method) ? route.method : [route.method];
     for (const method of methods) {
-      rows.push({ method, url: route.url, access });
+      rows.push({
+        method,
+        url: route.url,
+        access,
+        ...(beforeTwoFactor ? { beforeTwoFactor: true as const } : {}),
+      });
     }
   });
 

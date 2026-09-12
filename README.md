@@ -5,31 +5,33 @@ the companies they hold, leads, a service catalog, tasks with time tracking, inv
 meetings, client mailouts, and the team.
 
 **Status:** in use, built stage by stage. Clients, Leads, Catalog, Tasks, Payments, Calendar,
-Archive, Client secrets, Mailouts, Notifications, Permissions and the Activity log are done; Reports
+Archive, Client secrets, Mailouts, Notifications, Permissions, the Activity log and two-factor
+sign-in are done; Reports
 and the production hardening pass are not. Specs, design and the dev plan are kept in internal docs,
 not in this repository.
 
 **Modules**
 
-|                   |                                                                                                                                                                                                     |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Clients**       | a client, the companies they hold, their services (subscription or one-time), files, debt                                                                                                           |
-| **Leads**         | pipeline, and conversion into a client                                                                                                                                                              |
-| **Catalog**       | services, task templates, and the rule that decides when each one bills                                                                                                                             |
-| **Tasks**         | board and table, generation on a rhythm, a timer, one-time billable jobs                                                                                                                            |
-| **Payments**      | invoices with positions, partial payments, debt, an audited change log                                                                                                                              |
-| **Calendar**      | meetings and deadlines on one firm clock                                                                                                                                                            |
-| **Mailouts**      | letter templates, one-off sends, campaigns on a date or a rhythm, unsubscribe, delivery tracking — every mailbox is read back for bounces, so the log says delivered or not rather than merely sent |
-| **Secrets**       | a client's credentials, encrypted, behind a password prompt and an access log                                                                                                                       |
-| **Archive**       | closed work and settled invoices tidied away — never deleted                                                                                                                                        |
-| **Notifications** | a bell and staff email, one registry of triggers; the firm decides which fire and who they reach, each person decides which channels they want                                                      |
-| **Permissions**   | every API route declares who may call it and one hook decides; the firm switches areas open, read-only or closed, per role and per person                                                           |
-| **Activity log**  | who did what, when and to whom — every mutating request and every refusal, in one searchable table, grouped by gesture                                                                              |
-| **Settings**      | the firm's own profile and clock, option lists, invoice numbering, and the health of the work the CRM does on its own                                                                               |
+|                   |                                                                                                                                                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Clients**       | a client, the companies they hold, their services (subscription or one-time), files, debt                                                                                                                           |
+| **Leads**         | pipeline, and conversion into a client                                                                                                                                                                              |
+| **Catalog**       | services, task templates, and the rule that decides when each one bills                                                                                                                                             |
+| **Tasks**         | board and table, generation on a rhythm, a timer, one-time billable jobs                                                                                                                                            |
+| **Payments**      | invoices with positions, partial payments, debt, an audited change log                                                                                                                                              |
+| **Calendar**      | meetings and deadlines on one firm clock                                                                                                                                                                            |
+| **Mailouts**      | letter templates, one-off sends, campaigns on a date or a rhythm, unsubscribe, delivery tracking — every mailbox is read back for bounces, so the log says delivered or not rather than merely sent                 |
+| **Secrets**       | a client's credentials, encrypted, behind a password prompt and an access log                                                                                                                                       |
+| **Archive**       | closed work and settled invoices tidied away — never deleted                                                                                                                                                        |
+| **Notifications** | a bell and staff email, one registry of triggers; the firm decides which fire and who they reach, each person decides which channels they want                                                                      |
+| **Permissions**   | every API route declares who may call it and one hook decides; the firm switches areas open, read-only or closed, per role and per person                                                                           |
+| **Activity log**  | who did what, when and to whom — every mutating request and every refusal, in one searchable table, grouped by gesture                                                                                              |
+| **Sign-in**       | sessions that end (a week idle, a month at most), a growing wait and a letter after wrong passwords, and optional two-factor sign-in with an authenticator app — recovery codes, an admin's reset, a firm-wide rule |
+| **Settings**      | the firm's own profile and clock, option lists, invoice numbering, and the health of the work the CRM does on its own                                                                                               |
 
 ## Stack
 
-- **Backend:** Node 20 · TypeScript · Fastify · Prisma · PostgreSQL 16 · Zod (shared schemas) · cookie sessions + Argon2.
+- **Backend:** Node 20 · TypeScript · Fastify · Prisma · PostgreSQL 16 · Zod (shared schemas) · cookie sessions (a week idle, a month at most) + Argon2 · optional TOTP two-factor sign-in.
 - **Frontend:** React 19 · Vite · Tailwind · shadcn/ui · TanStack Query/Table · dnd-kit · React Hook Form.
 - **Infra:** Docker Compose — one `app` container serving the API _and_ the built SPA, plus `db`,
   behind Traefik. Migrations run on container start. Dev email via Mailpit.

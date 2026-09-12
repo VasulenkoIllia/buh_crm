@@ -177,6 +177,34 @@ const INTENDED_CHANGES: Record<string, { before: Answer; after: Answer; why: str
       "mailboxes gate would have taken the composer down with it, and leaving it open ships the " +
       "firm's mail credentials to every browser that opens the composer",
   },
+  "POST /api/auth/login/2fa": {
+    before: "nobody",
+    after: "public",
+    why:
+      "new: the second step of signing in (two-factor.md §5.4) — the ninth anonymous route, " +
+      "decided rather than added. Nobody is signed in yet; it takes only the five-minute, " +
+      "five-try challenge step one issued after the password and the account's status were " +
+      "checked. PUBLIC_BEFORE stays a frozen record of the day before the access module",
+  },
+  "GET /api/two-factor/team": {
+    before: "nobody",
+    after: "admin-only",
+    why:
+      "new: who has two-factor sign-in on, and the firm's rule — behind Team, beside the people " +
+      "it describes (two-factor.md §13)",
+  },
+  "PUT /api/two-factor/policy": {
+    before: "nobody",
+    after: "admin-only",
+    why: "new: the firm's two-factor rule — off, admins or everyone — behind Team",
+  },
+  "POST /api/two-factor/users/:id/reset": {
+    before: "nobody",
+    after: "admin-only",
+    why:
+      "new: an admin's reset of somebody's second factor. Behind Team; the service also asks for " +
+      "the admin's own password and refuses it on their own account (two-factor.md §7)",
+  },
 };
 
 function before(route: string): Answer {

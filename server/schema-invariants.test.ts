@@ -163,9 +163,16 @@ describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
      *     happened.
      *   • ActivityPolicy — which events the firm has silenced. Firm configuration, exactly like
      *     NotificationPolicy above.
+     *   • TwoFactorCredential, TwoFactorRecoveryCode — a person's authenticator and their way back
+     *     in. They hang off the team, which survives a reset; wiping them would switch off every
+     *     second factor in the firm without anybody deciding to, and the codes in the password
+     *     manager would stop working. (The challenges of sign-ins in progress are transient and ARE
+     *     in the script, with the failed-sign-in counters.)
      *   • _prisma_migrations — Prisma owns its own ledger.
      */
     const KEPT = new Set([
+      "TwoFactorCredential",
+      "TwoFactorRecoveryCode",
       "User",
       "Session",
       "AuthToken",

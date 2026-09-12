@@ -16,4 +16,7 @@ export const QUIET_ROUTES: Record<string, string> = {
   "DELETE /api/clients/:id/pin": "removes that bookmark",
   "POST /api/mailouts/preview": "renders a letter to look at; nothing is stored or sent",
   "POST /api/mailouts/preview/letter": "the same, for a single letter",
+  "POST /api/two-factor/me/setup":
+    "stores an UNCONFIRMED secret on the caller's own row — nothing is switched on until the " +
+    "confirm, which is the act and records `user.two_factor_enabled` (two-factor.md §6.1)",
 };

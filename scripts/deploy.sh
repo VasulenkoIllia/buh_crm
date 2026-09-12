@@ -193,6 +193,18 @@ docker compose exec -T db psql -U "$PG_USER" -d "$PG_DB" -c \
           (select count(*) from "AccessOverride") personal_exceptions,
           (select count(*) from "UserRoleAuditLog") role_changes;'
 
+# Two-factor sign-in (S16, docs/modules/two-factor.md). `rule` reads `off` on the deploy that brings
+# it — the switch ships off and only the Team screen changes it. `enrolled` is the adoption the owner
+# decided to watch (§3.1). `counters` are failed-sign-in counters alive right now: normally a handful,
+# pruned nightly; hundreds would mean somebody is working through a list of addresses.
+# `past_30_days` are sessions older than the 30-day cap (§8): each ends on its next request, so on
+# the deploy that introduces the cap this is how many people will be asked to sign in again.
+docker compose exec -T db psql -U "$PG_USER" -d "$PG_DB" -c \
+  'select (select require2fa from "FirmProfile" where id = 1) rule,
+          (select count(*) from "TwoFactorCredential" where "confirmedAt" is not null) enrolled,
+          (select count(*) from "SignInThrottle") counters,
+          (select count(*) from "Session" where "createdAt" < now() - interval '"'"'30 days'"'"') past_30_days;'
+
 # ── 5. prune orphaned uploads (reset only) ───────────────────────────────────
 # After the rebuild, so the container is running the image that HAS the script. The APP wrote
 # those files, so they belong to the container's user and a host-side `rm` gets Permission denied

@@ -109,4 +109,12 @@ DELETE FROM "SourceOption";
 -- after "Lead" above, which is what the RESTRICT on Lead.stageId requires
 DELETE FROM "LeadStage";
 
+-- Failed-sign-in counters (docs/modules/two-factor.md §9). About the team's addresses rather than
+-- clients, but transient — a quiet quarter of an hour forgets them anyway — so clearing them costs
+-- nothing. Named here rather than kept, which is the decision the invariant test asks for.
+DELETE FROM "SignInThrottle";
+-- The second step of a sign-in in progress (two-factor.md §5.2): five minutes long at most. The
+-- credentials and recovery codes it hangs off are the team's and are KEPT — see the invariant test.
+DELETE FROM "TwoFactorChallenge";
+
 COMMIT;

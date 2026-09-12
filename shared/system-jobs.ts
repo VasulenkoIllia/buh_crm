@@ -158,8 +158,11 @@ export const SYSTEM_JOBS: Record<SystemJobKey, SystemJobSpec> = {
     area: "housekeeping",
     label: "Clearing expired sign-ins",
     cadence: "Every night, at 4am",
-    whenOk: "Removes sign-in sessions that have expired.",
-    whenBad: "Nothing breaks; expired sessions accumulate.",
+    whenOk:
+      "Removes sign-in sessions that have expired, the counters of failed sign-ins that nobody " +
+      "has added to for a day, and two-factor sign-ins that were started and never finished.",
+    whenBad:
+      "Nothing breaks; expired sessions, old counters and unfinished sign-ins accumulate.",
     staleAfterMinutes: DAY + 12 * HOUR,
   },
   "activity:retention": {

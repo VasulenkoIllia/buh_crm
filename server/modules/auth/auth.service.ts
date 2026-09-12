@@ -1,13 +1,21 @@
 import argon2 from "argon2";
 import type { AcceptInviteInput, LoginInput, ResetPasswordInput } from "@shared/schema/user.js";
+import type { User } from "../../generated/prisma/client.js";
 import { generateToken, hashToken, destroyAllUserSessions } from "../../core/auth.js";
 import { sendEmail, webOrigin } from "../../core/email.js";
-import { UnauthorizedError, ValidationError } from "../../core/errors.js";
+import { TooManyAttemptsError, UnauthorizedError, ValidationError } from "../../core/errors.js";
 import { record, SYSTEM_ACTOR } from "../../core/activity.js";
 import { personName } from "../../core/names.js";
+import { alertOnRun, type AttemptOrigin } from "../../core/security-mail.js";
+import * as throttle from "../../core/sign-in-throttle.js";
+import { startChallenge } from "../two-factor/index.js";
 import * as repo from "./auth.repository.js";
 
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+/** Step one's two answers: a session, or — with a second factor on the account — a challenge. */
+type LoginOutcome =
+  { kind: "signed_in"; user: User } | { kind: "second_factor"; challenge: string };
 
 // Unknown-email logins still pay the argon2 cost, so response timing can't be
 // used to probe which emails have accounts.
@@ -39,28 +47,95 @@ function recordFailedSignIn(email: string, reason: string, userId?: string) {
   });
 }
 
-export async function login(input: LoginInput) {
+export async function login(input: LoginInput, origin: AttemptOrigin): Promise<LoginOutcome> {
+  // the two counters an attempt is charged to (two-factor.md §9) — see `accountKey`
+  const keys = [throttle.accountKey(input.email), throttle.pairKey(input.email, origin.ip)];
+
+  /**
+   * **Before anything is checked.** An attempt inside the wait never reaches the password, so it
+   * neither counts nor tells anything — a correct password typed too soon is refused exactly like a
+   * wrong one. Recorded, with its own reason, because a run of these is what an attack looks like.
+   */
+  const wait = await throttle.secondsToWait(keys);
+  if (wait > 0) {
+    recordFailedSignIn(input.email, "throttled");
+    throw new TooManyAttemptsError(wait);
+  }
+
   const user = await repo.findUserByEmail(input.email);
   const invalid = new UnauthorizedError("Invalid email or password");
   if (!user?.passwordHash) {
     await burnPasswordCheck(input.password);
     // an address with no account at all — the shape a probe leaves behind
-    recordFailedSignIn(input.email, user ? "no_password_set" : "unknown_email", user?.id);
-    throw invalid;
+    return refuse(input.email, user ? "no_password_set" : "unknown_email", invalid, {
+      user,
+      keys,
+      origin,
+    });
   }
   if (!(await argon2.verify(user.passwordHash, input.password))) {
-    recordFailedSignIn(input.email, "wrong_password", user.id);
-    throw invalid;
+    return refuse(input.email, "wrong_password", invalid, { user, keys, origin });
   }
   if (user.status === "blocked") {
-    recordFailedSignIn(input.email, "blocked", user.id);
-    throw new UnauthorizedError("This account is blocked");
+    return refuse(input.email, "blocked", new UnauthorizedError("This account is blocked"), {
+      user,
+      keys,
+      origin,
+    });
   }
   if (user.status !== "active") {
-    recordFailedSignIn(input.email, "not_active", user.id);
-    throw invalid;
+    return refuse(input.email, "not_active", invalid, { user, keys, origin });
   }
-  return user;
+
+  /**
+   * **The password is right. With a second factor on the account that is not yet a sign-in**
+   * (two-factor.md §5.1): no session, a challenge instead — and the counters stay as they are until
+   * the code is right too, because a correct password alone is exactly what an attacker who lacks
+   * the phone has. The status checks above have already run, so step two cannot become a thinner
+   * door into them.
+   */
+  const challenge = await startChallenge(user.id);
+  if (challenge) return { kind: "second_factor", challenge };
+
+  // a success must stay a success: a counter that could not be cleared costs, at worst, one wait
+  await throttle
+    .clearFailures(keys)
+    .catch((err) => console.error("sign-in throttle: could not clear the count", err));
+  return { kind: "signed_in", user };
+}
+
+/**
+ * Records the failure, counts it, starts the letter a run earns, and throws.
+ *
+ * **Counting and the letter never change the answer** (security review, 2026-09-12). A refused
+ * sign-in is the same 401 whatever the counter table is doing, so a failure to count is logged and
+ * the refusal goes out as it would have. And the letter is not awaited: its extra reads happen only
+ * for a real, active account on the attempt that crosses the threshold, and a response that waited
+ * for them — or failed with them — would be slower, or a 500, for exactly the addresses that have
+ * accounts. That is the question `burnPasswordCheck` exists to leave unanswered.
+ */
+async function refuse(
+  email: string,
+  reason: string,
+  error: Error,
+  attempt: { user: User | null; keys: string[]; origin: AttemptOrigin },
+): Promise<never> {
+  recordFailedSignIn(email, reason, attempt.user?.id);
+  const run = await throttle
+    .recordFailure(attempt.keys)
+    .then(([account]) => account)
+    .catch((err) => {
+      console.error("sign-in throttle: could not count a failure", err);
+      return null;
+    });
+  // only an account somebody can actually lose: an unknown address has nobody to tell, an invited
+  // one has not been used yet, and a blocked one is already out
+  if (run && attempt.user?.status === "active") {
+    void alertOnRun(attempt.user, run, attempt.origin, "password").catch((err) =>
+      console.error("sign-in alert: could not send", err),
+    );
+  }
+  throw error;
 }
 
 /**
@@ -122,6 +197,11 @@ export async function requestPasswordReset(email: string) {
   });
 }
 
+/**
+ * A new password, from the emailed link. It leaves a second factor exactly as it was: the link
+ * creates no session, so the new password leads back to the two-step sign-in, code and all
+ * (two-factor.md §5.1) — a mailbox is not a second factor.
+ */
 export async function resetPassword(input: ResetPasswordInput) {
   const token = await repo.findValidToken(hashToken(input.token), "password_reset");
   if (!token) throw new ValidationError("This reset link is invalid or has expired");

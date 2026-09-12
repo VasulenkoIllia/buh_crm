@@ -229,6 +229,8 @@ model User {
   timeEntryAudit           TimeEntryAuditLog[]      @relation("TimeEntryAuditBy")
   roleChangesMade          UserRoleAuditLog[]       @relation("RoleAuditBy")
   roleChangesReceived      UserRoleAuditLog[]       @relation("RoleAuditTarget")
+  /// their authenticator, if they have set one up (two-factor.md)
+  twoFactorCredential      TwoFactorCredential?
 }
 
 model AuthToken {
@@ -264,6 +266,92 @@ model Session {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([expiresAt])
+}
+
+/// Failed sign-ins, counted per key — the growing delay and the alert letter (two-factor.md §9).
+///
+/// `key` is a string with no foreign key on purpose (`acct:<typed address>`,
+/// `pair:<typed address>|<network address>`, later `2fa:<user id>`): an address with no account is
+/// counted exactly like one that has an account — the difference would tell an attacker which
+/// addresses do — and the client portal can count its own sign-ins here without a second table.
+model SignInThrottle {
+  key            String    @id
+  failures       Int       @default(0)
+  firstFailureAt DateTime
+  lastFailureAt  DateTime
+  /// When the one letter this run earns went out. Kept across quiet spells, so a run is one letter.
+  alertedAt      DateTime?
+
+  @@index([lastFailureAt])
+}
+
+// ── Two-factor sign-in (S16, docs/modules/two-factor.md) ────────────────────
+
+/// The firm's rule for who must use two-factor sign-in (§6.4). Ships `off`: each person decides.
+enum TwoFactorPolicy {
+  off
+  admins
+  everyone
+}
+
+/// A person's authenticator (§4.1, §11). No row is no 2FA — every account on the day this shipped.
+/// `confirmedAt` null is a setup in progress: nothing is enabled on a secret nobody has proved they
+/// can read. The secret is SEALED with SECRETS_KEY (`core/secrets-crypto.ts`), never hashed — the
+/// server has to recompute the code.
+///
+/// A table of its own rather than columns on `User`: the client portal will sign in people who are
+/// not `User` rows, and it gains a second nullable owner column and a CHECK here instead of a copy
+/// of all of this (§4.2).
+model TwoFactorCredential {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @unique @db.Uuid
+  ciphertext  Bytes
+  iv          Bytes
+  authTag     Bytes
+  /// which SECRETS_KEY sealed it, so the key can be rotated without guessing
+  keyVersion  Int
+  confirmedAt DateTime?
+  /// The last TOTP step accepted. A code at or below it is refused — single use (§4) — and the
+  /// write that moves it is conditional, so two submissions of one code cannot both pass.
+  lastStep    Int?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user          User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recoveryCodes TwoFactorRecoveryCode[]
+  challenges    TwoFactorChallenge[]
+}
+
+/// Ten per credential, single-use, argon2-hashed: only ever compared, never read back (§6.2).
+model TwoFactorRecoveryCode {
+  id           String    @id @default(uuid()) @db.Uuid
+  credentialId String    @db.Uuid
+  codeHash     String
+  usedAt       DateTime?
+  createdAt    DateTime  @default(now())
+
+  credential TwoFactorCredential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+
+  @@index([credentialId])
+}
+
+/// Step one's receipt (§5.2): the password was right and a code is owed. Five minutes, five
+/// attempts, single use. A row rather than process memory — there is one container today and the
+/// portal is what ends that — and rather than an `AuthToken`, which points at `User` and has
+/// nowhere to count attempts.
+model TwoFactorChallenge {
+  id           String    @id @default(uuid()) @db.Uuid
+  credentialId String    @db.Uuid
+  tokenHash    String    @unique
+  expiresAt    DateTime
+  attempts     Int       @default(0)
+  usedAt       DateTime?
+  createdAt    DateTime  @default(now())
+
+  credential TwoFactorCredential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+
+  @@index([credentialId])
   @@index([expiresAt])
 }
 
@@ -353,6 +441,13 @@ model FirmProfile {
   /// panel and can be any shape; the letterhead is 168px wide on white and needs a tight raster
   /// crop at the lockup's own aspect. One file could serve both only by being wrong for one of them.
   mailLogoFileId String? @unique @db.Uuid
+
+  // ── Two-factor sign-in (S16) ──────────────────────────────────────────────
+  /// Who must use it: `off` — each person decides, the owner's decision of 2026-09-09 — `admins`, or
+  /// `everyone` (two-factor.md §6.4, decision 9). Ships off; enforced by the access hook.
+  require2fa      TwoFactorPolicy @default(off)
+  /// When the rule last changed. The fortnight's grace is counted from here.
+  require2faSince DateTime?
 
   logoFile     File? @relation("FirmLogo", fields: [logoFileId], references: [id])
   mailLogoFile File? @relation("FirmMailLogo", fields: [mailLogoFileId], references: [id])

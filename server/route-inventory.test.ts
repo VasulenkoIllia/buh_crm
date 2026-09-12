@@ -48,7 +48,12 @@ describe("route inventory", () => {
     const changed = live
       .filter((r) => {
         const was = fixtureByKey.get(key(r));
-        return was && (was.access !== r.access || !!was.derived !== !!r.derived);
+        return (
+          was &&
+          (was.access !== r.access ||
+            !!was.derived !== !!r.derived ||
+            !!was.beforeTwoFactor !== !!r.beforeTwoFactor)
+        );
       })
       .map((r) => `${key(r)}: ${fixtureByKey.get(key(r))!.access} → ${r.access}`);
 
@@ -79,18 +84,21 @@ describe("route inventory", () => {
     };
     expect(counts).toEqual({
       // +3 real routes on 2026-09-08, all of them the activity log's: the list, the event
-      // switches, and the one route that flips a switch. Nothing else about the API moved.
-      total: 230,
-      derivedHead: 63,
-      real: 167,
-      api: 166, // everything but /health
-      anonymous: 8, // 5 credential routes, 2 unsubscribe pages, /health
-      // 10, not 11: `POST /tasks/timer/start` moved to the `tasks` gate during the 2026-09-07
-      // audit. It takes a taskId and writes against somebody else's module, so it was never
-      // really "the caller's own row" — `active` and `stop` still are, and must be.
-      own: 10,
+      // switches, and the one route that flips a switch. +9 on 2026-09-12, all two-factor
+      // sign-in's: the second step of signing in, the five routes on the caller's own second
+      // factor, and Team's three (the overview, the rule, an admin's reset).
+      total: 241,
+      derivedHead: 65,
+      real: 176,
+      api: 175, // everything but /health
+      anonymous: 9, // 6 credential routes, 2 unsubscribe pages, /health
+      // `POST /tasks/timer/start` moved to the `tasks` gate during the 2026-09-07 audit. It takes a
+      // taskId and writes against somebody else's module, so it was never really "the caller's own
+      // row" — `active` and `stop` still are, and must be. The two-factor five are the caller's own
+      // second factor and name nobody else.
+      own: 15,
       shared: 9,
-      gated: 140,
+      gated: 143,
       adminOnly: 16,
     });
   });
@@ -102,9 +110,10 @@ describe("route inventory", () => {
 
   /**
    * The one list nobody had ever seen: what answers without a session. It confirmed the audit's
-   * count of 8 exactly — no route had been missed.
+   * count of 8 exactly — no route had been missed. The ninth, the second step of signing in, was
+   * decided on 2026-09-12 (two-factor.md §5.4) and is listed here rather than slipped in.
    */
-  it("keeps the unauthenticated surface to the eight routes that are meant to be public", () => {
+  it("keeps the unauthenticated surface to the nine routes that are meant to be public", () => {
     expect(
       live
         .filter((r) => !r.derived && r.access === "anonymous")
@@ -116,10 +125,34 @@ describe("route inventory", () => {
       "POST /api/auth/accept-invite",
       "POST /api/auth/forgot-password",
       "POST /api/auth/login",
+      "POST /api/auth/login/2fa",
       "POST /api/auth/logout",
       "POST /api/auth/reset-password",
       "POST /api/mailouts/unsubscribe/:token",
     ]);
+  });
+
+  /**
+   * **What still answers somebody the firm's two-factor rule is holding back** (two-factor.md §6.4).
+   *
+   * Everything else refuses them — `own()` included, because their own tray and timer carry task
+   * and client names. The security review of 2026-09-12 found the whole `own()` class exempt; this
+   * list is what replaced it, and a route added to it is a decision somebody reviews here.
+   */
+  it("keeps the routes open to a person who must enrol to the four that let them enrol", () => {
+    expect(
+      live
+        .filter((r) => !r.derived && r.beforeTwoFactor)
+        .map(key)
+        .sort(),
+    ).toEqual([
+      "GET /api/auth/me",
+      "GET /api/two-factor/me",
+      "POST /api/two-factor/me/confirm",
+      "POST /api/two-factor/me/setup",
+    ]);
+    // …and only `own()` routes may carry it: a gated or shared route is the firm's data
+    expect(live.filter((r) => r.beforeTwoFactor && r.access !== "own").map(key)).toEqual([]);
   });
 
   /** Every declaration names a gate the registry knows, or is one of the other three kinds. */

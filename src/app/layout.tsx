@@ -72,11 +72,18 @@ export function AppLayout() {
       void queryClient.invalidateQueries({ queryKey: ME_QUERY_KEY });
     }, [queryClient]),
   );
-  const nav = NAV.filter(
-    (item) =>
-      !item.gate ||
-      (Array.isArray(item.gate) ? item.gate : [item.gate]).some((g) => access(g) !== "closed"),
-  );
+  const { user } = useAuth();
+  // somebody the firm's two-factor rule is holding back has nowhere to go but their profile
+  // (two-factor.md §6.4); a sidebar of screens that only bounce them back would mislead
+  const nav = user?.twoFactor?.mustEnrol
+    ? []
+    : NAV.filter(
+        (item) =>
+          !item.gate ||
+          (Array.isArray(item.gate) ? item.gate : [item.gate]).some(
+            (g) => access(g) !== "closed",
+          ),
+      );
   return (
     <div className="flex min-h-screen">
       <aside className="flex w-56 shrink-0 flex-col bg-sidebar text-white">
@@ -106,7 +113,9 @@ export function AppLayout() {
           <div className="text-[15px] font-semibold" />
           <div className="flex items-center gap-4">
             <FirmClock />
-            <TimerBar />
+            <WhenCleared>
+              <TimerBar />
+            </WhenCleared>
             <HeaderActions />
           </div>
         </header>
@@ -126,16 +135,42 @@ export function AppLayout() {
   );
 }
 
+/**
+ * **The shell's own data is the firm's data.** The timer, the tray, the firm's name and logo all
+ * come from routes the firm's two-factor rule refuses to somebody it is holding back
+ * (two-factor.md §6.4), so for them these are not mounted, rather than mounted to fail.
+ */
+function WhenCleared({
+  children,
+  fallback = null,
+}: {
+  children: React.ReactNode;
+  fallback?: React.ReactNode;
+}) {
+  const { user } = useAuth();
+  return <>{user?.twoFactor?.mustEnrol ? fallback : children}</>;
+}
+
 function SidebarBrand() {
+  return (
+    <WhenCleared fallback={<BrandMark />}>
+      <FirmBrand />
+    </WhenCleared>
+  );
+}
+
+function FirmBrand() {
   const { data } = useSettings();
+  return <BrandMark name={data?.firm.name} logo={Boolean(data?.firm.logoFileId)} />;
+}
+
+function BrandMark({ name, logo = false }: { name?: string; logo?: boolean }) {
   return (
     <div className="flex items-center gap-2.5 px-5 py-5">
-      {data?.firm.logoFileId && (
+      {logo && (
         <img src="/api/settings/firm/logo" alt="" className="h-6 w-6 rounded object-contain" />
       )}
-      <span className="text-[15px] font-semibold tracking-wide">
-        {data?.firm.name ?? "buh_crm"}
-      </span>
+      <span className="text-[15px] font-semibold tracking-wide">{name ?? "buh_crm"}</span>
     </div>
   );
 }
@@ -147,7 +182,9 @@ function HeaderActions() {
 
   return (
     <div className="flex items-center gap-1.5">
-      <NotificationTray />
+      <WhenCleared>
+        <NotificationTray />
+      </WhenCleared>
       {user && (
         <Link
           to="/profile"

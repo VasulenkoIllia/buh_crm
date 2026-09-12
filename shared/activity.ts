@@ -222,7 +222,9 @@ const EVENTS = {
   "session.sign_in_failed": {
     subject: "session",
     title: "Failed sign-in for {subject}",
-    when: "a sign-in is refused — wrong password, unknown address, or a blocked account",
+    when:
+      "a sign-in is refused — wrong password, unknown address, a blocked account, or too many " +
+      "failures in a row",
     granularity: "item",
     actorKinds: ["system"],
     retention: "long",
@@ -405,6 +407,77 @@ const EVENTS = {
     actorKinds: ["user"],
     retention: "ordinary",
     changeKeys: ["firstName", "lastName"],
+    enabledByDefault: true,
+  },
+
+  // ── two-factor sign-in (S16, two-factor.md §12) ────────────────────────────
+  // `long` throughout, like the rest of the account lifecycle: each one is an access decision. The
+  // failed second factor is the counterpart of `session.sign_in_failed`, and says something that
+  // one cannot — somebody had the password and not the phone.
+  "user.two_factor_enabled": {
+    subject: "user",
+    title: "{subject} turned on two-factor sign-in",
+    when: "a person confirms an authenticator app on their own account",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    enabledByDefault: true,
+  },
+  "user.two_factor_disabled": {
+    subject: "user",
+    title: "{subject} turned off two-factor sign-in",
+    when: "a person switches their second factor off, with their password and a code",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    enabledByDefault: true,
+  },
+  "user.two_factor_reset": {
+    subject: "user",
+    title: "{actor} reset {subject}'s two-factor sign-in",
+    when: "an admin clears somebody's second factor — their sessions end, and they and the admins are told",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    enabledByDefault: true,
+  },
+  "user.recovery_codes_regenerated": {
+    subject: "user",
+    title: "{subject} made new recovery codes",
+    when: "a person replaces their recovery codes, and every old one stops working",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    enabledByDefault: true,
+  },
+  "session.second_factor_failed": {
+    subject: "session",
+    title: "Failed two-factor code for {subject}",
+    when: "the password was right and the code was not — somebody may know the password",
+    granularity: "item",
+    actorKinds: ["system"],
+    retention: "long",
+    changeKeys: ["email", "reason"],
+    enabledByDefault: true,
+  },
+  "session.recovery_code_used": {
+    subject: "session",
+    title: "{actor} signed in with a recovery code",
+    when: "a recovery code is used instead of the authenticator app",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    changeKeys: ["codesLeft"],
+    enabledByDefault: true,
+  },
+  "settings.two_factor_policy_changed": {
+    subject: "settings",
+    title: "{actor} changed who must use two-factor sign-in",
+    when: "the firm's rule is set to off, admins only, or everyone",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    changeKeys: ["policy"],
     enabledByDefault: true,
   },
 

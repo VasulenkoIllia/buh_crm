@@ -6,12 +6,20 @@ import { record, setActivityActor } from "./activity.js";
 import { clientIp } from "./client-ip.js";
 import { personName } from "./names.js";
 
-// Cookie sessions, Postgres-backed (decision 2026-07-17):
-// 30-day rolling TTL — extended on activity once less than 15 days remain.
+// Cookie sessions, Postgres-backed (decision 2026-07-17), bounded since 2026-09-12 by two rules
+// (docs/modules/two-factor.md §8, decisions 5 and 8):
+//
+//   IDLE     — a week without a request and the session is gone. The expiry is moved forward at
+//              most once a day, when less than six days remain: often enough that "a week without
+//              use" is what actually happens, rarely enough to cost one UPDATE per session per day.
+//   ABSOLUTE — thirty days from `createdAt`, however busy. A sliding session that is used every day
+//              never ends — nor does a taken laptop somebody keeps using — so without this bound a
+//              second factor would be asked for once and never again.
 
 export const SESSION_COOKIE = "sid";
-const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const SESSION_EXTEND_BELOW_MS = 15 * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+export const SESSION_IDLE_MS = 7 * DAY_MS;
+export const SESSION_MAX_AGE_MS = 30 * DAY_MS;
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -28,15 +36,18 @@ export function generateToken(): { raw: string; hash: string } {
   return { raw, hash: hashToken(raw) };
 }
 
-/** Cookie is Secure whenever the request is HTTPS (trustProxy honours X-Forwarded-Proto). */
-function sessionCookieOptions(request: FastifyRequest) {
+/**
+ * Cookie is Secure whenever the request is HTTPS (trustProxy honours X-Forwarded-Proto). Its
+ * lifetime is whatever the session has left, so the browser forgets it when the server does.
+ */
+function sessionCookieOptions(request: FastifyRequest, lifetimeMs: number) {
   return {
     httpOnly: true,
     sameSite: "lax" as const,
     secure: request.protocol === "https",
     signed: true,
     path: "/",
-    maxAge: SESSION_TTL_MS / 1000,
+    maxAge: Math.max(0, Math.floor(lifetimeMs / 1000)),
   };
 }
 
@@ -58,12 +69,12 @@ export async function createSession(
     data: {
       id: sid,
       userId,
-      expiresAt: new Date(Date.now() + SESSION_TTL_MS),
+      expiresAt: new Date(Date.now() + SESSION_IDLE_MS),
       ip: clientIp(request),
       userAgent: request.headers["user-agent"] ?? null,
     },
   });
-  reply.setCookie(SESSION_COOKIE, sid, sessionCookieOptions(request));
+  reply.setCookie(SESSION_COOKIE, sid, sessionCookieOptions(request, SESSION_IDLE_MS));
 
   /**
    * **Recorded here rather than on the login route, because there are two doors.**
@@ -151,8 +162,9 @@ function readSid(request: FastifyRequest): string | null {
 
 /**
  * Resolves the session user (or null). Attached to request.currentUser.
- * When `reply` is given and the session is close to expiry, extends BOTH the DB
- * expiry and the browser cookie's Max-Age (rolling TTL — keeps active users signed in).
+ *
+ * Refuses a session past either bound (see the top of this file). When `reply` is given and the
+ * stored expiry needs moving, moves it AND the browser cookie's Max-Age together.
  */
 export async function resolveUser(
   request: FastifyRequest,
@@ -165,16 +177,26 @@ export async function resolveUser(
     where: { id: sid },
     include: { user: true },
   });
-  if (!session || session.expiresAt < new Date()) return null;
+  if (!session) return null;
+  const now = Date.now();
+  const expiresAt = session.expiresAt.getTime();
+  const hardEnd = session.createdAt.getTime() + SESSION_MAX_AGE_MS;
+  if (expiresAt <= now || hardEnd <= now) return null;
   if (session.user.status !== "active") return null;
 
-  // rolling TTL — extend server-side expiry AND refresh the cookie lifetime
-  if (session.expiresAt.getTime() - Date.now() < SESSION_EXTEND_BELOW_MS) {
+  /**
+   * Where the expiry belongs: a week from now, never past the absolute end. It is written when it
+   * has fallen more than a day behind that — the once-a-day slide — or stands beyond it: a session
+   * opened before 2026-09-12 carries a thirty-day expiry, and this pulls it in on its next request,
+   * while the person is using it and cannot notice.
+   */
+  const target = Math.min(now + SESSION_IDLE_MS, hardEnd);
+  if (target - expiresAt > DAY_MS || expiresAt > target) {
     await prisma.session.update({
       where: { id: sid },
-      data: { expiresAt: new Date(Date.now() + SESSION_TTL_MS) },
+      data: { expiresAt: new Date(target) },
     });
-    reply?.setCookie(SESSION_COOKIE, sid, sessionCookieOptions(request));
+    reply?.setCookie(SESSION_COOKIE, sid, sessionCookieOptions(request, target - now));
   }
   return session.user;
 }
@@ -191,9 +213,16 @@ export async function resolveUser(
  * `resolveUser` above is what that hook calls.
  */
 
+/** Sessions past either bound. The absolute one only matters for rows opened before it existed. */
 export async function deleteExpiredSessions(): Promise<number> {
+  const now = Date.now();
   const { count } = await prisma.session.deleteMany({
-    where: { expiresAt: { lt: new Date() } },
+    where: {
+      OR: [
+        { expiresAt: { lt: new Date(now) } },
+        { createdAt: { lt: new Date(now - SESSION_MAX_AGE_MS) } },
+      ],
+    },
   });
   return count;
 }

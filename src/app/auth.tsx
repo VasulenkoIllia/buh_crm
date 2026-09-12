@@ -2,6 +2,10 @@ import { createContext, useContext, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import type { LoginInput, SessionUser } from "@shared/schema/user";
+import type {
+  LoginSecondFactorInput,
+  TwoFactorChallengeResult,
+} from "@shared/schema/two-factor";
 import { GATES, type AccessState, type GateKey } from "@shared/access";
 import { api, ApiError } from "@/shared/lib/api";
 
@@ -67,11 +71,32 @@ export function useCanOpen(gate: GateKey): boolean {
   return useAccess()(gate) !== "closed";
 }
 
+/** Step one's two answers: the person, signed in — or a challenge, when a code is owed first. */
+type LoginResult = SessionUser | TwoFactorChallengeResult;
+
+export function isChallenge(result: LoginResult): result is TwoFactorChallengeResult {
+  return "twoFactorRequired" in result && result.twoFactorRequired === true;
+}
+
 export function useLogin() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: LoginInput) =>
-      api<SessionUser>("/api/auth/login", { method: "POST", body: input }),
+      api<LoginResult>("/api/auth/login", { method: "POST", body: input }),
+    // a challenge is not a session: there is nobody to remember until the code is right
+    // (two-factor.md §5.1)
+    onSuccess: (result) => {
+      if (!isChallenge(result)) queryClient.setQueryData(ME_QUERY_KEY, result);
+    },
+  });
+}
+
+/** Step two: the challenge from step one, and a code from the app or a recovery code. */
+export function useLoginSecondFactor() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: LoginSecondFactorInput) =>
+      api<SessionUser>("/api/auth/login/2fa", { method: "POST", body: input }),
     onSuccess: (user) => queryClient.setQueryData(ME_QUERY_KEY, user),
   });
 }
@@ -95,12 +120,22 @@ function FullScreenSpinner() {
   );
 }
 
-/** Route wrapper: everything inside requires a logged-in user. */
+/**
+ * Route wrapper: everything inside requires a logged-in user.
+ *
+ * **And the firm's two-factor rule, past its fortnight** (two-factor.md §6.4): somebody it covers
+ * who has not turned it on is sent to the one screen that still answers them — their profile's
+ * two-factor tab. The server refuses every other request regardless; this only stops a screen of
+ * failed requests from being the thing they see.
+ */
 export function RequireAuth() {
   const { user, isLoading } = useAuth();
   const location = useLocation();
   if (isLoading) return <FullScreenSpinner />;
   if (!user) return <Navigate to="/sign-in" replace state={{ from: location.pathname }} />;
+  if (user.twoFactor?.mustEnrol && location.pathname !== "/profile") {
+    return <Navigate to="/profile?tab=security" replace />;
+  }
   return <Outlet />;
 }
 

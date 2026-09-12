@@ -14,9 +14,14 @@ import "./styles/globals.css";
 
 // Any 401 mid-session (expired/revoked cookie) drops the cached user, so the
 // RequireAuth route guard bounces to /sign-in instead of leaving broken pages.
+// A 403 `two_factor_required` means the firm's two-factor rule now holds this person back
+// (two-factor.md §6.4): refetch who they are, and RequireAuth sends them to their profile.
 function onApiError(error: unknown) {
-  if (error instanceof ApiError && error.status === 401) {
+  if (!(error instanceof ApiError)) return;
+  if (error.status === 401) {
     queryClient.setQueryData(ME_QUERY_KEY, null);
+  } else if (error.code === "two_factor_required") {
+    void queryClient.invalidateQueries({ queryKey: ME_QUERY_KEY });
   }
 }
 

@@ -30,6 +30,36 @@ export interface EmailTemplates {
    * rather than by discipline (docs/modules/notifications.md §7.1).
    */
   notification: { title: string; sub: string | null; url: string | null };
+  /**
+   * A run of failed sign-ins (two-factor.md §9). On this door and never the notifications pipeline:
+   * a person cannot opt out of being told their own account is under attack. `account` is set on
+   * the copy every admin receives (decision 11) and names whose account it was; null on the
+   * owner's own letter.
+   */
+  signInAlert: {
+    /** a run of wrong passwords, or of wrong codes after a right password (two-factor.md §5.3) */
+    kind: "password" | "code";
+    attempts: number;
+    /** "Sat 12 Sept, 14:02 – 14:05", already in the firm's zone */
+    when: string;
+    ip: string;
+    /** `describeBrowser()` — never the raw user agent, which the caller writes */
+    browser: string;
+    account: { name: string; email: string } | null;
+    url: string;
+  };
+  /**
+   * What happened to somebody's second factor (two-factor.md §12). To the person, always; and for
+   * an admin's reset, a copy to every other admin with `account` naming whose it was.
+   */
+  twoFactorChanged: {
+    change: "enabled" | "disabled" | "reset" | "recovery_code_used";
+    /** the admin who reset it */
+    by: string | null;
+    account: { name: string; email: string } | null;
+    codesLeft: number | null;
+    url: string;
+  };
 }
 
 export type EmailTemplateName = keyof EmailTemplates;
@@ -99,6 +129,138 @@ function render<T extends EmailTemplateName>(
         body: d.sub ?? "",
         cta: d.url ? { label: "Open in the CRM", url: d.url } : null,
         facts: [],
+      };
+    }
+    /**
+     * Written for somebody reading it at a bad moment: what happened, that nothing got in, and the
+     * one thing to do. The admin's copy names whose account it was and says the owner knows too.
+     */
+    case "signInAlert": {
+      const d = data as EmailTemplates["signInAlert"];
+      const facts = [
+        ...(d.account
+          ? [{ label: "Account tried", value: `${d.account.name} · ${d.account.email}` }]
+          : []),
+        { label: "Failed attempts", value: `${d.attempts} · ${d.when}` },
+        { label: "Last attempt from", value: `${d.ip} · ${d.browser}` },
+      ];
+      // a run of wrong CODES after a right password: somebody has the password and not the phone
+      const codeRun = d.kind === "code";
+      if (d.account) {
+        if (codeRun) {
+          return {
+            subject: `Somebody knows ${d.account.name}'s ${firmName()} password`,
+            heading: `Somebody has ${d.account.name}'s password, and not their phone`,
+            body:
+              `${d.attempts} attempts in a row got past ${d.account.name}'s password and then ` +
+              `failed the code from their authenticator app. They have been sent the same ` +
+              `warning.\n\n` +
+              `Whoever made them knows the password. They did not get in, and nothing is ` +
+              `locked: each further attempt now has to wait. Every attempt is in the activity log.`,
+            cta: { label: "Open the activity log", url: d.url },
+            facts,
+          };
+        }
+        return {
+          subject: `Failed sign-ins on ${d.account.name}'s ${firmName()} account`,
+          heading: `Somebody keeps failing to sign in as ${d.account.name}`,
+          body:
+            `${d.attempts} attempts in a row to sign in to ${d.account.name}'s account failed. ` +
+            `They have been sent the same warning.\n\n` +
+            `These attempts did not get in, and nothing is locked: each further attempt now has ` +
+            `to wait. Every attempt is in the activity log.`,
+          cta: { label: "Open the activity log", url: d.url },
+          facts,
+        };
+      }
+      if (codeRun) {
+        return {
+          subject: `Somebody knows your ${firmName()} password`,
+          heading: "Your password was right. The code was not.",
+          body:
+            `${d.attempts} attempts in a row got past your password and then failed the code ` +
+            `from your authenticator app.\n\n` +
+            `Whoever made them knows your password: change it now. They did not get in — that ` +
+            `takes your phone as well.`,
+          cta: { label: "Change your password", url: d.url },
+          facts,
+        };
+      }
+      return {
+        subject: `Failed sign-ins on your ${firmName()} account`,
+        heading: "Somebody keeps failing to sign in to your account",
+        body:
+          `${d.attempts} attempts in a row to sign in to your account failed.\n\n` +
+          `If that was you, there is nothing to do: the next attempt simply waits a few seconds. ` +
+          `If it was not, change your password now. Your account is not locked, and these ` +
+          `attempts did not get in.`,
+        cta: { label: "Change your password", url: d.url },
+        facts,
+      };
+    }
+    /**
+     * A change to somebody's second factor (two-factor.md §12). Short: if the reader did it, the
+     * letter confirms; if they did not, its last paragraph is the only warning they will get.
+     */
+    case "twoFactorChanged": {
+      const d = data as EmailTemplates["twoFactorChanged"];
+      const notYou = "If you did not do this, change your password now and tell an admin.";
+      const open = { label: "Open your profile", url: d.url };
+      if (d.change === "enabled") {
+        return {
+          subject: `Two-factor sign-in is on for your ${firmName()} account`,
+          heading: "Two-factor sign-in is on",
+          body:
+            `From now on, signing in asks for a code from your authenticator app as well as your ` +
+            `password.\n\n${notYou}`,
+          cta: open,
+          facts: [],
+        };
+      }
+      if (d.change === "disabled") {
+        return {
+          subject: `Two-factor sign-in was turned off on your ${firmName()} account`,
+          heading: "Two-factor sign-in is off",
+          body: `Signing in now needs only your password.\n\n${notYou}`,
+          cta: open,
+          facts: [],
+        };
+      }
+      if (d.change === "recovery_code_used") {
+        return {
+          subject: `A recovery code was used to sign in to your ${firmName()} account`,
+          heading: "A recovery code was used",
+          body:
+            `Somebody signed in to your account with one of your recovery codes instead of the ` +
+            `app.\n\n` +
+            `If it was not you, change your password and make new recovery codes now — whoever ` +
+            `did it has both.`,
+          cta: open,
+          facts: [{ label: "Recovery codes left", value: String(d.codesLeft ?? 0) }],
+        };
+      }
+      const by = d.by ?? "An admin";
+      if (d.account) {
+        return {
+          subject: `${by} reset ${d.account.name}'s two-factor sign-in`,
+          heading: `${d.account.name}'s two-factor sign-in was reset`,
+          body:
+            `${by} reset two-factor sign-in on ${d.account.name}'s account. ${d.account.name} ` +
+            `has been told, and every session they had has ended.\n\n` +
+            `If this was not agreed, ask ${by} about it.`,
+          cta: { label: "Open the team", url: d.url },
+          facts: [{ label: "Reset for", value: `${d.account.name} · ${d.account.email}` }],
+        };
+      }
+      return {
+        subject: `Your ${firmName()} two-factor sign-in was reset`,
+        heading: "An admin reset your two-factor sign-in",
+        body:
+          `${by} reset two-factor sign-in on your account, and every session you had has ended. ` +
+          `Your password still works; set your authenticator up again from your profile.\n\n` +
+          `If you did not ask for this, tell another admin now.`,
+        cta: open,
+        facts: [{ label: "Reset by", value: by }],
       };
     }
   }

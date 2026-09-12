@@ -24,15 +24,22 @@ removed again. Settings → System → **Nightly backups** says whether all of t
 
 All of it in the firm's password manager — none of it in this repository, which is public.
 
-| Entry                   | Why it matters                                                                                                                                                                                                                                     |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The production `.env`   | `SECRETS_KEY` in it is **irreplaceable**: it unlocks the client secrets and the mailbox passwords stored in the database. `SESSION_SECRET` and `POSTGRES_PASSWORD` can be new (everyone signs in again); `SMTP_PASS` comes from the mail provider. |
-| The restic password     | Without it every backup is unreadable noise.                                                                                                                                                                                                       |
-| The backup key          | The access key and its secret, the id of the Hetzner project it was minted in, and the names of the two buckets.                                                                                                                                   |
-| The Hetzner Owner login | To mint a new key when the old one is lost or suspect. Its second factor is kept apart from it.                                                                                                                                                    |
+| Entry                     | Why it matters                                                                                                                                                                                                                                                                      |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The production `.env`     | `SECRETS_KEY` in it is **irreplaceable**: it unlocks the client secrets, the mailbox passwords and every two-factor sign-in secret stored in the database. `SESSION_SECRET` and `POSTGRES_PASSWORD` can be new (everyone signs in again); `SMTP_PASS` comes from the mail provider. |
+| The restic password       | Without it every backup is unreadable noise.                                                                                                                                                                                                                                        |
+| The backup key            | The access key and its secret, the id of the Hetzner project it was minted in, and the names of the two buckets.                                                                                                                                                                    |
+| The Hetzner Owner login   | To mint a new key when the old one is lost or suspect. Its second factor is kept apart from it.                                                                                                                                                                                     |
+| An admin's recovery codes | The ten codes shown when that admin switched two-factor sign-in on. The way back into the CRM when their phone is gone and no other admin can reset them — and they do not depend on `SECRETS_KEY`.                                                                                 |
 
 `.env` is never in a backup, on purpose: together with the database dump it would make every client
 secret readable.
+
+**Two-factor sign-in after a restore.** If the restored database is paired with a `SECRETS_KEY` that
+did not seal it, codes from authenticator apps stop working — the server cannot read the secrets,
+says so in its log, and tells the person to use a recovery code. Recovery codes still work. Sign in
+with one as an admin, then reset everybody else's two-factor sign-in from Team → Reset 2FA; each of
+them sets it up again from Profile → Security.
 
 ## 2. If the server may be compromised — before anything else
 
