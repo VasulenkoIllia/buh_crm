@@ -26,6 +26,8 @@ pnpm-debug.log*
 !.env.example
 
 /uploads/
+# a development server's view of the backup status — the scripts write theirs outside the repo
+/backup-status/
 
 # internal-only: docs, design, and agent files stay out of the public repo
 /docs/

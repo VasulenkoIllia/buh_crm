@@ -1,0 +1,9 @@
+[Unit]
+Description=buh_crm restore test on the 1st of every month at 05:00, firm time
+
+[Timer]
+OnCalendar=*-*-01 05:00:00 @TZ@
+Persistent=true
+
+[Install]
+WantedBy=timers.target

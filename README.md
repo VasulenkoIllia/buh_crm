@@ -46,7 +46,9 @@ the module's repository; Zod schemas in `shared/` validate the API and type the 
 - `src/` — React frontend (mirrors the backend module list).
 - `shared/` — Zod schemas + derived types, imported by both sides.
 - `prisma/` — schema + migrations.
-- `scripts/` — server operations (`deploy.sh`, `reset-data.sql`, `prune-uploads.ts`, `import-clients.ts`).
+- `scripts/` — server operations (`deploy.sh`, `reset-data.sql`, `prune-uploads.ts`, `import-clients.ts`);
+  `scripts/backup/` — the nightly backup, the restore test, restores and their server setup
+  ([RESTORE.md](RESTORE.md)); `scripts/storage/` — setting up and checking the storage bucket, from a laptop.
 - `.env.example` — environment variables (identity: `APP_NAME=buh_crm`).
 
 ## Development
@@ -71,9 +73,10 @@ On the server, from the project directory:
 ./scripts/deploy.sh --reset    # …and wipe every client record first, keeping the team
 ```
 
-Both paths dump the database first and print the restore command at the end. Migrations apply
-automatically when the container starts (`prisma migrate deploy && npm run start`), so there is no
-separate migration step.
+Both paths dump the database first — custom format, read back in full, the last five kept in the
+operator's home directory — and end with the command that undoes the deploy:
+`./scripts/backup/restore.sh --rollback <that dump>`. Migrations apply automatically when the
+container starts (`prisma migrate deploy && npm run start`), so there is no separate migration step.
 
 `--reset` asks you to type the database name before it deletes anything, then empties every client
 table — clients, companies, leads, subscriptions, tasks, invoices, payments, meetings, files, and
@@ -98,6 +101,20 @@ only files no database row references.
 It reads stdin, so a file of personal data need never be committed or left on a server, and it
 creates each client through the ordinary service layer rather than SQL — same validation, same
 auto-added default service. `--dry-run` reports what it would do and writes nothing.
+
+### Backups
+
+Every night at 02:00, the firm's time, `scripts/backup/backup.sh` dumps the database, reads the dump
+back in full, and puts it together with every client file into one encrypted
+[restic](https://restic.net) snapshot in S3-compatible object storage; the last seven daily copies
+are kept. On the 1st of each month `scripts/backup/drill.sh` restores the newest copy into a
+throwaway database and checks it. Both run on the host under systemd timers, never inside the app,
+and the app holds no key that reaches the backups: it reads the status the scripts leave on a
+read-only mount, and **Settings → System → Nightly backups** turns red — and the admin is emailed the
+same morning — when a night is missed, a backup fails, or the restore test fails or goes stale.
+
+Setting it up on a server, restoring, undoing a deploy and rebuilding on a new server:
+[RESTORE.md](RESTORE.md). Creating and checking the storage bucket: `scripts/storage/`.
 
 > Internal documentation (module specs, design system, decisions, dev plan) is maintained
 > outside this repository.

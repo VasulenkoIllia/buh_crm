@@ -1,0 +1,12 @@
+[Unit]
+Description=buh_crm restore test — the newest backup restored into a throwaway database and checked
+Documentation=file://@PROJECT@/RESTORE.md
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+ExecStart=@PROJECT@/scripts/backup/drill.sh @ENV_FILE@
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=4h

@@ -442,6 +442,25 @@ describe("the sweep", () => {
     expect(await rowsFor(adminId, "ops_sweep_failed")).toHaveLength(0);
   });
 
+  it("says a job STOPPED when it threw, instead of counting skipped items", async () => {
+    // The backup watchdog throws when the nightly backup did not happen. It skipped nothing — it
+    // stopped — and "1 item skipped" would be the wrong sentence for the worst news this report
+    // carries (backups.md §7.6).
+    await prisma.notification.deleteMany();
+    await recordJobRun("backup:watchdog", {
+      ok: false,
+      durationMs: 3,
+      error: "No backup has succeeded since yesterday at 02:04.",
+    });
+    await runNotificationSweep();
+
+    const row = (await rowsFor(adminId, "ops_sweep_failed")).find((r) =>
+      r.text.includes("Nightly backups"),
+    );
+    expect(row?.sub).toContain("stopped with an error");
+    expect(row?.sub).not.toContain("skipped");
+  });
+
   it("names a broken mailbox, and stops repeating itself while the error is the same", async () => {
     await prisma.mailSenderAccount.updateMany({ data: { bounceError: "Invalid credentials" } });
     try {

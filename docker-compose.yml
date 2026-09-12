@@ -54,9 +54,15 @@ services:
       db:
         condition: service_healthy
     volumes:
-      # client files + avatars. NOT BACKED UP BY ANYTHING TODAY — this comment claimed it was,
-      # which is most of the reason nobody built it. See docs/modules/backups.md.
+      # client files + avatars. Backed up nightly by scripts/backup/ ONCE IT IS INSTALLED ON THE
+      # HOST (RESTORE.md) — whether it is, and when it last ran, is the "Nightly backups" row on
+      # Settings → System, never this comment. A comment here once claimed a backup that did not
+      # exist, and that is most of the reason nobody built one.
       - ./data/uploads:/app/uploads
+      # What the host's backup scripts report — READ-ONLY, and deliberately not under ./data/uploads:
+      # the app can write there, and prune-uploads.ts deletes files no row names. The host side is a
+      # variable only so this file can be brought up on a machine without /var/lib/buh_crm.
+      - ${BACKUP_STATUS_HOST_DIR:-/var/lib/buh_crm/backup-status}:/app/backup-status:ro
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     # migrations run automatically on every start (idempotent); Dockerfile CMD:

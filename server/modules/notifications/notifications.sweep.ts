@@ -276,7 +276,11 @@ export async function runNotificationSweep(): Promise<SweepResult> {
         // NOT "check the server log" — the reader cannot. Settings → System says, per job, when it
         // last ran, what it did and what breaks while it does not, which is the whole reason that
         // screen exists.
-        sub: `${plural(failure.count, "item")} skipped — Settings → System says what and when`,
+        // …and a run that THREW skipped nothing: it stopped. "1 item skipped" about a night the
+        // backup never ran would understate the one alert this report most needs to get right.
+        sub: failure.failed
+          ? "It stopped with an error — Settings → System says what and when"
+          : `${plural(failure.count, "item")} skipped — Settings → System says what and when`,
         link: { type: "system", id: null },
       });
       // `failed` is the emitter saying it could not write. Anything else — including a trigger the

@@ -413,8 +413,9 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     title: "{sweep} did not finish everything",
     when: "Work the CRM does on its own overnight could not be finished.",
     why:
-      "Invoices and tasks appear because of those jobs. When one stops, nothing else says so — a " +
-      "client simply stops being billed. Settings → System says which job and when.",
+      "Invoices and tasks appear because of those jobs, and one of them checks every morning that " +
+      "the nightly backup ran. When one stops, nothing else says so — a client simply stops being " +
+      "billed, or the backups quietly stop. Settings → System says which job and when.",
     source: "sweep",
     defaultRecipients: ["admin", "custom"],
     defaultInApp: true,

@@ -36,11 +36,25 @@ PG_DB="${POSTGRES_DB:?POSTGRES_DB missing from .env}"
 say() { printf '\n\033[1m▸ %s\033[0m\n' "$1"; }
 
 # ── 1. dump ──────────────────────────────────────────────────────────────────
+# Custom format, uncompressed, taken inside the container: the one set of arguments the nightly
+# backup uses too (a test holds both to it), and the format `scripts/backup/restore.sh --rollback`
+# restores. The name carries the commit running NOW — the one a rollback has to go back to. Written
+# under umask 077: it is the whole client book.
 say "Backing up the database"
-DUMP=~/"${PG_DB}_$(date +%F_%H%M).sql"
-docker compose exec -T db pg_dump -U "$PG_USER" "$PG_DB" > "$DUMP"
+DUMP=~/"${PG_DB}_$(date +%F_%H%M)_$(git rev-parse --short HEAD).dump"
+(umask 077 && docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -Fc -Z0 "$POSTGRES_DB"' > "$DUMP")
 [ -s "$DUMP" ] || { echo "the dump is empty — stopping" >&2; exit 1; }
+# Read back in full: a dump cut off halfway still lists its contents, and restores half a book.
+docker compose exec -T db pg_restore -f /dev/null < "$DUMP" ||
+  { echo "the dump does not read back — stopping" >&2; exit 1; }
 echo "   $DUMP ($(du -h "$DUMP" | cut -f1))"
+# The last five are kept. The plain .sql dumps of deploys before this format are left in place —
+# restore.sh cannot read them, delete them when nothing needs them — but no longer readable by
+# anybody else on a shared server: they were written under the default umask.
+set +o pipefail
+ls -1t ~/"${PG_DB}"_*.dump 2>/dev/null | tail -n +6 | while IFS= read -r old; do rm -f -- "$old"; done
+set -o pipefail
+chmod 600 ~/"${PG_DB}"_*.sql 2>/dev/null || true
 
 # ── 2. optional data reset ───────────────────────────────────────────────────
 if $RESET; then
@@ -201,6 +215,19 @@ say "What the first 07:00 sweep will raise"
 docker compose exec -T app npx tsx scripts/notification-forecast.ts 2>&1 | sed -n '2,12p' || \
   echo "   (forecast unavailable — harmless, the deploy has already succeeded)"
 
+# Backups (S13.1). The same reason the lines above exist: "not set up" here means the client files
+# have no copy anywhere, and nothing else on this screen would say so. Read from the status the
+# nightly backup leaves for the app — never from the backup's own configuration, which is root's.
+say "Backups"
+BACKUP_STATUS=/var/lib/buh_crm/backup-status/backup-primary.json
+if [ -r "$BACKUP_STATUS" ] && command -v jq >/dev/null; then
+  jq -r '"   last good backup \(.lastOkAt // "never") · \(.copies // 0) copies in storage · last run \(
+    if .ok == true then "ok" elif .running == true then "running" else "FAILED (\(.reason // "?"))" end)"' \
+    "$BACKUP_STATUS"
+else
+  echo "   not set up on this server — RESTORE.md, 'Setting up a server'"
+fi
+
 say "Done — $(git log -1 --format='%h %s')"
-echo "   rollback, if needed:"
-echo "     docker compose exec -T db psql -U $PG_USER -d $PG_DB < $DUMP"
+echo "   rollback, if needed — restores that dump beside the live database, then swaps it in:"
+echo "     ./scripts/backup/restore.sh --rollback $DUMP"

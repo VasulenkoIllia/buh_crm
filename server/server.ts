@@ -9,6 +9,7 @@ import { sweepCron } from "@shared/notifications.js";
 import { prisma } from "./core/db.js";
 import { registerJob, startScheduler, stopScheduler } from "./core/scheduler.js";
 import { purgeOldJobEvents } from "./core/job-health.js";
+import { checkBackups } from "./core/backup-status.js";
 import { plural } from "@shared/text.js";
 import { runDueCampaigns, sweepBounces, sweepStalledSends } from "./modules/mailouts/index.js";
 import {
@@ -326,6 +327,22 @@ async function main() {
         did: purged,
       };
     },
+  });
+
+  /**
+   * The backups are taken by the HOST — scripts/backup/ under systemd timers — and this app holds
+   * no key that reaches them, on purpose. It reads the status files the host leaves on a read-only
+   * mount and throws when they say the backups have stopped: the throw is what paints Settings →
+   * System red and puts the night on the morning's `ops_sweep_failed` report.
+   *
+   * 03:50: after the 02:00 backup, and before the earliest hour the notification sweep may run
+   * (04:00), so a bad night is reported that same morning. No `catchUp`: at boot the 03:50 rules
+   * would run at the wrong hour and turn every late-evening deploy into a false alarm.
+   */
+  registerJob({
+    name: "backup:watchdog",
+    cronExpr: "50 3 * * *",
+    run: async () => ({ note: await checkBackups() }),
   });
 
   await app.listen({ port: config.PORT, host: "0.0.0.0" });

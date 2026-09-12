@@ -162,6 +162,18 @@ export interface SweepFailure {
   sweep: string;
   count: number;
   /**
+   * The job's last run THREW — it did not finish — as opposed to finishing with items it could not
+   * do. The report says which: "1 item skipped" about a night the backup never ran would be the
+   * wrong sentence for the worst news this report carries.
+   *
+   * Read when the report is written, from the job's CURRENT state. A failure whose report was
+   * carried over (the emitter could not write it) to a morning after the job had recovered reads
+   * as skipped items — only that word is imprecise; the alert itself still goes out, and Recent
+   * activity on Settings → System keeps the error. Exact wording would need the failures counted
+   * beside `unreported`, a column for one sentence (audit, 2026-09-12).
+   */
+  failed: boolean;
+  /**
    * When the row was last WRITTEN — successful runs included, not only the failure.
    *
    * The caller buckets the report by this day. That is deliberate and safe in the direction it
@@ -206,9 +218,14 @@ export async function readSweepFailures(): Promise<SweepFailure[]> {
   try {
     const rows = await prisma.jobHealth.findMany({
       where: { unreported: { gt: 0 } },
-      select: { name: true, unreported: true, updatedAt: true },
+      select: { name: true, unreported: true, updatedAt: true, failStreak: true },
     });
-    return rows.map((r) => ({ sweep: r.name, count: r.unreported, lastAt: r.updatedAt }));
+    return rows.map((r) => ({
+      sweep: r.name,
+      count: r.unreported,
+      failed: r.failStreak > 0,
+      lastAt: r.updatedAt,
+    }));
   } catch (err) {
     // never silently: a drain that keeps failing means the sweep reports a quiet night every
     // morning while jobs are falling over, and nothing else would say so

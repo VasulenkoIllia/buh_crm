@@ -74,6 +74,16 @@ const envSchema = z.object({
   UPLOADS_DIR: z.string().default("uploads"),
 
   /**
+   * Where the host's backup scripts leave their status — read, never written, by this app.
+   * Resolved against the working directory like UPLOADS_DIR, which in the container lands on the
+   * read-only mount of the host's /var/lib/buh_crm/backup-status (docker-compose.yml). Defaulted
+   * rather than optional: a production watchdog that switched itself off because a variable was
+   * left out would be the very silence it exists to catch. With nothing there, development stays
+   * quiet and production turns red (core/backup-status.ts).
+   */
+  BACKUP_STATUS_DIR: z.string().default("backup-status"),
+
+  /**
    * AES-256-GCM key for client secrets, base64, 32 bytes. DELIBERATELY OPTIONAL: making it
    * required would stop an already-running server from booting the moment this code ships, before
    * anyone had a chance to add the key. Without it the Secrets tab says so and refuses to store

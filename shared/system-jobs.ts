@@ -24,10 +24,12 @@ export type SystemJobKey =
   | "meeting-reminders"
   | "notifications:retention"
   | "sessions:cleanup"
-  | "activity:retention";
+  | "activity:retention"
+  | "backup:watchdog";
 
 /** The part of the app a job keeps running — the screen groups by this. */
-export type SystemJobArea = "work" | "billing" | "mail" | "notifications" | "housekeeping";
+export type SystemJobArea =
+  "work" | "billing" | "mail" | "notifications" | "backups" | "housekeeping";
 
 export interface SystemJobSpec {
   area: SystemJobArea;
@@ -172,6 +174,25 @@ export const SYSTEM_JOBS: Record<SystemJobKey, SystemJobSpec> = {
       "would hold them for.",
     staleAfterMinutes: DAY + 12 * HOUR,
   },
+  /**
+   * The one job here that watches work done OUTSIDE the app. The backups run on the host
+   * (scripts/backup/, systemd timers), because the app holds no key that reaches them and must
+   * not; this job reads the status the host leaves on a read-only mount (core/backup-status.ts).
+   * So its words describe the backups, not the watching: a person reading this row wants to know
+   * whether there IS a backup, and "the check ran" would be the wrong comfort.
+   */
+  "backup:watchdog": {
+    area: "backups",
+    label: "Nightly backups",
+    cadence: "Every night at 2am, checked at 3:50; a restore test on the 1st of each month",
+    whenOk:
+      "Copies the database and every client file into encrypted storage every night, and restores " +
+      "a copy once a month to prove it works.",
+    whenBad:
+      "Backups have stopped. If the server failed now, everything since the last good backup " +
+      "would be lost.",
+    staleAfterMinutes: DAY + 12 * HOUR,
+  },
 };
 
 export const SYSTEM_JOB_KEYS = Object.keys(SYSTEM_JOBS) as SystemJobKey[];
@@ -181,6 +202,7 @@ export const SYSTEM_JOB_AREAS: Array<{ key: SystemJobArea; label: string }> = [
   { key: "billing", label: "Billing" },
   { key: "mail", label: "Mail" },
   { key: "notifications", label: "Notifications" },
+  { key: "backups", label: "Backups" },
   { key: "housekeeping", label: "Housekeeping" },
 ];
 

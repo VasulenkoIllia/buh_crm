@@ -1,0 +1,14 @@
+[Unit]
+Description=buh_crm nightly backup — the database and client files into encrypted storage
+Documentation=file://@PROJECT@/RESTORE.md
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+ExecStart=@PROJECT@/scripts/backup/backup.sh @ENV_FILE@
+# 75: another run held the lock and this one did nothing — not a failure of the backup
+SuccessExitStatus=75
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=6h
