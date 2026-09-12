@@ -5,10 +5,9 @@ the companies they hold, leads, a service catalog, tasks with time tracking, inv
 meetings, client mailouts, and the team.
 
 **Status:** in use, built stage by stage. Clients, Leads, Catalog, Tasks, Payments, Calendar,
-Archive, Client secrets, Mailouts, Notifications, Permissions, the Activity log and two-factor
-sign-in are done; Reports
-and the production hardening pass are not. Specs, design and the dev plan are kept in internal docs,
-not in this repository.
+Archive, Client secrets, Mailouts, Notifications, Permissions, the Activity log, nightly backups and
+two-factor sign-in are done and in production; Reports and the production hardening pass are not.
+Specs, design and the dev plan are kept in internal docs, not in this repository.
 
 **Modules**
 
