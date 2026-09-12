@@ -19,7 +19,8 @@
 #   --rollback    undo a deploy: the pre-deploy dump into <live>_restore, then --swap. It prints how
 #                 to bring the app back on the commit the dump was taken from.
 #
-#   --env <file>     the backup environment, for --list/--into/--files-to (default /etc/buh_crm/backup.env)
+#   --env <file>     the backup environment, for --list/--into/--files-to — default: root's
+#                    /etc/buh_crm/backup.env, else ~/.config/buh_crm/backup.env (install.sh --user)
 #   --snapshot <id>  default: the newest
 #   --yes            do not ask before --swap or --rollback
 #

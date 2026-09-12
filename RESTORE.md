@@ -110,8 +110,11 @@ every start, so the new image would re-apply the one just undone. Later, once th
 ## 7. Setting up a server
 
 The scripts and the CRM's read-only mount arrive with the code — on a running server, with
-`./scripts/deploy.sh`, which pulls it. Then once, as root, in this order (`install.sh` prints it
-too):
+`./scripts/deploy.sh`, which pulls it. Then once, in this order (`install.sh` prints it too).
+Finish on the day of that deploy: the CRM checks the backups by itself at 03:50, and from then on a
+server without one is — truthfully — a red row and an email to the admin.
+
+**With sudo** — the key readable by root only, systemd timers at 02:00 the firm's time:
 
 ```bash
 sudo ./scripts/backup/install.sh
@@ -123,16 +126,36 @@ sudo ./scripts/backup/install.sh --enable-timers
 docker compose exec -T app npx tsx scripts/backup-check.ts
 ```
 
-The last line puts the result on Settings → System → Nightly backups now, rather than at the next
-03:50 — and it is also how a row turned red by a failed night goes green once the failure is put
-right. Finish on the day of that deploy: the CRM checks the backups by itself at 03:50, and from
-then on a server without one is — truthfully — a red row and an email to the admin.
+**Without sudo**, as the deploy user — everything under its home (`~/.config/buh_crm`,
+`~/.local/state/buh_crm`), the schedule in its crontab, the backup at 01:00 the firm's time (the
+one small hour a daylight-saving spring night does not skip). Not weaker when that user is in the
+docker group, which is root in all but name. The status directory must exist, and the project's
+`.env` must name it, **before** the deploy that mounts it — otherwise Docker creates it itself, as
+root, and the deploy user can no longer write there:
 
-`install.sh` creates `/etc/buh_crm` (root only) and `/var/lib/buh_crm`, writes the environment file
-from `scripts/backup/backup.env.example`, generates the restic password — **put it in the password
-manager at once** — and installs two systemd timers, left off until a backup and a restore test have
-passed by hand. The timers carry the firm's timezone (the `TZ` line of `.env`), so the server's own
-clock, shared with other projects, is never changed.
+```bash
+mkdir -p ~/.local/state/buh_crm/backup-status
+printf '\nBACKUP_STATUS_HOST_DIR=%s\n' "$HOME/.local/state/buh_crm/backup-status" >> .env
+./scripts/deploy.sh
+./scripts/backup/install.sh --user
+nano ~/.config/buh_crm/backup.env
+./scripts/backup/install.sh --user --init
+./scripts/backup/backup.sh
+./scripts/backup/drill.sh
+./scripts/backup/install.sh --user --enable-timers
+docker compose exec -T app npx tsx scripts/backup-check.ts
+```
+
+The last line of either puts the result on Settings → System → Nightly backups now, rather than at
+the next 03:50 — and it is also how a row turned red by a failed night goes green once the failure
+is put right. The scripts find their environment file by themselves: root's, or else the deploy
+user's.
+
+`install.sh` creates the directories, writes the environment file from
+`scripts/backup/backup.env.example`, generates the restic password — **put it in the password
+manager at once** — and prepares the schedule, left off until a backup and a restore test have
+passed by hand. The schedule carries the firm's timezone (the `TZ` line of `.env`), so the server's
+own clock, shared with other projects, is never changed.
 
 The environment file names the repository as
 
@@ -156,7 +179,23 @@ bunzip2 restic_0.19.1_linux_amd64.bz2 && sudo install -m 0755 restic_0.19.1_linu
 curl -fsSLO https://downloads.rclone.org/rclone-current-linux-amd64.deb && sudo dpkg -i rclone-current-linux-amd64.deb
 ```
 
-Distribution packages of restic are far behind; `sudo restic self-update` keeps the binary current.
+Without sudo, into `~/.local/bin` (a login shell puts it on the PATH once it exists; the schedule
+names it itself) — and `jq` only if `command -v jq` finds none:
+
+```bash
+mkdir -p ~/.local/bin && cd "$(mktemp -d)"
+curl -fsSLO https://github.com/restic/restic/releases/download/v0.19.1/restic_0.19.1_linux_amd64.bz2
+curl -fsSLO https://github.com/restic/restic/releases/download/v0.19.1/SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS
+bunzip2 restic_0.19.1_linux_amd64.bz2 && install -m 0755 restic_0.19.1_linux_amd64 ~/.local/bin/restic
+curl -fsSLO https://downloads.rclone.org/rclone-current-linux-amd64.zip
+python3 -m zipfile -e rclone-current-linux-amd64.zip . && install -m 0755 rclone-*-linux-amd64/rclone ~/.local/bin/rclone
+curl -fsSL -o ~/.local/bin/jq https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 && chmod 0755 ~/.local/bin/jq
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Distribution packages of restic are far behind; `restic self-update` keeps the binary current (with
+`sudo` for the one in `/usr/local/bin`).
 
 ## 9. Older than seven days
 

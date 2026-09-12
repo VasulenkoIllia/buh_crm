@@ -12,7 +12,8 @@
 #     the backup ran (docs: backups.md §6), and a sample restored and its size compared;
 #   - `restic check --read-data-subset=5%`: a sample of what is stored, downloaded and verified.
 #
-#   sudo ./scripts/backup/drill.sh [ENV_FILE]          default /etc/buh_crm/backup.env
+#   ./scripts/backup/drill.sh [ENV_FILE]     default: /etc/buh_crm/backup.env (root's setup), else
+#                                            ~/.config/buh_crm/backup.env (install.sh --user)
 #
 # It waits for a running backup rather than skipping. The live database is only ever read: its
 # table list, its row counts and its newest migration.

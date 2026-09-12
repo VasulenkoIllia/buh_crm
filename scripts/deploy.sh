@@ -219,7 +219,8 @@ docker compose exec -T app npx tsx scripts/notification-forecast.ts 2>&1 | sed -
 # have no copy anywhere, and nothing else on this screen would say so. Read from the status the
 # nightly backup leaves for the app — never from the backup's own configuration, which is root's.
 say "Backups"
-BACKUP_STATUS=/var/lib/buh_crm/backup-status/backup-primary.json
+# where the app reads it too: compose's default, or a --user setup's home (install.sh)
+BACKUP_STATUS=${BACKUP_STATUS_HOST_DIR:-/var/lib/buh_crm/backup-status}/backup-primary.json
 if [ -r "$BACKUP_STATUS" ] && command -v jq >/dev/null; then
   jq -r '"   last good backup \(.lastOkAt // "never") · \(.copies // 0) copies in storage · last run \(
     if .ok == true then "ok" elif .running == true then "running" else "FAILED (\(.reason // "?"))" end)"' \

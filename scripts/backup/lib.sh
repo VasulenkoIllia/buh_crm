@@ -58,7 +58,16 @@ bk_init() {
 
 # bk_load_env <file> — the backup's environment: where the repository is, and the key to it
 bk_load_env() {
-  local file=${1:-${BACKUP_ENV_FILE:-/etc/buh_crm/backup.env}}
+  local file=${1:-${BACKUP_ENV_FILE:-}}
+  if [ -z "$file" ]; then
+    # root's setup, or the deploy user's (install.sh --user) — whichever this server has. Root's
+    # directory is 0700, so for anybody else it simply does not exist.
+    if [ -e /etc/buh_crm/backup.env ] || [ ! -e "$HOME/.config/buh_crm/backup.env" ]; then
+      file=/etc/buh_crm/backup.env
+    else
+      file=$HOME/.config/buh_crm/backup.env
+    fi
+  fi
   # Until the file is read, which destination this run is for cannot be known — so these two
   # failures write NO status rather than a wrong one: a broken second destination must never
   # redden the first. The journal has them, and the night does not go unseen: no success within

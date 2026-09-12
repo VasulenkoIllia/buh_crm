@@ -184,7 +184,9 @@ export const SYSTEM_JOBS: Record<SystemJobKey, SystemJobSpec> = {
   "backup:watchdog": {
     area: "backups",
     label: "Nightly backups",
-    cadence: "Every night at 2am, checked at 3:50; a restore test on the 1st of each month",
+    // "before 3am", not a clock time: a root install runs at 2am, a --user one at 1am (the one
+    // small hour that exists every night of a daylight-saving year) — and both are checked at 3:50
+    cadence: "Every night before 3am, checked at 3:50; a restore test on the 1st of each month",
     whenOk:
       "Copies the database and every client file into encrypted storage every night, and restores " +
       "a copy once a month to prove it works.",

@@ -4,7 +4,8 @@
 # snapshot. Then the snapshot is confirmed in storage, the history trimmed to the last seven days,
 # and the result written where the CRM reads it.
 #
-#   sudo ./scripts/backup/backup.sh [ENV_FILE]        default /etc/buh_crm/backup.env
+#   ./scripts/backup/backup.sh [ENV_FILE]    default: /etc/buh_crm/backup.env (root's setup), else
+#                                            ~/.config/buh_crm/backup.env (install.sh --user)
 #
 # THE DUMP FIRST, then the files (docs: backups.md §6). A file uploaded in between becomes an orphan
 # the restore lists; the other order gives a database row pointing at bytes that were never copied,
