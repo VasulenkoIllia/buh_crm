@@ -97,6 +97,13 @@ beforeAll(async () => {
   await prisma.session.deleteMany();
   await prisma.authToken.deleteMany();
   await wipe();
+  // A file points at its uploader (File_uploadedById_fkey, no cascade), and avatars and the firm's
+  // logos point back at files. Any suite that ran earlier and left one stopped this one on the line
+  // below — depending on the order vitest picked, and that order moves as suites are added
+  // (2026-09-12).
+  await prisma.user.updateMany({ data: { avatarFileId: null } });
+  await prisma.firmProfile.updateMany({ data: { logoFileId: null, mailLogoFileId: null } });
+  await prisma.file.deleteMany();
   await prisma.user.deleteMany();
   await ensureBaseData();
 
