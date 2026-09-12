@@ -10,6 +10,7 @@
 #   (nothing else)    directories, the environment file, the restic password, the schedule — off
 #   --init            create the encrypted repository in the bucket
 #   --enable-timers   switch the schedule on — only after a backup and a restore test have passed
+#   --disable-timers  switch it off, e.g. on a server being replaced: storage is not touched
 #   --show-cron       (--user) print the crontab lines --enable-timers installs, and nothing else
 #   --status          the schedule and the last results
 #
@@ -41,6 +42,7 @@ while [ $# -gt 0 ]; do
     --user) USER_MODE=1 ;;
     --init) MODE=init ;;
     --enable-timers) MODE=timers ;;
+    --disable-timers) MODE=untimers ;;
     --show-cron) MODE=showcron ;;
     --status) MODE=status ;;
     -h | --help) usage ;;
@@ -96,13 +98,17 @@ firm_tz() {
 # --user's schedule. cron knows only the server's clock, and changing that would move every other
 # project's jobs; so it wakes the scripts every hour and they run only when the FIRM's clock says so.
 # The backup at 01:00, not 02:00: in a zone with daylight saving 02:00 does not exist one night each
-# spring, and 01:00 exists every night. The restore test on the 1st at 05:00.
+# spring, and 01:00 exists every night. On the autumn night 01:00 comes twice, and so does the
+# backup — harmless: two snapshots of one day, of which `forget` keeps the later. The restore test on
+# the 1st at 05:00, which no change of clock touches.
+# `umask 077` first: cron's own shell opens the log before the script sets its umask, and restic's
+# errors in that log name the storage (audit, 2026-09-12).
 cron_block() {
   local tz=$1 path="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
   cat <<EOF
 $CRON_BEGIN
-0 * * * * [ "\$(TZ=$tz date +\%H)" = 01 ] && PATH=$path $PROJECT/scripts/backup/backup.sh $ENV_FILE >>$STATE/backup.log 2>&1
-0 * * * * [ "\$(TZ=$tz date +\%d\%H)" = 0105 ] && PATH=$path $PROJECT/scripts/backup/drill.sh $ENV_FILE >>$STATE/drill.log 2>&1
+0 * * * * umask 077; [ "\$(TZ=$tz date +\%H)" = 01 ] && PATH=$path $PROJECT/scripts/backup/backup.sh $ENV_FILE >>$STATE/backup.log 2>&1
+0 * * * * umask 077; [ "\$(TZ=$tz date +\%d\%H)" = 0105 ] && PATH=$path $PROJECT/scripts/backup/drill.sh $ENV_FILE >>$STATE/drill.log 2>&1
 $CRON_END
 EOF
 }
@@ -179,6 +185,21 @@ if [ "$MODE" = timers ]; then
     # shellcheck disable=SC2086
     systemctl list-timers --all $TIMERS
   fi
+  exit 0
+fi
+
+# ── the schedule off ─────────────────────────────────────────────────────────
+# For a server that stops being the one that backs up — one being replaced above all. Two servers
+# would write the same repository under the same host name, and whichever wrote last each night would
+# be "the newest copy" a restore brings back. Nothing in storage is touched.
+if [ "$MODE" = untimers ]; then
+  if [ "$USER_MODE" = 1 ]; then
+    crontab_without_ours | crontab -
+  else
+    # shellcheck disable=SC2086
+    systemctl disable --now $TIMERS
+  fi
+  say "The schedule is off — nothing in storage was touched"
   exit 0
 fi
 

@@ -1,7 +1,8 @@
 /**
  * What the backups say about themselves — read from files the HOST writes, judged here.
  *
- * The backups are taken outside this app, by `scripts/backup/` under systemd timers, and this app
+ * The backups are taken outside this app, by `scripts/backup/` on the host's own schedule (systemd
+ * timers, or the deploy user's crontab where it has no sudo), and this app
  * holds no key that reaches them — on purpose: a key in the app's environment is a key in every
  * process that can read it (docs: backups.md §3). What it can do is read the small status files the
  * scripts leave on a READ-ONLY mount, and say — on Settings → System and in the morning's report —

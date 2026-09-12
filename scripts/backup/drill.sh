@@ -28,8 +28,11 @@ bk_defaults
 bk_need restic jq docker flock awk
 DRILL=buh_crm-drill-$BACKUP_DESTINATION
 SCRATCH=$BACKUP_STATE_DIR/drill-scratch
+# `-v` every time: the image keeps its data in a volume of its own, and `--rm` removes that only when
+# the container stops by itself. `docker rm -f` without `-v` left the restored database behind as an
+# anonymous volume — a full copy of the client book, one more every month (audit, 2026-09-12).
 bk_cleanup() {
-  docker rm -f "$DRILL" >/dev/null 2>&1
+  docker rm -f -v "$DRILL" >/dev/null 2>&1
   rm -rf "$SCRATCH"
 }
 bk_start
@@ -38,7 +41,7 @@ bk_lock -w "${BACKUP_DRILL_WAIT_SECONDS:-7200}" || bk_fail lock_timeout "a backu
 rm -rf "$SCRATCH"
 mkdir -p "$SCRATCH"
 chmod 0700 "$SCRATCH"
-docker rm -f "$DRILL" >/dev/null 2>&1 || true
+docker rm -f -v "$DRILL" >/dev/null 2>&1 || true
 
 drill_sql() { docker exec -i "$DRILL" psql -U postgres -d drill -v ON_ERROR_STOP=1 -X -q -At; }
 

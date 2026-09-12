@@ -176,7 +176,8 @@ export const SYSTEM_JOBS: Record<SystemJobKey, SystemJobSpec> = {
   },
   /**
    * The one job here that watches work done OUTSIDE the app. The backups run on the host
-   * (scripts/backup/, systemd timers), because the app holds no key that reaches them and must
+   * (scripts/backup/, systemd timers or the deploy user's crontab), because the app holds no key
+   * that reaches them and must
    * not; this job reads the status the host leaves on a read-only mount (core/backup-status.ts).
    * So its words describe the backups, not the watching: a person reading this row wants to know
    * whether there IS a backup, and "the check ran" would be the wrong comfort.

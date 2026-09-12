@@ -2,11 +2,14 @@
 #
 # Restore — from the backups, or from a pre-deploy dump — and never over the live database.
 #
-#   sudo ./scripts/backup/restore.sh --list
-#   sudo ./scripts/backup/restore.sh --into <new-db> [--files-to <dir>] [--snapshot <id>]
-#   sudo ./scripts/backup/restore.sh --files-to <dir> [--snapshot <id>]
-#        ./scripts/backup/restore.sh --swap <db>
-#        ./scripts/backup/restore.sh --rollback <dump>
+#   ./scripts/backup/restore.sh --list
+#   ./scripts/backup/restore.sh --into <new-db> [--files-to <dir>] [--snapshot <id>]
+#   ./scripts/backup/restore.sh --files-to <dir> [--snapshot <id>]
+#   ./scripts/backup/restore.sh --swap <db>
+#   ./scripts/backup/restore.sh --rollback <dump>
+#
+#   The first three read the backup key: with sudo where the backup was set up as root, as the deploy
+#   user where it was set up with `install.sh --user`.
 #
 #   --list        what is in storage
 #   --into        the database from a snapshot, into a NEW database beside the live one. Refuses a

@@ -3,8 +3,8 @@
  *
  * The server this firm runs gives its deploy user no sudo (2026-09-12), so this is the path actually
  * used there: everything under the user's home, the schedule in its crontab. These tests run the
- * installer against a throwaway HOME, with stand-ins for restic, rclone and docker — and never touch
- * a real crontab: the setup only prints the lines, and `--enable-timers` is not run here.
+ * installer against a throwaway HOME, with stand-ins for restic, rclone, docker — and crontab, which
+ * reads and writes a file the test names, so a real crontab is never touched.
  */
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -35,6 +35,15 @@ case "$*" in
   *pg_restore*) cat >/dev/null ;;
 esac
 exit 0
+`,
+  // a crontab kept in a file the test names — never the real one
+  crontab: `#!/bin/sh
+tab=\${CRONTAB_FILE:?no crontab in this test}
+case "$1" in
+  -l) [ -s "$tab" ] || { echo "no crontab for test" >&2; exit 1; }; cat "$tab" ;;
+  -) cat >"$tab.new" && mv "$tab.new" "$tab" ;;
+  *) exit 2 ;;
+esac
 `,
 };
 
@@ -118,6 +127,35 @@ describe("install.sh --user", () => {
     expect(res.stdout).toContain(`scripts/backup/drill.sh ${home}/.config/buh_crm/backup.env`);
     // crontab reads a bare % as a line break: every one is escaped
     expect(res.stdout).not.toMatch(/[^\\]%/);
+    // cron's shell creates the log before the script's own umask — restic's errors name the storage
+    for (const line of lines.slice(1, -1)) expect(line).toMatch(/^0 \* \* \* \* umask 077; /);
+  });
+
+  it("switches the schedule on and off without touching another project's cron lines", () => {
+    // the server is shared: its crontab holds other projects' jobs, and they must survive every edit
+    const home = mkdtempSync(join(root, "home-"));
+    expect(installer(home).status).toBe(0);
+    const tab = join(home, "crontab");
+    const theirs = "15 4 * * * /srv/another-project/nightly.sh\n";
+    writeFileSync(tab, theirs);
+    const run = (flag: string) =>
+      spawnSync("bash", [INSTALL, "--user", "--tz", "America/New_York", flag], {
+        encoding: "utf8",
+        env: { PATH: `${bin}:${process.env.PATH}`, HOME: home, CRONTAB_FILE: tab },
+      });
+
+    for (const attempt of ["first", "again"]) {
+      const on = run("--enable-timers");
+      expect(on.status, `${attempt}: ${on.stderr}`).toBe(0);
+      const text = readFileSync(tab, "utf8");
+      expect(text.startsWith(theirs), attempt).toBe(true);
+      expect(text.match(/^# >>> buh_crm backups/gm), attempt).toHaveLength(1);
+      expect(text, attempt).toContain("scripts/backup/backup.sh");
+    }
+
+    const off = run("--disable-timers");
+    expect(off.status, off.stderr).toBe(0);
+    expect(readFileSync(tab, "utf8")).toBe(theirs);
   });
 
   it("without --user and without root, says which of the two to use", () => {

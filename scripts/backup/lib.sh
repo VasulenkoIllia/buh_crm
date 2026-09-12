@@ -61,8 +61,10 @@ bk_load_env() {
   local file=${1:-${BACKUP_ENV_FILE:-}}
   if [ -z "$file" ]; then
     # root's setup, or the deploy user's (install.sh --user) — whichever this server has. Root's
-    # directory is 0700, so for anybody else it simply does not exist.
-    if [ -e /etc/buh_crm/backup.env ] || [ ! -e "$HOME/.config/buh_crm/backup.env" ]; then
+    # directory is 0700, so for anybody else it simply does not exist. Root never takes the one under
+    # a home: with `sudo -E` that is the deploy user's file, sourced as root (audit, 2026-09-12).
+    if [ -e /etc/buh_crm/backup.env ] || [ "$(id -u)" -eq 0 ] ||
+      [ ! -e "$HOME/.config/buh_crm/backup.env" ]; then
       file=/etc/buh_crm/backup.env
     else
       file=$HOME/.config/buh_crm/backup.env
@@ -132,6 +134,8 @@ bk_status_update() {
   # One writer at a time. A run that finds the backup lock held still records its conflict, and
   # that read-merge-write must not interleave with the holder's own (audit, 2026-09-12).
   (
+    # Held for one jq call at a time. If ten seconds ever pass, writing unlocked beats losing this
+    # run's own result — a run left "running" for ever reads as hung, which is the worse lie.
     flock -w 10 8 || true
     base='{}'
     if [ -s "$file" ] && jq -e 'type == "object"' "$file" >/dev/null 2>&1; then base=$(cat "$file"); fi

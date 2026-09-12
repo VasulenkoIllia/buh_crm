@@ -5,11 +5,20 @@ repository, and a bad morning. Commands run in the project directory on the serv
 says "from a laptop". Every script here says what it is about to do, and the ones that could replace
 something ask first.
 
-What the backups are: every night at 02:00, the firm's time, the database — read back in full — and
-every client file go into one encrypted [restic](https://restic.net) snapshot in the backups bucket,
-and the last seven daily copies are kept. On the 1st of each month the newest copy is restored into
-a throwaway database and checked. Settings → System → **Nightly backups** says whether all of that
-is still happening.
+What the backups are: every night — at 02:00 the firm's time, or at 01:00 on a server set up without
+sudo — the database, read back in full, and every client file go into one encrypted
+[restic](https://restic.net) snapshot in the backups bucket, and the last seven daily copies are
+kept. On the 1st of each month the newest copy is restored into a throwaway database, checked, and
+removed again. Settings → System → **Nightly backups** says whether all of that is still happening.
+
+**Two ways a server can be set up** (§7), and the commands below are written for the first:
+
+- **as root** — `sudo` in front of the scripts, the key in `/etc/buh_crm/`, the logs in the journal;
+- **as the deploy user, without sudo** (`install.sh --user`) — leave `sudo` out, read
+  `~/.config/buh_crm/` wherever `/etc/buh_crm/` is written, and the logs are
+  `~/.local/state/buh_crm/backup.log` and `drill.log`.
+
+`crontab -l` showing a `buh_crm backups` block means the second.
 
 ## 1. What you need, and where it is
 
@@ -66,6 +75,17 @@ docker compose up -d app
 names in one transaction, both or neither. The replaced database is kept as
 `buh_crm_replaced_<time>` until you drop it.
 
+Nothing here drops a database by itself: `buh_crm_restore`, when it was only looked at, and
+`buh_crm_replaced_<time>` stay beside the live one — each a full copy of the client book — until
+somebody removes them. When you are done with one, by its exact name, never the live `buh_crm`:
+
+```bash
+docker exec buh_crm-db sh -c 'dropdb -U "$POSTGRES_USER" buh_crm_restore'
+```
+
+(The monthly restore test is different: its database lives in a container of its own, removed with
+its data at the end of every run.)
+
 Client files come back into a directory of their own, and you copy what is needed from there:
 
 ```bash
@@ -90,15 +110,22 @@ every start, so the new image would re-apply the one just undone. Later, once th
 
 ## 6. The server is gone
 
+If the old server still runs — a move rather than a loss — switch its schedule off there first:
+`sudo ./scripts/backup/install.sh --disable-timers`, or without sudo
+`./scripts/backup/install.sh --user --disable-timers`. Two servers would write the same repository,
+and whichever wrote last each night would be the copy a restore brings back.
+
 1. A new server with Docker, the compose plugin and git. The app sits behind a Traefik stack that
    lives outside this repository — the external `proxy` network and the `cf` certificate resolver.
    If it is not there yet, `docker network create proxy` lets the app start and answer on the server
    itself.
 2. Clone this repository into the project directory, put the `.env` from the password manager in it,
    and `mkdir -p data/postgres data/uploads`.
-3. The tools (§8), then `sudo ./scripts/backup/install.sh`. **Replace the restic password it
-   generated with the saved one** — `sudo nano /etc/buh_crm/restic.pass` — and fill in
-   `/etc/buh_crm/backup.env` with the backup key (a new one, if §2 applies).
+3. The tools (§8), then `sudo ./scripts/backup/install.sh` — or, without sudo, §7's first two lines
+   (the status directory and its line in `.env`) and `./scripts/backup/install.sh --user`.
+   **Replace the restic password it generated with the saved one** —
+   `sudo nano /etc/buh_crm/restic.pass` — and fill in `/etc/buh_crm/backup.env` with the backup key
+   (a new one, if §2 applies).
 4. The database container alone: `docker compose up -d db`. It starts with an empty `buh_crm`.
 5. `sudo ./scripts/backup/restore.sh --into buh_crm_restore --files-to ./data/uploads`
 6. `./scripts/backup/restore.sh --swap buh_crm_restore` — the empty database is kept as
@@ -187,7 +214,8 @@ mkdir -p ~/.local/bin && cd "$(mktemp -d)"
 curl -fsSLO https://github.com/restic/restic/releases/download/v0.19.1/restic_0.19.1_linux_amd64.bz2
 curl -fsSLO https://github.com/restic/restic/releases/download/v0.19.1/SHA256SUMS
 sha256sum --ignore-missing -c SHA256SUMS
-bunzip2 restic_0.19.1_linux_amd64.bz2 && install -m 0755 restic_0.19.1_linux_amd64 ~/.local/bin/restic
+python3 -c "import bz2, shutil; shutil.copyfileobj(bz2.open('restic_0.19.1_linux_amd64.bz2'), open('restic_0.19.1_linux_amd64', 'wb'))"
+install -m 0755 restic_0.19.1_linux_amd64 ~/.local/bin/restic
 curl -fsSLO https://downloads.rclone.org/rclone-current-linux-amd64.zip
 python3 -m zipfile -e rclone-current-linux-amd64.zip . && install -m 0755 rclone-*-linux-amd64/rclone ~/.local/bin/rclone
 curl -fsSL -o ~/.local/bin/jq https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 && chmod 0755 ~/.local/bin/jq
@@ -228,9 +256,14 @@ sudo ./scripts/backup/backup.sh
 ## 11. When something says it failed
 
 - **Settings → System → Nightly backups is red.** Its ⓘ says why. On the server:
-  `sudo ./scripts/backup/install.sh --status`, and `journalctl -u buh_crm-backup.service -n 100`.
+  `sudo ./scripts/backup/install.sh --status`, and `journalctl -u buh_crm-backup.service -n 100`;
+  without sudo, `./scripts/backup/install.sh --user --status`, and
+  `tail -n 100 ~/.local/state/buh_crm/backup.log` (`drill.log` for the restore test). Once the
+  cause is put right, `docker compose exec -T app npx tsx scripts/backup-check.ts` turns the row
+  green without waiting for the next morning.
 - **restic exits 11** — the repository is locked by a run that crashed. Every night unlocks it by
-  itself; before a command by hand: `sudo sh -c 'set -a; . /etc/buh_crm/backup.env; restic unlock'`.
+  itself; before a command by hand: `sudo sh -c 'set -a; . /etc/buh_crm/backup.env; restic unlock'`
+  (without sudo: `sh -c 'set -a; . ~/.config/buh_crm/backup.env; restic unlock'`).
 - **"Access Denied" on a restic lock file**, with nothing changed on your side: in 2026 a release of
   the storage engine behind Hetzner's object storage (Ceph 19.2.6 and 20.2.4) was reported to break
   restic's signed requests until the next fix. Check restic's issue tracker before blaming the key.

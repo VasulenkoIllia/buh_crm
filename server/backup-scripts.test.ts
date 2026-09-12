@@ -94,6 +94,18 @@ describe("restoring", () => {
   });
 });
 
+describe("the restore test's throwaway database", () => {
+  it("is removed with its data volume, not only its container", () => {
+    // The postgres image keeps its data in a volume of its own. `--rm` removes it only when the
+    // container stops by itself; `docker rm -f` without `-v` left the restored client book behind
+    // as an anonymous volume, one more every month (audit, 2026-09-12 — reproduced with the image).
+    const removals = [...code(DRILL).matchAll(/docker rm([^\n]*)/g)].map((m) => m[1]);
+    expect(removals.length).toBeGreaterThan(0);
+    for (const args of removals) expect(args.split(/\s+/), `docker rm${args}`).toContain("-v");
+    expect(code(DRILL)).toMatch(/docker run [^\n]*--rm [^\n]*--network none/);
+  });
+});
+
 describe("restore.sh refuses before it touches anything", () => {
   it("will not swap in PostgreSQL's own databases, even with --yes", () => {
     // `--swap postgres --yes` would rename the maintenance database the script itself connects to
