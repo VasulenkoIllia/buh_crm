@@ -169,6 +169,7 @@ nano ~/.config/buh_crm/backup.env
 ./scripts/backup/install.sh --user --init
 ./scripts/backup/backup.sh
 ./scripts/backup/drill.sh
+crontab -l > ~/crontab-before-backups.txt 2>/dev/null || true
 ./scripts/backup/install.sh --user --enable-timers
 docker compose exec -T app npx tsx scripts/backup-check.ts
 ```
@@ -176,7 +177,10 @@ docker compose exec -T app npx tsx scripts/backup-check.ts
 The last line of either puts the result on Settings → System → Nightly backups now, rather than at
 the next 03:50 — and it is also how a row turned red by a failed night goes green once the failure
 is put right. The scripts find their environment file by themselves: root's, or else the deploy
-user's.
+user's. Without sudo the schedule goes into that user's crontab, which on a shared server holds
+other projects' jobs too: `--enable-timers` and `--disable-timers` rewrite only the block between
+their own markers, and the copy taken just before is the way back —
+`crontab ~/crontab-before-backups.txt`.
 
 `install.sh` creates the directories, writes the environment file from
 `scripts/backup/backup.env.example`, generates the restic password — **put it in the password
