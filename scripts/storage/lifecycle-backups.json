@@ -1,0 +1,17 @@
+{
+  "Rules": [
+    {
+      "ID": "hidden-versions-after-90-days",
+      "Status": "Enabled",
+      "Prefix": "",
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 90 },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 7 }
+    },
+    {
+      "ID": "orphaned-delete-markers",
+      "Status": "Enabled",
+      "Prefix": "",
+      "Expiration": { "ExpiredObjectDeleteMarker": true }
+    }
+  ]
+}
