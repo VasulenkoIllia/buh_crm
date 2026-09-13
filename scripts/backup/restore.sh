@@ -14,9 +14,11 @@
 #   --list        what is in storage
 #   --into        the database from a snapshot, into a NEW database beside the live one. Refuses a
 #                 name that exists, and the live name itself.
-#   --files-to    the client files from a snapshot, into a directory that is missing or empty. A
-#                 file the database names but the snapshot lacks is fetched from an earlier
-#                 snapshot; files nothing names are listed, never deleted.
+#   --files-to    the client files from a snapshot, into a directory that is missing or empty —
+#                 those from the uploads directory and those from the files bucket's mirror alike,
+#                 each under its File.path. A file the database names but the snapshot lacks is
+#                 fetched from an earlier snapshot; files nothing names are listed, never deleted.
+#                 The ones the database keeps in the bucket go back there with put-back-files.sh.
 #   --swap        make <db> the live database: the app is stopped, sessions are ended, and both
 #                 names swapped in one transaction. The old one is kept as <live>_replaced_<time>.
 #   --rollback    undo a deploy: the pre-deploy dump into <live>_restore, then --swap. It prints how
@@ -164,6 +166,7 @@ SNAP=
 SNAP_AT=
 DUMP_IN=
 UPLOADS_IN=
+MIRROR_IN=
 
 resolve_snapshot() {
   local manifest
@@ -176,26 +179,32 @@ resolve_snapshot() {
   manifest=$(jq -rn 'first(inputs | select(.type == "file") | select(.path | endswith("/backup-stage/manifest.json")) | .path)' "$BK_TMP/ls.json")
   DUMP_IN=$(jq -rn 'first(inputs | select(.type == "file") | select(.path | endswith("/backup-stage/db.dump")) | .path)' "$BK_TMP/ls.json")
   [ -n "$manifest" ] && [ -n "$DUMP_IN" ] || bk_fail restore "snapshot ${SNAP:0:8} holds no database dump"
-  UPLOADS_IN=$(restic dump "$SNAP" "$manifest" | jq -r '.uploadsPath // empty')
-  [ -n "$UPLOADS_IN" ] || bk_fail restore "snapshot ${SNAP:0:8} does not say where its files were"
+  restic dump "$SNAP" "$manifest" >"$BK_TMP/manifest.json"
+  # where the files were: the uploads directory, the files bucket's mirror (backups.md §7.9), or both
+  UPLOADS_IN=$(jq -r '.uploadsPath // empty' "$BK_TMP/manifest.json")
+  MIRROR_IN=$(jq -r '.mirrorPath // empty' "$BK_TMP/manifest.json")
+  [ -n "$UPLOADS_IN$MIRROR_IN" ] || bk_fail restore "snapshot ${SNAP:0:8} does not say where its files were"
   bk_say "snapshot ${SNAP:0:8}, taken $SNAP_AT"
 }
 
 restore_files() { # <directory> <database whose File rows are the reference>
-  local dir=$1 ref_db=$2 recovered=0 older rel shown
+  local dir=$1 ref_db=$2 recovered=0 older rel shown root found
   if [ -e "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then
     bk_fail config "$dir is not empty — files are restored only into an empty or a new directory"
   fi
   mkdir -p "$dir"
   bk_say "restoring the client files into $dir"
-  restic restore "$SNAP:$UPLOADS_IN" --target "$dir" --quiet
+  # Both places into one directory, each file under its File.path: that is what a row names in either
+  # place, and no two different files share one.
+  [ -z "$UPLOADS_IN" ] || restic restore "$SNAP:$UPLOADS_IN" --target "$dir" --quiet
+  [ -z "$MIRROR_IN" ] || restic restore "$SNAP:$MIRROR_IN" --target "$dir" --quiet
 
   bk_live "$ref_db" <<<'select path from "File";' | LC_ALL=C sort -u >"$BK_TMP/want"
   (cd "$dir" && find . -type f | sed 's#^\./##' | LC_ALL=C sort -u) >"$BK_TMP/have"
   LC_ALL=C comm -13 "$BK_TMP/have" "$BK_TMP/want" >"$BK_TMP/missing"
 
   # A file deleted while the backup ran has its row in the dump and no bytes in the same snapshot
-  # (docs: backups.md §6). The snapshots before it still hold them — newest first.
+  # (docs: backups.md §6). The snapshots before it still hold them — newest first, in either place.
   if [ -s "$BK_TMP/missing" ]; then
     restic snapshots --json | jq -r --arg t "$SNAP_AT" '[.[] | select(.time < $t)] | sort_by(.time) | reverse | .[].id' >"$BK_TMP/older"
     while read -r older; do
@@ -203,15 +212,19 @@ restore_files() { # <directory> <database whose File rows are the reference>
       restic ls --json "$older" >"$BK_TMP/older.json" || continue
       : >"$BK_TMP/still"
       while read -r rel; do
-        if jq -en --arg p "$UPLOADS_IN/$rel" 'first(inputs | select(.type == "file") | select(.path == $p)) | true' "$BK_TMP/older.json" >/dev/null 2>&1; then
-          mkdir -p "$(dirname "$dir/$rel")"
-          if restic dump "$older" "$UPLOADS_IN/$rel" >"$dir/$rel"; then
-            recovered=$((recovered + 1))
-            continue
+        found=0
+        for root in "$UPLOADS_IN" "$MIRROR_IN"; do
+          [ -n "$root" ] || continue
+          if jq -en --arg p "$root/$rel" 'first(inputs | select(.type == "file") | select(.path == $p)) | true' "$BK_TMP/older.json" >/dev/null 2>&1; then
+            mkdir -p "$(dirname "$dir/$rel")"
+            if restic dump "$older" "$root/$rel" >"$dir/$rel"; then
+              found=1
+              break
+            fi
+            rm -f "$dir/$rel"
           fi
-          rm -f "$dir/$rel"
-        fi
-        echo "$rel" >>"$BK_TMP/still"
+        done
+        if [ "$found" = 1 ]; then recovered=$((recovered + 1)); else echo "$rel" >>"$BK_TMP/still"; fi
       done <"$BK_TMP/missing"
       mv "$BK_TMP/still" "$BK_TMP/missing"
     done <"$BK_TMP/older"
@@ -230,6 +243,10 @@ restore_files() { # <directory> <database whose File rows are the reference>
     shown=$(sed -n '1,50p' "$BK_TMP/orphans")
     bk_say "$(wc -l <"$BK_TMP/orphans" | tr -d ' ') files no row names — kept, for somebody to re-attach or delete:"
     printf '%s\n' "$shown" >&2
+  fi
+  if [ -n "$MIRROR_IN" ]; then
+    bk_say "the ones the database keeps in the files bucket go back there with:"
+    printf '  ./scripts/backup/put-back-files.sh %s\n' "$dir" >&2
   fi
 }
 

@@ -214,7 +214,8 @@ else
   install -d -m 0700 -o root -g root "$ETC"
 fi
 install -d -m 0755 "$STATE"
-install -d -m 0700 "$STATE/backup-stage" "$STATE/drill-scratch" "$STATE/restic-cache"
+install -d -m 0700 "$STATE/backup-stage" "$STATE/drill-scratch" "$STATE/restic-cache" \
+  "$STATE/files-mirror"
 # read by the app's container through a read-only mount — nothing secret is ever written here
 install -d -m 0755 "$STATE/backup-status"
 echo "   $ETC (0700) · $STATE/{backup-stage,drill-scratch,restic-cache} (0700) · $STATE/backup-status (0755)"

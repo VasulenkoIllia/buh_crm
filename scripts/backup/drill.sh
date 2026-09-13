@@ -8,8 +8,9 @@
 #     which migration the snapshot predates — right after a deploy that is normal, not a failure);
 #   - every table's rows within reach of the live count — no table is named: a list here is how a
 #     future table would be missed;
-#   - every file the restored database names is in the snapshot, allowing a handful deleted while
-#     the backup ran (docs: backups.md §6), and a sample restored and its size compared;
+#   - every file the restored database names is in the snapshot, where its row says it is — the
+#     uploads directory or the files bucket's mirror — allowing a handful deleted while the backup
+#     ran (docs: backups.md §6), and a sample restored and its size compared;
 #   - `restic check --read-data-subset=5%`: a sample of what is stored, downloaded and verified.
 #
 #   ./scripts/backup/drill.sh [ENV_FILE]     default: /etc/buh_crm/backup.env (root's setup), else
@@ -56,8 +57,11 @@ restic ls --json "$SNAP" >"$BK_TMP/ls.json"
 MANIFEST=$(jq -rn 'first(inputs | select(.type == "file") | select(.path | endswith("/backup-stage/manifest.json")) | .path)' "$BK_TMP/ls.json")
 DUMP=$(jq -rn 'first(inputs | select(.type == "file") | select(.path | endswith("/backup-stage/db.dump")) | .path)' "$BK_TMP/ls.json")
 [ -n "$MANIFEST" ] && [ -n "$DUMP" ] || bk_fail restore "snapshot ${SNAP:0:8} holds no database dump"
-UPLOADS=$(restic dump "$SNAP" "$MANIFEST" | jq -r '.uploadsPath // empty')
-[ -n "$UPLOADS" ] || bk_fail restore "snapshot ${SNAP:0:8} does not say where its files were"
+restic dump "$SNAP" "$MANIFEST" >"$BK_TMP/manifest.json"
+# where the files were: the uploads directory, the files bucket's mirror (backups.md §7.9), or both
+UPLOADS=$(jq -r '.uploadsPath // empty' "$BK_TMP/manifest.json")
+MIRROR=$(jq -r '.mirrorPath // empty' "$BK_TMP/manifest.json")
+[ -n "$UPLOADS$MIRROR" ] || bk_fail restore "snapshot ${SNAP:0:8} does not say where its files were"
 DUMP_BYTES=$(jq -rn --arg p "$DUMP" 'first(inputs | select(.path == $p) | .size) // 0' "$BK_TMP/ls.json")
 
 need=$(( DUMP_BYTES * 2 / 1048576 + BACKUP_MIN_FREE_MB ))
@@ -117,11 +121,19 @@ BK_REASON=files
 # server/backup-scripts.test.ts holds the two together. Read through to_jsonb, so a snapshot from
 # before the column existed is read the same way.
 ENVELOPE_BYTES=29
-FILES_SQL="select path || chr(9) || (size + case when to_jsonb(f) ->> 'wrappedKey' is null then 0 else $ENVELOPE_BYTES end) from \"File\" f;"
-drill_sql <<<"$FILES_SQL" | LC_ALL=C sort >"$BK_TMP/files.tsv"
+# Each row says where its bytes are (files.md §14.1): `s3` in the files bucket's mirror, anything
+# else — or a snapshot from before the column existed — in the uploads directory. Compared as whole
+# paths in the snapshot, `<root>/<File.path>`, with the size each should have.
+FILES_SQL="select coalesce(to_jsonb(f) ->> 'storage', 'local') || chr(9) || path || chr(9) || (size + case when to_jsonb(f) ->> 'wrappedKey' is null then 0 else $ENVELOPE_BYTES end) from \"File\" f;"
+drill_sql <<<"$FILES_SQL" |
+  awk -F '\t' -v uploads="$UPLOADS" -v mirror="$MIRROR" '{
+    root = ($1 == "s3") ? mirror : uploads
+    # a row whose place this snapshot did not keep is looked for where nothing is: it counts missing
+    if (root == "") root = "/(no " $1 " files in this snapshot)"
+    printf "%s/%s\t%s\n", root, $2, $3
+  }' | LC_ALL=C sort >"$BK_TMP/files.tsv"
 cut -f1 "$BK_TMP/files.tsv" | LC_ALL=C sort -u >"$BK_TMP/referenced"
-jq -r --arg root "$UPLOADS/" 'select(.type == "file") | select(.path | startswith($root)) | .path[($root | length):]' \
-  "$BK_TMP/ls.json" | LC_ALL=C sort -u >"$BK_TMP/in-snapshot"
+jq -r 'select(.type == "file") | .path' "$BK_TMP/ls.json" | LC_ALL=C sort -u >"$BK_TMP/in-snapshot"
 LC_ALL=C comm -23 "$BK_TMP/referenced" "$BK_TMP/in-snapshot" >"$BK_TMP/missing"
 REFERENCED=$(wc -l <"$BK_TMP/referenced" | tr -d ' ')
 MISSING=$(wc -l <"$BK_TMP/missing" | tr -d ' ')
@@ -136,10 +148,10 @@ SAMPLED=0
 awk -F '\t' 'NR == FNR { have[$0] = 1; next } ($1 in have)' "$BK_TMP/in-snapshot" "$BK_TMP/files.tsv" |
   awk 'BEGIN { srand() } { printf "%.8f\t%s\n", rand(), $0 }' | LC_ALL=C sort | cut -f2- |
   sed -n "1,${BACKUP_DRILL_SAMPLE:-5}p" >"$BK_TMP/sample.tsv"
-while IFS="$(printf '\t')" read -r rel size; do
-  [ -n "$rel" ] || continue
-  got=$(restic dump "$SNAP" "$UPLOADS/$rel" | wc -c | tr -d ' ')
-  [ "$got" = "$size" ] || bk_fail sample "$rel came back as $got bytes, $size recorded"
+while IFS="$(printf '\t')" read -r path size; do
+  [ -n "$path" ] || continue
+  got=$(restic dump "$SNAP" "$path" | wc -c | tr -d ' ')
+  [ "$got" = "$size" ] || bk_fail sample "$path came back as $got bytes, $size recorded"
   SAMPLED=$((SAMPLED + 1))
 done <"$BK_TMP/sample.tsv"
 

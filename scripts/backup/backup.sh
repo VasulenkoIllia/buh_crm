@@ -12,6 +12,10 @@
 # which nothing reports until somebody opens the document. It looks like tidying to swap the two —
 # don't.
 #
+# The client files are in the uploads directory, or — once BACKUP_FILES_REMOTE names it — in the
+# files bucket, which is mirrored into the state directory after the dump and backed up from there
+# (backups.md §7.9). While the uploads directory still exists, it is backed up as well.
+#
 # Never in the snapshot: the project's environment file (it holds SECRETS_KEY — with the dump that
 # is plaintext), the project directory, or ./data/postgres (a running database copied as files is
 # not a database; the dump is the copy). This script does not read the project's environment file
@@ -35,8 +39,18 @@ bk_start
 STAGE=$BACKUP_STATE_DIR/backup-stage
 bk_cleanup() { rm -f "$STAGE/db.dump" "$STAGE/manifest.json"; }
 
-[ -d "$BACKUP_UPLOADS_DIR" ] || bk_fail config "no uploads directory at $BACKUP_UPLOADS_DIR"
-UPLOADS=$(cd "$BACKUP_UPLOADS_DIR" && pwd)
+MIRROR=
+[ -z "$BACKUP_FILES_REMOTE" ] || MIRROR=$BACKUP_MIRROR_DIR
+[ -z "$MIRROR" ] || bk_need rclone
+# Without a mirror every file is in the uploads directory, so it has to be there. With one, the
+# directory is backed up while it exists: until it is retired, a file the move left on disk is still
+# in the copy (owner, 2026-09-14).
+UPLOADS=
+if [ -d "$BACKUP_UPLOADS_DIR" ]; then
+  UPLOADS=$(cd "$BACKUP_UPLOADS_DIR" && pwd)
+elif [ -z "$MIRROR" ]; then
+  bk_fail config "no uploads directory at $BACKUP_UPLOADS_DIR"
+fi
 
 # ── free space — the stage shares its disk with ./data/postgres ─────────────
 prev=$(bk_status_get '.snapshot.dumpBytes // 0')
@@ -60,19 +74,47 @@ docker exec -i "$BACKUP_DB_CONTAINER" pg_restore -f /dev/null <"$STAGE/db.dump"
 DUMP_BYTES=$(wc -c <"$STAGE/db.dump" | tr -d ' ')
 
 # ── 3. what a restore needs to find its way around the snapshot ─────────────
-jq -n --arg at "$(bk_now)" --arg host "$BK_HOST" --arg uploads "$UPLOADS" --arg stage "$STAGE" \
-  --argjson bytes "$DUMP_BYTES" \
-  '{schema: 1, takenAt: $at, host: $host, uploadsPath: $uploads, stagePath: $stage, dumpBytes: $bytes}' \
+jq -n --arg at "$(bk_now)" --arg host "$BK_HOST" --arg uploads "$UPLOADS" --arg mirror "$MIRROR" \
+  --arg stage "$STAGE" --argjson bytes "$DUMP_BYTES" \
+  '{schema: 1, takenAt: $at, host: $host, uploadsPath: $uploads, mirrorPath: $mirror,
+    stagePath: $stage, dumpBytes: $bytes}' \
   >"$STAGE/manifest.json"
 
-# ── 4. a lock a crashed run left behind would block every night after it ────
+# ── 4. the files bucket, mirrored — after the dump, as the files always come after it
+# `--immutable` refuses a changed object (a File.path never changes legitimately); `--max-delete`
+# lets that many deletions through and then stops. Either refusal is an alarm, not a brake: what got
+# through is in the mirror. The database is copied anyway, and the night ends red with every older
+# copy kept (files.md decision 19; owner, 2026-09-14). `--checksum` compares contents, not dates: an
+# object put back as it was carries a new date, and by date alone the mirror stayed red for ever
+# after it was right again (rehearsal, 2026-09-14).
+MIRROR_FAILED=0
+if [ -n "$MIRROR" ]; then
+  BK_REASON=mirror
+  bk_say "mirroring the files bucket"
+  mkdir -p "$MIRROR"
+  chmod 0700 "$MIRROR"
+  set +e
+  rclone sync --checksum --immutable --max-delete "$BACKUP_FILES_MAX_DELETE" \
+    "$BACKUP_FILES_REMOTE" "$MIRROR"
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    MIRROR_FAILED=1
+    bk_say "✗ the mirror stopped (rclone exit $rc) — the database is copied anyway, and the night is red"
+  fi
+fi
+
+# ── 5. a lock a crashed run left behind would block every night after it ────
 BK_REASON=restic
 restic unlock --quiet
 
-# ── 5. one snapshot: the stage (dump first, already written) and the files ──
+# ── 6. one snapshot: the stage (dump first, already written) and the files ──
 bk_say "writing the snapshot"
+SOURCES=("$STAGE")
+[ -z "$MIRROR" ] || SOURCES+=("$MIRROR")
+[ -z "$UPLOADS" ] || SOURCES+=("$UPLOADS")
 set +e
-restic backup --json --quiet --host buh-crm --retry-lock 30m "$STAGE" "$UPLOADS" \
+restic backup --json --quiet --host buh-crm --retry-lock 30m "${SOURCES[@]}" \
   >"$BK_TMP/backup.json" 2>"$BK_TMP/backup.err"
 rc=$?
 set -e
@@ -89,13 +131,13 @@ SUMMARY=$(jq -c 'select(.message_type == "summary")' "$BK_TMP/backup.json" | sed
 SNAP=$(jq -r '.snapshot_id // empty' <<<"$SUMMARY")
 [ -n "$SNAP" ] || bk_fail restic "restic reported no snapshot"
 
-# ── 6. it is really in storage ──────────────────────────────────────────────
+# ── 7. it is really in storage ──────────────────────────────────────────────
 BK_REASON=not_in_storage
 restic snapshots --json >"$BK_TMP/snapshots.json"
 jq -e --arg id "$SNAP" 'any(.[]; .id == $id)' "$BK_TMP/snapshots.json" >/dev/null ||
   bk_fail not_in_storage "the new snapshot is not listed"
 
-# ── 7. versioning still on — without it a delete destroys instead of hiding ─
+# ── 8. versioning still on — without it a delete destroys instead of hiding ─
 BK_REASON=versioning
 VERSIONING=$(bk_versioning)
 case "$VERSIONING" in
@@ -103,12 +145,17 @@ case "$VERSIONING" in
   *) bk_fail versioning "the bucket's versioning reads '$VERSIONING'" ;;
 esac
 
-# ── 8. the last seven days; `--group-by ''` so a new path can never freeze old snapshots
+# ── 9. a night whose mirror stopped ends here: its snapshot may lack files an older one holds, so
+#       none is cleared away, as after restic's exit 3
+[ "$MIRROR_FAILED" = 0 ] ||
+  bk_fail mirror "the files bucket's mirror stopped — the database is in storage, and no older copy was cleared"
+
+# ── 10. the last seven days; `--group-by ''` so a new path can never freeze old snapshots
 BK_REASON=forget
 restic forget --quiet --group-by '' --keep-daily "$BACKUP_KEEP_DAILY" --prune --max-unused 0 \
   --retry-lock 30m >&2
 
-# ── 9. what storage holds now ───────────────────────────────────────────────
+# ── 11. what storage holds now ──────────────────────────────────────────────
 BK_REASON=restic
 restic snapshots --json >"$BK_TMP/snapshots.json"
 COPIES=$(jq 'length' "$BK_TMP/snapshots.json")

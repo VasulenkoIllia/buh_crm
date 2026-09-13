@@ -124,6 +124,7 @@ const REASONS: Record<string, string> = {
   verify: "the copy of the database was damaged",
   restic: "the encrypted copy could not be written to storage",
   incomplete: "some client files could not be read",
+  mirror: "the client files could not be copied from their bucket",
   not_in_storage: "the new copy did not appear in storage",
   versioning: "the storage's version history has been switched off",
   forget: "old copies could not be cleared away",

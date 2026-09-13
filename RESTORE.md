@@ -106,6 +106,16 @@ sudo ./scripts/backup/restore.sh --files-to /tmp/files-restore
 A file the database names but the snapshot lacks — deleted while that night's backup was running —
 is fetched from an earlier snapshot. Files no database row names are listed, never deleted.
 
+Once the client files live in the files bucket, the bucket itself usually needs nothing: it keeps
+every deleted object for 30 days as a hidden version. When objects are gone from it, the ones the
+database keeps there go back from that directory. Only what the bucket lacks goes back; nothing is
+overwritten or deleted, and a file kept on disk is never uploaded. It asks for the CRM's key:
+
+```bash
+./scripts/backup/put-back-files.sh /tmp/files-restore --dry-run
+./scripts/backup/put-back-files.sh /tmp/files-restore
+```
+
 ## 5. A deploy went wrong
 
 `./scripts/deploy.sh` ends with the line that undoes it:
@@ -207,6 +217,12 @@ RESTIC_REPOSITORY=s3:https://<location>.your-objectstorage.com/<backups-bucket>/
 
 — under `restic/`, where the bucket's policy lets the backup key in.
 
+Once the client files have moved into the files bucket — never before the move has run — the same
+file gains the mirror. Uncomment the six `BACKUP_FILES_REMOTE` and `RCLONE_CONFIG_FILES_*` lines of
+the example, with the files bucket's name and location. Then run the setup again for the mirror's
+directory (`./scripts/backup/install.sh --user`, or with sudo as above), and one backup and one
+restore test by hand. The backup key reads that bucket too: its policy names it, read-only.
+
 ## 8. Tools
 
 restic 0.19.1 or later, rclone 1.60 or later, jq, flock (util-linux), curl and openssl. On Ubuntu —
@@ -280,6 +296,18 @@ sudo ./scripts/backup/backup.sh     # --user: ./scripts/backup/backup.sh
   `tail -n 100 ~/.local/state/buh_crm/backup.log` (`drill.log` for the restore test). Once the
   cause is put right, `docker compose exec -T app npx tsx scripts/backup-check.ts` turns the row
   green without waiting for the next morning.
+- **"The client files could not be copied from their bucket"** (reason `mirror`, once the files
+  live in the bucket). The database was copied anyway, and no older copy was cleared. `backup.log`
+  says which of three:
+  - _"immutable file modified"_: an object in the files bucket changed, which never happens
+    legitimately. Find out why first (Settings → Activity; who holds the CRM's key). Once the
+    bucket holds the right object again, the next night passes by itself.
+  - _"--max-delete"_ (rclone exit 7): more files left the bucket in a day than a night lets
+    through. Settings → Activity says who deleted them. If it was meant, run one backup with a
+    higher limit, `BACKUP_FILES_MAX_DELETE=5000 ./scripts/backup/backup.sh` — or raise it for one
+    night in the environment file, if that file sets it.
+  - access or network errors: the backup key cannot read the files bucket. It must be the key the
+    bucket's policy names (`setup-bucket.sh --files`, §10).
 - **restic exits 11** — the repository is locked by a run that crashed. Every night unlocks it by
   itself; before a command by hand: `sudo sh -c 'set -a; . /etc/buh_crm/backup.env; restic unlock'`
   (without sudo: `sh -c 'set -a; . ~/.config/buh_crm/backup.env; restic unlock'`).

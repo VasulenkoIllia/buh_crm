@@ -440,6 +440,12 @@ exit 0
   rclone: `#!/usr/bin/env bash
 echo "rclone $*" >>"$STUB_LOG"
 if [ "$1 $2" = "backend versioning" ]; then printf '"%s"\\n' "\${STUB_VERSIONING:-Enabled}"; exit 0; fi
+if [ "$1" = sync ]; then
+  # the mirror: something lands in the destination, the last argument
+  for last; do :; done
+  mkdir -p "$last/2026-09" && printf 'an object' >"$last/2026-09/an-object"
+  exit "\${STUB_SYNC_EXIT:-0}"
+fi
 exit 1
 `,
 };
@@ -649,5 +655,94 @@ describe("backup.sh, night by night", () => {
     } finally {
       holder.kill();
     }
+  });
+
+  it("with a bucket, mirrors it after the dump and backs up the mirror beside the stage", () => {
+    const n = night({ env: { BACKUP_FILES_REMOTE: "files:a-bucket" } });
+    expect(n.code, n.stderr).toBe(0);
+    const mirror = join(n.state, "files-mirror");
+    expect(n.calls).toContain(
+      `rclone sync --checksum --immutable --max-delete 1000 files:a-bucket ${mirror}`,
+    );
+    // the dump first, then the files — here, the mirror
+    expect(n.calls.indexOf("pg_dump")).toBeLessThan(n.calls.indexOf("rclone sync"));
+    expect(n.calls.indexOf("rclone sync")).toBeLessThan(n.calls.indexOf("restic backup"));
+    // and the uploads directory too, while it exists (owner, 2026-09-14)
+    expect(n.calls).toMatch(
+      /restic backup .* \S+\/backup-stage \S+\/files-mirror \S+\/uploads\n/,
+    );
+    expect(statSync(mirror).mode & 0o777).toBe(0o700);
+    expect(n.status).toMatchObject({ ok: true, reason: null });
+  });
+
+  it("a mirror that stops still puts the database in storage, keeps every old copy, and is red", () => {
+    const n = night({
+      env: { BACKUP_FILES_REMOTE: "files:a-bucket" },
+      stub: { STUB_SYNC_EXIT: "7" },
+    });
+    expect(n.code).not.toBe(0);
+    expect(n.status).toMatchObject({ ok: false, reason: "mirror" });
+    // files.md decision 19: the database is copied anyway, and confirmed in storage
+    expect(n.calls).toMatch(/restic backup .* \S+\/backup-stage /);
+    expect(n.calls).toContain("restic snapshots");
+    // and nothing older is cleared away after a night that may lack files (owner, 2026-09-14)
+    expect(n.calls).not.toContain("restic forget");
+  });
+
+  it("with a bucket, an uploads directory that is gone is no failure — it has been retired", () => {
+    const n = night({
+      env: {
+        BACKUP_FILES_REMOTE: "files:a-bucket",
+        BACKUP_UPLOADS_DIR: "/nonexistent/uploads-for-tests",
+      },
+    });
+    expect(n.code, n.stderr).toBe(0);
+    expect(n.calls).toMatch(/restic backup .* \S+\/backup-stage \S+\/files-mirror\n/);
+  });
+});
+
+describe("the files bucket, in the backups", () => {
+  it("lets through at least three nights of the purge's deletions before the mirror stops", () => {
+    // files.md §9: the nightly purge (stage B) removes at most 300 files, so ordinary disposal never
+    // trips --max-delete, while a mass deletion does within a night — N ≥ 3 × P
+    const NIGHTLY_PURGE_LIMIT = 300;
+    const fromLib = Number(/BACKUP_FILES_MAX_DELETE:-(\d+)/.exec(read(LIB))?.[1]);
+    const fromExample = Number(
+      /BACKUP_FILES_MAX_DELETE=(\d+)/.exec(read("scripts/backup/backup.env.example"))?.[1],
+    );
+    for (const n of [fromLib, fromExample]) {
+      expect(n).toBeGreaterThanOrEqual(3 * NIGHTLY_PURGE_LIMIT);
+    }
+  });
+
+  it("never reads the CRM's own settings: the two families of keys never meet", () => {
+    for (const file of SHELL) expect(code(file), file).not.toContain("FILES_S3_");
+  });
+
+  it("puts files back without overwriting, deleting, or uploading one kept on disk", () => {
+    const putBack = code("scripts/backup/put-back-files.sh");
+    expect(putBack).toContain("--ignore-existing");
+    expect(putBack).toContain("RCLONE_CONFIG_PUTBACK_ENV_AUTH=false");
+    expect(putBack).toContain(`where storage = 's3'`);
+    expect(putBack).toMatch(/read -rs key_secret/);
+    expect(putBack).not.toMatch(/rclone (sync|delete|deletefile|purge|move)\b/);
+  });
+
+  it("looks for each restored file where its row says it is", () => {
+    expect(code(DRILL)).toContain(`coalesce(to_jsonb(f) ->> 'storage', 'local')`);
+    for (const file of [DRILL, RESTORE]) expect(code(file), file).toContain(".mirrorPath");
+  });
+
+  it("has a sentence in the CRM for every reason a night or a restore test can report", () => {
+    const sentences = read("server/core/backup-status.ts");
+    const reasons = new Set<string>();
+    for (const file of [BACKUP, DRILL, LIB]) {
+      for (const m of code(file).matchAll(/\bbk_fail ([a-z_]+)|\bBK_REASON=([a-z_]+)/g)) {
+        reasons.add((m[1] ?? m[2])!);
+      }
+    }
+    expect(reasons.size).toBeGreaterThan(10);
+    const unsaid = [...reasons].filter((r) => !new RegExp(`^\\s+${r}:`, "m").test(sentences));
+    expect(unsaid).toEqual([]);
   });
 });

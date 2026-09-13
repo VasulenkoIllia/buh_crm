@@ -108,6 +108,14 @@ bk_defaults() {
   [[ $BACKUP_KEEP_DAILY =~ ^[1-9][0-9]*$ ]] || bk_fail config "BACKUP_KEEP_DAILY must be a whole number"
   [[ $BACKUP_MIN_FREE_MB =~ ^[0-9]+$ ]] || bk_fail config "BACKUP_MIN_FREE_MB must be a whole number"
   BACKUP_RCLONE_REMOTE=${BACKUP_RCLONE_REMOTE:-store}
+  # The files bucket's mirror (backups.md §7.9, files.md §15.0): off until the environment file names
+  # the bucket as an rclone path — `files:<bucket>` on the server, a directory on a laptop. A fixed
+  # directory under the state, since restic groups snapshots by path, refreshed in place each night.
+  BACKUP_FILES_REMOTE=${BACKUP_FILES_REMOTE:-}
+  BACKUP_FILES_MAX_DELETE=${BACKUP_FILES_MAX_DELETE:-1000}
+  [[ $BACKUP_FILES_MAX_DELETE =~ ^[1-9][0-9]*$ ]] ||
+    bk_fail config "BACKUP_FILES_MAX_DELETE must be a whole number"
+  BACKUP_MIRROR_DIR=$BACKUP_STATE_DIR/files-mirror
   export RESTIC_CACHE_DIR=${RESTIC_CACHE_DIR:-$BACKUP_STATE_DIR/restic-cache}
   # tolerated: a rollback run by the deploy user needs none of it, and could not create it
   mkdir -p "$BACKUP_STATE_DIR" 2>/dev/null || true
