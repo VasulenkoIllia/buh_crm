@@ -112,7 +112,13 @@ short=$(LC_ALL=C join -t "$(printf '\t')" "$BK_TMP/live.tsv" "$BK_TMP/back.tsv" 
 
 # ── every file the database names ────────────────────────────────────────────
 BK_REASON=files
-drill_sql <<<'select path || chr(9) || size from "File";' | LC_ALL=C sort >"$BK_TMP/files.tsv"
+# An encrypted file (S17 stage A) is stored this many bytes over the size its row records: the
+# format byte, the IV and the tag — ENVELOPE_OVERHEAD in server/core/files.ts, and
+# server/backup-scripts.test.ts holds the two together. Read through to_jsonb, so a snapshot from
+# before the column existed is read the same way.
+ENVELOPE_BYTES=29
+FILES_SQL="select path || chr(9) || (size + case when to_jsonb(f) ->> 'wrappedKey' is null then 0 else $ENVELOPE_BYTES end) from \"File\" f;"
+drill_sql <<<"$FILES_SQL" | LC_ALL=C sort >"$BK_TMP/files.tsv"
 cut -f1 "$BK_TMP/files.tsv" | LC_ALL=C sort -u >"$BK_TMP/referenced"
 jq -r --arg root "$UPLOADS/" 'select(.type == "file") | select(.path | startswith($root)) | .path[($root | length):]' \
   "$BK_TMP/ls.json" | LC_ALL=C sort -u >"$BK_TMP/in-snapshot"

@@ -29,6 +29,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadConfig } from "./core/config.js";
+import { ENVELOPE_OVERHEAD } from "./core/files.js";
 
 const read = (p: string) => readFileSync(p, "utf8");
 /** the lines a shell runs — comments are where the rules are explained, and may name anything */
@@ -103,6 +104,18 @@ describe("the restore test's throwaway database", () => {
     expect(removals.length).toBeGreaterThan(0);
     for (const args of removals) expect(args.split(/\s+/), `docker rm${args}`).toContain("-v");
     expect(code(DRILL)).toMatch(/docker run [^\n]*--rm [^\n]*--network none/);
+  });
+});
+
+describe("the restore test's size check", () => {
+  it("expects an encrypted file exactly the envelope over the size its row records", () => {
+    // S17 stage A: a stored file is its ciphertext plus the format byte, the IV and the tag. If the
+    // drill's number and core/files.ts ever part, every restore test fails its sample — or passes a
+    // file cut short by exactly the difference.
+    const bytes = code(DRILL).match(/^ENVELOPE_BYTES=(\d+)$/m)?.[1];
+    expect(Number(bytes)).toBe(ENVELOPE_OVERHEAD);
+    // through to_jsonb, so a snapshot from before the column existed is read the same way
+    expect(code(DRILL)).toContain("to_jsonb(f) ->> 'wrappedKey'");
   });
 });
 
