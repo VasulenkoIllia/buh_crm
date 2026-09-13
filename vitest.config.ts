@@ -1,5 +1,6 @@
 import { defineConfig } from "vitest/config";
 import { fileURLToPath } from "node:url";
+import { TEST_UPLOADS_DIR } from "./server/test/paths.js";
 
 export default defineConfig({
   resolve: {
@@ -22,6 +23,8 @@ export default defineConfig({
       // a fixed key so the secrets suite is deterministic; the real one lives in .env / the server
       SECRETS_KEY: "dGVzdC1zZWNyZXRzLWtleS0zMi1ieXRlcy1sb25nISE=",
       LOG_LEVEL: "silent",
+      // the suite's own uploads directory, never the repository's ./uploads (server/test/paths.ts)
+      UPLOADS_DIR: TEST_UPLOADS_DIR,
     },
   },
 });
