@@ -30,7 +30,7 @@ Specs, design and the dev plan are kept in internal docs, not in this repository
 
 ## Stack
 
-- **Backend:** Node 20 · TypeScript · Fastify · Prisma · PostgreSQL 16 · Zod (shared schemas) · cookie sessions (a week idle, a month at most) + Argon2 · optional TOTP two-factor sign-in.
+- **Backend:** Node 24 · TypeScript · Fastify · Prisma · PostgreSQL 16 · Zod (shared schemas) · cookie sessions (a week idle, a month at most) + Argon2 · optional TOTP two-factor sign-in.
 - **Frontend:** React 19 · Vite · Tailwind · shadcn/ui · TanStack Query/Table · dnd-kit · React Hook Form.
 - **Infra:** Docker Compose — one `app` container serving the API _and_ the built SPA, plus `db`,
   behind Traefik. Migrations run on container start. Dev email via Mailpit.
