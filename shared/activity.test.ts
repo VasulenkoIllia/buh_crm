@@ -109,8 +109,9 @@ describe("the activity registry", () => {
     // run of the whole suite found leaving only bare rows — the timer's start and stop, a job's
     // checklist, a client's own unsubscribe, a priority's rename and its order, the catalog's
     // order (2026-09-10); and the seven of two-factor sign-in — on, off, an admin's reset, new
-    // recovery codes, a recovery code used, a failed second factor, the firm's rule (2026-09-12)
-    expect(ACTIVITY_KEYS.length).toBe(163);
+    // recovery codes, a recovery code used, a failed second factor, the firm's rule (2026-09-12);
+    // and the move of the files kept on disk into the files bucket (2026-09-14)
+    expect(ACTIVITY_KEYS.length).toBe(164);
     // the checklist is empty because the pass is finished — not because it was abandoned
     expect(PLANNED_EVENT_KEYS).toEqual([]);
   });

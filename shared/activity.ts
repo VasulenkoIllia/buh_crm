@@ -993,6 +993,21 @@ const EVENTS = {
     changeKeys: ["removed", "bytes"],
     enabledByDefault: true,
   },
+  /**
+   * Stage A's move of the files kept on disk into the files bucket (files.md §15.0). A summary, one
+   * row a run that moved or failed something: each file is the same document in a new place, and
+   * its own row says where.
+   */
+  "file.bytes_moved": {
+    subject: "file",
+    title: "Files were moved into the files bucket",
+    when: "`scripts/move-files-to-bucket.ts` copies files from disk into the bucket",
+    granularity: "summary",
+    actorKinds: ["system"],
+    retention: "long",
+    changeKeys: ["moved", "bytes", "failed"],
+    enabledByDefault: true,
+  },
   "file.deleted": {
     subject: "file",
     title: "{actor} deleted {subject}",

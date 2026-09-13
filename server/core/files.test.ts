@@ -2,80 +2,17 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  DeleteObjectCommand,
-  GetObjectCommand,
-  ListObjectsV2Command,
-  PutObjectCommand,
-  type S3Client,
-} from "@aws-sdk/client-s3";
+import { ListObjectsV2Command, PutObjectCommand } from "@aws-sdk/client-s3";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { fakeBucket } from "../test/fake-bucket.js";
 import { ValidationError } from "./errors.js";
 import {
   ENVELOPE_OVERHEAD,
   MAX_FILE_SIZE,
   createFileStore,
   localStore,
-  s3Store,
   type ByteStore,
 } from "./files.js";
-
-/** A bucket in memory: it answers the four commands core/files.ts sends, and remembers them. */
-function fakeBucket() {
-  const objects = new Map<string, Buffer>();
-  const sent: unknown[] = [];
-  const reads: string[] = []; // bodies read into memory
-  const destroyed: string[] = []; // bodies dropped unread
-  const client = {
-    async send(command: unknown) {
-      sent.push(command);
-      if (command instanceof PutObjectCommand) {
-        objects.set(command.input.Key!, Buffer.from(command.input.Body as Buffer));
-        return {};
-      }
-      if (command instanceof GetObjectCommand) {
-        const bytes = objects.get(command.input.Key!);
-        if (!bytes) throw Object.assign(new Error("NoSuchKey"), { name: "NoSuchKey" });
-        const key = command.input.Key!;
-        return {
-          ContentLength: bytes.length,
-          Body: {
-            transformToByteArray: async () => {
-              reads.push(key);
-              return new Uint8Array(bytes);
-            },
-            destroy: () => destroyed.push(key),
-          },
-        };
-      }
-      if (command instanceof DeleteObjectCommand) {
-        objects.delete(command.input.Key!);
-        return {};
-      }
-      if (command instanceof ListObjectsV2Command) {
-        // two keys a page, so a listing has to follow the continuation token
-        const keys = [...objects.keys()].sort();
-        const start = Number(command.input.ContinuationToken ?? 0);
-        const next = start + 2 < keys.length ? String(start + 2) : undefined;
-        return {
-          Contents: keys
-            .slice(start, start + 2)
-            .map((Key) => ({ Key, Size: objects.get(Key)!.length })),
-          IsTruncated: next !== undefined,
-          NextContinuationToken: next,
-        };
-      }
-      throw new Error("the fake bucket does not know this command");
-    },
-  };
-  return {
-    objects,
-    sent,
-    reads,
-    destroyed,
-    store: s3Store(client as unknown as S3Client, "files-bucket"),
-  };
-}
 
 async function keysOf(store: ByteStore) {
   const keys: string[] = [];

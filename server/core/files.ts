@@ -1,4 +1,10 @@
-import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from "node:crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomBytes,
+  randomUUID,
+} from "node:crypto";
 import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import {
@@ -47,6 +53,11 @@ export interface FileBytes {
   storage: FileStorage;
   wrappedKey: Uint8Array | null;
   keyVersion: number | null;
+}
+
+/** What moving a file into the bucket needs from its row (files.md §15.0). */
+export interface MovableFile extends FileBytes {
+  createdAt: Date;
 }
 
 /** One place that keeps bytes under a key, a directory or a bucket. It knows nothing of encryption. */
@@ -291,6 +302,69 @@ export function createFileStore(
     },
 
     /**
+     * Copies a file kept on disk into the bucket, and proves the copy before anything points at it
+     * (files.md §15.0): read back from the bucket, opened, and compared with the file itself by
+     * SHA-256. A file stored before encryption is sealed on the way, with a key of its own; an
+     * encrypted one travels as it is. The result is what its row says from then on. Changing the
+     * row is the caller's, and the file on disk stays until the directory is retired.
+     *
+     * The object gets the key a new file would, `YYYY-MM/<the row's id>`: an old path carried the
+     * file's extension, and an object's name should say nothing of what it holds.
+     */
+    async copyToBucket(file: MovableFile): Promise<StoredFile> {
+      if (file.storage !== "local") throw new Error(`File ${file.id} is not on disk`);
+      const bucket = storeFor("s3");
+      const onDisk = await stores.local.get(file.path, MAX_FILE_SIZE + ENVELOPE_OVERHEAD);
+
+      let plain: Buffer;
+      let sealed: { object: Buffer; wrappedKey: Uint8Array<ArrayBuffer>; keyVersion: number };
+      if (file.wrappedKey === null) {
+        if (!secretsConfigured()) {
+          throw unavailable(
+            "Files cannot be moved: SECRETS_KEY is not configured on this server",
+          );
+        }
+        plain = onDisk;
+        sealed = seal(onDisk, file.id);
+      } else {
+        if (file.keyVersion === null) {
+          throw new Error(`File ${file.id}: a sealed key without its version`);
+        }
+        // opened here as well: a copy is only ever made of a file that still opens
+        plain = unseal(onDisk, file.id, file.wrappedKey, file.keyVersion);
+        sealed = {
+          object: onDisk,
+          wrappedKey: Buffer.from(file.wrappedKey),
+          keyVersion: file.keyVersion,
+        };
+      }
+      const path = file.path.endsWith(`/${file.id}`)
+        ? file.path
+        : `${file.createdAt.toISOString().slice(0, 7)}/${file.id}`;
+
+      const digest = (bytes: Buffer) => createHash("sha256").update(bytes).digest();
+      await bucket.put(path, sealed.object);
+      try {
+        const back = await bucket.get(path, MAX_FILE_SIZE + ENVELOPE_OVERHEAD);
+        const opened = unseal(back, file.id, sealed.wrappedKey, sealed.keyVersion);
+        if (!digest(opened).equals(digest(plain))) {
+          throw new Error(`File ${file.id}: the copy in the bucket is not the file on disk`);
+        }
+      } catch (err) {
+        // nothing points at a copy that failed its proof; removing it is best effort
+        await bucket.delete(path).catch(() => {});
+        throw err;
+      }
+      return {
+        id: file.id,
+        path,
+        storage: "s3",
+        wrappedKey: sealed.wrappedKey,
+        keyVersion: sealed.keyVersion,
+      };
+    },
+
+    /**
      * Clears a file nothing points at any more: a replaced logo or avatar, a removed letterhead.
      * Best effort, because the act that freed it has already happened, and a store that refuses
      * must neither undo that nor skip its record. The bytes go first, so a failure leaves a row
@@ -326,6 +400,8 @@ export const deleteStoredFile = (file: Pick<FileBytes, "path" | "storage">) =>
   files.remove(file);
 export const listStoredFiles = (storage: FileStorage) => files.list(storage);
 export const storageConfigured = (storage: FileStorage) => files.has(storage);
+export const copyFileToBucket = (file: MovableFile) => files.copyToBucket(file);
+export type FileStore = ReturnType<typeof createFileStore>;
 export const discardFile = (
   file: FileBytes,
   deleteRow: (id: string) => Promise<unknown>,
