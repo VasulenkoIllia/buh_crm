@@ -15,89 +15,141 @@ function isRealTimezone(tz: string): boolean {
   }
 }
 
-const envSchema = z.object({
-  APP_NAME: z.string().default("buh_crm"),
-  APP_DOMAIN: z.string().default("localhost"),
-  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  PORT: z.coerce.number().int().positive().default(3000),
+const envSchema = z
+  .object({
+    APP_NAME: z.string().default("buh_crm"),
+    APP_DOMAIN: z.string().default("localhost"),
+    NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+    PORT: z.coerce.number().int().positive().default(3000),
+    /**
+     * The FIRM's timezone — the single answer to "what day is it" for the whole product: the
+     * scheduler's sweeps, every business date, and the hours the calendar draws.
+     *
+     * An IANA name, not an abbreviation. "EST" is a fixed −05:00 with no daylight saving, so from
+     * March to November it drifts an hour from every clock around it; "America/New_York" is the
+     * thing people mean when they say EST and moves with the season on its own.
+     *
+     * Validated rather than trusted: a typo here would not throw, it would silently make the whole
+     * app fall back to UTC and quietly shift every deadline and sweep.
+     */
+    TZ: z
+      .string()
+      .default("America/New_York")
+      .refine(isRealTimezone, "Not a known IANA timezone (e.g. America/New_York, Europe/Kyiv)"),
+    LOG_LEVEL: z.string().default("info"),
+
+    /**
+     * **How many proxies sit in front of this app** — and therefore which entry in
+     * `X-Forwarded-For` is the actual person.
+     *
+     * `trustProxy: true` trusts the whole chain, which means the LEFTMOST value wins, and that value
+     * is whatever the client typed into the header. Harmless while the only reader was the rate
+     * limiter; not harmless once every sign-in and every mutation stores an address that a person
+     * will later be asked to account for (activity-log.md §13 A1).
+     *
+     * Two in production: Cloudflare is proxied (docs/deployment.md §34) and Traefik terminates TLS
+     * behind it, so the app is two hops from the client. It is an env var rather than a literal
+     * because that is a deployment fact, not a code fact — turning Cloudflare to DNS-only makes it
+     * one, and an IP recorded under the wrong count is a lie that looks exactly like data.
+     */
+    TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(10).default(2),
+
+    /**
+     * The build this container is running, and who put it there. Both are set by
+     * `scripts/deploy.sh`; both are absent in dev, where "the version" is whatever is checked out.
+     * Read once at boot to record `system.started`, and to notice a deploy by the version changing.
+     */
+    APP_VERSION: z.string().default(""),
+    DEPLOY_BY: z.string().default(""),
+
+    DATABASE_URL: z.string().min(1),
+    SESSION_SECRET: z.string().min(16),
+
+    SMTP_HOST: z.string().default("localhost"),
+    SMTP_PORT: z.coerce.number().int().positive().default(1025),
+    SMTP_SECURE: boolFromString,
+    SMTP_USER: z.string().default(""),
+    SMTP_PASS: z.string().default(""),
+    MAIL_FROM: z.string().default("crm@localhost"),
+
+    UPLOADS_DIR: z.string().default("uploads"),
+
+    /**
+     * Where NEW files go: `local` (UPLOADS_DIR) or `s3` (the files bucket). Each File row records
+     * where its own bytes are, so switching this moves nothing and strands nothing; existing files
+     * move with their own script (files.md §15.0). Every file is encrypted either way (§14.4).
+     *
+     * The bucket's settings are read whenever they are present, not only with `s3`, so a row already
+     * in the bucket stays readable if this is ever set back to `local`. The contract is
+     * backups-hardening.md §7.8; the key comes from the Hetzner project `buhcrm-app`, never the
+     * backup's.
+     */
+    FILES_STORAGE: z.enum(["local", "s3"]).default("local"),
+    // empty means unset, like every other line of .env; its shape is checked with s3 (below)
+    FILES_S3_ENDPOINT: z.string().optional(),
+    FILES_S3_REGION: z.string().optional(),
+    FILES_S3_BUCKET: z.string().optional(),
+    FILES_S3_ACCESS_KEY_ID: z.string().optional(),
+    FILES_S3_SECRET_ACCESS_KEY: z.string().optional(),
+    FILES_S3_FORCE_PATH_STYLE: boolFromString,
+
+    /**
+     * Where the host's backup scripts leave their status — read, never written, by this app.
+     * Resolved against the working directory like UPLOADS_DIR, which in the container lands on the
+     * read-only mount of the host's /var/lib/buh_crm/backup-status (docker-compose.yml). Defaulted
+     * rather than optional: a production watchdog that switched itself off because a variable was
+     * left out would be the very silence it exists to catch. With nothing there, development stays
+     * quiet and production turns red (core/backup-status.ts).
+     */
+    BACKUP_STATUS_DIR: z.string().default("backup-status"),
+
+    /**
+     * AES-256-GCM key for client secrets, base64, 32 bytes. DELIBERATELY OPTIONAL: making it
+     * required would stop an already-running server from booting the moment this code ships, before
+     * anyone had a chance to add the key. Without it the Secrets tab says so and refuses to store
+     * anything — a clear "not configured" beats a container that won't start.
+     *   openssl rand -base64 32
+     */
+    SECRETS_KEY: z.string().optional(),
+
+    // First-admin bootstrap (used on a fresh server when no users exist yet).
+    BOOTSTRAP_ADMIN_EMAIL: z.string().optional(),
+    BOOTSTRAP_ADMIN_PASSWORD: z.string().optional(),
+    BOOTSTRAP_ADMIN_FIRST_NAME: z.string().default("Admin"),
+    BOOTSTRAP_ADMIN_LAST_NAME: z.string().default("User"),
+  })
   /**
-   * The FIRM's timezone — the single answer to "what day is it" for the whole product: the
-   * scheduler's sweeps, every business date, and the hours the calendar draws.
-   *
-   * An IANA name, not an abbreviation. "EST" is a fixed −05:00 with no daylight saving, so from
-   * March to November it drifts an hour from every clock around it; "America/New_York" is the
-   * thing people mean when they say EST and moves with the season on its own.
-   *
-   * Validated rather than trusted: a typo here would not throw, it would silently make the whole
-   * app fall back to UTC and quietly shift every deadline and sweep.
+   * The bucket needs all of its settings, and SECRETS_KEY with them: every file is encrypted with
+   * it (files.md §14.4), so a bucket without the key would refuse every upload. Refused at boot
+   * rather than at the first upload, because FILES_STORAGE=s3 is only ever set on purpose.
    */
-  TZ: z
-    .string()
-    .default("America/New_York")
-    .refine(isRealTimezone, "Not a known IANA timezone (e.g. America/New_York, Europe/Kyiv)"),
-  LOG_LEVEL: z.string().default("info"),
-
-  /**
-   * **How many proxies sit in front of this app** — and therefore which entry in
-   * `X-Forwarded-For` is the actual person.
-   *
-   * `trustProxy: true` trusts the whole chain, which means the LEFTMOST value wins, and that value
-   * is whatever the client typed into the header. Harmless while the only reader was the rate
-   * limiter; not harmless once every sign-in and every mutation stores an address that a person
-   * will later be asked to account for (activity-log.md §13 A1).
-   *
-   * Two in production: Cloudflare is proxied (docs/deployment.md §34) and Traefik terminates TLS
-   * behind it, so the app is two hops from the client. It is an env var rather than a literal
-   * because that is a deployment fact, not a code fact — turning Cloudflare to DNS-only makes it
-   * one, and an IP recorded under the wrong count is a lie that looks exactly like data.
-   */
-  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(10).default(2),
-
-  /**
-   * The build this container is running, and who put it there. Both are set by
-   * `scripts/deploy.sh`; both are absent in dev, where "the version" is whatever is checked out.
-   * Read once at boot to record `system.started`, and to notice a deploy by the version changing.
-   */
-  APP_VERSION: z.string().default(""),
-  DEPLOY_BY: z.string().default(""),
-
-  DATABASE_URL: z.string().min(1),
-  SESSION_SECRET: z.string().min(16),
-
-  SMTP_HOST: z.string().default("localhost"),
-  SMTP_PORT: z.coerce.number().int().positive().default(1025),
-  SMTP_SECURE: boolFromString,
-  SMTP_USER: z.string().default(""),
-  SMTP_PASS: z.string().default(""),
-  MAIL_FROM: z.string().default("crm@localhost"),
-
-  UPLOADS_DIR: z.string().default("uploads"),
-
-  /**
-   * Where the host's backup scripts leave their status — read, never written, by this app.
-   * Resolved against the working directory like UPLOADS_DIR, which in the container lands on the
-   * read-only mount of the host's /var/lib/buh_crm/backup-status (docker-compose.yml). Defaulted
-   * rather than optional: a production watchdog that switched itself off because a variable was
-   * left out would be the very silence it exists to catch. With nothing there, development stays
-   * quiet and production turns red (core/backup-status.ts).
-   */
-  BACKUP_STATUS_DIR: z.string().default("backup-status"),
-
-  /**
-   * AES-256-GCM key for client secrets, base64, 32 bytes. DELIBERATELY OPTIONAL: making it
-   * required would stop an already-running server from booting the moment this code ships, before
-   * anyone had a chance to add the key. Without it the Secrets tab says so and refuses to store
-   * anything — a clear "not configured" beats a container that won't start.
-   *   openssl rand -base64 32
-   */
-  SECRETS_KEY: z.string().optional(),
-
-  // First-admin bootstrap (used on a fresh server when no users exist yet).
-  BOOTSTRAP_ADMIN_EMAIL: z.string().optional(),
-  BOOTSTRAP_ADMIN_PASSWORD: z.string().optional(),
-  BOOTSTRAP_ADMIN_FIRST_NAME: z.string().default("Admin"),
-  BOOTSTRAP_ADMIN_LAST_NAME: z.string().default("User"),
-});
+  .superRefine((env, ctx) => {
+    if (env.FILES_STORAGE !== "s3") return;
+    const needed = [
+      "FILES_S3_ENDPOINT",
+      "FILES_S3_REGION",
+      "FILES_S3_BUCKET",
+      "FILES_S3_ACCESS_KEY_ID",
+      "FILES_S3_SECRET_ACCESS_KEY",
+      "SECRETS_KEY",
+    ] as const;
+    for (const name of needed) {
+      if (!env[name]) {
+        ctx.addIssue({
+          code: "custom",
+          path: [name],
+          message: "required when FILES_STORAGE=s3",
+        });
+      }
+    }
+    if (env.FILES_S3_ENDPOINT && !URL.canParse(env.FILES_S3_ENDPOINT)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["FILES_S3_ENDPOINT"],
+        message: "must be a URL, e.g. https://fsn1.your-objectstorage.com",
+      });
+    }
+  });
 
 export type Config = z.infer<typeof envSchema>;
 
@@ -110,6 +162,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error(`Invalid environment: ${issues}`);
   }
   return parsed.data;
+}
+
+/**
+ * Backup credentials that reached the app's own environment (backups-hardening.md §7.8).
+ * `env_file: .env` hands the whole file to the container, and the AWS SDK behind the files bucket
+ * reads some of these names on its own, so a restic or rclone key pasted into `.env` would reach
+ * code that must never hold one. `server.ts` logs them at boot.
+ */
+export function strayBackupVariables(env: NodeJS.ProcessEnv = process.env): string[] {
+  return Object.keys(env)
+    .filter((name) => /^(AWS_|RESTIC_|RCLONE_|B2_)/.test(name))
+    .sort();
 }
 
 export const config = loadConfig();

@@ -1,5 +1,6 @@
 import type { Prisma, UserRole } from "../../generated/prisma/client.js";
 import { prisma } from "../../core/db.js";
+import type { StoredFile } from "../../core/files.js";
 
 export function listUsers() {
   return prisma.user.findMany({
@@ -52,13 +53,9 @@ export function invalidateInviteTokens(userId: string) {
   });
 }
 
-export function createFileRow(data: {
-  name: string;
-  size: number;
-  mime: string;
-  path: string;
-  uploadedById: string;
-}) {
+export function createFileRow(
+  data: StoredFile & { name: string; size: number; mime: string; uploadedById: string },
+) {
   return prisma.file.create({ data });
 }
 

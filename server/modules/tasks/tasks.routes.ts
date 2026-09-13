@@ -19,7 +19,7 @@ import {
   updateTimeEntryInput,
 } from "@shared/schema/task.js";
 import { gate, own, shared } from "../../core/access.js";
-import { readFileStream } from "../../core/files.js";
+import { readStoredFile } from "../../core/files.js";
 import { ValidationError } from "../../core/errors.js";
 import * as service from "./tasks.service.js";
 
@@ -254,7 +254,7 @@ export async function registerRoutes(instance: FastifyInstance) {
         "Content-Disposition",
         `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
       );
-      return reply.send(readFileStream(file.path));
+      return reply.send(await readStoredFile(file));
     },
   );
 

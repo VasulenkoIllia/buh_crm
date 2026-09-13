@@ -31,7 +31,7 @@ import {
 } from "../payments/index.js";
 import { countUpcomingMeetingsForClient } from "../meetings/index.js";
 import { countOpenTasksForClient, generateForSubscription } from "../tasks/index.js";
-import { MAX_FILE_SIZE, deleteFileBytes, saveFileBytes } from "../../core/files.js";
+import { MAX_FILE_SIZE, deleteStoredFile, storeFile } from "../../core/files.js";
 import { clientLabel } from "../../core/names.js";
 import { diff, labelOf, record } from "../../core/activity.js";
 import * as repo from "./clients.repository.js";
@@ -1078,13 +1078,13 @@ export async function addFile(
   if (file.buffer.byteLength > MAX_FILE_SIZE) {
     throw new ValidationError("File must be 25 MB or smaller");
   }
-  const relPath = await saveFileBytes(file.buffer, file.filename);
+  const stored = await storeFile(file.buffer);
   const row = await repo.createClientFile({
+    ...stored,
     clientId,
     name: file.filename,
     size: file.buffer.byteLength,
     mime: file.mimetype,
-    path: relPath,
     uploadedById: actor.id,
   });
   // a file is never "created" — the verb is reserved for bytes (§4.1), and `attachedTo` is what
@@ -1117,8 +1117,10 @@ export async function removeFile(clientId: string, fileId: string) {
   const client = await getClient(clientId); // 404s archived/missing clients
   const file = await repo.findClientFile(clientId, fileId);
   if (!file) throw new NotFoundError("File not found");
+  // the bytes first: if their store refuses, nothing has changed and the delete can simply be
+  // tried again — not a row gone, bytes left behind and no record of either
+  await deleteStoredFile(file);
   await repo.deleteFileRow(file.id);
-  await deleteFileBytes(file.path);
   // `long` retention: this is a disposal record, and §11 keeps those seven years because they are
   // the evidence that the disposal happened
   record("file.deleted", {

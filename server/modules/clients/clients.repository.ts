@@ -2,6 +2,7 @@ import type { ClientListQuery } from "@shared/schema/client.js";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { notEndedWhere } from "../../core/coverage.js";
 import { prisma } from "../../core/db.js";
+import type { StoredFile } from "../../core/files.js";
 
 const clientInclude = {
   companies: { orderBy: { order: "asc" } },
@@ -601,14 +602,16 @@ export function countClientFiles(clientId: string) {
   return prisma.file.count({ where: { clientId } });
 }
 
-export function createClientFile(data: {
-  clientId: string;
-  name: string;
-  size: number;
-  mime: string;
-  path: string;
-  uploadedById: string;
-}) {
+/** `StoredFile` is what `core/files.ts` returned: the row's id, where its bytes are, their key. */
+export function createClientFile(
+  data: StoredFile & {
+    clientId: string;
+    name: string;
+    size: number;
+    mime: string;
+    uploadedById: string;
+  },
+) {
   return prisma.file.create({ data });
 }
 

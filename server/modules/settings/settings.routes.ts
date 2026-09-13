@@ -12,7 +12,7 @@ import {
 } from "@shared/schema/settings.js";
 import { gate, shared } from "../../core/access.js";
 import { ValidationError } from "../../core/errors.js";
-import { readFileStream } from "../../core/files.js";
+import { readStoredFile } from "../../core/files.js";
 import * as service from "./settings.service.js";
 
 const idParams = z.object({ id: uuid });
@@ -29,7 +29,7 @@ export async function registerRoutes(instance: FastifyInstance) {
     const file = await service.getLogoFile();
     reply.header("Content-Type", file.mime);
     reply.header("Cache-Control", "private, max-age=300");
-    return reply.send(readFileStream(file.path));
+    return reply.send(await readStoredFile(file));
   });
 
   // ── the `settings` gate: everything below follows it, except numbering ────

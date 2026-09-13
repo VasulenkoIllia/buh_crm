@@ -1592,12 +1592,18 @@ model ClientMailPreference {
 
 // ── Files ────────────────────────────────────────────────────────────────────
 
+/// Where a file's bytes are (files.md §14.1).
+enum FileStorage {
+  local
+  s3
+}
+
 model File {
   id           String   @id @default(uuid()) @db.Uuid
   name         String
-  size         Int // bytes, ≤ 25 MB enforced in service
+  size         Int // bytes, ≤ 25 MB enforced in service; the file's own size, not its ciphertext's
   mime         String
-  path         String // relative path on the uploads volume
+  path         String // its key in its store: a path under UPLOADS_DIR, or an object in the bucket
   clientId     String?  @db.Uuid // client-card files
   /// Attached to a task. ALSO carries `clientId` when that task has a client, which is the whole
   /// mechanism behind "a file uploaded on a job shows up on the client's card": one row with two
@@ -1608,6 +1614,14 @@ model File {
   taskId       String?  @db.Uuid
   uploadedById String   @db.Uuid
   createdAt    DateTime @default(now())
+  /// Where the bytes are. Each row says so itself, so `FILES_STORAGE` decides only where NEW files
+  /// go, and moving a file is copying its bytes and then changing this (files.md §15.0).
+  storage      FileStorage @default(local)
+  /// The file's own AES-256-GCM key, sealed with SECRETS_KEY (files.md §14.4). Null only for a file
+  /// stored before encryption, which is read as it was sent. Two CHECKs in the migration: a key has
+  /// its version, and nothing in the bucket lacks a key.
+  wrappedKey   Bytes?
+  keyVersion   Int?
 
   client            Client?      @relation("ClientFiles", fields: [clientId], references: [id], onDelete: Cascade)
   /// SetNull, not Cascade: a document filed under the client must survive its task. Tasks are

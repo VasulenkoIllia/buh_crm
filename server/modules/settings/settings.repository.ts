@@ -1,5 +1,6 @@
 import type { Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../core/db.js";
+import type { StoredFile } from "../../core/files.js";
 
 export function listPriorities() {
   return prisma.priority.findMany({ orderBy: { order: "asc" } });
@@ -85,13 +86,9 @@ export function updateFirmProfile(data: Prisma.FirmProfileUpdateInput) {
   return prisma.firmProfile.update({ where: { id: 1 }, data });
 }
 
-export function createFileRow(data: {
-  name: string;
-  size: number;
-  mime: string;
-  path: string;
-  uploadedById: string;
-}) {
+export function createFileRow(
+  data: StoredFile & { name: string; size: number; mime: string; uploadedById: string },
+) {
   return prisma.file.create({ data });
 }
 

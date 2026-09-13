@@ -16,7 +16,7 @@ import type {
 } from "@shared/schema/task.js";
 import { codeInSearch } from "@shared/schema/client.js";
 import { deriveStatus, hasLiveInvoice } from "@shared/schema/payment.js";
-import { MAX_FILE_SIZE, deleteFileBytes, saveFileBytes } from "../../core/files.js";
+import { MAX_FILE_SIZE, deleteStoredFile, storeFile } from "../../core/files.js";
 import type { Prisma, User } from "../../generated/prisma/client.js";
 import { config } from "../../core/config.js";
 import { dateToUtc, todayBusinessMs } from "../../core/dates.js";
@@ -1297,8 +1297,9 @@ export async function addFile(
   if (file.buffer.byteLength > MAX_FILE_SIZE) {
     throw new ValidationError("File must be 25 MB or smaller");
   }
-  const relPath = await saveFileBytes(file.buffer, file.filename);
+  const stored = await storeFile(file.buffer);
   const row = await repo.createTaskFile({
+    ...stored,
     taskId,
     // the client is read from the TASK, never from the caller: a file cannot be filed under
     // somebody the job has nothing to do with
@@ -1306,7 +1307,6 @@ export async function addFile(
     name: file.filename,
     size: file.buffer.byteLength,
     mime: file.mimetype,
-    path: relPath,
     uploadedById: actor.id,
   });
   // the same three file events the client card writes, with `attachedTo` telling them apart — one
@@ -1337,8 +1337,10 @@ export async function removeFile(taskId: string, fileId: string) {
   const task = liveTaskOr404(await repo.findTask(taskId));
   const file = await repo.findTaskFile(taskId, fileId);
   if (!file) throw new NotFoundError("File not found");
+  // the bytes first: if their store refuses, nothing has changed and the delete can simply be
+  // tried again — not a row gone, bytes left behind and no record of either
+  await deleteStoredFile(file);
   await repo.deleteFileRow(file.id);
-  await deleteFileBytes(file.path);
   record("file.deleted", {
     subjectId: file.id,
     subjectLabel: file.name,

@@ -1,7 +1,7 @@
 import { buildApp } from "./app.js";
 import { ensureBaseData, ensureBootstrapAdmin, recordBootEvents } from "./core/bootstrap.js";
 import { purgeOldActivity } from "./core/activity.js";
-import { config } from "./core/config.js";
+import { config, strayBackupVariables } from "./core/config.js";
 import { disconnectDb } from "./core/db.js";
 import { closeTransports } from "./core/email.js";
 import { ensureUploadsDir } from "./core/files.js";
@@ -23,6 +23,15 @@ import { generateInternalTasks, generateSubscriptionTasks } from "./modules/task
 
 async function main() {
   const app = await buildApp();
+
+  // the backup's credentials never belong to the app (backups-hardening.md §7.8); said, not refused
+  const stray = strayBackupVariables();
+  if (stray.length > 0) {
+    app.log.error(
+      { variables: stray },
+      "backup credentials are in the app's environment — remove them from .env",
+    );
+  }
 
   await ensureUploadsDir();
   await ensureBaseData();

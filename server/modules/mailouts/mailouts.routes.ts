@@ -16,7 +16,7 @@ import {
 } from "@shared/schema/mailouts.js";
 import { anonymous, gate } from "../../core/access.js";
 import { ValidationError } from "../../core/errors.js";
-import { readFileStream } from "../../core/files.js";
+import { readStoredFile } from "../../core/files.js";
 import * as service from "./mailouts.service.js";
 
 const idParams = z.object({ id: uuid });
@@ -320,7 +320,7 @@ export async function registerRoutes(instance: FastifyInstance) {
     const file = await service.getMailLogoFile();
     reply.header("Content-Type", file.mime);
     reply.header("Cache-Control", "private, max-age=60");
-    return reply.send(readFileStream(file.path));
+    return reply.send(await readStoredFile(file));
   });
 
   app.put("/settings/mail-logo", { config: mailboxes }, async (request) => {

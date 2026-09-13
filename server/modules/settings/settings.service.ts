@@ -10,7 +10,7 @@ import { ConflictError, NotFoundError } from "../../core/errors.js";
 import { sweepCron } from "@shared/notifications.js";
 import { rememberFirmName } from "../../core/firm.js";
 import { rescheduleJob } from "../../core/scheduler.js";
-import { deleteFileBytes, saveFileBytes } from "../../core/files.js";
+import { discardFile, storeFile } from "../../core/files.js";
 import { ValidationError } from "../../core/errors.js";
 import { diff, record } from "../../core/activity.js";
 import * as repo from "./settings.repository.js";
@@ -225,12 +225,12 @@ export async function setLogo(
   }
 
   const firm = await repo.getFirmProfile();
-  const relPath = await saveFileBytes(file.buffer, file.filename);
+  const stored = await storeFile(file.buffer);
   const fileRow = await repo.createFileRow({
+    ...stored,
     name: file.filename,
     size: file.buffer.byteLength,
     mime: file.mimetype,
-    path: relPath,
     uploadedById: actor.id,
   });
 
@@ -239,10 +239,9 @@ export async function setLogo(
   });
   if (firm.logoFileId) {
     const old = await repo.findFileById(firm.logoFileId);
-    if (old) {
-      await repo.deleteFileRow(old.id);
-      await deleteFileBytes(old.path);
-    }
+    // the new logo is already in place: clearing the old one may fail without undoing that, and
+    // without skipping the record below
+    if (old) await discardFile(old, repo.deleteFileRow, "logo");
   }
   record("settings.logo_changed", { subjectLabel: file.filename });
   return toFirmDto(updated);

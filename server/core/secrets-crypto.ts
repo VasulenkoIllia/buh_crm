@@ -1,5 +1,6 @@
 /**
- * Encryption for client secrets — tax-portal logins, client-bank credentials, КЕП passwords.
+ * Encryption for client secrets — tax-portal logins, client-bank credentials, КЕП passwords — and
+ * for the key of every stored file (`sealBytes`, used by core/files.ts).
  *
  * AES-256-GCM with a key from `SECRETS_KEY` (decision 2026-08-01, "key model A"). The threat this
  * actually defends against is a leaked database dump: `scripts/deploy.sh` writes one to the
@@ -53,24 +54,33 @@ function key(): Buffer | null {
 export const secretsConfigured = (): boolean => key() !== null;
 
 export function seal(plaintext: string): SealedSecret {
+  return sealBytes(Buffer.from(plaintext, "utf8"));
+}
+
+export function open(sealed: SealedSecret): string {
+  return openBytes(sealed).toString("utf8");
+}
+
+/**
+ * The same seal for raw bytes. `core/files.ts` wraps each file's own key with it, so every document
+ * in storage opens only with SECRETS_KEY (files.md §14.4).
+ */
+export function sealBytes(plain: Uint8Array): SealedSecret {
   const k = key();
   if (!k) throw new Error("SECRETS_KEY is not configured");
   const iv = randomBytes(IV_BYTES);
   const cipher = createCipheriv("aes-256-gcm", k, iv);
-  const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+  const ciphertext = Buffer.concat([cipher.update(plain), cipher.final()]);
   return { ciphertext, iv, authTag: cipher.getAuthTag(), keyVersion: CURRENT_KEY_VERSION };
 }
 
-export function open(sealed: SealedSecret): string {
+export function openBytes(sealed: SealedSecret): Buffer {
   const k = key();
   if (!k) throw new Error("SECRETS_KEY is not configured");
   const decipher = createDecipheriv("aes-256-gcm", k, Buffer.from(sealed.iv));
   decipher.setAuthTag(Buffer.from(sealed.authTag));
   // throws if the ciphertext or the tag was tampered with — which is the point of GCM
-  return Buffer.concat([
-    decipher.update(Buffer.from(sealed.ciphertext)),
-    decipher.final(),
-  ]).toString("utf8");
+  return Buffer.concat([decipher.update(Buffer.from(sealed.ciphertext)), decipher.final()]);
 }
 
 /** Constant-time compare, for anything that comes from a request and gates access. */

@@ -6,7 +6,7 @@ import { uuid } from "@shared/schema/common.js";
 import { createSession } from "../../core/auth.js";
 import { gate, own, shared } from "../../core/access.js";
 import { ValidationError } from "../../core/errors.js";
-import { readFileStream } from "../../core/files.js";
+import { readStoredFile } from "../../core/files.js";
 import { toPublicUser } from "../auth/index.js";
 import * as service from "./users.service.js";
 
@@ -79,7 +79,7 @@ export async function registerRoutes(instance: FastifyInstance) {
     return toPublicUser(user);
   });
 
-  // avatar bytes — auth required, streamed from the uploads volume
+  // avatar bytes — auth required, read and decrypted through core/files.ts
   app.get(
     "/:id/avatar",
     { config: shared(), schema: { params: idParams } },
@@ -87,7 +87,7 @@ export async function registerRoutes(instance: FastifyInstance) {
       const file = await service.getAvatarFile(request.params.id);
       reply.header("Content-Type", file.mime);
       reply.header("Cache-Control", "private, max-age=300");
-      return reply.send(readFileStream(file.path));
+      return reply.send(await readStoredFile(file));
     },
   );
 }

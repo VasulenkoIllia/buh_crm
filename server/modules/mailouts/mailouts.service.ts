@@ -78,7 +78,7 @@ import {
   renderLetterText,
 } from "../../core/email-layout.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
-import { deleteFileBytes, readFileBytes, saveFileBytes } from "../../core/files.js";
+import { discardFile, readStoredFile, storeFile } from "../../core/files.js";
 import { clientLabel, personName } from "../../core/names.js";
 import { open, seal, secretsConfigured } from "../../core/secrets-crypto.js";
 import type { User } from "../../generated/prisma/client.js";
@@ -572,21 +572,18 @@ export async function setMailLogo(
   }
 
   const firm = await repo.getFirmProfile();
-  const relPath = await saveFileBytes(file.buffer, file.filename);
+  const stored = await storeFile(file.buffer);
   const row = await repo.createFileRow({
+    ...stored,
     name: file.filename,
     size: file.buffer.byteLength,
     mime: file.mimetype,
-    path: relPath,
     uploadedById: actor.id,
   });
   await repo.updateFirmProfile({ mailLogoFile: { connect: { id: row.id } } });
 
-  // the replaced file is dropped only after the new one is safely pointed at
-  if (firm.mailLogoFile) {
-    await repo.deleteFileRow(firm.mailLogoFile.id).catch(() => {});
-    await deleteFileBytes(firm.mailLogoFile.path).catch(() => {});
-  }
+  // the replaced file is dropped only after the new one is safely pointed at, and best effort
+  if (firm.mailLogoFile) await discardFile(firm.mailLogoFile, repo.deleteFileRow, "letterhead");
   // what every client sees at the top of every letter — a change nobody in the firm may notice,
   // because the people who receive it are not the people who make it
   record("settings.mail_logo_changed", { subjectLabel: file.filename });
@@ -603,8 +600,7 @@ export async function removeMailLogo(): Promise<MailSenderState> {
   const firm = await repo.getFirmProfile();
   if (firm.mailLogoFile) {
     await repo.updateFirmProfile({ mailLogoFile: { disconnect: true } });
-    await repo.deleteFileRow(firm.mailLogoFile.id).catch(() => {});
-    await deleteFileBytes(firm.mailLogoFile.path).catch(() => {});
+    await discardFile(firm.mailLogoFile, repo.deleteFileRow, "letterhead");
     record("settings.mail_logo_changed", { subjectLabel: "removed" });
   }
   return listSenderAccounts();
@@ -1126,12 +1122,18 @@ async function loadLogo(firm: FirmProfile) {
   if (!firm.mailLogoFile) return null;
   try {
     return {
-      content: await readFileBytes(firm.mailLogoFile.path),
+      content: await readStoredFile(firm.mailLogoFile),
       filename: firm.mailLogoFile.name,
       contentType: firm.mailLogoFile.mime,
     };
-  } catch {
-    // a missing file on disk must not stop a mailout — the shell falls back to the wordmark
+  } catch (err) {
+    // a letterhead that cannot be read must not stop a mailout — the shell falls back to the
+    // wordmark. Said out loud: with the files in a bucket, an outage would otherwise swap every
+    // letterhead for the wordmark without a word (backups-hardening.md §7.8).
+    console.error(
+      "[mailouts] the letterhead could not be read; letters use the wordmark:",
+      err,
+    );
     return null;
   }
 }

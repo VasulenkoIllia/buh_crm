@@ -376,7 +376,19 @@ export function getFirmProfile() {
     where: { id: 1 },
     include: {
       // the LETTERHEAD logo, not the sidebar one — see the schema comment on mailLogoFileId
-      mailLogoFile: { select: { id: true, path: true, mime: true, name: true } },
+      // the bytes' fields ride along for core/files.ts; the one DTO that shows the logo picks id and
+      // name by hand (listSenderAccounts), so the sealed key never reaches a response
+      mailLogoFile: {
+        select: {
+          id: true,
+          path: true,
+          mime: true,
+          name: true,
+          storage: true,
+          wrappedKey: true,
+          keyVersion: true,
+        },
+      },
     },
   });
 }

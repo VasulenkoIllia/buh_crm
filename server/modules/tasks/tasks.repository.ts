@@ -2,6 +2,7 @@ import type { Prisma } from "../../generated/prisma/client.js";
 import { config } from "../../core/config.js";
 import { inForceTodayWhere } from "../../core/coverage.js";
 import { prisma } from "../../core/db.js";
+import type { StoredFile } from "../../core/files.js";
 
 const taskInclude = {
   // target labels ride along so no screen has to resolve ids against a (capped) client list
@@ -694,15 +695,16 @@ export function listTaskFiles(taskId: string) {
  * what makes the file appear on that client's card without anything being copied or kept in step.
  * A task on a lead, or an internal one, simply passes null.
  */
-export function createTaskFile(data: {
-  taskId: string;
-  clientId: string | null;
-  name: string;
-  size: number;
-  mime: string;
-  path: string;
-  uploadedById: string;
-}) {
+export function createTaskFile(
+  data: StoredFile & {
+    taskId: string;
+    clientId: string | null;
+    name: string;
+    size: number;
+    mime: string;
+    uploadedById: string;
+  },
+) {
   return prisma.file.create({ data });
 }
 

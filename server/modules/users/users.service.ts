@@ -8,7 +8,7 @@ import type { User } from "../../generated/prisma/client.js";
 import { destroyAllUserSessions, generateToken } from "../../core/auth.js";
 import { sendEmail, webOrigin } from "../../core/email.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
-import { deleteFileBytes, saveFileBytes } from "../../core/files.js";
+import { discardFile, storeFile } from "../../core/files.js";
 import { diff, record } from "../../core/activity.js";
 import { personName } from "../../core/names.js";
 import * as repo from "./users.repository.js";
@@ -181,12 +181,12 @@ export async function setAvatar(
     throw new ValidationError("Avatar must be 5 MB or smaller");
   }
 
-  const relPath = await saveFileBytes(file.buffer, file.filename);
+  const stored = await storeFile(file.buffer);
   const fileRow = await repo.createFileRow({
+    ...stored,
     name: file.filename,
     size: file.buffer.byteLength,
     mime: file.mimetype,
-    path: relPath,
     uploadedById: user.id,
   });
 
@@ -196,10 +196,8 @@ export async function setAvatar(
   });
   if (oldFileId) {
     const old = await repo.findFileById(oldFileId);
-    if (old) {
-      await repo.deleteFileRow(old.id);
-      await deleteFileBytes(old.path);
-    }
+    // the new avatar is already in place: clearing the old one may fail without undoing that
+    if (old) await discardFile(old, repo.deleteFileRow, "avatar");
   }
   return updated;
 }

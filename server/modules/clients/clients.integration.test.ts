@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import argon2 from "argon2";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../../app.js";
@@ -821,6 +823,13 @@ describe("clients", () => {
     expect(up.statusCode).toBe(201);
     const file = up.json();
 
+    // encrypted at rest (files.md §14.4): what is on disk is not the file, only the API gives it back
+    const row = await prisma.file.findUniqueOrThrow({ where: { id: file.id } });
+    expect(row.storage).toBe("local");
+    expect(row.wrappedKey).not.toBeNull();
+    const onDisk = join(resolve(config.UPLOADS_DIR), row.path);
+    expect((await readFile(onDisk)).includes(Buffer.from("hello client file"))).toBe(false);
+
     const download = await app.inject({
       method: "GET",
       url: `/api/clients/${other.id}/files/${file.id}`,
@@ -835,6 +844,7 @@ describe("clients", () => {
       headers: { cookie },
     });
     expect(del.statusCode).toBe(200);
+    await expect(readFile(onDisk)).rejects.toThrow(); // the bytes go with the row
   });
   it("re-saving a client keeps the company dimension on its subscriptions and invoices", async () => {
     // companies used to be deleted+recreated on every save, so the new ids silently blanked
