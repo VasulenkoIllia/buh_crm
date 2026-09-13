@@ -2239,6 +2239,12 @@ export const TIER1_REQUEST = "system.request" satisfies ActivityKey;
 export const TIER1_REFUSED = "session.gate_refused" satisfies ActivityKey;
 
 /**
+ * The route label a request that matched NO route was written with — until such requests stopped
+ * being written at all (2026-09-13). Kept because rows carrying it remain, and the feed hides them.
+ */
+export const UNROUTED_REQUEST = "(no route)";
+
+/**
  * The row's sentence, in the firm's language.
  *
  * Lives here rather than in the screen because BOTH ends need it: the activity screen and the

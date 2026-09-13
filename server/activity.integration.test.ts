@@ -14,6 +14,7 @@ import {
   runWithActivity,
 } from "./core/activity.js";
 import { finalizeInventory } from "./core/route-inventory.js";
+import { UNROUTED_REQUEST } from "@shared/activity.js";
 
 /**
  * **That the log is WIDE, and that it never lies.**
@@ -1095,6 +1096,86 @@ describe("the acts that used to leave a bare row", () => {
     expect(await bareOutcomes("&technical=true")).toEqual(["failed", "ok"]);
     // picking that exact key from the action list is asking for it too
     expect(await bareOutcomes("&action=system.request")).toEqual(["failed", "ok"]);
+  });
+});
+
+/**
+ * **A request that matched no route is not an act.** One scanner looking for WordPress sent 221 POSTs
+ * to paths this app does not have, and every one became a row in a table kept for two years — on
+ * the feed's first page, because a failed bare row is shown by default (production, 2026-09-13).
+ */
+describe("requests that match no route", () => {
+  it("writes nothing for them, a refused one included", async () => {
+    const before = new Date();
+    for (const url of ["/wp-json/batch/v1", "/?rest_route=/batch/v1"]) {
+      const res = await app.inject({ method: "POST", url, payload: {} });
+      expect(res.statusCode, url).toBe(404);
+    }
+    // a foreign Origin is refused before any route could be found; that 403 used to read as a
+    // gate refusal on "(no route)"
+    const refused = await app.inject({
+      method: "POST",
+      url: "/wp-login.php",
+      headers: { origin: "https://evil.example.com" },
+      payload: {},
+    });
+    expect(refused.statusCode).toBe(403);
+
+    // something that DOES write, so there is a row to wait for — by the time it lands, the
+    // requests before it have long finished flushing
+    await app.inject({
+      method: "POST",
+      url: "/api/notifications/read-all",
+      headers: { cookie: adminCookie },
+    });
+    await waitFor(
+      () =>
+        prisma.activityEvent.findFirst({
+          where: { route: "/api/notifications/read-all", occurredAt: { gte: before } },
+        }),
+      "the row after them",
+    );
+    expect(
+      await prisma.activityEvent.count({
+        where: { route: UNROUTED_REQUEST, occurredAt: { gte: before } },
+      }),
+    ).toBe(0);
+  });
+
+  it("keeps the ones written before this out of the feed unless asked", async () => {
+    // its own time, set here: the feed is read from exactly this moment, so the rows every other
+    // test in this file wrote cannot push it off the page
+    const at = new Date();
+    const old = await prisma.activityEvent.create({
+      data: {
+        occurredAt: at,
+        actorKind: "system",
+        actorLabel: "Anonymous",
+        action: "system.request",
+        subject: "system",
+        subjectLabel: UNROUTED_REQUEST,
+        route: UNROUTED_REQUEST,
+        method: "POST",
+        outcome: "failed",
+        correlationId: randomUUID(),
+      },
+    });
+    try {
+      const unrouted = async (extra: string) => {
+        const res = await app.inject({
+          method: "GET",
+          url: `/api/activity?from=${encodeURIComponent(at.toISOString())}&pageSize=100${extra}`,
+          headers: { cookie: adminCookie },
+        });
+        expect(res.statusCode).toBe(200);
+        const page = res.json() as { entries: { rows: { route: string | null }[] }[] };
+        return page.entries.flatMap((e) => e.rows).filter((r) => r.route === UNROUTED_REQUEST);
+      };
+      expect(await unrouted("")).toHaveLength(0);
+      expect(await unrouted("&technical=true")).toHaveLength(1);
+    } finally {
+      await prisma.activityEvent.delete({ where: { id: old.id } });
+    }
   });
 });
 

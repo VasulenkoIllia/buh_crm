@@ -54,6 +54,18 @@ describe("app", () => {
     expect(res.statusCode).toBe(404);
   });
 
+  /**
+   * A path that matches no route is rate limited like every route. The plugin limits the 404
+   * handler only when told to, and without it a WordPress scanner sent 221 POSTs in under five
+   * minutes with nothing to slow it down (production, 2026-09-13).
+   */
+  it("rate limits a path that matches no route, and answers it in the app's own shape", async () => {
+    const res = await app.inject({ method: "GET", url: "/wp-json/batch/v1" });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe("not_found");
+    expect(res.headers["x-ratelimit-limit"], "the limiter ran for the 404").toBeDefined();
+  });
+
   it("rejects mutating requests from a foreign origin (CSRF)", async () => {
     const res = await app.inject({
       method: "POST",

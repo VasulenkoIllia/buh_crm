@@ -18,6 +18,7 @@ import { staticCacheControl } from "./core/static-cache.js";
 import { errorHandler } from "./core/errors.js";
 import { accessHook, anonymous } from "./core/access.js";
 import { actorFromUser, enterActivityContext, flushStore } from "./core/activity.js";
+import { UNROUTED_REQUEST } from "@shared/activity.js";
 import { clientIp } from "./core/client-ip.js";
 import { collectRouteInventory, type RouteRecord } from "./core/route-inventory.js";
 import { accessModule } from "./modules/access/index.js";
@@ -194,9 +195,11 @@ export async function buildApp() {
        * the filled one, query string and all. Fastify copies instance-level hooks into its 404
        * context, so this pair really does run for a mistyped path, and a typo in
        * `POST /api/clients/<uuid>/secrets/reveal?token=…` wrote the uuid AND the token into the two
-       * columns the screen prints (audit, 2026-09-09). There is no route to name, so it says so.
+       * columns the screen prints (audit, 2026-09-09). There is no route to name, so it says so —
+       * and since 2026-09-13 such a request writes no row at all (see `onResponse`); this label is
+       * only what the store carries in the meantime.
        */
-      route: request.routeOptions?.url ?? "(no route)",
+      route: request.routeOptions?.url ?? UNROUTED_REQUEST,
     });
   });
 
@@ -215,6 +218,15 @@ export async function buildApp() {
     // "Anonymous" unless a service knew better (see the seed above).
     if (request.currentUser) store.actor = actorFromUser(request.currentUser);
     const status = reply.statusCode;
+    /**
+     * **A request that matched no route writes nothing.** It cannot have changed anything, and the
+     * internet sends plenty of them: one scanner looking for WordPress's batch endpoint sent 221
+     * POSTs in under five minutes, every one a row in a table kept for two years and every one on
+     * the feed's first page, because a failed bare row is shown by default (production,
+     * 2026-09-13). The server's request log and Cloudflare keep them; this table is for acts. It
+     * covers a 403 on such a path too, which would otherwise read as somebody refused a gate.
+     */
+    const routed = Boolean(request.routeOptions?.url);
     await flushStore(store, {
       outcome: status < 400 ? "ok" : status === 401 || status === 403 ? "refused" : "failed",
       /**
@@ -229,7 +241,7 @@ export async function buildApp() {
        * which also covers 401: being unauthenticated is nobody having asked yet, and a signed-out
        * browser's stray poll does not belong in that list.
        */
-      tier1: MUTATING_METHODS.has(request.method) || status === 403,
+      tier1: routed && (MUTATING_METHODS.has(request.method) || status === 403),
       statusCode: status,
     });
   });
@@ -325,17 +337,29 @@ export async function buildApp() {
         res.header("cache-control", staticCacheControl(filePath));
       },
     });
-    app.setNotFoundHandler((request, reply) => {
-      if (
-        request.method === "GET" &&
-        !request.url.startsWith("/api") &&
-        !request.url.startsWith("/health")
-      ) {
-        return reply.sendFile("index.html"); // SPA client-side routing
-      }
-      return reply.status(404).send({ error: { code: "not_found", message: "Not Found" } });
-    });
   }
+
+  /**
+   * **One 404 handler, rate limited, in every environment.**
+   *
+   * `@fastify/rate-limit` limits routes, and the 404 handler only when it is told to (its README:
+   * `setNotFoundHandler({ preHandler: fastify.rateLimit() }, …)`). Ours was not, so a path that
+   * matched nothing had no limit at all — found when a WordPress scanner sent 221 POSTs in under
+   * five minutes (2026-09-13). Same budget and key as every route. Outside the production block so
+   * the limit holds, and can be tested, everywhere; only the SPA fallback needs the built frontend,
+   * so only it stays behind `isProd`.
+   */
+  app.setNotFoundHandler({ preHandler: app.rateLimit() }, (request, reply) => {
+    if (
+      isProd &&
+      request.method === "GET" &&
+      !request.url.startsWith("/api") &&
+      !request.url.startsWith("/health")
+    ) {
+      return reply.sendFile("index.html"); // SPA client-side routing
+    }
+    return reply.status(404).send({ error: { code: "not_found", message: "Not Found" } });
+  });
 
   // the name letters print, read once here rather than per send — see core/firm.ts
   await loadFirmName();
