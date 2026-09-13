@@ -147,8 +147,10 @@ refused "rewrite the lifecycle" aws s3api put-bucket-lifecycle-configuration --b
 refused "delete the bucket" aws s3api delete-bucket --bucket "$BUCKET"
 
 works "a plain delete — it only hides the object" aws s3api delete-object --bucket "$BUCKET" --key "$KEY"
+# `--version-id=`, never a space: a version id may begin with a dash, which aws-cli then reads as
+# an option of its own and fails with ParamValidation (found on the files bucket, 2026-09-13)
 refused "delete that version for good" aws s3api delete-object --bucket "$BUCKET" --key "$KEY" \
-  --version-id "$VERSION"
+  --version-id="$VERSION"
 still=$(aws s3api list-object-versions --bucket "$BUCKET" --prefix "$KEY" 2>/dev/null |
   jq --arg v "$VERSION" '[.Versions[]? | select(.VersionId == $v)] | length') || still=0
 if [ "$still" = 1 ]; then pass "the hidden version is still there"; else fail "the hidden version is gone"; fi

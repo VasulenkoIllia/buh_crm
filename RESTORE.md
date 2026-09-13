@@ -29,6 +29,7 @@ All of it in the firm's password manager — none of it in this repository, whic
 | The production `.env`     | `SECRETS_KEY` in it is **irreplaceable**: it unlocks the client secrets, the mailbox passwords and every two-factor sign-in secret stored in the database. `SESSION_SECRET` and `POSTGRES_PASSWORD` can be new (everyone signs in again); `SMTP_PASS` comes from the mail provider. |
 | The restic password       | Without it every backup is unreadable noise.                                                                                                                                                                                                                                        |
 | The backup key            | The access key and its secret, the id of the Hetzner project it was minted in, and the names of the two buckets.                                                                                                                                                                    |
+| The CRM's files key       | The access key and its secret, and the id of the Hetzner project it was minted in. Not on the server until the files move into the bucket; replacing the backup key names it again (§10).                                                                                           |
 | The Hetzner Owner login   | To mint a new key when the old one is lost or suspect. Its second factor is kept apart from it.                                                                                                                                                                                     |
 | An admin's recovery codes | The ten codes shown when that admin switched two-factor sign-in on. The way back into the CRM when their phone is gone and no other admin can reset them — and they do not depend on `SECRETS_KEY`.                                                                                 |
 
@@ -47,11 +48,14 @@ Whoever holds the server holds the backup key. In the Hetzner Console, open the 
 Security → S3 credentials → delete it. The key cannot destroy the backups — the bucket refuses it —
 but it can read them and hide them.
 
-Then mint a new key in the same project and let it into the bucket. From a laptop, with a temporary
-key of the bucket's own project, deleted again afterwards:
+Then mint a new key in the same project and let it into both buckets: the backups bucket, and the
+files bucket, whose policy names the backup key too (read-only). From a laptop, with a temporary key
+of the buckets' own project, deleted again afterwards:
 
 ```bash
 ./scripts/storage/setup-bucket.sh <backups-bucket> <location> <key-project-id> <new-access-key>
+./scripts/storage/setup-bucket.sh --files <files-bucket> <files-location> \
+  <crm-project-id> <crm-access-key> <key-project-id> <new-access-key>
 ```
 
 Restore from a clean machine, never from the suspect server.
@@ -255,13 +259,17 @@ bucket — rehearse it before relying on it._
 
 ## 10. Replacing the backup key
 
-Mint a new key in its project, let it in, use it, and only then delete the old one. The policy names
-one key, so the old one stops working the moment the new one is let in:
+Mint a new key in its project, let it into both buckets, use it, and only then delete the old one.
+Each policy names one backup key, so the old one stops working the moment the new one is let in. The
+files bucket's policy names the CRM's key as well: give it the CRM's current one, or the CRM is shut
+out of its own files.
 
 ```bash
 ./scripts/storage/setup-bucket.sh <backups-bucket> <location> <key-project-id> <new-access-key>
-sudo nano /etc/buh_crm/backup.env
-sudo ./scripts/backup/backup.sh
+./scripts/storage/setup-bucket.sh --files <files-bucket> <files-location> \
+  <crm-project-id> <crm-access-key> <key-project-id> <new-access-key>
+sudo nano /etc/buh_crm/backup.env   # --user: nano ~/.config/buh_crm/backup.env
+sudo ./scripts/backup/backup.sh     # --user: ./scripts/backup/backup.sh
 ```
 
 ## 11. When something says it failed

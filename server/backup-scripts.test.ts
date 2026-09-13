@@ -199,6 +199,149 @@ describe("the public repository", () => {
       expect(rule.Expiration?.Date).toBeUndefined();
     }
   });
+
+  it("gives the files bucket two keys apart: the CRM's reads and writes, the backup's only reads", () => {
+    const text = read("scripts/storage/policy-files.template.json");
+    for (const placeholder of [
+      "<BUCKET>",
+      "<APP_PROJECT>",
+      "<APP_KEY_ID>",
+      "<BACKUP_PROJECT>",
+      "<BACKUP_KEY_ID>",
+    ]) {
+      expect(text).toContain(placeholder);
+    }
+    type Statement = {
+      Effect: "Allow" | "Deny";
+      Principal: { AWS: string[] };
+      Action: string[];
+    };
+    const statements = (JSON.parse(text) as { Statement: Statement[] }).Statement;
+    const app = "arn:aws:iam:::user/p<APP_PROJECT>:<APP_KEY_ID>";
+    const backup = "arn:aws:iam:::user/p<BACKUP_PROJECT>:<BACKUP_KEY_ID>";
+    const actions = (effect: Statement["Effect"], who: string) =>
+      statements
+        .filter((s) => s.Effect === effect && s.Principal.AWS.includes(who))
+        .flatMap((s) => s.Action)
+        .sort();
+
+    // the CRM stores and removes files; the backup reads them for the nightly copy, and nothing else
+    expect(actions("Allow", app)).toEqual([
+      "s3:DeleteObject",
+      "s3:GetObject",
+      "s3:ListBucket",
+      "s3:PutObject",
+    ]);
+    expect(actions("Allow", backup)).toEqual([
+      "s3:GetBucketVersioning",
+      "s3:GetObject",
+      "s3:ListBucket",
+    ]);
+    // neither destroys history or changes the rules — on Ceph an uploader otherwise counts as the
+    // owner of what it uploaded (backups.md §3.2), so these are said, not left to the default
+    for (const who of [app, backup]) {
+      for (const action of [
+        "s3:DeleteObjectVersion",
+        "s3:PutBucketPolicy",
+        "s3:PutLifecycleConfiguration",
+        "s3:PutBucketVersioning",
+        "s3:DeleteBucket",
+      ]) {
+        expect(actions("Deny", who), who).toContain(action);
+      }
+    }
+    for (const action of [
+      "s3:PutObject",
+      "s3:DeleteObject",
+      "s3:GetObjectVersion",
+      "s3:ListBucketVersions",
+    ]) {
+      expect(actions("Deny", backup)).toContain(action);
+    }
+    // a Deny names keys, never everybody — or the policy could never be changed again
+    for (const s of statements) expect(s.Principal.AWS).not.toContain("*");
+
+    // a current file is a client's document: nothing expires it. A deleted one stays recoverable
+    // for 30 days as a hidden version (files.md decision 16).
+    const lifecycle = JSON.parse(read("scripts/storage/lifecycle-files.json")) as {
+      Rules: Array<{
+        Expiration?: { Days?: number; Date?: string };
+        NoncurrentVersionExpiration?: { NoncurrentDays: number };
+      }>;
+    };
+    for (const rule of lifecycle.Rules) {
+      expect(rule.Expiration?.Days).toBeUndefined();
+      expect(rule.Expiration?.Date).toBeUndefined();
+    }
+    const kept = lifecycle.Rules.flatMap((r) =>
+      r.NoncurrentVersionExpiration ? [r.NoncurrentVersionExpiration.NoncurrentDays] : [],
+    );
+    expect(kept).toEqual([30]);
+  });
+});
+
+describe("setup-bucket.sh", () => {
+  const run = (...args: string[]) =>
+    spawnSync("bash", ["scripts/storage/setup-bucket.sh", ...args], {
+      encoding: "utf8",
+      input: "",
+    });
+
+  it("keeps its backups form, and refuses a files setup that would mix the two keys", () => {
+    expect(run("a-bucket", "fsn1", "1").status).toBe(2); // a backups setup takes four
+    expect(run("--files", "a-bucket", "fsn1", "1", "KEY", "2").status).toBe(2); // files take six
+    expect(run("a-bucket", "mars", "1", "KEY").stderr).toContain("location must be");
+
+    const oneKey = run("--files", "a-bucket", "fsn1", "1", "SAMEKEY", "2", "SAMEKEY");
+    expect(oneKey.status).toBe(2);
+    expect(oneKey.stderr).toContain("two different keys");
+
+    // a key opens every bucket of its own project, so the CRM's may not share the backup's
+    const oneProject = run("--files", "a-bucket", "fsn1", "7", "APPKEY", "7", "BACKUPKEY");
+    expect(oneProject.status).toBe(2);
+    expect(oneProject.stderr).toContain("its own project");
+  });
+
+  it("ignores public ACLs on the files bucket, which its policy alone could not stop", () => {
+    // In fsn1 the policy's x-amz-acl condition is not applied when a multipart upload begins, and
+    // a finished public-read multipart upload was readable by anybody (2026-09-13). IgnorePublicAcls
+    // alone, as measured one setting at a time: with BlockPublicAcls on as well, the CRM's own key
+    // was refused its uploads (2026-09-14).
+    const block =
+      "BlockPublicAcls=false,IgnorePublicAcls=true,BlockPublicPolicy=false,RestrictPublicBuckets=false";
+    const setup = code("scripts/storage/setup-bucket.sh");
+    expect(setup).toContain("put-public-access-block");
+    expect(setup).toContain(block);
+    expect(setup).toContain("get-public-access-block");
+    // before the policy, so a re-run over a bucket whose block still refuses policies gets through
+    expect(setup.indexOf("put-public-access-block")).toBeLessThan(
+      setup.indexOf("put-bucket-policy"),
+    );
+    // the check re-sends the very same block, so a wrongly accepted probe changes nothing
+    expect(code("scripts/storage/check-files-bucket.sh")).toContain(block);
+  });
+
+  it("tells whoever replaces the backup key to let it into both buckets", () => {
+    // The files bucket's policy names the backup key too. RESTORE.md is read on the worst day: were
+    // it to re-open only the backups bucket, the nightly copy of the files would fail from then on.
+    const restore = code("RESTORE.md");
+    // §2, the suspect server, and §10, a planned replacement
+    expect(restore.match(/setup-bucket\.sh --files/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("the storage checks", () => {
+  it("hand aws-cli a version id with `=`, since one may begin with a dash", () => {
+    // written as `--version-id VALUE`, aws-cli reads a leading dash as an option of its own and
+    // fails with ParamValidation — which a check then reports as "not a refusal" (2026-09-13)
+    for (const file of [
+      "scripts/storage/check-files-bucket.sh",
+      "scripts/storage/check-backups-bucket.sh",
+    ]) {
+      expect(code(file), file).not.toMatch(/--version-id\s+"/);
+      expect(code(file), file).toMatch(/--version-id="\$VERSION"/);
+    }
+  });
 });
 
 describe("where the CRM reads the status", () => {
