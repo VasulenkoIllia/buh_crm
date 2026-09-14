@@ -100,17 +100,46 @@ function seal(plain: Buffer, fileId: string) {
   };
 }
 
+/**
+ * Why a stored file would not open, for the one reader who acts on the difference: the nightly
+ * storage check (core/storage-check.ts). `key`: its sealed key does not open with this server's
+ * SECRETS_KEY, so every file stored under the other key is shut as well. `damaged`: the object
+ * itself fails its tag, its format or its size.
+ */
+export class StoredFileError extends Error {
+  readonly reason: "key" | "damaged";
+  constructor(reason: "key" | "damaged", message: string) {
+    super(message);
+    this.name = "StoredFileError";
+    this.reason = reason;
+  }
+}
+
+function openFileKey(fileId: string, wrappedKey: Uint8Array, keyVersion: number): Buffer {
+  const sealedKey = Buffer.from(wrappedKey);
+  try {
+    return openBytes({
+      iv: sealedKey.subarray(0, IV_BYTES),
+      authTag: sealedKey.subarray(IV_BYTES, IV_BYTES + TAG_BYTES),
+      ciphertext: sealedKey.subarray(IV_BYTES + TAG_BYTES),
+      keyVersion,
+    });
+  } catch {
+    throw new StoredFileError(
+      "key",
+      `File ${fileId}: its key does not open with this server's SECRETS_KEY`,
+    );
+  }
+}
+
 function unseal(object: Buffer, fileId: string, wrappedKey: Uint8Array, keyVersion: number) {
   if (object.length < ENVELOPE_OVERHEAD || object[0] !== FORMAT_V1) {
-    throw new Error(`File ${fileId}: not an encrypted object this version can read`);
+    throw new StoredFileError(
+      "damaged",
+      `File ${fileId}: not an encrypted object this version can read`,
+    );
   }
-  const sealedKey = Buffer.from(wrappedKey);
-  const fileKey = openBytes({
-    iv: sealedKey.subarray(0, IV_BYTES),
-    authTag: sealedKey.subarray(IV_BYTES, IV_BYTES + TAG_BYTES),
-    ciphertext: sealedKey.subarray(IV_BYTES + TAG_BYTES),
-    keyVersion,
-  });
+  const fileKey = openFileKey(fileId, wrappedKey, keyVersion);
   try {
     const decipher = createDecipheriv("aes-256-gcm", fileKey, object.subarray(1, HEADER_BYTES));
     decipher.setAAD(authenticated(fileId));
@@ -118,6 +147,8 @@ function unseal(object: Buffer, fileId: string, wrappedKey: Uint8Array, keyVersi
     const body = object.subarray(HEADER_BYTES, object.length - TAG_BYTES);
     // final() checks the tag, and nothing reaches a caller before it has
     return Buffer.concat([decipher.update(body), decipher.final()]);
+  } catch {
+    throw new StoredFileError("damaged", `File ${fileId}: the object fails its check`);
   } finally {
     fileKey.fill(0);
   }
@@ -127,7 +158,10 @@ function unseal(object: Buffer, fileId: string, wrappedKey: Uint8Array, keyVersi
 
 /** An object larger than anything this code stores: tampered with, or not ours. Never read. */
 const tooLarge = (key: string, size: number, limit: number) =>
-  new Error(`${key}: ${size} bytes, over the ${limit} a stored file can be`);
+  new StoredFileError(
+    "damaged",
+    `${key}: ${size} bytes, over the ${limit} a stored file can be`,
+  );
 
 /** A directory. Keys are relative paths, and none may leave the directory. */
 export function localStore(root: string): ByteStore {

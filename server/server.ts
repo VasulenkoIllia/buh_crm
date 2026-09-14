@@ -10,6 +10,7 @@ import { prisma } from "./core/db.js";
 import { registerJob, startScheduler, stopScheduler } from "./core/scheduler.js";
 import { purgeOldJobEvents } from "./core/job-health.js";
 import { checkBackups } from "./core/backup-status.js";
+import { checkStoredFiles } from "./core/storage-check.js";
 import { plural } from "@shared/text.js";
 import { runDueCampaigns, sweepBounces, sweepStalledSends } from "./modules/mailouts/index.js";
 import {
@@ -352,6 +353,19 @@ async function main() {
     name: "backup:watchdog",
     cronExpr: "50 3 * * *",
     run: async () => ({ note: await checkBackups() }),
+  });
+
+  /**
+   * The files, read back: a few stored files opened with the firm's key every night and measured
+   * against their rows (files.md §14.4) — the one check that the store and SECRETS_KEY still work
+   * together, which the backups cannot make. 03:40, before the 04:00 sweep, so a bad night is on
+   * the same morning's report. No `catchUp`, like the backup check: it changes nothing, and a boot
+   * is no reason to run it.
+   */
+  registerJob({
+    name: "files:storage-check",
+    cronExpr: "40 3 * * *",
+    run: async () => ({ note: await checkStoredFiles() }),
   });
 
   await app.listen({ port: config.PORT, host: "0.0.0.0" });

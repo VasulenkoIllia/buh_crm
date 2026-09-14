@@ -25,11 +25,12 @@ export type SystemJobKey =
   | "notifications:retention"
   | "sessions:cleanup"
   | "activity:retention"
-  | "backup:watchdog";
+  | "backup:watchdog"
+  | "files:storage-check";
 
 /** The part of the app a job keeps running — the screen groups by this. */
 export type SystemJobArea =
-  "work" | "billing" | "mail" | "notifications" | "backups" | "housekeeping";
+  "work" | "billing" | "mail" | "notifications" | "files" | "backups" | "housekeeping";
 
 export interface SystemJobSpec {
   area: SystemJobArea;
@@ -199,6 +200,25 @@ export const SYSTEM_JOBS: Record<SystemJobKey, SystemJobSpec> = {
       "would be lost.",
     staleAfterMinutes: DAY + 12 * HOUR,
   },
+  /**
+   * The one check that stored files still OPEN: the store, and the key they were sealed with,
+   * working together (core/storage-check.ts). The backups copy files without opening them — their
+   * scripts never read the key — so without this, a file lost from storage or a key that no longer
+   * matches would be found by a client asking for a document.
+   */
+  "files:storage-check": {
+    area: "files",
+    label: "Client files open",
+    cadence: "Every night, at 3:40",
+    whenOk:
+      "Reads a few client files back from storage — the newest, and some at random — opens each " +
+      "with the firm's key, and checks it is the size it was stored at.",
+    whenBad:
+      "Documents may no longer open: a file lost from storage, a damaged one, or a key that does " +
+      "not match the one the files were stored with. The backups cannot see this — they copy " +
+      "files without opening them.",
+    staleAfterMinutes: DAY + 12 * HOUR,
+  },
 };
 
 export const SYSTEM_JOB_KEYS = Object.keys(SYSTEM_JOBS) as SystemJobKey[];
@@ -208,6 +228,7 @@ export const SYSTEM_JOB_AREAS: Array<{ key: SystemJobArea; label: string }> = [
   { key: "billing", label: "Billing" },
   { key: "mail", label: "Mail" },
   { key: "notifications", label: "Notifications" },
+  { key: "files", label: "Files" },
   { key: "backups", label: "Backups" },
   { key: "housekeeping", label: "Housekeeping" },
 ];
