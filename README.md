@@ -47,9 +47,10 @@ the module's repository; Zod schemas in `shared/` validate the API and type the 
 - `src/` — React frontend (mirrors the backend module list).
 - `shared/` — Zod schemas + derived types, imported by both sides.
 - `prisma/` — schema + migrations.
-- `scripts/` — server operations (`deploy.sh`, `reset-data.sql`, `prune-uploads.ts`, `import-clients.ts`);
-  `scripts/backup/` — the nightly backup, the restore test, restores and their server setup
-  ([RESTORE.md](RESTORE.md)); `scripts/storage/` — setting up and checking the storage bucket, from a laptop.
+- `scripts/` — server operations (`deploy.sh`, `reset-data.sql`, `prune-uploads.ts`, `import-clients.ts`,
+  `move-files-to-bucket.ts`); `scripts/backup/` — the nightly backup, the restore test, restores and
+  their server setup ([RESTORE.md](RESTORE.md)); `scripts/storage/` — setting up and checking the
+  storage buckets (the backups' and the client files'), from a laptop.
 - `.env.example` — environment variables (identity: `APP_NAME=buh_crm`).
 
 ## Development
@@ -103,10 +104,19 @@ It reads stdin, so a file of personal data need never be committed or left on a 
 creates each client through the ordinary service layer rather than SQL — same validation, same
 auto-added default service. `--dry-run` reports what it would do and writes nothing.
 
+### Client files
+
+Every client file is encrypted by the app before it is stored — its own AES-256-GCM key, sealed with
+`SECRETS_KEY` — and kept in an S3-compatible bucket, or on the server's disk until it is moved there.
+Downloads always go through the API and its permission check. Every night a few stored files are
+read back and opened — **Settings → System → Client files open** — the one check that the files, the
+storage and the key still work together.
+
 ### Backups
 
 Every night, in the small hours of the firm's time, `scripts/backup/backup.sh` dumps the database,
-reads the dump back in full, and puts it together with every client file into one encrypted
+reads the dump back in full, and puts it together with every client file — once the files live in
+their bucket, a mirror of it refreshed after the dump — into one encrypted
 [restic](https://restic.net) snapshot in S3-compatible object storage; the last seven daily copies
 are kept. On the 1st of each month `scripts/backup/drill.sh` restores the newest copy into a
 throwaway database, checks it and removes it. Both run on the host — under systemd timers, or the
@@ -116,7 +126,7 @@ read-only mount, and **Settings → System → Nightly backups** turns red — a
 same morning — when a night is missed, a backup fails, or the restore test fails or goes stale.
 
 Setting it up on a server, restoring, undoing a deploy and rebuilding on a new server:
-[RESTORE.md](RESTORE.md). Creating and checking the storage bucket: `scripts/storage/`.
+[RESTORE.md](RESTORE.md). Creating and checking the storage buckets: `scripts/storage/`.
 
 > Internal documentation (module specs, design system, decisions, dev plan) is maintained
 > outside this repository.
