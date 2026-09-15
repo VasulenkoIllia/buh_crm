@@ -2,7 +2,6 @@ import type { ClientListQuery } from "@shared/schema/client.js";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { notEndedWhere } from "../../core/coverage.js";
 import { prisma } from "../../core/db.js";
-import type { StoredFile } from "../../core/files.js";
 
 const clientInclude = {
   companies: { orderBy: { order: "asc" } },
@@ -593,32 +592,22 @@ export function updateSubscription(id: string, data: Prisma.SubscriptionUnchecke
 
 // ── files ────────────────────────────────────────────────────────────────────
 
+// a file in the Trash is out of every list, count and download until it is restored (files.md §9)
 export function listClientFiles(clientId: string) {
-  return prisma.file.findMany({ where: { clientId }, orderBy: { createdAt: "desc" } });
+  return prisma.file.findMany({
+    where: { clientId, deletedAt: null },
+    orderBy: { createdAt: "desc" },
+  });
 }
 
 /** How many files the client's Files tab holds — the badge on that tab. */
 export function countClientFiles(clientId: string) {
-  return prisma.file.count({ where: { clientId } });
-}
-
-/** `StoredFile` is what `core/files.ts` returned: the row's id, where its bytes are, their key. */
-export function createClientFile(
-  data: StoredFile & {
-    clientId: string;
-    name: string;
-    size: number;
-    mime: string;
-    uploadedById: string;
-  },
-) {
-  return prisma.file.create({ data });
+  return prisma.file.count({ where: { clientId, deletedAt: null } });
 }
 
 export function findClientFile(clientId: string, fileId: string) {
-  return prisma.file.findFirst({ where: { id: fileId, clientId } });
+  return prisma.file.findFirst({ where: { id: fileId, clientId, deletedAt: null } });
 }
 
-export function deleteFileRow(id: string) {
-  return prisma.file.delete({ where: { id } });
-}
+// The card's uploads and deletes go through the files module (files.md §4.2, §9): nothing here
+// writes or destroys a File row, so nothing on this card can reach past the Trash.

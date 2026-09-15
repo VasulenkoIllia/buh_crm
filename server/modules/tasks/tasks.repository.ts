@@ -686,8 +686,12 @@ export async function listActiveUserIds() {
 
 // ── files (bytes live on the uploads volume; this is only the metadata) ──────
 
+// a file in the Trash leaves its task's list, and comes back with it (files.md §5.4, §9)
 export function listTaskFiles(taskId: string) {
-  return prisma.file.findMany({ where: { taskId }, orderBy: { createdAt: "desc" } });
+  return prisma.file.findMany({
+    where: { taskId, deletedAt: null },
+    orderBy: { createdAt: "desc" },
+  });
 }
 
 /**
@@ -709,9 +713,13 @@ export function createTaskFile(
 }
 
 export function findTaskFile(taskId: string, fileId: string) {
-  return prisma.file.findFirst({ where: { id: fileId, taskId } });
+  return prisma.file.findFirst({ where: { id: fileId, taskId, deletedAt: null } });
 }
 
-export function deleteFileRow(id: string) {
-  return prisma.file.delete({ where: { id } });
+/** Off its task, and kept in its folder: a filed file deleted on the task card (files.md §5.4). */
+export function detachFile(id: string) {
+  return prisma.file.update({ where: { id }, data: { taskId: null } });
 }
+
+// A task's file is never destroyed here: one that is not filed goes to the Trash through the files
+// module, and only its nightly purge removes a row for good (files.md §9).

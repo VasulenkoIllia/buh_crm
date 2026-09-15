@@ -11,6 +11,7 @@ import { registerJob, startScheduler, stopScheduler } from "./core/scheduler.js"
 import { purgeOldJobEvents } from "./core/job-health.js";
 import { checkBackups } from "./core/backup-status.js";
 import { checkStoredFiles } from "./core/storage-check.js";
+import { purgeTrash } from "./modules/files/index.js";
 import { plural } from "@shared/text.js";
 import { runDueCampaigns, sweepBounces, sweepStalledSends } from "./modules/mailouts/index.js";
 import {
@@ -366,6 +367,18 @@ async function main() {
     name: "files:storage-check",
     cronExpr: "40 3 * * *",
     run: async () => ({ note: await checkStoredFiles() }),
+  });
+
+  /**
+   * The Trash emptied (files.md §9): what has waited 30 days, at most 300 files a night. 04:30 is
+   * clear of the 01:00 backup, whose restore test tolerates only a few files missing between the
+   * dump and the copy, and outside the hour that repeats when the clocks go back. No `catchUp`:
+   * the scheduler runs a catch-up on every boot, so every deploy would purge another batch.
+   */
+  registerJob({
+    name: "files:purge",
+    cronExpr: "30 4 * * *",
+    run: () => purgeTrash(),
   });
 
   await app.listen({ port: config.PORT, host: "0.0.0.0" });

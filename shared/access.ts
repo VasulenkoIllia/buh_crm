@@ -98,6 +98,16 @@ const GATE_SPECS = {
     enforcement: "routes",
     defaults: { admin: "open", user: "open" },
   },
+  /**
+   * **The library** (files.md §11): My files, Company, the search, the Trash and the tree's totals.
+   * A client's files are NOT behind it. They stay on `clients` routes wherever they are shown, so
+   * closing Files leaves the client card's Files tab where it was (§11.2).
+   */
+  files: {
+    states: ON_OFF,
+    enforcement: "routes",
+    defaults: { admin: "open", user: "open" },
+  },
   leads: {
     states: ON_OFF,
     enforcement: "routes",

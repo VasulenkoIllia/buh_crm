@@ -293,9 +293,12 @@ export async function stateFor(
  *
  * Services never consult a gate. That is deliberate and it has a name: completing a billable job
  * still issues its invoice when Billing is closed for the person who pressed the button. Money the
- * system decided to bill does not depend on who happened to be at the keyboard. The single
+ * system decided to bill does not depend on who happened to be at the keyboard. The first
  * sanctioned exception is the calendar's deadline overlay, which is a projection decision rather
- * than an access decision, and has its own test.
+ * than an access decision, and has its own test. The second is the library (files.md §11.3): a route
+ * declares one gate and an item's place is not static, so the tree's totals, Company's Attachments
+ * and a move from My files or Company into a client ask the caller's map for the other gate, in
+ * `modules/files/files.access.ts`, the way the activity reader does.
  */
 export async function accessHook(request: FastifyRequest, reply: FastifyReply) {
   const declared = (request.routeOptions?.config as Partial<RouteAccessConfig> | undefined)

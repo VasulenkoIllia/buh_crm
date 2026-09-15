@@ -110,6 +110,10 @@ describe("tier 1 — every mutation, automatically", () => {
    * and that is the point. The row is written because the REQUEST happened, not because the handler
    * succeeded, which is exactly the property a log of "who tried what" needs and the property an
    * enrichment-only design cannot have.
+   *
+   * Its own timeout: it walks every mutating route one after another, each waiting for its row, so
+   * it grows with the product. At 149 routes it ran past the default 5 seconds (2026-09-14, the
+   * Files module's Trash); a timeout would also end it before the walk logs everyone back in.
    */
   it("writes a row for every mutating route in the committed inventory", async () => {
     const routes = finalizeInventory(app.routeInventory)
@@ -147,7 +151,7 @@ describe("tier 1 — every mutation, automatically", () => {
     // the walk ends on POST /api/auth/logout, which does exactly what it says
     adminCookie = await login("ada@activity.local");
     userCookie = await login("ulf@activity.local");
-  });
+  }, 30_000);
 
   it("records the route pattern, not the filled-in url", async () => {
     const id = randomUUID();

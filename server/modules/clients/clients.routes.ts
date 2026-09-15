@@ -13,10 +13,12 @@ import {
   updateClientInput,
   updateSubscriptionInput,
 } from "@shared/schema/client.js";
+import { undoInput } from "@shared/schema/files.js";
 import { gate, shared } from "../../core/access.js";
 import { ValidationError } from "../../core/errors.js";
 import { clientIp } from "../../core/client-ip.js";
 import { readStoredFile } from "../../core/files.js";
+import { UPLOAD_RATE_LIMIT, uploadToClientCard } from "../files/index.js";
 import * as secrets from "./secrets.service.js";
 import * as service from "./clients.service.js";
 
@@ -172,12 +174,13 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   app.post(
     "/:id/files",
-    { config: clients, schema: { params: idParams } },
+    { config: { ...clients, rateLimit: UPLOAD_RATE_LIMIT }, schema: { params: idParams } },
     async (request, reply) => {
       const part = await request.file();
       if (!part) throw new ValidationError("File is required");
       const buffer = await part.toBuffer();
-      const file = await service.addFile(request.params.id, request.currentUser!, {
+      // into the client's Internal, at its root, through the library's own door (files.md §4.2)
+      const file = await uploadToClientCard(request.params.id, request.currentUser!, {
         buffer,
         filename: part.filename,
         mimetype: part.mimetype,
@@ -200,12 +203,20 @@ export async function registerRoutes(instance: FastifyInstance) {
     },
   );
 
+  // into the Trash, never destroyed: the answer carries the gesture the card's Undo takes back
   app.delete(
     "/:id/files/:fileId",
     { config: clients, schema: { params: fileParams } },
     async (request) => {
-      return service.removeFile(request.params.id, request.params.fileId);
+      return service.removeFile(request.params.id, request.params.fileId, request.currentUser!);
     },
+  );
+
+  app.post(
+    "/:id/files/undo",
+    { config: clients, schema: { params: idParams, body: undoInput } },
+    async (request) =>
+      service.undoRemoveFile(request.params.id, request.body.batchId, request.currentUser!),
   );
 
   // ── secrets (S7.5) ─────────────────────────────────────────────────────────

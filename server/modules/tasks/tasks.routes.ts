@@ -20,6 +20,8 @@ import {
 } from "@shared/schema/task.js";
 import { gate, own, shared } from "../../core/access.js";
 import { readStoredFile } from "../../core/files.js";
+import { UPLOAD_RATE_LIMIT } from "../files/index.js";
+import { undoInput } from "@shared/schema/files.js";
 import { ValidationError } from "../../core/errors.js";
 import * as service from "./tasks.service.js";
 
@@ -227,7 +229,7 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   app.post(
     "/:id/files",
-    { config: tasks, schema: { params: idParams } },
+    { config: { ...tasks, rateLimit: UPLOAD_RATE_LIMIT }, schema: { params: idParams } },
     async (request, reply) => {
       const part = await request.file();
       if (!part) throw new ValidationError("File is required");
@@ -258,9 +260,18 @@ export async function registerRoutes(instance: FastifyInstance) {
     },
   );
 
+  // a filed file only leaves the task; one that is not goes to the Trash, and its Undo is below
   app.delete(
     "/:id/files/:fileId",
     { config: tasks, schema: { params: fileParams } },
-    async (request) => service.removeFile(request.params.id, request.params.fileId),
+    async (request) =>
+      service.removeFile(request.params.id, request.params.fileId, request.currentUser!),
+  );
+
+  app.post(
+    "/:id/files/undo",
+    { config: tasks, schema: { params: idParams, body: undoInput } },
+    async (request) =>
+      service.undoRemoveFile(request.params.id, request.body.batchId, request.currentUser!),
   );
 }

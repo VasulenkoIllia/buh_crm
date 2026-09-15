@@ -31,7 +31,7 @@ import {
 } from "../payments/index.js";
 import { countUpcomingMeetingsForClient } from "../meetings/index.js";
 import { countOpenTasksForClient, generateForSubscription } from "../tasks/index.js";
-import { MAX_FILE_SIZE, deleteStoredFile, storeFile } from "../../core/files.js";
+import { trashCardFile, undoCardTrash } from "../files/index.js";
 import { clientLabel } from "../../core/names.js";
 import { diff, labelOf, record } from "../../core/activity.js";
 import * as repo from "./clients.repository.js";
@@ -1068,35 +1068,8 @@ export async function listFiles(clientId: string) {
   }));
 }
 
-export async function addFile(
-  clientId: string,
-  actor: User,
-  file: { buffer: Buffer; filename: string; mimetype: string },
-) {
-  // kept rather than discarded: the log names WHICH client the file hangs off, not just "a client"
-  const client = await getClient(clientId);
-  if (file.buffer.byteLength > MAX_FILE_SIZE) {
-    throw new ValidationError("File must be 25 MB or smaller");
-  }
-  const stored = await storeFile(file.buffer);
-  const row = await repo.createClientFile({
-    ...stored,
-    clientId,
-    name: file.filename,
-    size: file.buffer.byteLength,
-    mime: file.mimetype,
-    uploadedById: actor.id,
-  });
-  // a file is never "created" — the verb is reserved for bytes (§4.1), and `attachedTo` is what
-  // makes one log answer for client files and task files alike
-  record("file.uploaded", {
-    subjectId: row.id,
-    subjectLabel: row.name,
-    clientId,
-    changes: { name: row.name, size: row.size, attachedTo: client.displayName },
-  });
-  return { id: row.id, name: row.name, size: row.size, mime: row.mime };
-}
+// The card's Upload lives in the files module since stage B (`uploadToClientCard`): a new document
+// lands in the client's Internal, and a taken name there becomes `(2)` (files.md §4.2, §6.3).
 
 export async function getFile(clientId: string, fileId: string) {
   await getClient(clientId); // 404s archived/missing clients — files go dark with the client
@@ -1113,21 +1086,17 @@ export async function getFile(clientId: string, fileId: string) {
   return file;
 }
 
-export async function removeFile(clientId: string, fileId: string) {
-  const client = await getClient(clientId); // 404s archived/missing clients
-  const file = await repo.findClientFile(clientId, fileId);
-  if (!file) throw new NotFoundError("File not found");
-  // the bytes first: if their store refuses, nothing has changed and the delete can simply be
-  // tried again — not a row gone, bytes left behind and no record of either
-  await deleteStoredFile(file);
-  await repo.deleteFileRow(file.id);
-  // `long` retention: this is a disposal record, and §11 keeps those seven years because they are
-  // the evidence that the disposal happened
-  record("file.deleted", {
-    subjectId: file.id,
-    subjectLabel: file.name,
-    clientId,
-    changes: { name: file.name, attachedTo: client.displayName },
-  });
-  return { ok: true as const };
+/**
+ * **Into the Trash, never destroyed** (files.md §9). The nightly purge removes it after 30 days;
+ * until then the card's Undo, or anyone who can see it in the Trash, brings it back.
+ */
+export async function removeFile(clientId: string, fileId: string, actor: User) {
+  await getClient(clientId); // 404s archived/missing clients
+  return { ok: true as const, ...(await trashCardFile(fileId, { clientId }, actor)) };
+}
+
+/** The card's Undo, on the card's own gate: somebody whose Files is closed can take it back. */
+export async function undoRemoveFile(clientId: string, batchId: string, actor: User) {
+  await getClient(clientId);
+  return undoCardTrash(batchId, { clientId }, actor);
 }

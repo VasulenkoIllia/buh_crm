@@ -55,6 +55,16 @@ export const GATE_COPY: Record<GateKey, GateCopy> = {
       "role: it needs the viewer's own password, the grant expires after five minutes, and every " +
       "look and every failed attempt is journalled. This decides who sees the tab at all.",
   },
+  files: {
+    label: "Files",
+    hint:
+      "The Files screen: My files, Company, the search and the Trash. A client's files are not " +
+      "behind this switch; they stay under Clients, wherever they are shown.",
+    caveat:
+      "The Files menu goes, and with it Company, everyone's My files, the search and the Trash. " +
+      "A client's files do not: they stay on the client card, under Clients. To take files away " +
+      "from somebody altogether, narrow both.",
+  },
   leads: {
     label: "Leads",
     hint: "The leads board and the pipeline behind it.",

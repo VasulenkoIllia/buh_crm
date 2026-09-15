@@ -205,6 +205,14 @@ const INTENDED_CHANGES: Record<string, { before: Answer; after: Answer; why: str
       "new: an admin's reset of somebody's second factor. Behind Team; the service also asks for " +
       "the admin's own password and refuses it on their own account (two-factor.md §7)",
   },
+  "POST /api/files/clients/:clientId/move-out": {
+    before: "everyone",
+    after: "admin-only",
+    why:
+      "new: moving documents out of a client's folders, to another client, Company or My files, " +
+      "for a misfiled one (files.md §6.2, decision 4). Its own route because no per-action rule " +
+      "exists yet; the ordinary move stays open to anyone with Clients",
+  },
 };
 
 function before(route: string): Answer {

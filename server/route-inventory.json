@@ -295,6 +295,11 @@
     "derived": true
   },
   {
+    "method": "POST",
+    "url": "/api/clients/:id/files/undo",
+    "access": "gate:clients"
+  },
+  {
     "method": "DELETE",
     "url": "/api/clients/:id/pin",
     "access": "gate:clients"
@@ -386,6 +391,280 @@
     "method": "POST",
     "url": "/api/clients/:id/subscriptions/:subId/resume",
     "access": "gate:clients"
+  },
+  {
+    "method": "GET",
+    "url": "/api/files/clients",
+    "access": "gate:clients"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/files/clients",
+    "access": "gate:clients",
+    "derived": true
+  },
+  {
+    "method": "GET",
+    "url": "/api/files/clients/:clientId",
+    "access": "gate:clients"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/files/clients/:clientId",
+    "access": "gate:clients",
+    "derived": true
+  },
+  {
+    "method": "GET",
+    "url": "/api/files/clients/:clientId/attachments",
+    "access": "gate:clients"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/files/clients/:clientId/attachments",
+    "access": "gate:clients",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/files/clients/:clientId/attachments/:fileId/file",
+    "access": "gate:clients"
+  },
+  {
+    "method": "POST",
+    "url": "/api/files/clients/:clientId/delete",
+    "access": "gate:clients"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/files/clients/:clientId/files/:fileId",
+    "access": "gate:clients"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/files/clients/:clientId/folders/:folderId",
+    "access": "gate:clients"
+  },
+  {
+    "method": "POST",
+    "url": "/api/files/clients/:clientId/move",
+    "access": "gate:clients"
+  },
+  {
+    "method": "POST",
+    "url": "/api/files/clients/:clientId/move-out",
+    "access": "gate:clients:admin"
+  },
+  {
+    "method": "GET",
+    "url": "/api/files/clients/:clientId/zones/:zone/folders",
+    "access": "gate:clients"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/files/clients/:clientId/zones/:zone/folders",
+    "access": "gate:clients",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/files/clients/:clientId/zones/:zone/folders",
+    "access": "gate:clients"
+  },
+  {
+    "method": "GET",
+    "url": "/api/files/clients/:clientId/zones/:zone/list",
+    "access": "gate:clients"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/files/clients/:clientId/zones/:zone/list",
+    "access": "gate:clients",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/files/clients/:clientId/zones/:zone/upload",
+    "access": "gate:clients"
+  },
+  {
+    "method": "GET",
+    "url": "/api/files/company/attachments",
+    "access": "gate:files"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/files/company/attachments",
+    "access": "gate:files",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/files/company/attachments/:fileId/file",
+    "access": "gate:files"
+  },
+  {
+    "method": "POST",
+    "url": "/api/files/company/delete",
+    "access": "gate:files"
+  },
+  {
+    "method": "GET",
+    "url": "/api/files/company/files/:fileId",
+    "access": "gate:files"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/files/company/files/:fileId",
+    "access": "gate:files",
+    "derived": true
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/files/company/files/:fileId",
+    "access": "gate:files"
+  },
+  {
+    "method": "GET",
+    "url": "/api/files/company/folders",
+    "access": "gate:files"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/files/company/folders",
+    "access": "gate:files",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/files/company/folders",
+    "access": "gate:files"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/files/company/folders/:folderId",
+    "access": "gate:files"
+  },
+  {
+    "method": "GET",
+    "url": "/api/files/company/list",
+    "access": "gate:files"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/files/company/list",
+    "access": "gate:files",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/files/company/move",
+    "access": "gate:files"
+  },
+  {
+    "method": "POST",
+    "url": "/api/files/company/upload",
+    "access": "gate:files"
+  },
+  {
+    "method": "POST",
+    "url": "/api/files/my/delete",
+    "access": "gate:files"
+  },
+  {
+    "method": "GET",
+    "url": "/api/files/my/files/:fileId",
+    "access": "gate:files"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/files/my/files/:fileId",
+    "access": "gate:files",
+    "derived": true
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/files/my/files/:fileId",
+    "access": "gate:files"
+  },
+  {
+    "method": "GET",
+    "url": "/api/files/my/folders",
+    "access": "gate:files"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/files/my/folders",
+    "access": "gate:files",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/files/my/folders",
+    "access": "gate:files"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/files/my/folders/:folderId",
+    "access": "gate:files"
+  },
+  {
+    "method": "GET",
+    "url": "/api/files/my/list",
+    "access": "gate:files"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/files/my/list",
+    "access": "gate:files",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/files/my/move",
+    "access": "gate:files"
+  },
+  {
+    "method": "POST",
+    "url": "/api/files/my/upload",
+    "access": "gate:files"
+  },
+  {
+    "method": "GET",
+    "url": "/api/files/overview",
+    "access": "gate:files"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/files/overview",
+    "access": "gate:files",
+    "derived": true
+  },
+  {
+    "method": "GET",
+    "url": "/api/files/trash",
+    "access": "gate:files"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/files/trash",
+    "access": "gate:files",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/files/trash/:batchId/restore",
+    "access": "gate:files"
+  },
+  {
+    "method": "POST",
+    "url": "/api/files/trash/files/:fileId/restore",
+    "access": "gate:files"
+  },
+  {
+    "method": "POST",
+    "url": "/api/files/trash/folders/:folderId/restore",
+    "access": "gate:files"
   },
   {
     "method": "GET",
@@ -1029,6 +1308,11 @@
     "url": "/api/tasks/:id/files/:fileId",
     "access": "gate:tasks",
     "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/tasks/:id/files/undo",
+    "access": "gate:tasks"
   },
   {
     "method": "PATCH",

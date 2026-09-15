@@ -71,6 +71,9 @@ export type ActivitySubject =
   | "campaign"
   | "mailbox"
   | "file"
+  | "folder"
+  | "firm_file"
+  | "firm_folder"
   | "user"
   | "session"
   | "access"
@@ -93,6 +96,9 @@ export const SUBJECT_GROUP: Record<ActivitySubject, ActivityGroup> = {
   campaign: "comms",
   mailbox: "comms",
   file: "files",
+  folder: "files",
+  firm_file: "files",
+  firm_folder: "files",
   user: "people",
   session: "people",
   access: "people",
@@ -129,6 +135,12 @@ export const SUBJECT_GATE: Record<ActivitySubject, string> = {
   mailbox: "mailboxes",
   // a file belongs to the client or the task it hangs off; `clients` is the wider of the two
   file: "clients",
+  // a client's folders are part of the client's record, like its files
+  folder: "clients",
+  // Company and My files (files.md §10.3). A personal item is logged without its name, so what a
+  // reader of these subjects learns is Company's documents, which Files already opens to them.
+  firm_file: "files",
+  firm_folder: "files",
   // who is in the system, and what they were allowed to reach — the Team gate's subject matter
   user: "team",
   session: "team",
@@ -1011,11 +1023,320 @@ const EVENTS = {
   "file.deleted": {
     subject: "file",
     title: "{actor} deleted {subject}",
-    when: "a document is removed from a client or a task",
+    when: "a document goes to the Trash, from a client's folders, the client card or a task",
     granularity: "item",
     actorKinds: ["user"],
     retention: "long",
     changeKeys: ["name", "attachedTo"],
+    enabledByDefault: true,
+  },
+  "file.renamed": {
+    subject: "file",
+    title: "{actor} renamed {subject}",
+    when: "a document in a client's folders is renamed",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["name"],
+    enabledByDefault: true,
+  },
+  "file.moved": {
+    subject: "file",
+    title: "{actor} moved {subject}",
+    when:
+      "a client's document moves to another folder or zone, or arrives from Company, My files or " +
+      "another client",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["from", "to"],
+    enabledByDefault: true,
+  },
+  /**
+   * A document the client will see once the portal opens (files.md §4.2): it entered Shared with
+   * client or From client by an upload, a move, a filing or its folder moving. Long-kept, because
+   * showing a client a document is exactly what a dispute asks about.
+   */
+  "file.shared_with_client": {
+    subject: "file",
+    title: "{actor} put {subject} where the client will see it",
+    when: "a document enters Shared with client or From client",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    changeKeys: ["place"],
+    enabledByDefault: true,
+  },
+  "file.unshared": {
+    subject: "file",
+    title: "{actor} took {subject} out of the client's sight",
+    when: "a document leaves Shared with client or From client",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    changeKeys: ["from", "to"],
+    enabledByDefault: true,
+  },
+  /** An admin's move out of a client's folders, for a misfiled document (files.md §6.2). */
+  "file.refiled": {
+    subject: "file",
+    title: "{actor} moved {subject} out of the client's files",
+    when:
+      "an admin moves a document out of one client's folders, to another client, Company or My " +
+      "files",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    changeKeys: ["from", "to"],
+    enabledByDefault: true,
+  },
+  /** A task's file given a place in its client's folders (files.md §5.3): one row, in both. */
+  "file.filed": {
+    subject: "file",
+    title: "{actor} filed {subject}",
+    when: "a task's file is put into one of its client's folders",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["to", "task"],
+    enabledByDefault: true,
+  },
+  "file.detached": {
+    subject: "file",
+    title: "{actor} took {subject} off its task",
+    when:
+      "a filed document leaves its task: deleted on the task card, or moved out of its task's " +
+      "client",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["task"],
+    enabledByDefault: true,
+  },
+
+  // ── folder: the folders in a client's zones ────────────────────────────────
+  "folder.created": {
+    subject: "folder",
+    title: "{actor} created the folder {subject}",
+    when: "a folder is made in one of a client's zones",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["place"],
+    enabledByDefault: true,
+  },
+  "folder.renamed": {
+    subject: "folder",
+    title: "{actor} renamed the folder {subject}",
+    when: "a folder in a client's zones is renamed",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["name"],
+    enabledByDefault: true,
+  },
+  "folder.moved": {
+    subject: "folder",
+    title: "{actor} moved the folder {subject}",
+    when: "a folder moves inside a client's zones, into them, or out of them",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["from", "to", "files"],
+    enabledByDefault: true,
+  },
+
+  // ── firm_file and firm_folder: Company and My files ────────────────────────
+  // Their own subjects because they sit behind their own gate (files.md §10.3). A My files item is
+  // recorded as "a personal file" or "a personal folder", with no name and no size: its place,
+  // "My files", is all the row says.
+  "firm_file.uploaded": {
+    subject: "firm_file",
+    title: "{actor} uploaded {subject}",
+    when: "a document is uploaded into Company or My files",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["name", "size", "place"],
+    enabledByDefault: true,
+  },
+  "firm_file.downloaded": {
+    subject: "firm_file",
+    title: "{actor} downloaded {subject}",
+    when: "a document in Company or My files is fetched",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    enabledByDefault: true,
+    isRead: true,
+  },
+  "firm_file.renamed": {
+    subject: "firm_file",
+    title: "{actor} renamed {subject}",
+    when: "a document in Company or My files is renamed",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["name", "place"],
+    enabledByDefault: true,
+  },
+  "firm_file.moved": {
+    subject: "firm_file",
+    title: "{actor} moved {subject}",
+    when: "a document moves inside Company or My files, or between the two",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["from", "to", "place"],
+    enabledByDefault: true,
+  },
+  /** A file on one of the firm's internal tasks filed into Company (owner, 2026-09-14). */
+  "firm_file.filed": {
+    subject: "firm_file",
+    title: "{actor} filed {subject}",
+    when: "a file on an internal task is put into Company",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["to", "task"],
+    enabledByDefault: true,
+  },
+  "firm_file.detached": {
+    subject: "firm_file",
+    title: "{actor} took {subject} off its task",
+    when:
+      "a filed document leaves its internal task: deleted on the task card, or moved out of " +
+      "Company",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["task"],
+    enabledByDefault: true,
+  },
+  "firm_folder.created": {
+    subject: "firm_folder",
+    title: "{actor} created the folder {subject}",
+    when: "a folder is made in Company or My files",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["place"],
+    enabledByDefault: true,
+  },
+  "firm_folder.renamed": {
+    subject: "firm_folder",
+    title: "{actor} renamed the folder {subject}",
+    when: "a folder in Company or My files is renamed",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["name", "place"],
+    enabledByDefault: true,
+  },
+  "firm_folder.moved": {
+    subject: "firm_folder",
+    title: "{actor} moved the folder {subject}",
+    when: "a folder moves inside Company or My files, or between the two",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["from", "to", "files", "place"],
+    enabledByDefault: true,
+  },
+
+  // ── the Trash (files.md §9): deleting, restoring, and the nightly purge ─────
+  "folder.deleted": {
+    subject: "folder",
+    title: "{actor} deleted the folder {subject}",
+    when: "a folder in a client's zones goes to the Trash, with everything in it",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    changeKeys: ["place", "files"],
+    enabledByDefault: true,
+  },
+  "firm_file.deleted": {
+    subject: "firm_file",
+    title: "{actor} deleted {subject}",
+    when: "a document in Company or My files goes to the Trash",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    changeKeys: ["name", "place"],
+    enabledByDefault: true,
+  },
+  "firm_folder.deleted": {
+    subject: "firm_folder",
+    title: "{actor} deleted the folder {subject}",
+    when: "a folder in Company or My files goes to the Trash, with everything in it",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    changeKeys: ["place", "files"],
+    enabledByDefault: true,
+  },
+  "file.restored": {
+    subject: "file",
+    title: "{actor} restored {subject}",
+    when: "a client's document comes back out of the Trash, from the Trash or a card's Undo",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["to"],
+    enabledByDefault: true,
+  },
+  "folder.restored": {
+    subject: "folder",
+    title: "{actor} restored the folder {subject}",
+    when: "a folder in a client's zones comes back out of the Trash",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["to", "files"],
+    enabledByDefault: true,
+  },
+  "firm_file.restored": {
+    subject: "firm_file",
+    title: "{actor} restored {subject}",
+    when: "a document in Company or My files comes back out of the Trash",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["to"],
+    enabledByDefault: true,
+  },
+  "firm_folder.restored": {
+    subject: "firm_folder",
+    title: "{actor} restored the folder {subject}",
+    when: "a folder in Company or My files comes back out of the Trash",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["to", "files"],
+    enabledByDefault: true,
+  },
+  /**
+   * The disposal record (files.md §9): the nightly purge removed a document that had waited its 30
+   * days in the Trash. Long-kept, one row per document, and written by the system.
+   */
+  "file.purged": {
+    subject: "file",
+    title: "{subject} was removed for good",
+    when: "the nightly purge deletes a client's document that has been in the Trash for 30 days",
+    granularity: "item",
+    actorKinds: ["system"],
+    retention: "long",
+    changeKeys: ["name", "from"],
+    enabledByDefault: true,
+  },
+  "firm_file.purged": {
+    subject: "firm_file",
+    title: "{subject} was removed for good",
+    when: "the nightly purge deletes a Company or My files document after its 30 days in the Trash",
+    granularity: "item",
+    actorKinds: ["system"],
+    retention: "long",
+    changeKeys: ["name", "from"],
     enabledByDefault: true,
   },
 

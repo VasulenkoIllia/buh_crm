@@ -16,7 +16,8 @@ import type {
 } from "@shared/schema/task.js";
 import { codeInSearch } from "@shared/schema/client.js";
 import { deriveStatus, hasLiveInvoice } from "@shared/schema/payment.js";
-import { MAX_FILE_SIZE, deleteStoredFile, storeFile } from "../../core/files.js";
+import { MAX_FILE_SIZE, storeFile } from "../../core/files.js";
+import { trashCardFile, undoCardTrash } from "../files/index.js";
 import type { Prisma, User } from "../../generated/prisma/client.js";
 import { config } from "../../core/config.js";
 import { dateToUtc, todayBusinessMs } from "../../core/dates.js";
@@ -1285,6 +1286,9 @@ export async function listFiles(taskId: string) {
     size: f.size,
     mime: f.mime,
     createdAt: f.createdAt.toISOString(),
+    // a flag and nothing more: WHERE it is filed comes from a Clients read, so this Tasks route
+    // does not start returning a client's folders to readers with Clients closed (files.md §5.2)
+    filed: f.scope !== null,
   }));
 }
 
@@ -1333,19 +1337,38 @@ export async function getFile(taskId: string, fileId: string) {
   return file;
 }
 
-export async function removeFile(taskId: string, fileId: string) {
+export async function removeFile(taskId: string, fileId: string, actor: User) {
   const task = liveTaskOr404(await repo.findTask(taskId));
   const file = await repo.findTaskFile(taskId, fileId);
   if (!file) throw new NotFoundError("File not found");
-  // the bytes first: if their store refuses, nothing has changed and the delete can simply be
-  // tried again — not a row gone, bytes left behind and no record of either
-  await deleteStoredFile(file);
-  await repo.deleteFileRow(file.id);
-  record("file.deleted", {
-    subjectId: file.id,
-    subjectLabel: file.name,
-    clientId: task.clientId,
-    changes: { name: file.name, attachedTo: task.title },
-  });
-  return { ok: true as const };
+  /**
+   * **A filed file is only taken off its task** (files.md §5.4). It stays in its folder: a delete on
+   * a task never destroys a library document. `onDelete: SetNull` on `File.task` said so already.
+   */
+  if (file.scope !== null) {
+    await repo.detachFile(file.id);
+    if (file.space === "client") {
+      record("file.detached", {
+        subjectId: file.id,
+        subjectLabel: file.name,
+        clientId: file.clientId,
+        changes: { task: task.title },
+      });
+    } else {
+      record("firm_file.detached", {
+        subjectId: file.id,
+        subjectLabel: file.name,
+        changes: { task: task.title },
+      });
+    }
+    return { ok: true as const };
+  }
+  // one that is not filed goes to the Trash, never destroyed; the answer carries its Undo (§9)
+  return { ok: true as const, ...(await trashCardFile(file.id, { taskId }, actor)) };
+}
+
+/** The card's Undo, on the card's own gate: somebody whose Files is closed can take it back. */
+export async function undoRemoveFile(taskId: string, batchId: string, actor: User) {
+  liveTaskOr404(await repo.findTask(taskId));
+  return undoCardTrash(batchId, { taskId }, actor);
 }

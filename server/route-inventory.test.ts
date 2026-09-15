@@ -86,11 +86,15 @@ describe("route inventory", () => {
       // +3 real routes on 2026-09-08, all of them the activity log's: the list, the event
       // switches, and the one route that flips a switch. +9 on 2026-09-12, all two-factor
       // sign-in's: the second step of signing in, the five routes on the caller's own second
-      // factor, and Team's three (the overview, the rule, an admin's reset).
-      total: 241,
-      derivedHead: 65,
-      real: 176,
-      api: 175, // everything but /health
+      // factor, and Team's three (the overview, the rule, an admin's reset). +31 on 2026-09-14, all
+      // the library's (files.md §11.1): My files and Company under `files`, a client's files under
+      // `clients` wherever they are shown, and the admin's move out of a client on its own route.
+      // +9 the same night for the Trash (§9): a delete from each place, its list, three restores,
+      // and the client card's and the task card's Undo.
+      total: 295,
+      derivedHead: 79,
+      real: 216,
+      api: 215, // everything but /health
       anonymous: 9, // 6 credential routes, 2 unsubscribe pages, /health
       // `POST /tasks/timer/start` moved to the `tasks` gate during the 2026-09-07 audit. It takes a
       // taskId and writes against somebody else's module, so it was never really "the caller's own
@@ -98,8 +102,8 @@ describe("route inventory", () => {
       // second factor and name nobody else.
       own: 15,
       shared: 9,
-      gated: 143,
-      adminOnly: 16,
+      gated: 183,
+      adminOnly: 17,
     });
   });
 

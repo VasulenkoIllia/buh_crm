@@ -844,7 +844,18 @@ describe("clients", () => {
       headers: { cookie },
     });
     expect(del.statusCode).toBe(200);
-    await expect(readFile(onDisk)).rejects.toThrow(); // the bytes go with the row
+    // into the Trash, never destroyed (files.md §9): the row is marked, the bytes stay until the
+    // nightly purge, and the card stops answering for the file
+    expect(del.json()).toMatchObject({ ok: true, files: 1 });
+    const trashed = await prisma.file.findUniqueOrThrow({ where: { id: file.id } });
+    expect(trashed.deletedAt).not.toBeNull();
+    expect((await readFile(onDisk)).length).toBeGreaterThan(0);
+    const gone = await app.inject({
+      method: "GET",
+      url: `/api/clients/${other.id}/files/${file.id}`,
+      headers: { cookie },
+    });
+    expect(gone.statusCode).toBe(404);
   });
   it("re-saving a client keeps the company dimension on its subscriptions and invoices", async () => {
     // companies used to be deleted+recreated on every save, so the new ids silently blanked

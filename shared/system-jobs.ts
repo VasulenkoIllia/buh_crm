@@ -26,7 +26,8 @@ export type SystemJobKey =
   | "sessions:cleanup"
   | "activity:retention"
   | "backup:watchdog"
-  | "files:storage-check";
+  | "files:storage-check"
+  | "files:purge";
 
 /** The part of the app a job keeps running — the screen groups by this. */
 export type SystemJobArea =
@@ -217,6 +218,23 @@ export const SYSTEM_JOBS: Record<SystemJobKey, SystemJobSpec> = {
       "Documents may no longer open: a file lost from storage, a damaged one, or a key that does " +
       "not match the one the files were stored with. The backups cannot see this — they copy " +
       "files without opening them.",
+    staleAfterMinutes: DAY + 12 * HOUR,
+  },
+  /**
+   * The Trash emptied (files.md §9). At most 300 files a night, oldest first, so a big clean-up
+   * drains over several nights; what is still due is in the note, never counted as skipped, or
+   * a backlog would turn the row amber and mail the admins every night of it.
+   */
+  "files:purge": {
+    area: "files",
+    label: "Trash emptied",
+    cadence: "Every night, at 4:30",
+    whenOk:
+      "Removes for good what has been in the Trash for 30 days, at most 300 files a night, the " +
+      "oldest first, and records each one.",
+    whenBad:
+      "Deleted documents stay in the Trash past their 30 days and storage keeps growing. Nothing " +
+      "is lost: they can still be restored.",
     staleAfterMinutes: DAY + 12 * HOUR,
   },
 };
