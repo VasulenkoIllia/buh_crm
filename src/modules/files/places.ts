@@ -11,7 +11,8 @@ export type UiPlace =
 
 /** What the right-hand pane shows. */
 export type View =
-  | { type: "place"; place: UiPlace; folderId: string | null }
+  /** `focus`: the row to mark once it is open (`file:<id>` or `folder:<id>`), from a search */
+  | { type: "place"; place: UiPlace; folderId: string | null; focus?: string }
   /** every client, one row each */
   | { type: "clients" }
   /** one client: its three zones and its Attachments */

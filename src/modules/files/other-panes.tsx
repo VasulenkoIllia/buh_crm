@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   Download,
   Eye,
@@ -18,6 +18,7 @@ import { Button } from "@/shared/ui/button";
 import { Chip } from "@/shared/ui/chip";
 import { ClientCode } from "@/shared/ui/client-code";
 import { Menu } from "@/shared/ui/menu";
+import { SearchInput } from "@/shared/ui/search-input";
 import { useToast } from "@/shared/ui/toast";
 import {
   ExtBadge,
@@ -38,6 +39,7 @@ import {
   useTrash,
   type Restore,
 } from "./files.api";
+import { matchesClient } from "./client-filter";
 import { useLibrary } from "./library-context";
 import {
   CHECK_CELL,
@@ -437,7 +439,7 @@ function AttachmentGroupView({
 
 // ── every client, and one client ─────────────────────────────────────────────
 
-function FixedTable({ children }: { children: ReactNode }) {
+export function FixedTable({ children }: { children: ReactNode }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-[13px]">
@@ -455,7 +457,7 @@ function FixedTable({ children }: { children: ReactNode }) {
   );
 }
 
-function FixedRow({
+export function FixedRow({
   icon,
   name,
   meta,
@@ -500,15 +502,22 @@ function FixedRow({
 export function ClientsPane() {
   const lib = useLibrary();
   const { data, error } = useClientNodes(lib.clientsOpen);
+  // narrows the list as it is typed, by any part of a name or by a code (files.md §13)
+  const [filter, setFilter] = useState("");
+  const shown = (data ?? []).filter((c) => matchesClient(c, filter));
   let body: ReactNode;
   if (error) body = <PaneError error={error} />;
   else if (!data) body = <Loading />;
   else if (data.length === 0)
     body = <EmptyState icon={<User size={20} />} title="No clients yet" />;
-  else {
+  else if (shown.length === 0) {
+    body = (
+      <EmptyState icon={<User size={20} />} title={`No client matches “${filter.trim()}”`} />
+    );
+  } else {
     body = (
       <FixedTable>
-        {data.map((c) => (
+        {shown.map((c) => (
           <FixedRow
             key={c.id}
             icon={<User size={15} />}
@@ -531,9 +540,21 @@ export function ClientsPane() {
       crumbs={<CrumbTrail parts={[{ key: "clients", label: "Clients" }]} />}
       bar={
         data && (
-          <span className="text-[12.5px] tabular-nums text-muted">
-            {plural(data.length, "client")} · {totalsText(addTotals(data.map((c) => c.totals)))}
-          </span>
+          <div className="flex flex-wrap items-center gap-3">
+            <SearchInput
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Filter by name or code"
+              aria-label="Filter the clients by name or code"
+              className="w-64"
+            />
+            <span className="text-[12.5px] tabular-nums text-muted">
+              {filter.trim()
+                ? `${shown.length} of ${plural(data.length, "client")}`
+                : plural(data.length, "client")}{" "}
+              · {totalsText(addTotals(data.map((c) => c.totals)))}
+            </span>
+          </div>
         )
       }
     >

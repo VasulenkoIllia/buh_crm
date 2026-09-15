@@ -1,14 +1,16 @@
-import { Download, Eye, FolderOpen, Paperclip, Search } from "lucide-react";
-import type { PlaceInput, SearchHit, SearchQuery } from "@shared/schema/files";
+import { Download, Eye, FolderOpen, Paperclip, Search, User } from "lucide-react";
+import type { PlaceInput, SearchCrumb, SearchHit, SearchQuery } from "@shared/schema/files";
 import { cn } from "@/shared/lib/cn";
 import { fmtBytes, fmtDate } from "@/shared/lib/format";
 import { Button } from "@/shared/ui/button";
 import { Chip } from "@/shared/ui/chip";
+import { ClientCode } from "@/shared/ui/client-code";
 import { Menu, type MenuItem } from "@/shared/ui/menu";
 import { FilterChips, type TabOption } from "@/shared/ui/tabs";
 import { ExtBadge, FolderBadge, download } from "./file-bits";
 import { useSearch } from "./files.api";
 import { useLibrary } from "./library-context";
+import { FixedRow, FixedTable } from "./other-panes";
 import {
   CHECK_CELL,
   CrumbTrail,
@@ -51,10 +53,69 @@ function uiPlace(place: PlaceInput): UiPlace {
 /** Where the menu's "Show" goes: the folder a file sits in, the folder itself, or Attachments. */
 function viewOfHit(hit: SearchHit): View | null {
   const at = hit.where;
-  if (at.kind === "place")
-    return { type: "place", place: uiPlace(at.place), folderId: at.folderId };
+  if (at.kind === "place") {
+    return {
+      type: "place",
+      place: uiPlace(at.place),
+      folderId: at.folderId,
+      // a file is marked in its folder; a folder is opened, and there is nothing in it to mark
+      ...(hit.kind === "file" ? { focus: `file:${hit.id}` } : {}),
+    };
+  }
   if (at.kind === "attachments") return { type: "attachments", clientId: at.clientId };
   return null;
+}
+
+/** Where a step of a path leads; the last step marks the hit in the folder it opens. */
+function viewOfCrumb(to: NonNullable<SearchCrumb["to"]>, focus?: string): View {
+  switch (to.type) {
+    case "place":
+      return {
+        type: "place",
+        place: uiPlace(to.place),
+        folderId: to.folderId,
+        ...(focus ? { focus } : {}),
+      };
+    case "clients":
+      return { type: "clients" };
+    case "client":
+      return { type: "client", clientId: to.clientId };
+    case "attachments":
+      return { type: "attachments", clientId: to.clientId };
+  }
+}
+
+/** A hit's path, each step a way there (files.md §13). A double-click on it opens nothing. */
+function Crumbs({ hit, go }: { hit: SearchHit; go: (view: View) => void }) {
+  const last = hit.crumbs.length - 1;
+  const steps = hit.crumbs.map((c, i) => ({
+    label: c.label,
+    view: c.to ? viewOfCrumb(c.to, i === last ? `${hit.kind}:${hit.id}` : undefined) : null,
+  }));
+  return (
+    <span className="block text-[11.5px] text-muted-400">
+      {steps.map((step, i) => (
+        <span key={i}>
+          {i > 0 && " › "}
+          {step.view ? (
+            <button
+              type="button"
+              className="hover:text-primary-link hover:underline"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (step.view) go(step.view);
+              }}
+              onDoubleClick={(e) => e.stopPropagation()}
+            >
+              {step.label}
+            </button>
+          ) : (
+            step.label
+          )}
+        </span>
+      ))}
+    </span>
+  );
 }
 
 /** A file's two routes, on the gate its place is on: the library's, the client card's, a task's. */
@@ -87,6 +148,8 @@ export function SearchPane({
   const search = useSearch({ q, ...filters });
   const hits = search.data?.pages.flatMap((p) => p.hits) ?? [];
   const files = hits.filter((h) => h.kind === "file");
+  // clients come on the first page alone, before any file
+  const clients = search.data?.pages[0]?.clients ?? [];
   const spaces: TabOption<SpaceChoice>[] = [
     { value: "all", label: "Everywhere" },
     { value: "my", label: "My files" },
@@ -164,7 +227,7 @@ export function SearchPane({
   let body;
   if (search.error) body = <PaneError error={search.error} />;
   else if (!search.data) body = <Loading />;
-  else if (hits.length === 0) {
+  else if (hits.length === 0 && clients.length === 0) {
     body = (
       <EmptyState icon={<Search size={20} />} title={`Nothing matches “${q}”`}>
         Search reads names and details (who uploaded a file, which client, which folder, which
@@ -173,73 +236,100 @@ export function SearchPane({
     );
   } else {
     body = (
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-[13px]">
-          <thead>
-            <tr>
-              <th className={cn(TH, CHECK_CELL)} />
-              <th className={TH}>Name</th>
-              <th className={cn(TH, "text-right")}>Size</th>
-              <th className={TH}>Added</th>
-              <th className={TH}>Uploaded by</th>
-              <th className={cn(TH, MENU_CELL)} />
-            </tr>
-          </thead>
-          <tbody>
-            {hits.map((hit) => (
-              <tr
-                key={`${hit.kind}:${hit.id}`}
-                className={cn(ROW, "hover:[&>td]:bg-[#f7f8fa]")}
-                onDoubleClick={() => open(hit)}
-              >
-                <td className={cn(TD, CHECK_CELL)} />
-                <td className={cn(TD, "w-[55%] whitespace-normal")}>
-                  <div className="flex min-w-0 items-center gap-2.5">
-                    {hit.kind === "folder" ? <FolderBadge /> : <ExtBadge name={hit.name} />}
-                    <div className="min-w-0">
-                      <span className="font-medium text-ink [overflow-wrap:anywhere]">
-                        {hit.name}
-                      </span>
-                      {hit.task && (
-                        <Chip
-                          tone="blue"
-                          size="sm"
-                          className="ml-1.5 gap-1 align-[1px]"
-                          title="On this task"
-                        >
-                          <Paperclip size={11} />
-                          {hit.task.title}
-                        </Chip>
-                      )}
-                      <span className="block text-[11.5px] text-muted-400">{hit.path}</span>
-                    </div>
-                  </div>
-                </td>
-                <td className={cn(TD, "text-right tabular-nums")}>
-                  {hit.kind === "folder" ? "—" : fmtBytes(hit.size)}
-                </td>
-                <td className={TD}>{fmtDate(hit.createdAt)}</td>
-                <td className={TD}>{hit.uploadedBy || "—"}</td>
-                <td className={cn(TD, MENU_CELL)}>
-                  <Menu label={`Actions for ${hit.name}`} items={actions(hit)} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {search.hasNextPage && (
-          <div className="border-t border-divider px-[18px] py-3">
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={search.isFetchingNextPage}
-              onClick={() => void search.fetchNextPage()}
-            >
-              {search.isFetchingNextPage ? "Loading…" : "Show more"}
-            </Button>
+      <>
+        {clients.length > 0 && (
+          <div className="border-b border-divider">
+            <div className="px-[18px] pt-3 text-[11px] font-medium uppercase tracking-[.4px] text-muted-400">
+              Clients
+            </div>
+            <FixedTable>
+              {clients.map((c) => (
+                <FixedRow
+                  key={c.id}
+                  icon={<User size={15} />}
+                  name={
+                    <>
+                      {c.label}
+                      <ClientCode code={c.code} className="ml-2 min-w-0" />
+                    </>
+                  }
+                  totals={c.totals}
+                  onOpen={() => lib.go({ type: "client", clientId: c.id })}
+                />
+              ))}
+            </FixedTable>
           </div>
         )}
-      </div>
+        {hits.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-[13px]">
+              <thead>
+                <tr>
+                  <th className={cn(TH, CHECK_CELL)} />
+                  <th className={TH}>Name</th>
+                  <th className={cn(TH, "text-right")}>Size</th>
+                  <th className={TH}>Added</th>
+                  <th className={TH}>Uploaded by</th>
+                  <th className={cn(TH, MENU_CELL)} />
+                </tr>
+              </thead>
+              <tbody>
+                {hits.map((hit) => (
+                  <tr
+                    key={`${hit.kind}:${hit.id}`}
+                    className={cn(ROW, "hover:[&>td]:bg-[#f7f8fa]")}
+                    onDoubleClick={() => open(hit)}
+                  >
+                    <td className={cn(TD, CHECK_CELL)} />
+                    <td className={cn(TD, "w-[55%] whitespace-normal")}>
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        {hit.kind === "folder" ? <FolderBadge /> : <ExtBadge name={hit.name} />}
+                        <div className="min-w-0">
+                          <span className="font-medium text-ink [overflow-wrap:anywhere]">
+                            {hit.name}
+                          </span>
+                          {hit.task && (
+                            <Chip
+                              tone="blue"
+                              size="sm"
+                              className="ml-1.5 gap-1 align-[1px]"
+                              title="On this task"
+                            >
+                              <Paperclip size={11} />
+                              {hit.task.title}
+                            </Chip>
+                          )}
+                          <Crumbs hit={hit} go={lib.go} />
+                        </div>
+                      </div>
+                    </td>
+                    <td className={cn(TD, "text-right tabular-nums")}>
+                      {hit.kind === "folder" ? "—" : fmtBytes(hit.size)}
+                    </td>
+                    <td className={TD}>{fmtDate(hit.createdAt)}</td>
+                    <td className={TD}>{hit.uploadedBy || "—"}</td>
+                    <td className={cn(TD, MENU_CELL)}>
+                      <Menu label={`Actions for ${hit.name}`} items={actions(hit)} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {search.hasNextPage && (
+              <div className="border-t border-divider px-[18px] py-3">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={search.isFetchingNextPage}
+                  onClick={() => void search.fetchNextPage()}
+                >
+                  {search.isFetchingNextPage ? "Loading…" : "Show more"}
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+      </>
     );
   }
 

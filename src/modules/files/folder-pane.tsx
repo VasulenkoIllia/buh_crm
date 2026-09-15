@@ -117,10 +117,13 @@ const onControl = (e: MouseEvent) =>
 export function FolderPane({
   place,
   folderId,
+  focus,
   tools,
 }: {
   place: UiPlace;
   folderId: string | null;
+  /** the row to mark once the folder is open, coming from a search result */
+  focus?: string;
   tools?: ReactNode;
 }) {
   const lib = useLibrary();
@@ -176,6 +179,19 @@ export function FolderPane({
     folderId,
     label: data?.folder?.name ?? placeLabel(place, clientLabel),
   };
+
+  // from a search result (§13): the row it named is chosen and brought into view, once. The search
+  // pane stands in this one's place, so every arrival from a hit is a fresh mount.
+  const focused = useRef<string | null>(null);
+  useEffect(() => {
+    if (!focus || focused.current === focus || !items.some((i) => i.key === focus)) return;
+    focused.current = focus;
+    setSelected(new Set<string>([focus]));
+    setAnchor(focus);
+    document
+      .querySelector(`[data-row="${CSS.escape(focus)}"]`)
+      ?.scrollIntoView({ block: "center" });
+  }, [focus, items]);
 
   // Escape lets go of the selection; Delete puts it in the Trash, as the menu does
   useEffect(() => {
@@ -663,6 +679,7 @@ function ItemRow({
         drop.setNodeRef(el);
       }}
       {...drag.listeners}
+      data-row={item.key}
       aria-selected={checked}
       onClick={(e) => {
         if (!onControl(e)) onChoose(e);

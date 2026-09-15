@@ -571,6 +571,7 @@ export function Library({ mode }: { mode: LibraryMode }) {
           key={`${placeKey(view.place)}|${view.folderId ?? ""}`}
           place={view.place}
           folderId={view.folderId}
+          focus={view.focus}
           tools={mode.kind === "client" ? tools(true) : undefined}
         />
       );
