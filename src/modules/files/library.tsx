@@ -12,7 +12,7 @@ import {
 } from "@dnd-kit/core";
 import { getEventCoordinates } from "@dnd-kit/utilities";
 import { useQueryClient } from "@tanstack/react-query";
-import { FolderPlus, Upload } from "lucide-react";
+import { FileUp, FolderPlus, FolderUp, Upload } from "lucide-react";
 import type { FolderNode } from "@shared/schema/files";
 import { plural } from "@shared/text";
 import { useAuth, useCanEdit, useCanOpen } from "@/app/auth";
@@ -20,12 +20,29 @@ import { cn } from "@/shared/lib/cn";
 import { FILES_KEY } from "@/shared/lib/query-keys";
 import { Button } from "@/shared/ui/button";
 import { useDebounced } from "@/shared/lib/use-debounced";
+import { Menu } from "@/shared/ui/menu";
 import { SearchInput } from "@/shared/ui/search-input";
 import { useToast } from "@/shared/ui/toast";
 import { DeleteDialog, FileToFolderDialog, MoveDialog, UploadConfirmDialog } from "./dialogs";
 import { ExtBadge, FolderBadge, errorText, renamedNote, subtreeOf } from "./file-bits";
-import { useClientNodes, useListing, useMove, useRestore, useTrashItems } from "./files.api";
+import {
+  ensureFolder,
+  refreshLibrary,
+  useClientNodes,
+  useListing,
+  useMove,
+  useRestore,
+  useTrashItems,
+} from "./files.api";
 import { FolderPane } from "./folder-pane";
+import {
+  dirKey,
+  droppedEntries,
+  pickedFolder,
+  planFolderUpload,
+  walkEntries,
+  type UploadBatch,
+} from "./folder-upload";
 import {
   LibraryContext,
   clientNodeKey,
@@ -61,7 +78,7 @@ type Dialog =
   | { kind: "move"; picked: Picked; target?: Target }
   | { kind: "delete"; picked: Picked }
   | { kind: "file"; file: { id: string; name: string }; clientId: string | null }
-  | { kind: "upload"; files: File[]; target: Target };
+  | { kind: "upload"; batch: UploadBatch; count: number; target: Target };
 
 /** The tree nodes a view needs open to be seen. */
 function keysFor(view: View): string[] {
@@ -130,12 +147,15 @@ export function Library({ mode }: { mode: LibraryMode }) {
   const [noDrop, setNoDrop] = useState<ReadonlySet<string>>(() => new Set<string>());
   const [epoch, setEpoch] = useState(0);
   const [viewing, setViewing] = useState<{ items: Viewable[]; index: number } | null>(null);
+  // folder uploads still making their folders, for the guard on leaving the page
+  const [preparing, setPreparing] = useState(0);
   // the search box (§13), the Files screen's alone: clearing it goes back to what was open
   const [query, setQuery] = useState("");
   const [filters, setFilters] = useState<SearchFilters>({});
   const [beforeSearch, setBeforeSearch] = useState<View | null>(null);
   const searched = useDebounced(query.trim(), 300);
   const picker = useRef<HTMLInputElement>(null);
+  const folderPicker = useRef<HTMLInputElement>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
   );
@@ -209,6 +229,25 @@ export function Library({ mode }: { mode: LibraryMode }) {
       window.removeEventListener("drop", refuse);
     };
   }, []);
+
+  // the folder picker (§7.2): React does not know the attribute, so it is set on the element
+  useEffect(() => {
+    folderPicker.current?.setAttribute("webkitdirectory", "");
+  }, []);
+
+  // closing or reloading the tab while files are on their way would cut them off, so the browser
+  // asks first; moving elsewhere in the CRM lets them finish, and the folder shows them after
+  const sending =
+    preparing > 0 || queue.items.some((i) => i.state === "waiting" || i.state === "sending");
+  useEffect(() => {
+    if (!sending) return;
+    const ask = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", ask);
+    return () => window.removeEventListener("beforeunload", ask);
+  }, [sending]);
 
   // ── acts ──
 
@@ -286,8 +325,14 @@ export function Library({ mode }: { mode: LibraryMode }) {
     else setDialog({ kind: "delete", picked });
   }
 
-  function enqueue(files: File[], target: Target) {
-    const { refused, tooBig } = queue.enqueue(files, target);
+  // ── uploads (files.md §7.1, §7.2) ──
+
+  /** What was left out before sending, in one toast; nothing when nothing was. */
+  function leftOut(
+    refused: string[],
+    tooBig: string[],
+    unmade: { files: number; why: string } | null,
+  ) {
     const [big] = tooBig;
     const [program] = refused;
     const left = [
@@ -301,15 +346,83 @@ export function Library({ mode }: { mode: LibraryMode }) {
           ? `“${program}” is a program or a script`
           : `${refused.length} files are programs or scripts`
         : "",
+      unmade
+        ? unmade.files > 0
+          ? `${plural(unmade.files, "file")} whose folder could not be made (${unmade.why})`
+          : `a folder that could not be made (${unmade.why})`
+        : "",
     ].filter(Boolean);
     if (left.length > 0) toast({ text: `${left.join("; ")} — left out` });
   }
 
+  /**
+   * One drop or pick, folders included (§7.2): each directory made once, parents first, and its
+   * files queued as soon as it stands, so the first ones are on their way while the rest are
+   * made. A directory that cannot be made (too deep) leaves out what was meant for it, and the
+   * rest carry on.
+   */
+  async function runUpload(batch: UploadBatch, target: Target) {
+    const plan = planFolderUpload(batch);
+    const groups = new Map(plan.groups.map((g) => [dirKey(g.dirs), g]));
+    const made = new Map<string, string | null>([[dirKey([]), target.folderId]]);
+    const refused: string[] = [];
+    const tooBig: string[] = [];
+    const send = (dirs: string[], folderId: string | null) => {
+      const group = groups.get(dirKey(dirs));
+      if (!group) return;
+      const label = dirs.length > 0 ? dirs[dirs.length - 1] : target.label;
+      const r = queue.enqueue(group.files, { place: target.place, folderId, label });
+      refused.push(...r.refused);
+      tooBig.push(...r.tooBig);
+    };
+
+    send([], target.folderId);
+    let why = "";
+    setPreparing((n) => n + 1);
+    for (const dirs of plan.dirs) {
+      const name = dirs[dirs.length - 1];
+      const parentId = made.get(dirKey(dirs.slice(0, -1)));
+      // a directory whose parent could not be made cannot be made either
+      if (name === undefined || parentId === undefined) continue;
+      try {
+        const folder = await ensureFolder(target.place, parentId, name);
+        made.set(dirKey(dirs), folder.id);
+        send(dirs, folder.id);
+      } catch (error) {
+        why ||= errorText(error, "the server refused it");
+      }
+    }
+    setPreparing((n) => n - 1);
+    if (plan.dirs.length > 0) void refreshLibrary(queryClient);
+    const unmadeFiles = plan.groups
+      .filter((g) => !made.has(dirKey(g.dirs)))
+      .reduce((n, g) => n + g.files.length, 0);
+    leftOut(refused, tooBig, why ? { files: unmadeFiles, why } : null);
+  }
+
   // putting a file where the client will look is showing it to them, so that is asked once
-  function upload(files: File[], target: Target) {
-    if (files.length === 0) return;
-    if (clientSees(target.place)) setDialog({ kind: "upload", files, target });
-    else enqueue(files, target);
+  function upload(batch: UploadBatch, target: Target) {
+    const plan = planFolderUpload(batch);
+    const count = plan.groups.reduce((n, g) => n + g.files.length, 0);
+    if (count === 0 && plan.dirs.length === 0) return;
+    if (clientSees(target.place) && count > 0) {
+      setDialog({ kind: "upload", batch, count, target });
+    } else void runUpload(batch, target);
+  }
+
+  /** A drop: its folders are read while the drop lasts, then walked (§7.2). */
+  function uploadDropped(data: DataTransfer, target: Target) {
+    const entries = droppedEntries(data);
+    if (!entries) {
+      const files = Array.from(data.files).map((file) => ({ file, dirs: [] }));
+      upload({ files, emptyDirs: [] }, target);
+      return;
+    }
+    walkEntries(entries).then(
+      (batch) => upload(batch, target),
+      (error: unknown) =>
+        toast({ text: errorText(error, "What was dropped could not be read") }),
+    );
   }
 
   function onDragStart(e: DragStartEvent) {
@@ -379,7 +492,7 @@ export function Library({ mode }: { mode: LibraryMode }) {
     setCreating,
     busy: dialog !== null || viewing !== null,
     epoch,
-    upload,
+    uploadDropped,
     askMove: (picked) => setDialog({ kind: "move", picked }),
     askDelete,
     askFile: (file, clientId) => setDialog({ kind: "file", file, clientId }),
@@ -404,15 +517,32 @@ export function Library({ mode }: { mode: LibraryMode }) {
         <FolderPlus size={15} />
         New folder
       </Button>
-      <Button
-        size={small ? "sm" : "md"}
-        disabled={!writableHere}
-        title={here ? undefined : "Open a folder first: files land in the one that is open"}
-        onClick={() => picker.current?.click()}
-      >
-        <Upload size={15} />
-        Upload
-      </Button>
+      <Menu
+        label="Upload"
+        items={[
+          {
+            label: "Files",
+            icon: <FileUp size={15} />,
+            onSelect: () => picker.current?.click(),
+          },
+          {
+            label: "A whole folder",
+            icon: <FolderUp size={15} />,
+            onSelect: () => folderPicker.current?.click(),
+          },
+        ]}
+        button={(props) => (
+          <Button
+            {...props}
+            size={small ? "sm" : "md"}
+            disabled={!writableHere}
+            title={here ? undefined : "Open a folder first: files land in the one that is open"}
+          >
+            <Upload size={15} />
+            Upload
+          </Button>
+        )}
+      />
     </div>
   );
 
@@ -507,9 +637,19 @@ export function Library({ mode }: { mode: LibraryMode }) {
         multiple
         hidden
         onChange={(e) => {
-          const files = Array.from(e.target.files ?? []);
+          const files = Array.from(e.target.files ?? []).map((file) => ({ file, dirs: [] }));
           e.target.value = ""; // so choosing the same file twice still fires
-          if (here) upload(files, here);
+          if (here) upload({ files, emptyDirs: [] }, here);
+        }}
+      />
+      <input
+        ref={folderPicker}
+        type="file"
+        hidden
+        onChange={(e) => {
+          const batch = pickedFolder(e.target.files);
+          e.target.value = "";
+          if (here) upload(batch, here);
         }}
       />
       <UploadQueuePanel queue={queue} />
@@ -546,7 +686,7 @@ export function Library({ mode }: { mode: LibraryMode }) {
       )}
       {dialog?.kind === "upload" && (
         <UploadConfirmDialog
-          count={dialog.files.length}
+          count={dialog.count}
           target={dialog.target}
           clientName={
             dialog.target.place.kind === "client"
@@ -554,7 +694,7 @@ export function Library({ mode }: { mode: LibraryMode }) {
               : "The client"
           }
           onConfirm={() => {
-            enqueue(dialog.files, dialog.target);
+            void runUpload(dialog.batch, dialog.target);
             setDialog(null);
           }}
           onClose={() => setDialog(null)}

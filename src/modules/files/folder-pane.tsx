@@ -531,7 +531,7 @@ export function FolderPane({
         e.preventDefault();
         dragDepth.current = 0;
         setDropping(false);
-        if (writable) lib.upload(Array.from(e.dataTransfer.files), here);
+        if (writable) lib.uploadDropped(e.dataTransfer, here);
       }}
     >
       {body}
@@ -541,7 +541,7 @@ export function FolderPane({
             {writable ? `Drop to upload into ${here.label}` : "You cannot upload here"}
             <small className="mt-1 block text-[12.5px] font-normal text-[#4c62c4]">
               {writable
-                ? "Up to 25 MB a file · as many as you like, three at a time"
+                ? "Files or whole folders, up to 25 MB a file"
                 : "This place is read-only for you"}
             </small>
           </div>

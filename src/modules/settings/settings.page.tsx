@@ -79,6 +79,7 @@ const BLURB: Record<Tab, string> = {
 export function SettingsPage() {
   const canOpen = useCanOpen("settings");
   const access = useAccess();
+  const admin = useAuth().user?.role === "admin";
   const { data, isLoading, error } = useSettings();
   /**
    * The tab lives in the URL so it can be LINKED. Notifications point people at settings, and a
@@ -96,7 +97,10 @@ export function SettingsPage() {
    * (found while building the tab, 2026-09-08). Now the page shows exactly the tabs that person
    * may open, and `RequireGate` on the route lets them through for the same reason.
    */
-  const tabs = TABS.filter((t) => (t.gate ? access(t.gate) !== "closed" : canOpen));
+  // an admin's tab (System) leaves it for everybody else, whatever their gates say
+  const tabs = TABS.filter(
+    (t) => (!t.adminOnly || admin) && (t.gate ? access(t.gate) !== "closed" : canOpen),
+  );
   const tab: Tab = tabs.some((t) => t.value === raw)
     ? (raw as Tab)
     : (tabs[0]?.value ?? "firm");

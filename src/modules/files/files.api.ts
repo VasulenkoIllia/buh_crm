@@ -10,6 +10,7 @@ import type {
   AttachmentGroup,
   ClientFilesDetail,
   ClientFilesNode,
+  EnsuredFolder,
   FilesOverview,
   FolderListing,
   FolderNode,
@@ -23,7 +24,7 @@ import type {
   TrashResult,
 } from "@shared/schema/files";
 import type { FileZone } from "@shared/library";
-import { api } from "@/shared/lib/api";
+import { ApiError, api } from "@/shared/lib/api";
 import { CLIENTS_KEY, FILES_KEY, TASKS_KEY } from "@/shared/lib/query-keys";
 import { areaBase, placeBase, placeKey, type UiPlace } from "./places";
 
@@ -198,6 +199,28 @@ export function useFileToFolder() {
         { method: "POST", body: { zone: v.zone, folderId: v.folderId } },
       ),
   );
+}
+
+/**
+ * A folder upload's call for one directory (§7.2): the folder under `parentId`, found or made. A
+ * 429 waits and asks again, as the upload queue does, so a big folder is not cut short.
+ */
+export async function ensureFolder(
+  place: UiPlace,
+  parentId: string | null,
+  name: string,
+): Promise<EnsuredFolder> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await api<EnsuredFolder>(`${placeBase(place)}/folders/ensure`, {
+        method: "POST",
+        body: { name, parentId },
+      });
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 429) || attempt >= 5) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+    }
+  }
 }
 
 /**

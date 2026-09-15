@@ -1,5 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type {
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+  RefObject,
+} from "react";
 import { createPortal } from "react-dom";
 import { MoreHorizontal } from "lucide-react";
 import { cn } from "@/shared/lib/cn";
@@ -28,14 +33,26 @@ export interface MenuItem {
  * Pointer events stop at the trigger: a row that can be dragged must not start a drag, and a row
  * that can be selected must not be selected, by opening its menu.
  */
+/** What a caller's own button needs to open the menu, and to have the focus handed back to it. */
+export interface MenuButtonProps {
+  ref: RefObject<HTMLButtonElement | null>;
+  "aria-haspopup": "menu";
+  "aria-expanded": boolean;
+  onPointerDown: (e: ReactPointerEvent<HTMLButtonElement>) => void;
+  onClick: (e: ReactMouseEvent<HTMLButtonElement>) => void;
+}
+
 export function Menu({
   label,
   items,
   trigger,
+  button: renderButton,
 }: {
   label: string;
   items: (MenuItem | "divider")[];
   trigger?: ReactNode;
+  /** a button of the caller's own in place of the "⋯", such as the Files screen's Upload */
+  button?: (props: MenuButtonProps) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [at, setAt] = useState<{ top: number; left: number } | null>(null);
@@ -83,22 +100,27 @@ export function Menu({
     if (open && at) actions()[0]?.focus({ preventScroll: true });
   }, [open, at]);
 
+  const buttonProps: MenuButtonProps = {
+    ref: button,
+    "aria-haspopup": "menu",
+    "aria-expanded": open,
+    onPointerDown: (e) => e.stopPropagation(),
+    onClick: (e) => {
+      e.stopPropagation();
+      setAt(null);
+      setOpen((o) => !o);
+    },
+  };
+
   return (
     <>
-      <IconButton
-        ref={button}
-        label={label}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => {
-          e.stopPropagation();
-          setAt(null);
-          setOpen((o) => !o);
-        }}
-      >
-        {trigger ?? <MoreHorizontal size={16} />}
-      </IconButton>
+      {renderButton ? (
+        renderButton(buttonProps)
+      ) : (
+        <IconButton {...buttonProps} label={label}>
+          {trigger ?? <MoreHorizontal size={16} />}
+        </IconButton>
+      )}
       {open &&
         createPortal(
           <div

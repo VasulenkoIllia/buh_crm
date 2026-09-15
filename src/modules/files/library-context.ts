@@ -47,7 +47,8 @@ export interface LibraryApi {
   busy: boolean;
   /** goes up after every move and delete, and a pane lets go of its selection */
   epoch: number;
-  upload: (files: File[], target: Target) => void;
+  /** what was dropped, files and whole folders (§7.1, §7.2), into the target */
+  uploadDropped: (data: DataTransfer, target: Target) => void;
   askMove: (picked: Picked) => void;
   askDelete: (picked: Picked) => void;
   askFile: (file: { id: string; name: string }, clientId: string | null) => void;

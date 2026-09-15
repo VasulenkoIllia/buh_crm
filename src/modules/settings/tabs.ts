@@ -29,6 +29,8 @@ export interface SettingsTabSpec {
   label: string;
   /** absent = the tab belongs to `settings` itself, the gate the screen is named for */
   gate?: GateKey;
+  /** an admin's alone, whoever else its gate is open to, because its routes are `adminOnly` */
+  adminOnly?: true;
 }
 
 /**
@@ -42,7 +44,8 @@ export const SETTINGS_TABS: readonly SettingsTabSpec[] = [
   { value: "lists", label: "Lists" },
   { value: "invoices", label: "Invoices" },
   { value: "notifications", label: "Notifications", gate: "notification_rules" },
-  { value: "system", label: "System" },
+  // the jobs with their error texts, and the firm's storage: both routes are an admin's
+  { value: "system", label: "System", adminOnly: true },
   // whoever manages people manages their access — the tab is the Team gate, never its own switch
   { value: "access", label: "Access", gate: "team" },
   /**
