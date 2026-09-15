@@ -18,10 +18,16 @@ import {
   type FolderRow,
   type MoveInput,
   type MoveResult,
+  type SearchHit,
+  type SearchPage,
+  type SearchQuery,
+  type SearchWhere,
 } from "@shared/schema/files.js";
 import { opens, readerOf, requireOpen, requireReadable } from "./files.access.js";
 import * as names from "./files.names.js";
 import * as repo from "./files.repository.js";
+import { NOT_VIEWABLE } from "./files.serve.js";
+import { detectType, viewOf } from "./files.types.js";
 
 /**
  * **The library** (files.md §4–§7): places, folders, uploads, names, moves and File to folder.
@@ -152,7 +158,221 @@ function fileRow(f: repo.FileRecord, showTask: boolean): FileRow {
     createdAt: f.createdAt.toISOString(),
     uploadedBy: personName(f.uploadedBy),
     task: showTask && f.task ? { id: f.task.id, title: f.task.title } : null,
+    view: viewOf(f.detectedMime),
   };
+}
+
+// ── search (files.md §13) ────────────────────────────────────────────────────
+
+const IMAGE_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+];
+const TEXT_TYPES = ["text/plain", "text/csv"];
+const SHOWN_TYPES = ["application/pdf", ...IMAGE_TYPES, ...TEXT_TYPES];
+
+/** The words a search matches: the name, the uploader, the client and its `#code`, the task, the folder. */
+function fileText(q: string): Prisma.FileWhereInput {
+  const has = { contains: q, mode: "insensitive" as const };
+  const code = Number(q.replace(/^#|^c-?/i, ""));
+  return {
+    OR: [
+      { name: has },
+      { uploadedBy: { is: { OR: [{ firstName: has }, { lastName: has }] } } },
+      {
+        client: {
+          is: {
+            OR: [
+              { firstName: has },
+              { lastName: has },
+              { companyName: has },
+              ...(Number.isInteger(code) && code > 0 ? [{ code }] : []),
+            ],
+          },
+        },
+      },
+      { task: { is: { title: has } } },
+      { folder: { is: { name: has } } },
+    ],
+  };
+}
+
+function fileType(type: NonNullable<SearchQuery["type"]>): Prisma.FileWhereInput {
+  switch (type) {
+    case "pdf":
+      return { detectedMime: "application/pdf" };
+    case "image":
+      return { detectedMime: { in: IMAGE_TYPES } };
+    case "text":
+      return { detectedMime: { in: TEXT_TYPES } };
+    case "other":
+      return { OR: [{ detectedMime: null }, { detectedMime: { notIn: SHOWN_TYPES } }] };
+  }
+}
+
+function whereOf(
+  scope: string | null,
+  folderId: string | null,
+  task: { clientId: string | null; leadId: string | null } | null,
+): SearchWhere {
+  if (!scope) {
+    if (task?.clientId) return { kind: "attachments", clientId: task.clientId };
+    return task?.leadId ? { kind: "task" } : { kind: "attachments", clientId: null };
+  }
+  if (scope === "company") return { kind: "place", place: { space: "company" }, folderId };
+  if (scope.startsWith("personal:")) {
+    return { kind: "place", place: { space: "personal" }, folderId };
+  }
+  const [, clientId, zone] = scope.split(":");
+  return {
+    kind: "place",
+    place: { space: "client", clientId, zone: zone as FileZone },
+    folderId,
+  };
+}
+
+/**
+ * **One box over names and details, never inside a file** (§13.1). What the reader may see sits
+ * inside the query (§11.3), so a page and its "more" are right, and the Trash is never searched:
+ * their own My files and Company; with Clients open, every live client's zones and its tasks'
+ * files; with Tasks open, the internal and lead tasks' files in no folder. Paths are read in one
+ * batch per page, never per row.
+ */
+export async function search(user: User, query: SearchQuery): Promise<SearchPage> {
+  const reader = await readerOf(user);
+  const clientsOpen = opens(reader, "clients");
+  const tasksOpen = opens(reader, "tasks");
+  const mine = `personal:${user.id}`;
+  const liveClient = { is: { archivedAt: null } };
+
+  const seen: Prisma.FileWhereInput[] = [{ scope: mine }, { scope: "company" }];
+  if (clientsOpen) {
+    seen.push({ space: "client", client: liveClient });
+    seen.push({ scope: null, task: { is: { clientId: { not: null } } }, client: liveClient });
+  }
+  if (tasksOpen) seen.push({ scope: null, task: { is: { clientId: null } } });
+
+  const inSpace: Record<NonNullable<SearchQuery["space"]>, Prisma.FileWhereInput> = {
+    my: { scope: mine },
+    company: { scope: "company" },
+    clients: {
+      OR: [{ space: "client" }, { scope: null, task: { is: { clientId: { not: null } } } }],
+    },
+  };
+  const q = query.q;
+  const rows = await repo.searchFiles(
+    {
+      AND: [
+        { deletedAt: null },
+        { OR: seen },
+        ...(q ? [fileText(q)] : []),
+        ...(query.space ? [inSpace[query.space]] : []),
+        ...(query.type ? [fileType(query.type)] : []),
+      ],
+    },
+    query.page,
+  );
+  const files = rows.slice(0, repo.SEARCH_PAGE);
+
+  // folders by name, on the first page, when no file type narrows the search
+  const folderSeen: Prisma.FolderWhereInput[] = [{ scope: mine }, { scope: "company" }];
+  if (clientsOpen) folderSeen.push({ space: "client", client: liveClient });
+  const folderSpace: Record<NonNullable<SearchQuery["space"]>, Prisma.FolderWhereInput> = {
+    my: { scope: mine },
+    company: { scope: "company" },
+    clients: { space: "client" },
+  };
+  const folders =
+    q && !query.type && query.page === 0
+      ? await repo.searchFolders({
+          AND: [
+            { deletedAt: null },
+            { OR: folderSeen },
+            { name: { contains: q, mode: "insensitive" } },
+            ...(query.space ? [folderSpace[query.space]] : []),
+          ],
+        })
+      : [];
+
+  // every path on the page in two queries: the folder chains, and the clients' names
+  const chainIds = [
+    ...new Set([
+      ...files.flatMap((f) => (f.scope && f.folderId ? [f.folderId] : [])),
+      ...folders.flatMap((f) => (f.parentId ? [f.parentId] : [])),
+    ]),
+  ];
+  const chains =
+    chainIds.length > 0 ? await repo.ancestries(chainIds) : new Map<string, string[]>();
+  const clientIds = [
+    ...new Set([
+      ...files.flatMap((f) => (f.clientId ? [f.clientId] : [])),
+      ...folders.flatMap((f) => (f.scope.startsWith("client:") ? [f.scope.split(":")[1]] : [])),
+    ]),
+  ];
+  const clientNames = new Map(
+    (clientIds.length > 0 ? await repo.clientsByIds(clientIds) : []).map((c) => [
+      c.id,
+      clientLabel(c),
+    ]),
+  );
+
+  const pathOf = (where: SearchWhere, parentId: string | null, taskTitle?: string) => {
+    const chain = parentId ? (chains.get(parentId) ?? []) : [];
+    let head: string[];
+    if (where.kind === "task") head = ["A lead's task", taskTitle ?? "a task"];
+    else if (where.kind === "attachments") {
+      head = where.clientId
+        ? ["Clients", clientNames.get(where.clientId) ?? "a client", "Attachments"]
+        : ["Company", "Attachments"];
+    } else if (where.place.space === "personal") head = [MY_FILES];
+    else if (where.place.space === "company") head = ["Company"];
+    else {
+      head = [
+        "Clients",
+        clientNames.get(where.place.clientId) ?? "a client",
+        ZONE_LABEL[where.place.zone],
+      ];
+    }
+    return [...head, ...chain].join(" › ");
+  };
+
+  const hits: SearchHit[] = [
+    ...folders.map((f): SearchHit => {
+      const at = whereOf(f.scope, f.parentId, null);
+      return {
+        kind: "folder",
+        id: f.id,
+        name: f.name,
+        where: at.kind === "place" ? { ...at, folderId: f.id } : at,
+        path: pathOf(at, f.parentId),
+        size: 0,
+        createdAt: f.createdAt.toISOString(),
+        uploadedBy: f.createdBy ? personName(f.createdBy) : "",
+        view: null,
+        task: null,
+      };
+    }),
+    ...files.map((f): SearchHit => {
+      const at = whereOf(f.scope, f.folderId, f.task);
+      return {
+        kind: "file",
+        id: f.id,
+        name: f.name,
+        where: at,
+        path: pathOf(at, f.scope ? f.folderId : null, f.task?.title),
+        size: f.size,
+        createdAt: f.createdAt.toISOString(),
+        uploadedBy: personName(f.uploadedBy),
+        view: viewOf(f.detectedMime),
+        task: tasksOpen && f.task ? { id: f.task.id, title: f.task.title } : null,
+      };
+    }),
+  ];
+  return { hits, more: rows.length > repo.SEARCH_PAGE };
 }
 
 // ── the tree ─────────────────────────────────────────────────────────────────
@@ -298,6 +518,8 @@ export async function upload(
   if (file.buffer.byteLength > MAX_FILE_SIZE) {
     throw new ValidationError("File must be 25 MB or smaller");
   }
+  // what the bytes say it is: a renamed program is refused here too (§12.2, §14.3)
+  const detectedMime = await detectType(file.buffer, name);
   const scope = scopeOf(place);
   const at = folder?.id ?? null;
   const finalName = names.firstFreeName(name, await repo.takenFileNames(scope, at));
@@ -310,6 +532,7 @@ export async function upload(
         name: finalName,
         size: file.buffer.byteLength,
         mime: file.mimetype,
+        detectedMime,
         uploadedById: user.id,
         scope,
         folderId: at,
@@ -365,16 +588,22 @@ export async function uploadToClientCard(clientId: string, user: User, file: Inc
   return upload(await clientPlace(clientId, "internal"), undefined, user, file);
 }
 
-/** A My files or Company file, for its download route. A client's go through the client card's. */
-export async function download(area: Area, fileId: string) {
+/**
+ * A My files or Company file, for its download or view route. A client's go through the client
+ * card's. A view of a file that does not open in the CRM is refused before anything is logged.
+ */
+export async function download(area: Area, fileId: string, via?: "view") {
   const file = await repo.findFile(fileId);
   if (!file || file.deletedAt || !inArea(file.scope, area)) {
     throw new NotFoundError("File not found");
   }
-  // a read, recorded — for this one the read IS the act (activity-log.md §3.2)
+  if (via && !viewOf(file.detectedMime)) throw new ValidationError(NOT_VIEWABLE);
+  // a read, recorded — for this one the read IS the act (activity-log.md §3.2). Every row says how:
+  // a row with no change would be dropped as an empty diff, and a download must never be
   record("firm_file.downloaded", {
     subjectId: file.id,
     subjectLabel: area.kind === "mine" ? PERSONAL_FILE : file.name,
+    changes: { via: via ?? "download" },
   });
   return file;
 }

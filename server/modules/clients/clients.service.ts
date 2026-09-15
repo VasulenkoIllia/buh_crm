@@ -31,7 +31,7 @@ import {
 } from "../payments/index.js";
 import { countUpcomingMeetingsForClient } from "../meetings/index.js";
 import { countOpenTasksForClient, generateForSubscription } from "../tasks/index.js";
-import { trashCardFile, undoCardTrash } from "../files/index.js";
+import { NOT_VIEWABLE, trashCardFile, undoCardTrash, viewOf } from "../files/index.js";
 import { clientLabel } from "../../core/names.js";
 import { diff, labelOf, record } from "../../core/activity.js";
 import * as repo from "./clients.repository.js";
@@ -1071,18 +1071,26 @@ export async function listFiles(clientId: string) {
 // The card's Upload lives in the files module since stage B (`uploadToClientCard`): a new document
 // lands in the client's Internal, and a taken name there becomes `(2)` (files.md §4.2, §6.3).
 
-export async function getFile(clientId: string, fileId: string) {
+export async function getFile(clientId: string, fileId: string, via?: "view") {
   await getClient(clientId); // 404s archived/missing clients — files go dark with the client
   const file = await repo.findClientFile(clientId, fileId);
   if (!file) throw new NotFoundError("File not found");
+  // a file that does not open in the CRM is refused before anything is logged (files.md §12.2)
+  if (via && !viewOf(file.detectedMime)) throw new ValidationError(NOT_VIEWABLE);
   /**
    * **A read, recorded — because for this one the read IS the act.**
    *
    * Reads are not logged in general (§3.2): an open board polls every minute and a log of that
    * answers nothing. A download is the exception, and the reason is blunt — it is the only way to
-   * answer "whose documents were taken" after a compromise.
+   * answer "whose documents were taken" after a compromise. A view is the same event, and every
+   * row says which it was: a row with no change would be dropped as an empty diff.
    */
-  record("file.downloaded", { subjectId: file.id, subjectLabel: file.name, clientId });
+  record("file.downloaded", {
+    subjectId: file.id,
+    subjectLabel: file.name,
+    clientId,
+    changes: { via: via ?? "download" },
+  });
   return file;
 }
 

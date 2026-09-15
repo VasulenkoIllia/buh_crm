@@ -282,13 +282,18 @@ export function findTask(id: string) {
   return prisma.task.findUnique({ where: { id }, include: taskInclude });
 }
 
-/** The client a lead became, if it did: its tasks file their new files there (files.md §5.6). */
+/**
+ * The client a lead became, if it did and is not archived: its tasks file their new files there
+ * (files.md §5.6). An archived client's files are dark (decision 8), so nothing new goes in; the
+ * file stays on the lead's task, as a lead's always did.
+ */
 export async function convertedClientOf(leadId: string) {
   const lead = await prisma.lead.findUnique({
     where: { id: leadId },
-    select: { convertedClientId: true },
+    select: { convertedClient: { select: { id: true, archivedAt: true } } },
   });
-  return lead?.convertedClientId ?? null;
+  const client = lead?.convertedClient;
+  return client && !client.archivedAt ? client.id : null;
 }
 
 export function createTask(data: Prisma.TaskUncheckedCreateInput) {
@@ -715,6 +720,8 @@ export function createTaskFile(
     name: string;
     size: number;
     mime: string;
+    /** what the bytes say it is (files.md §12.2) */
+    detectedMime: string | null;
     uploadedById: string;
     /** a converted lead's task files it straight into the client's Internal root (§5.6) */
     scope?: string;

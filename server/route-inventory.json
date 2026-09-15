@@ -295,6 +295,11 @@
     "derived": true
   },
   {
+    "method": "GET",
+    "url": "/api/clients/:id/files/:fileId/view",
+    "access": "gate:clients"
+  },
+  {
     "method": "POST",
     "url": "/api/clients/:id/files/undo",
     "access": "gate:clients"
@@ -526,6 +531,11 @@
   },
   {
     "method": "GET",
+    "url": "/api/files/company/files/:fileId/view",
+    "access": "gate:files"
+  },
+  {
+    "method": "GET",
     "url": "/api/files/company/folders",
     "access": "gate:files"
   },
@@ -589,6 +599,11 @@
   },
   {
     "method": "GET",
+    "url": "/api/files/my/files/:fileId/view",
+    "access": "gate:files"
+  },
+  {
+    "method": "GET",
     "url": "/api/files/my/folders",
     "access": "gate:files"
   },
@@ -637,6 +652,17 @@
   {
     "method": "HEAD",
     "url": "/api/files/overview",
+    "access": "gate:files",
+    "derived": true
+  },
+  {
+    "method": "GET",
+    "url": "/api/files/search",
+    "access": "gate:files"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/files/search",
     "access": "gate:files",
     "derived": true
   },
@@ -1319,6 +1345,11 @@
     "url": "/api/tasks/:id/files/:fileId",
     "access": "gate:tasks",
     "derived": true
+  },
+  {
+    "method": "GET",
+    "url": "/api/tasks/:id/files/:fileId/view",
+    "access": "gate:tasks"
   },
   {
     "method": "POST",

@@ -805,7 +805,11 @@ describe("the three shapes a bulk or late write takes", () => {
         clientId,
         changes: { amount: 100 },
       });
-      record("file.downloaded", { subjectLabel: "statement.pdf", clientId });
+      record("file.downloaded", {
+        subjectLabel: "statement.pdf",
+        clientId,
+        changes: { via: "download" },
+      });
     });
 
     const res = await app.inject({

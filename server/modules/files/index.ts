@@ -22,6 +22,12 @@ export { refuseProgram, uploadedFileName } from "./files.names.js";
 export { asNameConflict } from "./files.service.js";
 // Settings → System → Storage (§4.4)
 export { storageReport } from "./files.storage.js";
+// what a file is, from its bytes, and how it leaves the server: the cards' routes send theirs
+// through the same two doors as the library's (§12.2)
+export { detectType, viewOf } from "./files.types.js";
+export { NOT_VIEWABLE, sendDownload, sendView } from "./files.serve.js";
+// stage C's one-off over the files stored before (`scripts/detect-file-types.ts`)
+export { detectStoredTypes } from "./files.backfill.js";
 
 export async function filesModule(app: FastifyInstance) {
   await registerRoutes(app);

@@ -1627,7 +1627,10 @@ model File {
   id           String      @id @default(uuid()) @db.Uuid
   name         String
   size         Int // bytes, ≤ 25 MB enforced in service; the file's own size, not its ciphertext's
-  mime         String
+  mime         String // what the browser claimed at upload: shown, never believed
+  /// What its bytes say it is, read with file-type at upload (files.md §12.2). It decides what opens
+  /// in the CRM and what a download says it is. Null: nothing the CRM shows, so a download.
+  detectedMime String?
   path         String // its key in its store: a path under UPLOADS_DIR, or an object in the bucket
   clientId     String?     @db.Uuid // client-card files
   /// Attached to a task. ALSO carries `clientId` when that task has a client, which is the whole

@@ -299,6 +299,19 @@ describe("a converted lead's files (files.md §5.6)", () => {
       taskId: tasks[0],
     });
     await recorded("file.filed", row.id);
+
+    // an archived client's files are dark (decision 8): a new file on the old lead's task stays on
+    // the task, as a lead's always did, rather than landing where nobody can open it
+    await prisma.client.update({ where: { id: clientId }, data: { archivedAt: new Date() } });
+    const dark = await a.upload(`/api/tasks/${tasks[1]}/files`, "late.pdf");
+    expect(dark.statusCode).toBe(201);
+    expect(
+      await prisma.file.findUniqueOrThrow({ where: { id: dark.json().id } }),
+    ).toMatchObject({
+      scope: null,
+      clientId: null,
+      taskId: tasks[1],
+    });
   });
 
   it("refuses a program on a task, as on every other upload (§14.3)", async () => {

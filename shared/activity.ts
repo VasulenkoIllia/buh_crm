@@ -983,10 +983,15 @@ const EVENTS = {
   "file.downloaded": {
     subject: "file",
     title: "{actor} downloaded {subject}",
-    when: "a stored document is fetched",
+    // an open in the CRM is the same act, since the document reached the reader either way. Every
+    // row says which, `via: download` or `via: view` (files.md §10.1, §12.2): with `changeKeys`
+    // declared, a row carrying no change would be dropped as an empty diff
+    // (core/activity.ts), and a download must never be
+    when: "a stored document is fetched, or opened in the CRM",
     granularity: "item",
     actorKinds: ["user"],
     retention: "ordinary",
+    changeKeys: ["via"],
     enabledByDefault: true,
     isRead: true,
   },
@@ -1163,10 +1168,11 @@ const EVENTS = {
   "firm_file.downloaded": {
     subject: "firm_file",
     title: "{actor} downloaded {subject}",
-    when: "a document in Company or My files is fetched",
+    when: "a document in Company or My files is fetched, or opened in the CRM",
     granularity: "item",
     actorKinds: ["user"],
     retention: "ordinary",
+    changeKeys: ["via"],
     enabledByDefault: true,
     isRead: true,
   },

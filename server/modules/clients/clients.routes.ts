@@ -17,8 +17,12 @@ import { undoInput } from "@shared/schema/files.js";
 import { gate, shared } from "../../core/access.js";
 import { ValidationError } from "../../core/errors.js";
 import { clientIp } from "../../core/client-ip.js";
-import { readStoredFile } from "../../core/files.js";
-import { UPLOAD_RATE_LIMIT, uploadToClientCard } from "../files/index.js";
+import {
+  UPLOAD_RATE_LIMIT,
+  sendDownload,
+  sendView,
+  uploadToClientCard,
+} from "../files/index.js";
 import * as secrets from "./secrets.service.js";
 import * as service from "./clients.service.js";
 
@@ -192,15 +196,16 @@ export async function registerRoutes(instance: FastifyInstance) {
   app.get(
     "/:id/files/:fileId",
     { config: clients, schema: { params: fileParams } },
-    async (request, reply) => {
-      const file = await service.getFile(request.params.id, request.params.fileId);
-      reply.header("Content-Type", file.mime);
-      reply.header(
-        "Content-Disposition",
-        `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
-      );
-      return reply.send(await readStoredFile(file));
-    },
+    async (request, reply) =>
+      sendDownload(reply, await service.getFile(request.params.id, request.params.fileId)),
+  );
+
+  // the same file, opened in the CRM (files.md §12); no HEAD, which would log a view nobody made
+  app.get(
+    "/:id/files/:fileId/view",
+    { config: clients, schema: { params: fileParams }, exposeHeadRoute: false },
+    async (request, reply) =>
+      sendView(reply, await service.getFile(request.params.id, request.params.fileId, "view")),
   );
 
   // into the Trash, never destroyed: the answer carries the gesture the card's Undo takes back

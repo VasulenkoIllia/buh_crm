@@ -9,6 +9,7 @@ import { accessMapFor, ModuleClosedError } from "../../core/access.js";
  * moves cross gates in one request, and they are this module's named exception to "services never
  * consult a gate" (`core/access.ts`, beside the calendar's overlay):
  * - the tree's totals, and "All files" at its top: Files, plus Clients and Tasks for their parts;
+ * - search, the same way: Files, plus Clients and Tasks for what sits behind them (§13);
  * - Company's Attachments, files on the firm's internal tasks: Files and Tasks;
  * - a move from My files or Company into a client: Files and Clients;
  * - an admin's move out of a client into Company or My files: Clients and Files.

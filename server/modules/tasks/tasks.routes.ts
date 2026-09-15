@@ -19,8 +19,7 @@ import {
   updateTimeEntryInput,
 } from "@shared/schema/task.js";
 import { gate, own, shared } from "../../core/access.js";
-import { readStoredFile } from "../../core/files.js";
-import { UPLOAD_RATE_LIMIT } from "../files/index.js";
+import { UPLOAD_RATE_LIMIT, sendDownload, sendView } from "../files/index.js";
 import { undoInput } from "@shared/schema/files.js";
 import { ValidationError } from "../../core/errors.js";
 import * as service from "./tasks.service.js";
@@ -246,18 +245,18 @@ export async function registerRoutes(instance: FastifyInstance) {
   app.get(
     "/:id/files/:fileId",
     { config: tasks, schema: { params: fileParams } },
-    async (request, reply) => {
-      const file = await service.getFile(request.params.id, request.params.fileId);
-      reply.header("Content-Type", file.mime);
-      // ATTACHMENT, deliberately. Serving somebody's upload inline from the app's own origin runs
-      // whatever is in it — an .html or an .svg — with the reader's session. Preview is a decision
-      // for the day files move to storage of their own (user, 2026-08-28).
-      reply.header(
-        "Content-Disposition",
-        `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
-      );
-      return reply.send(await readStoredFile(file));
-    },
+    // ATTACHMENT, typed by its bytes. What may open inline goes through the view route below,
+    // with the headers files.md §12.2 sets for its type; an .html or an .svg never does
+    async (request, reply) =>
+      sendDownload(reply, await service.getFile(request.params.id, request.params.fileId)),
+  );
+
+  // the same file, opened in the CRM (files.md §12); no HEAD, which would log a view nobody made
+  app.get(
+    "/:id/files/:fileId/view",
+    { config: tasks, schema: { params: fileParams }, exposeHeadRoute: false },
+    async (request, reply) =>
+      sendView(reply, await service.getFile(request.params.id, request.params.fileId, "view")),
   );
 
   // a filed file only leaves the task; one that is not goes to the Trash, and its Undo is below

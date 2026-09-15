@@ -98,6 +98,9 @@ export interface FolderRow {
   totals: FileTotals;
 }
 
+/** Which of the CRM's viewers opens a file (files.md §12.1); null: it is a download. */
+export type FileView = "pdf" | "image" | "text" | "csv" | null;
+
 export interface FileRow {
   id: string;
   name: string;
@@ -107,6 +110,8 @@ export interface FileRow {
   uploadedBy: string;
   /** the task it is attached to as well, when the reader may see that task */
   task: { id: string; title: string } | null;
+  /** from the type its bytes gave at upload, never from its name */
+  view: FileView;
 }
 
 export interface FolderListing {
@@ -232,4 +237,47 @@ export interface FirmStorage {
   where: { bucket: FileTotals; disk: FileTotals };
   /** the disk the database and the backup mirror grow on; null when it could not be read */
   disk: { path: string; free: number; total: number } | null;
+}
+
+// ── search (files.md §13) ────────────────────────────────────────────────────
+
+/** One box over names and details, never inside a file; fifty files a page. */
+export const searchQuery = z.object({
+  q: z.string().trim().max(200).default(""),
+  space: z.enum(["my", "company", "clients"]).optional(),
+  type: z.enum(["pdf", "image", "text", "other"]).optional(),
+  page: z.coerce.number().int().min(0).max(200).default(0),
+});
+export type SearchQuery = z.infer<typeof searchQuery>;
+
+/** Where a hit lives, so the screen can take the reader there. */
+export type SearchWhere =
+  | { kind: "place"; place: PlaceInput; folderId: string | null }
+  /** a task's file in no folder: the client's Attachments, or Company's for an internal task */
+  | { kind: "attachments"; clientId: string | null }
+  /** a lead's task file, which has no place in the library */
+  | { kind: "task" };
+
+export interface SearchHit {
+  kind: "file" | "folder";
+  id: string;
+  name: string;
+  /** for a file, where it sits; for a folder, the folder itself, to open */
+  where: SearchWhere;
+  /** where it is, in words: "Clients › Petrenko #142 › Internal › 2025" */
+  path: string;
+  /** a file's own size; 0 for a folder, whose total the list does not add up here */
+  size: number;
+  createdAt: string;
+  uploadedBy: string;
+  /** a file's: which viewer opens it */
+  view: FileView;
+  /** the task it is on, when the reader may see that task */
+  task: { id: string; title: string } | null;
+}
+
+export interface SearchPage {
+  hits: SearchHit[];
+  /** another page of files follows */
+  more: boolean;
 }

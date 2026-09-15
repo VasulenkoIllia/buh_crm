@@ -91,11 +91,14 @@ describe("route inventory", () => {
       // `clients` wherever they are shown, and the admin's move out of a client on its own route.
       // +9 the same night for the Trash (§9): a delete from each place, its list, three restores,
       // and the client card's and the task card's Undo. +2 on 2026-09-15, both reads: the figures
-      // Team sees before a Block (§8.3), and Settings → System → Storage, an admin's (§4.4).
-      total: 299,
-      derivedHead: 81,
-      real: 218,
-      api: 217, // everything but /health
+      // Team sees before a Block (§8.3), and Settings → System → Storage, an admin's (§4.4). +4
+      // the same day for stage C: a view beside each download (My files, Company, a client's, a
+      // task's), GET only, since a HEAD would run the handler and log a view nobody made (§12.2).
+      // +1 the same day: search, one box over names and details (§13).
+      total: 305,
+      derivedHead: 82,
+      real: 223,
+      api: 222, // everything but /health
       anonymous: 9, // 6 credential routes, 2 unsubscribe pages, /health
       // `POST /tasks/timer/start` moved to the `tasks` gate during the 2026-09-07 audit. It takes a
       // taskId and writes against somebody else's module, so it was never really "the caller's own
@@ -103,7 +106,7 @@ describe("route inventory", () => {
       // second factor and name nobody else.
       own: 15,
       shared: 9,
-      gated: 185,
+      gated: 190,
       adminOnly: 18,
     });
   });

@@ -4,6 +4,7 @@ import type { Prisma } from "../../generated/prisma/client.js";
 import { record } from "../../core/activity.js";
 import * as names from "./files.names.js";
 import * as repo from "./files.repository.js";
+import { asNameConflict } from "./files.service.js";
 
 /**
  * **The two moves the system makes on its own** (files.md §8.3, §5.6): a blocked person's My files
@@ -24,19 +25,30 @@ export function personalFilesSummary(userId: string): Promise<PersonalFilesSumma
   return repo.personalSummary(userId);
 }
 
-/** Blocking calls this inside its transaction, once the status has really changed. */
-export function movePersonalIntoCompany(
+/**
+ * Blocking calls this inside its transaction, once the status has really changed. A folder of the
+ * same name made at the same moment fails the whole block; it comes back as a conflict the dialog
+ * shows, and the admin presses Block again (§8.3).
+ */
+export async function movePersonalIntoCompany(
   tx: Tx,
   person: { id: string; name: string },
   actorId: string,
 ) {
   const base = names.personalFolderName(person.name);
-  return repo.movePersonalIntoCompany(
-    tx,
-    person.id,
-    (taken) => names.firstFreeFolderName(base, taken),
-    actorId,
-  );
+  try {
+    return await repo.movePersonalIntoCompany(
+      tx,
+      person.id,
+      (taken) => names.firstFreeFolderName(base, taken),
+      actorId,
+    );
+  } catch (error) {
+    throw asNameConflict(
+      error,
+      "A Company folder with that name was made at the same moment; press Block again",
+    );
+  }
 }
 
 /**

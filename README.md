@@ -48,7 +48,7 @@ the module's repository; Zod schemas in `shared/` validate the API and type the 
 - `shared/` — Zod schemas + derived types, imported by both sides.
 - `prisma/` — schema + migrations.
 - `scripts/` — server operations (`deploy.sh`, `reset-data.sql`, `prune-uploads.ts`, `import-clients.ts`,
-  `move-files-to-bucket.ts`); `scripts/backup/` — the nightly backup, the restore test, restores and
+  `move-files-to-bucket.ts`, `detect-file-types.ts`); `scripts/backup/` — the nightly backup, the restore test, restores and
   their server setup ([RESTORE.md](RESTORE.md)); `scripts/storage/` — setting up and checking the
   storage buckets (the backups' and the client files'), from a laptop.
 - `.env.example` — environment variables (identity: `APP_NAME=buh_crm`).

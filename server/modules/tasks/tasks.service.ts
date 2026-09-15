@@ -18,7 +18,10 @@ import { codeInSearch } from "@shared/schema/client.js";
 import { deriveStatus, hasLiveInvoice } from "@shared/schema/payment.js";
 import { MAX_FILE_SIZE, deleteStoredFile, storeFile } from "../../core/files.js";
 import {
+  NOT_VIEWABLE,
   asNameConflict,
+  detectType,
+  viewOf,
   placeForConvertedLead,
   recordFiled,
   refuseProgram,
@@ -1297,6 +1300,8 @@ export async function listFiles(taskId: string) {
     // a flag and nothing more: WHERE it is filed comes from a Clients read, so this Tasks route
     // does not start returning a client's folders to readers with Clients closed (files.md §5.2)
     filed: f.scope !== null,
+    // whether the card's viewer can open it (files.md §12), read off the bytes' type
+    view: viewOf(f.detectedMime),
   }));
 }
 
@@ -1312,6 +1317,8 @@ export async function addFile(
   if (file.buffer.byteLength > MAX_FILE_SIZE) {
     throw new ValidationError("File must be 25 MB or smaller");
   }
+  // what the bytes say it is: a renamed program is refused here too (files.md §12.2, §14.3)
+  const detectedMime = await detectType(file.buffer, name);
   // a converted lead's task files its new files where the lead's went, the client's Internal
   // (files.md §5.6): still read from the task's side, never from the caller
   const convertedTo =
@@ -1329,6 +1336,7 @@ export async function addFile(
       name: place?.name ?? name,
       size: file.buffer.byteLength,
       mime: file.mimetype,
+      detectedMime,
       uploadedById: actor.id,
       ...(place ? { scope: place.scope, folderId: null } : {}),
     });
@@ -1365,19 +1373,24 @@ export async function addFile(
   return { id: row.id, name: row.name, size: row.size, mime: row.mime };
 }
 
-export async function getFile(taskId: string, fileId: string) {
+export async function getFile(taskId: string, fileId: string, via?: "view") {
   const task = liveTaskOr404(await repo.findTask(taskId));
   const file = await repo.findTaskFile(taskId, fileId);
   if (!file) throw new NotFoundError("File not found");
+  // a file that does not open in the CRM is refused before anything is logged (files.md §12.2)
+  if (via && !viewOf(file.detectedMime)) throw new ValidationError(NOT_VIEWABLE);
   // a read, recorded — for this one the read IS the act (activity-log.md §3.2); an internal task's
-  // file under the Files gate, like its upload
+  // file under the Files gate, like its upload. A view is the same event, and every row says which
+  // it was: a row with no change would be dropped as an empty diff
+  const changes = { via: via ?? "download" };
   if (!task.clientId && !task.leadId) {
-    record("firm_file.downloaded", { subjectId: file.id, subjectLabel: file.name });
+    record("firm_file.downloaded", { subjectId: file.id, subjectLabel: file.name, changes });
   } else {
     record("file.downloaded", {
       subjectId: file.id,
       subjectLabel: file.name,
       clientId: task.clientId,
+      changes,
     });
   }
   return file;

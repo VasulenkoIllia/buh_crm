@@ -116,6 +116,36 @@ export function findLiveClient(id: string) {
   return prisma.client.findFirst({ where: { id, archivedAt: null }, select: clientSelect });
 }
 
+/** Many clients' names at once: a page of search hits reads them in one query, never per row. */
+export function clientsByIds(ids: string[]) {
+  return prisma.client.findMany({ where: { id: { in: ids } }, select: clientSelect });
+}
+
+// ── search (§13) ─────────────────────────────────────────────────────────────
+
+export const SEARCH_PAGE = 50;
+
+/** A page of files, newest first; one more than a page, so the caller knows whether one follows. */
+export function searchFiles(where: Prisma.FileWhereInput, page: number) {
+  return prisma.file.findMany({
+    where,
+    select: fileSelect,
+    orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+    skip: page * SEARCH_PAGE,
+    take: SEARCH_PAGE + 1,
+  });
+}
+
+/** Folders whose names match, on the first page only and at most twenty. */
+export function searchFolders(where: Prisma.FolderWhereInput) {
+  return prisma.folder.findMany({
+    where,
+    select: folderSelect,
+    orderBy: { name: "asc" },
+    take: 20,
+  });
+}
+
 // ── folders ──────────────────────────────────────────────────────────────────
 
 const folderSelect = {
@@ -221,6 +251,7 @@ const fileSelect = {
   name: true,
   size: true,
   mime: true,
+  detectedMime: true,
   createdAt: true,
   scope: true,
   space: true,
@@ -303,6 +334,7 @@ export function createFile(
     name: string;
     size: number;
     mime: string;
+    detectedMime: string | null;
     uploadedById: string;
     scope: string;
     folderId: string | null;
@@ -313,6 +345,34 @@ export function createFile(
     if (ownerId) await ownerStillHere(tx, ownerId);
     return tx.file.create({ data, select: fileSelect });
   });
+}
+
+// ── stage C's backfill: the files stored before types were read (§12.2, §15.1) ──
+
+/** The library's and the cards' files with no type read yet, a page at a time, by id. */
+export function untypedFiles(afterId: string | null, take: number) {
+  return prisma.file.findMany({
+    where: {
+      detectedMime: null,
+      OR: [{ scope: { not: null } }, { taskId: { not: null } }, { clientId: { not: null } }],
+      ...(afterId ? { id: { gt: afterId } } : {}),
+    },
+    orderBy: { id: "asc" },
+    take,
+    select: {
+      id: true,
+      name: true,
+      size: true,
+      path: true,
+      storage: true,
+      wrappedKey: true,
+      keyVersion: true,
+    },
+  });
+}
+
+export function setDetectedMime(id: string, detectedMime: string) {
+  return prisma.file.update({ where: { id }, data: { detectedMime }, select: { id: true } });
 }
 
 export function createFolder(

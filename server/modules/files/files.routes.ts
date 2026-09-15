@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { uuid } from "@shared/schema/common.js";
@@ -9,12 +9,13 @@ import {
   folderQuery,
   moveInput,
   renameInput,
+  searchQuery,
   trashInput,
   trashQuery,
 } from "@shared/schema/files.js";
 import { gate } from "../../core/access.js";
 import { ValidationError } from "../../core/errors.js";
-import { readStoredFile, type FileBytes } from "../../core/files.js";
+import { sendDownload, sendView } from "./files.serve.js";
 import * as service from "./files.service.js";
 import * as trash from "./files.trash.js";
 
@@ -39,16 +40,6 @@ async function incoming(request: FastifyRequest): Promise<service.Incoming> {
   return { buffer: await part.toBuffer(), filename: part.filename, mimetype: part.mimetype };
 }
 
-// ATTACHMENT, never inline: stage C decides what may open in the browser, and with which headers
-async function send(reply: FastifyReply, file: FileBytes & { mime: string; name: string }) {
-  reply.header("Content-Type", file.mime);
-  reply.header(
-    "Content-Disposition",
-    `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
-  );
-  return reply.send(await readStoredFile(file));
-}
-
 /**
  * **A route's gate is static, and a place decides it** (files.md §11.1). My files and Company are
  * `files`, with an ownership check in the service for My files — not `own()`, since the paths name
@@ -59,6 +50,12 @@ export async function registerRoutes(instance: FastifyInstance) {
   const app = instance.withTypeProvider<ZodTypeProvider>();
   const files = gate("files");
   const clients = gate("clients");
+
+  // one box over names and details, never inside a file (files.md §13). What each item's own gate
+  // allows is decided in the service, as for the tree's totals
+  app.get("/search", { config: files, schema: { querystring: searchQuery } }, async (request) =>
+    service.search(request.currentUser!, request.query),
+  );
 
   app.get("/overview", { config: files }, async (request) =>
     service.overview(request.currentUser!),
@@ -137,7 +134,16 @@ export async function registerRoutes(instance: FastifyInstance) {
       `/${space}/files/:fileId`,
       { config: files, schema: { params: fileParams } },
       async (request, reply) =>
-        send(reply, await service.download(area(request), request.params.fileId)),
+        sendDownload(reply, await service.download(area(request), request.params.fileId)),
+    );
+
+    // the same file, opened in the CRM (files.md §12). No HEAD: fastify would answer one by
+    // running this handler, and log a view nobody made
+    app.get(
+      `/${space}/files/:fileId/view`,
+      { config: files, schema: { params: fileParams }, exposeHeadRoute: false },
+      async (request, reply) =>
+        sendView(reply, await service.download(area(request), request.params.fileId, "view")),
     );
   }
 
