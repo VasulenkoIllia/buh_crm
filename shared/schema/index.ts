@@ -10,4 +10,3 @@ export * from "./payment.js";
 export * from "./calendar.js";
 export * from "./notification.js";
 export * from "./mailouts.js";
-export * from "./file.js";

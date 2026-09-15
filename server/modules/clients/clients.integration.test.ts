@@ -816,7 +816,7 @@ describe("clients", () => {
 
     const up = await app.inject({
       method: "POST",
-      url: `/api/clients/${other.id}/files`,
+      url: `/api/files/clients/${other.id}/zones/internal/upload`,
       headers: { cookie, "content-type": `multipart/form-data; boundary=${boundary}` },
       payload,
     });
@@ -1635,7 +1635,7 @@ describe("clients", () => {
         `Content-Type: text/plain\r\n\r\nhello\r\n--X--\r\n`;
       const up = await app.inject({
         method: "POST",
-        url: `/api/clients/${clientId}/files`,
+        url: `/api/files/clients/${clientId}/zones/internal/upload`,
         headers: { cookie, "content-type": "multipart/form-data; boundary=X" },
         payload: form,
       });

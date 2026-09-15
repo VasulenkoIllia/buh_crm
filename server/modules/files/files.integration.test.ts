@@ -601,16 +601,6 @@ describe("the library's API (files.md, stage B.2)", () => {
     ).toBe(200);
   });
 
-  it("puts a file uploaded on the client card into the client's Internal", async () => {
-    const res = await as(admin).upload(`/api/clients/${clientA}/files`, "card.pdf");
-    expect(res.statusCode).toBe(201);
-    const row = await prisma.file.findUniqueOrThrow({ where: { id: res.json().id } });
-    expect(row).toMatchObject({ scope: `client:${clientA}:internal`, folderId: null });
-    expect((await recorded("file.uploaded", row.id)).changes).toMatchObject({
-      attachedTo: `${TAG} Petrenko › Internal`,
-    });
-  });
-
   it("hides an archived client's files", async () => {
     await prisma.client.update({ where: { id: clientB }, data: { archivedAt: new Date() } });
     const a = as(admin);

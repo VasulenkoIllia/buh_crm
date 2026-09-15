@@ -52,9 +52,10 @@ export async function filesToCheck(): Promise<CheckedFile[]> {
   return [...newest, ...others];
 }
 
-type Failure = "missing" | "key" | "damaged" | "unreachable";
+export type Failure = "missing" | "key" | "damaged" | "unreachable";
 
-function failureOf(err: unknown): Failure {
+/** Why a stored file would not open; the files check (files.check.ts) reads it the same way. */
+export function failureOf(err: unknown): Failure {
   if (err instanceof StoredFileError) return err.reason;
   const e = err as { code?: unknown; name?: unknown; $metadata?: { httpStatusCode?: number } };
   if (e?.code === "ENOENT" || e?.name === "NoSuchKey" || e?.$metadata?.httpStatusCode === 404) {

@@ -208,8 +208,10 @@ describe("viewing in the CRM (files.md §12)", () => {
     expect(download.headers["content-type"]).toBe("application/octet-stream");
     expect(download.headers["content-disposition"]).toMatch(/^attachment;/);
 
-    // no HEAD on a view: it would run the handler and log a view nobody made
+    // no HEAD on a view: it would run the handler and log a view nobody made; nor on a download,
+    // which would log a download nobody made and decrypt the file for nothing
     expect((await a.head(`/api/files/company/files/${png}/view`)).statusCode).toBe(404);
+    expect((await a.head(`/api/files/company/files/${png}`)).statusCode).toBe(404);
   });
 
   it("opens a client's file on the Clients gate, and an internal task's on its task's", async () => {
@@ -223,6 +225,7 @@ describe("viewing in the CRM (files.md §12)", () => {
     expect(view.statusCode).toBe(200);
     expect(view.headers["content-security-policy"]).toBe(PDF_POLICY);
     expect((await recorded("file.downloaded", onClient)).changes).toEqual({ via: "view" });
+    expect((await a.head(`/api/clients/${clientId}/files/${onClient}`)).statusCode).toBe(404);
 
     const priorityId = (await prisma.priority.findFirstOrThrow()).id;
     const columnId = (await prisma.taskColumn.findFirstOrThrow({ where: { isFixed: true } }))
@@ -243,6 +246,7 @@ describe("viewing in the CRM (files.md §12)", () => {
     expect(image.statusCode).toBe(200);
     expect(image.headers["content-security-policy"]).toBe("sandbox");
     expect((await recorded("firm_file.downloaded", onTask)).changes).toEqual({ via: "view" });
+    expect((await a.head(`/api/tasks/${task.id}/files/${onTask}`)).statusCode).toBe(404);
   });
 
   it("types the files stored before, once, and leaves what names nothing as a download", async () => {

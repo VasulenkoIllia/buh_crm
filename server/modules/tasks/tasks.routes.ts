@@ -242,9 +242,10 @@ export async function registerRoutes(instance: FastifyInstance) {
     },
   );
 
+  // no HEAD, as on the view below: fastify would run the handler and log a download nobody made
   app.get(
     "/:id/files/:fileId",
-    { config: tasks, schema: { params: fileParams } },
+    { config: tasks, schema: { params: fileParams }, exposeHeadRoute: false },
     // ATTACHMENT, typed by its bytes. What may open inline goes through the view route below,
     // with the headers files.md §12.2 sets for its type; an .html or an .svg never does
     async (request, reply) =>

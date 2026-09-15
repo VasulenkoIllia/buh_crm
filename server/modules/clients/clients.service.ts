@@ -1056,20 +1056,8 @@ export async function restoreClient(id: string) {
 
 // ── files (≤ 25 MB, uploads volume, API-served) ──────────────────────────────
 
-export async function listFiles(clientId: string) {
-  await getClient(clientId);
-  const files = await repo.listClientFiles(clientId);
-  return files.map((f) => ({
-    id: f.id,
-    name: f.name,
-    size: f.size,
-    mime: f.mime,
-    createdAt: f.createdAt.toISOString(),
-  }));
-}
-
-// The card's Upload lives in the files module since stage B (`uploadToClientCard`): a new document
-// lands in the client's Internal, and a taken name there becomes `(2)` (files.md §4.2, §6.3).
+// The card's list and Upload are the library's own routes since stage B (files.md §4.2): a new
+// document lands in the client's Internal, and a taken name there becomes `(2)` (§6.3).
 
 export async function getFile(clientId: string, fileId: string, via?: "view") {
   await getClient(clientId); // 404s archived/missing clients — files go dark with the client

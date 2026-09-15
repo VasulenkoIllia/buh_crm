@@ -94,11 +94,16 @@ describe("route inventory", () => {
       // Team sees before a Block (§8.3), and Settings → System → Storage, an admin's (§4.4). +4
       // the same day for stage C: a view beside each download (My files, Company, a client's, a
       // task's), GET only, since a HEAD would run the handler and log a view nobody made (§12.2).
-      // +1 the same day: search, one box over names and details (§13).
-      total: 305,
-      derivedHead: 82,
-      real: 223,
-      api: 222, // everything but /health
+      // +1 the same day: search, one box over names and details (§13). Then the security audit:
+      // −4 derived HEADs, as the downloads beside those views drop theirs for the same reason, and
+      // `/settings/system` is admin-only at last, as §11.1 promised. +3 the same night for folder
+      // upload: the call per directory that finds or makes a folder, one per place (§7.2). And −2
+      // real, −1 derived: the client card's old list and Upload, dead since its Files tab became the
+      // library's own.
+      total: 301,
+      derivedHead: 77,
+      real: 224,
+      api: 223, // everything but /health
       anonymous: 9, // 6 credential routes, 2 unsubscribe pages, /health
       // `POST /tasks/timer/start` moved to the `tasks` gate during the 2026-09-07 audit. It takes a
       // taskId and writes against somebody else's module, so it was never really "the caller's own
@@ -106,8 +111,8 @@ describe("route inventory", () => {
       // second factor and name nobody else.
       own: 15,
       shared: 9,
-      gated: 190,
-      adminOnly: 18,
+      gated: 191,
+      adminOnly: 19,
     });
   });
 

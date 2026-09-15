@@ -286,6 +286,9 @@ describe("a converted lead's files (files.md §5.6)", () => {
       [`client:${clientId}:internal`, "scan (2).pdf", clientId, tasks[1]],
     ]);
     expect((await recorded("file.filed", first)).clientId).toBe(clientId);
+    // opened from the old lead's task, it is still the client's document in the log
+    expect((await a.get(`/api/tasks/${tasks[0]}/files/${first}`)).statusCode).toBe(200);
+    expect((await recorded("file.downloaded", first)).clientId).toBe(clientId);
 
     // the lead's tasks stay live, and what arrives on them now lands with the client at once
     const later = await a.upload(`/api/tasks/${tasks[0]}/files`, "scan.pdf");

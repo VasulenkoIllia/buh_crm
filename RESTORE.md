@@ -125,6 +125,12 @@ overwritten or deleted, and a file kept on disk is never uploaded. It asks for t
 ./scripts/backup/put-back-files.sh /tmp/files-restore
 ```
 
+Then this command opens every file the database names, and names by id any that still does not:
+
+```bash
+docker compose exec -T app npx tsx scripts/check-files.ts --bytes
+```
+
 ## 5. A deploy went wrong
 
 `./scripts/deploy.sh` ends with the line that undoes it:
@@ -164,7 +170,9 @@ and whichever wrote last each night would be the copy a restore brings back.
    files the bucket lacks — into an empty directory, and back with `put-back-files.sh` (§4).
 6. `./scripts/backup/restore.sh --swap buh_crm_restore` — the empty database is kept as
    `buh_crm_replaced_<time>`; drop it.
-7. `./scripts/deploy.sh`, and point the DNS at the new server.
+7. `./scripts/deploy.sh`, and point the DNS at the new server. Then run
+   `docker compose exec -T app npx tsx scripts/check-files.ts --bytes`. It opens every client file
+   with this server's `SECRETS_KEY` and says where each belongs, by id alone.
 8. The backups again: §7 from its fourth line — a first backup, a first restore test, the timers.
    The repository is the one you just restored from; `--init` would only say so.
 

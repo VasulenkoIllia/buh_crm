@@ -107,10 +107,11 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   /**
    * Admin-only: it names every background job and the last error text each one produced, which is
-   * internal plumbing rather than anything a bookkeeper needs — and an error message is the kind
-   * of string that quotes a host or a query back at you.
+   * internal plumbing rather than anything a bookkeeper needs, and an error message is the kind of
+   * string that quotes a host or a query back at you. Declared so since S17 (files.md §11.1);
+   * before, only `settings`' default of closed kept it an admin's.
    */
-  app.get("/system", { config: gate("settings") }, async () => {
+  app.get("/system", { config: gate("settings", { adminOnly: true }) }, async () => {
     return service.getSystemHealth();
   });
 

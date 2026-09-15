@@ -1389,7 +1389,9 @@ export async function getFile(taskId: string, fileId: string, via?: "view") {
     record("file.downloaded", {
       subjectId: file.id,
       subjectLabel: file.name,
-      clientId: task.clientId,
+      // the FILE's client: a converted lead's task has none of its own, while its files carry the
+      // client they were filed under (files.md §5.6), which is whose documents these are
+      clientId: file.clientId,
       changes,
     });
   }

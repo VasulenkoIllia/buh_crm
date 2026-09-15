@@ -295,7 +295,7 @@ describe("clients", () => {
     const { payload, contentType } = multipart("note.txt", "text/plain", "hello");
     const uploaded = await app.inject({
       method: "POST",
-      url: `/api/clients/${clientId}/files`,
+      url: `/api/files/clients/${clientId}/zones/internal/upload`,
       headers: { cookie, "content-type": contentType },
       payload,
     });

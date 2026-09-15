@@ -345,13 +345,16 @@ describe("the Trash (files.md §9, stage B.3)", () => {
 
   it("lets the cards' Undo take a delete back on the card's own gate, with Files closed", async () => {
     const k = as(keeper);
-    const card = (await as(admin).upload(`/api/clients/${clientA}/files`, "card.pdf")).json()
-      .id;
+    const card = (
+      await as(admin).upload(`/api/files/clients/${clientA}/zones/internal/upload`, "card.pdf")
+    ).json().id;
     const deleted = await k.del(`/api/clients/${clientA}/files/${card}`);
     expect(deleted.statusCode).toBe(200);
     const { batchId } = deleted.json();
     expect(
-      (await k.get(`/api/clients/${clientA}/files`)).json().map((f: Named) => f.id),
+      (await k.get(`/api/files/clients/${clientA}/zones/internal/list`))
+        .json()
+        .files.map((f: Named) => f.id),
     ).not.toContain(card);
     expect((await k.get(`/api/clients/${clientA}/files/${card}`)).statusCode).toBe(404);
 
@@ -359,7 +362,9 @@ describe("the Trash (files.md §9, stage B.3)", () => {
     const undone = await k.post(`/api/clients/${clientA}/files/undo`, { batchId });
     expect(undone.statusCode).toBe(200);
     expect(
-      (await k.get(`/api/clients/${clientA}/files`)).json().map((f: Named) => f.id),
+      (await k.get(`/api/files/clients/${clientA}/zones/internal/list`))
+        .json()
+        .files.map((f: Named) => f.id),
     ).toContain(card);
     expect((await recorded("file.restored", card)).clientId).toBe(clientA);
     // another client's card cannot undo this client's gesture

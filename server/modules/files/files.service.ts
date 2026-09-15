@@ -9,6 +9,7 @@ import {
   type AttachmentGroup,
   type ClientFilesDetail,
   type ClientFilesNode,
+  type EnsuredFolder,
   type FileRow,
   type FileTotals,
   type FileZone,
@@ -583,11 +584,6 @@ export async function upload(
   return fileRow(row, false);
 }
 
-/** The client card's Upload: into the client's Internal, at its root (files.md §4.2). */
-export async function uploadToClientCard(clientId: string, user: User, file: Incoming) {
-  return upload(await clientPlace(clientId, "internal"), undefined, user, file);
-}
-
 /**
  * A My files or Company file, for its download or view route. A client's go through the client
  * card's. A view of a file that does not open in the CRM is refused before anything is logged.
@@ -609,6 +605,39 @@ export async function download(area: Area, fileId: string, via?: "view") {
 }
 
 // ── folders and names (files.md §6.1, §6.3) ──────────────────────────────────
+
+/**
+ * **A folder upload's call for one directory** (files.md §7.2): the folder of that name under the
+ * parent, made only when it is not there yet. The same answer however often it is asked, so the
+ * browser sends one per directory and never asks first; two at the same moment get one folder.
+ * Too deep is refused with the reason, as for a folder made by hand.
+ */
+export async function ensureFolder(
+  place: Place,
+  parentId: string | null,
+  rawName: string,
+  user: User,
+): Promise<EnsuredFolder> {
+  const name = names.folderName(rawName);
+  const parent = await liveFolderIn(place, parentId);
+  const find = async () =>
+    (await repo.childFolders(scopeOf(place), parent?.id ?? null)).find(
+      (f) => f.name.toLowerCase() === name.toLowerCase(),
+    );
+  const there = await find();
+  if (there) return { id: there.id, name: there.name, created: false };
+  try {
+    const made = await createFolder(place, parentId, name, user);
+    return { id: made.id, name: made.name, created: true };
+  } catch (error) {
+    // the same directory asked for twice at one moment: the other call made it
+    if (error instanceof ConflictError) {
+      const raced = await find();
+      if (raced) return { id: raced.id, name: raced.name, created: false };
+    }
+    throw error;
+  }
+}
 
 export async function createFolder(
   place: Place,

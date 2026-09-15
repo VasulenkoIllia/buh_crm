@@ -2295,7 +2295,9 @@ describe("tasks — files", () => {
     );
     // the whole point: it is on the client's card too, without anything being copied
     expect(
-      (await list(`/api/clients/${clientId}/files`)).map((f: { id: string }) => f.id),
+      (await list(`/api/files/clients/${clientId}/attachments`)).flatMap(
+        (g: { files: { id: string }[] }) => g.files.map((f) => f.id),
+      ),
     ).toContain(fileId);
   });
 
@@ -2319,7 +2321,9 @@ describe("tasks — files", () => {
     expect(res.statusCode).toBe(200);
     expect(await list(`/api/tasks/${taskId}/files`)).toEqual([]);
     expect(
-      (await list(`/api/clients/${clientId}/files`)).map((f: { id: string }) => f.id),
+      (await list(`/api/files/clients/${clientId}/attachments`)).flatMap(
+        (g: { files: { id: string }[] }) => g.files.map((f) => f.id),
+      ),
     ).not.toContain(fileId);
   });
 
@@ -2336,7 +2340,9 @@ describe("tasks — files", () => {
     expect(files).toHaveLength(1);
     // and it is filed under nobody — the client lists cannot show it
     expect(
-      (await list(`/api/clients/${clientId}/files`)).map((f: { id: string }) => f.id),
+      (await list(`/api/files/clients/${clientId}/attachments`)).flatMap(
+        (g: { files: { id: string }[] }) => g.files.map((f) => f.id),
+      ),
     ).not.toContain(res.json().id);
   });
 

@@ -263,22 +263,6 @@
     "access": "gate:clients"
   },
   {
-    "method": "GET",
-    "url": "/api/clients/:id/files",
-    "access": "gate:clients"
-  },
-  {
-    "method": "HEAD",
-    "url": "/api/clients/:id/files",
-    "access": "gate:clients",
-    "derived": true
-  },
-  {
-    "method": "POST",
-    "url": "/api/clients/:id/files",
-    "access": "gate:clients"
-  },
-  {
     "method": "DELETE",
     "url": "/api/clients/:id/files/:fileId",
     "access": "gate:clients"
@@ -287,12 +271,6 @@
     "method": "GET",
     "url": "/api/clients/:id/files/:fileId",
     "access": "gate:clients"
-  },
-  {
-    "method": "HEAD",
-    "url": "/api/clients/:id/files/:fileId",
-    "access": "gate:clients",
-    "derived": true
   },
   {
     "method": "GET",
@@ -477,6 +455,11 @@
     "access": "gate:clients"
   },
   {
+    "method": "POST",
+    "url": "/api/files/clients/:clientId/zones/:zone/folders/ensure",
+    "access": "gate:clients"
+  },
+  {
     "method": "GET",
     "url": "/api/files/clients/:clientId/zones/:zone/list",
     "access": "gate:clients"
@@ -519,12 +502,6 @@
     "access": "gate:files"
   },
   {
-    "method": "HEAD",
-    "url": "/api/files/company/files/:fileId",
-    "access": "gate:files",
-    "derived": true
-  },
-  {
     "method": "PATCH",
     "url": "/api/files/company/files/:fileId",
     "access": "gate:files"
@@ -553,6 +530,11 @@
   {
     "method": "PATCH",
     "url": "/api/files/company/folders/:folderId",
+    "access": "gate:files"
+  },
+  {
+    "method": "POST",
+    "url": "/api/files/company/folders/ensure",
     "access": "gate:files"
   },
   {
@@ -587,12 +569,6 @@
     "access": "gate:files"
   },
   {
-    "method": "HEAD",
-    "url": "/api/files/my/files/:fileId",
-    "access": "gate:files",
-    "derived": true
-  },
-  {
     "method": "PATCH",
     "url": "/api/files/my/files/:fileId",
     "access": "gate:files"
@@ -621,6 +597,11 @@
   {
     "method": "PATCH",
     "url": "/api/files/my/folders/:folderId",
+    "access": "gate:files"
+  },
+  {
+    "method": "POST",
+    "url": "/api/files/my/folders/ensure",
     "access": "gate:files"
   },
   {
@@ -1258,12 +1239,12 @@
   {
     "method": "GET",
     "url": "/api/settings/system",
-    "access": "gate:settings"
+    "access": "gate:settings:admin"
   },
   {
     "method": "HEAD",
     "url": "/api/settings/system",
-    "access": "gate:settings",
+    "access": "gate:settings:admin",
     "derived": true
   },
   {
@@ -1339,12 +1320,6 @@
     "method": "GET",
     "url": "/api/tasks/:id/files/:fileId",
     "access": "gate:tasks"
-  },
-  {
-    "method": "HEAD",
-    "url": "/api/tasks/:id/files/:fileId",
-    "access": "gate:tasks",
-    "derived": true
   },
   {
     "method": "GET",

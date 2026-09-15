@@ -592,13 +592,7 @@ export function updateSubscription(id: string, data: Prisma.SubscriptionUnchecke
 
 // ── files ────────────────────────────────────────────────────────────────────
 
-// a file in the Trash is out of every list, count and download until it is restored (files.md §9)
-export function listClientFiles(clientId: string) {
-  return prisma.file.findMany({
-    where: { clientId, deletedAt: null },
-    orderBy: { createdAt: "desc" },
-  });
-}
+// a file in the Trash is out of every count and download until it is restored (files.md §9)
 
 /** How many files the client's Files tab holds — the badge on that tab. */
 export function countClientFiles(clientId: string) {

@@ -110,6 +110,25 @@ export async function registerRoutes(instance: FastifyInstance) {
       },
     );
 
+    // a folder upload's one call per directory (§7.2): the folder, found or made. Limited like the
+    // uploads it comes before, since a big folder sends one per directory
+    app.post(
+      `/${space}/folders/ensure`,
+      {
+        config: { ...files, rateLimit: UPLOAD_RATE_LIMIT },
+        schema: { body: createFolderInput },
+      },
+      async (request, reply) => {
+        const folder = await service.ensureFolder(
+          place(request),
+          request.body.parentId,
+          request.body.name,
+          request.currentUser!,
+        );
+        return reply.status(folder.created ? 201 : 200).send(folder);
+      },
+    );
+
     app.patch(
       `/${space}/folders/:folderId`,
       { config: files, schema: { params: folderParams, body: renameInput } },
@@ -130,9 +149,11 @@ export async function registerRoutes(instance: FastifyInstance) {
       async (request) => service.move(area(request), request.body, request.currentUser!),
     );
 
+    // no HEAD: fastify would answer one by running this handler, logging a download nobody made
+    // and decrypting the file for nothing
     app.get(
       `/${space}/files/:fileId`,
-      { config: files, schema: { params: fileParams } },
+      { config: files, schema: { params: fileParams }, exposeHeadRoute: false },
       async (request, reply) =>
         sendDownload(reply, await service.download(area(request), request.params.fileId)),
     );
@@ -268,6 +289,23 @@ export async function registerRoutes(instance: FastifyInstance) {
         request.currentUser!,
       );
       return reply.status(201).send(folder);
+    },
+  );
+
+  app.post(
+    "/clients/:clientId/zones/:zone/folders/ensure",
+    {
+      config: { ...clients, rateLimit: UPLOAD_RATE_LIMIT },
+      schema: { params: zoneParams, body: createFolderInput },
+    },
+    async (request, reply) => {
+      const folder = await service.ensureFolder(
+        await service.clientPlace(request.params.clientId, request.params.zone),
+        request.body.parentId,
+        request.body.name,
+        request.currentUser!,
+      );
+      return reply.status(folder.created ? 201 : 200).send(folder);
     },
   );
 

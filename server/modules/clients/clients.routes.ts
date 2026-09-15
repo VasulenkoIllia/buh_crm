@@ -15,14 +15,8 @@ import {
 } from "@shared/schema/client.js";
 import { undoInput } from "@shared/schema/files.js";
 import { gate, shared } from "../../core/access.js";
-import { ValidationError } from "../../core/errors.js";
 import { clientIp } from "../../core/client-ip.js";
-import {
-  UPLOAD_RATE_LIMIT,
-  sendDownload,
-  sendView,
-  uploadToClientCard,
-} from "../files/index.js";
+import { sendDownload, sendView } from "../files/index.js";
 import * as secrets from "./secrets.service.js";
 import * as service from "./clients.service.js";
 
@@ -171,31 +165,13 @@ export async function registerRoutes(instance: FastifyInstance) {
   );
 
   // ── files ─────────────────────────────────────────────────────────────────
+  // The card's list and Upload are the library's own routes (files.md §4.2). What stays here is a
+  // file's download, view, delete and Undo, on the card's own gate.
 
-  app.get("/:id/files", { config: clients, schema: { params: idParams } }, async (request) => {
-    return service.listFiles(request.params.id);
-  });
-
-  app.post(
-    "/:id/files",
-    { config: { ...clients, rateLimit: UPLOAD_RATE_LIMIT }, schema: { params: idParams } },
-    async (request, reply) => {
-      const part = await request.file();
-      if (!part) throw new ValidationError("File is required");
-      const buffer = await part.toBuffer();
-      // into the client's Internal, at its root, through the library's own door (files.md §4.2)
-      const file = await uploadToClientCard(request.params.id, request.currentUser!, {
-        buffer,
-        filename: part.filename,
-        mimetype: part.mimetype,
-      });
-      return reply.status(201).send(file);
-    },
-  );
-
+  // no HEAD, as on the view below: fastify would run the handler and log a download nobody made
   app.get(
     "/:id/files/:fileId",
-    { config: clients, schema: { params: fileParams } },
+    { config: clients, schema: { params: fileParams }, exposeHeadRoute: false },
     async (request, reply) =>
       sendDownload(reply, await service.getFile(request.params.id, request.params.fileId)),
   );

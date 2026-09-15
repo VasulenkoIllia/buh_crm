@@ -90,6 +90,13 @@ export interface FolderNode {
   totals: FileTotals;
 }
 
+/** A folder upload's answer for one directory (files.md §7.2): the folder, and whether it is new. */
+export interface EnsuredFolder {
+  id: string;
+  name: string;
+  created: boolean;
+}
+
 export interface FolderRow {
   id: string;
   name: string;

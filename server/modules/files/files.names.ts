@@ -1,4 +1,4 @@
-import { REFUSED_EXTENSIONS } from "@shared/library.js";
+import { MAX_FOLDER_DEPTH, REFUSED_EXTENSIONS } from "@shared/library.js";
 import { ValidationError } from "../../core/errors.js";
 
 /**
@@ -12,7 +12,7 @@ import { ValidationError } from "../../core/errors.js";
 export const FOLDER_NAME_MAX = 120;
 export const FILE_NAME_MAX = 255;
 /** Folder levels below a fixed level. The system's own move of a leaver's files is exempt. */
-export const MAX_DEPTH = 8;
+export const MAX_DEPTH = MAX_FOLDER_DEPTH;
 
 /**
  * **Programs and scripts are refused on upload** (files.md §14.3). The list is

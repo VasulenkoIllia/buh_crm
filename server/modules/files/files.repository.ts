@@ -347,6 +347,36 @@ export function createFile(
   });
 }
 
+// ── the check before and after a deploy (scripts/check-files.ts, §15.3) ──────
+
+/** Every file row, with what decides where it belongs: its task and lead, its client, branding. */
+export function everyFileForCheck() {
+  return prisma.file.findMany({
+    select: {
+      id: true,
+      size: true,
+      path: true,
+      storage: true,
+      wrappedKey: true,
+      keyVersion: true,
+      scope: true,
+      clientId: true,
+      deletedAt: true,
+      client: { select: { archivedAt: true } },
+      task: {
+        select: { clientId: true, leadId: true, lead: { select: { convertedClientId: true } } },
+      },
+      folder: { select: { deletedAt: true } },
+      owner: { select: { status: true } },
+      avatarOfUser: { select: { id: true } },
+      logoOfProfile: { select: { id: true } },
+      mailLogoOfProfile: { select: { id: true } },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+}
+export type FileForCheck = Awaited<ReturnType<typeof everyFileForCheck>>[number];
+
 // ── stage C's backfill: the files stored before types were read (§12.2, §15.1) ──
 
 /** The library's and the cards' files with no type read yet, a page at a time, by id. */
