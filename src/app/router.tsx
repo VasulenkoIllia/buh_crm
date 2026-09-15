@@ -78,6 +78,9 @@ const CalendarPage = lazy(() =>
 const MailoutsPage = lazy(() =>
   import("@/modules/mailouts/mailouts.page").then((m) => ({ default: m.MailoutsPage })),
 );
+const FilesPage = lazy(() =>
+  import("@/modules/files/files.page").then((m) => ({ default: m.FilesPage })),
+);
 
 /** Old /unpaid path → /billing, preserving ?invoice= / ?client= deep links. */
 function RedirectToBilling() {
@@ -173,6 +176,12 @@ export const router = createBrowserRouter([
               {
                 element: <RequireGate gate="mailouts" />,
                 children: [{ path: "mailouts", element: <MailoutsPage /> }],
+              },
+              // the library (files.md §18): My files, Company, the Trash; a client's files need
+              // Clients as well, which the screen asks for itself
+              {
+                element: <RequireGate gate="files" />,
+                children: [{ path: "files", element: <FilesPage /> }],
               },
               {
                 element: <RequireGate gate="reports" />,

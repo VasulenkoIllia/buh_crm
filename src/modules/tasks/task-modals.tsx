@@ -1,10 +1,11 @@
 import { Suspense, useEffect, useRef, useState } from "react";
-import { Check, Download, Pencil, Trash2 } from "lucide-react";
+import { Check, Download, FolderInput, Pencil, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { Task, TimeEntry, UpdateTaskInput } from "@shared/schema/task";
-import { useAuth } from "@/app/auth";
+import { useAuth, useCanEdit } from "@/app/auth";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { AddServiceModal, ClientFormModal, useClient, useClients } from "@/modules/clients";
+import { FileToFolderDialog } from "@/modules/files";
 import { LeadFormModal, useLeads } from "@/modules/leads";
 import { useSettings } from "@/modules/settings";
 import { ApiError } from "@/shared/lib/api";
@@ -30,6 +31,7 @@ import { Modal } from "@/shared/ui/modal";
 import { pillCls } from "@/shared/ui/pill";
 import { SearchSelect } from "@/shared/ui/search-select";
 import { Segmented } from "@/shared/ui/segmented";
+import { useToast } from "@/shared/ui/toast";
 import { ClientCode } from "@/shared/ui/client-code";
 import { TaskKindChip } from "./lib";
 import { DoneToggle, TaskTimerButton } from "./task-controls";
@@ -45,11 +47,13 @@ import {
   useDeleteTimeEntry,
   useSetSubtasks,
   useTaskFiles,
+  useUndoTaskFile,
   useUploadTaskFile,
   useTaskColumns,
   useUpdateTask,
   useUpdateTimeEntry,
   useTimeAudit,
+  type TaskFile,
 } from "./tasks.api";
 
 // ── create / edit ────────────────────────────────────────────────────────────
@@ -1368,8 +1372,42 @@ function FilesSection({ task, disabled }: { task: Task; disabled: boolean }) {
   const { data: files } = useTaskFiles(task.id);
   const upload = useUploadTaskFile(task.id);
   const remove = useDeleteTaskFile(task.id);
+  const undo = useUndoTaskFile(task.id);
+  const toast = useToast();
   const [error, setError] = useState<string | null>(null);
+  const [filing, setFiling] = useState<TaskFile | null>(null);
   const pick = useRef<HTMLInputElement>(null);
+  // File to folder (files.md §5.3): a client task's file into that client's folders, on the
+  // Clients gate; an internal task's into Company, on the Files gate. A lead has no folders.
+  const clientsEditable = useCanEdit("clients");
+  const filesEditable = useCanEdit("files");
+  const internal = !task.clientId && !task.leadId;
+  const canFile = !disabled && (task.clientId ? clientsEditable : internal && filesEditable);
+
+  function removeFile(file: TaskFile) {
+    setError(null);
+    remove
+      .mutateAsync(file.id)
+      .then(({ batchId }) =>
+        toast(
+          batchId
+            ? {
+                text: `“${file.name}” moved to the Trash`,
+                action: {
+                  label: "Undo",
+                  run: () =>
+                    undo
+                      .mutateAsync(batchId)
+                      .catch((err) =>
+                        setError(err instanceof Error ? err.message : "Undo failed"),
+                      ),
+                },
+              }
+            : { text: `“${file.name}” is off this task — it stays in its folder` },
+        ),
+      )
+      .catch((err) => setError(err instanceof Error ? err.message : "Delete failed"));
+  }
 
   return (
     <div>
@@ -1412,6 +1450,16 @@ function FilesSection({ task, disabled }: { task: Task; disabled: boolean }) {
               className="flex items-center justify-between rounded-(--radius-btn-sm) border border-divider px-2.5 py-1.5 text-[13px]"
             >
               <span className="min-w-0 flex-1 truncate">{file.name}</span>
+              {file.filed && (
+                <Chip
+                  tone="teal"
+                  size="sm"
+                  className="ml-2 shrink-0"
+                  title="Kept in a folder of the library as well"
+                >
+                  Filed
+                </Chip>
+              )}
               <span className="ml-2 flex shrink-0 items-center gap-2 text-muted">
                 <span className="text-[11px]">{fmtBytes(file.size)}</span>
                 <a
@@ -1421,19 +1469,30 @@ function FilesSection({ task, disabled }: { task: Task; disabled: boolean }) {
                 >
                   <Download size={14} />
                 </a>
+                {canFile && !file.filed && (
+                  <button
+                    type="button"
+                    aria-label={`File ${file.name} into a folder`}
+                    title="File to folder"
+                    className="hover:text-ink"
+                    onClick={() => setFiling(file)}
+                  >
+                    <FolderInput size={14} />
+                  </button>
+                )}
                 {!disabled && (
                   <button
                     type="button"
-                    aria-label={`Delete ${file.name}`}
+                    aria-label={
+                      file.filed ? `Take ${file.name} off this task` : `Delete ${file.name}`
+                    }
+                    title={
+                      file.filed
+                        ? "Take it off this task; it stays in its folder"
+                        : "Delete: it goes to the Trash"
+                    }
                     className="text-[13px] text-[#b6bcc5] hover:text-danger"
-                    onClick={() => {
-                      setError(null);
-                      remove
-                        .mutateAsync(file.id)
-                        .catch((err) =>
-                          setError(err instanceof Error ? err.message : "Delete failed"),
-                        );
-                    }}
+                    onClick={() => removeFile(file)}
                   >
                     ×
                   </button>
@@ -1443,13 +1502,34 @@ function FilesSection({ task, disabled }: { task: Task; disabled: boolean }) {
           ))}
         </ul>
       )}
-      {task.clientId && (files ?? []).length > 0 && (
+      {(task.clientId || internal) && (files ?? []).length > 0 && (
         <p className="mt-1 text-[11px] text-faint">
-          Also on the client&apos;s Files tab — it is the same file, so removing it here removes
-          it there.
+          {task.clientId
+            ? "Also in the client's Files, under Attachments"
+            : "Also in Company's Attachments, on the Files screen"}{" "}
+          — the same file, not a copy. Deleting it here puts it in the Trash; a filed one only
+          leaves this task.
         </p>
       )}
       {error && <p className="mt-1 text-[12px] text-danger-text">{error}</p>}
+      {filing && (
+        // the files barrel publishes it lazy: until it arrives, the dialog's own frame says so,
+        // rather than a click that seems to do nothing
+        <Suspense
+          fallback={
+            <Modal open title="File to folder" onClose={() => setFiling(null)}>
+              <p className="text-[13px] text-muted">Loading…</p>
+            </Modal>
+          }
+        >
+          <FileToFolderDialog
+            file={filing}
+            clientId={task.clientId}
+            clientName={task.clientName ?? undefined}
+            onClose={() => setFiling(null)}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

@@ -1,18 +1,17 @@
-import { Suspense, useRef, useState } from "react";
+import { Suspense, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAccess } from "@/app/auth";
-import { Download, Trash2 } from "lucide-react";
 import type { Client } from "@shared/schema/client";
 import { ActivityFeed } from "@/modules/activity";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { EntityMeetings } from "@/modules/calendar";
+import { ClientFilesBrowser } from "@/modules/files";
 import { ClientMailouts } from "@/modules/mailouts";
 import { EntityInvoices } from "@/modules/payments";
 import { EntityTasks } from "@/modules/tasks";
 import { useSettings } from "@/modules/settings";
-import { ApiError } from "@/shared/lib/api";
-import { fmtBytes, fmtDate } from "@/shared/lib/format";
-import { Button, IconButton } from "@/shared/ui/button";
+import { fmtDate } from "@/shared/lib/format";
+import { Button } from "@/shared/ui/button";
 import { Tabs } from "@/shared/ui/tabs";
 import { ClientCode } from "@/shared/ui/client-code";
 import { ClientFormModal } from "./client-form";
@@ -20,13 +19,7 @@ import { CompaniesTab } from "./client-companies";
 import { ClientPeopleModal } from "./client-people-modal";
 import { SecretsTab } from "./client-secrets";
 import { AddServiceModal, SubscriptionList } from "./client-services";
-import {
-  useArchiveClient,
-  useClient,
-  useClientFiles,
-  useDeleteClientFile,
-  useUploadClientFile,
-} from "./clients.api";
+import { useArchiveClient, useClient } from "./clients.api";
 
 /**
  * Ordered the way the firm works a client (user, 2026-08-14): who they are, then what the firm has
@@ -202,7 +195,17 @@ export function ClientCardPage() {
       {activeTab === "mailouts" && (
         <ClientMailouts key={client.id} clientId={client.id} clientName={client.displayName} />
       )}
-      {activeTab === "files" && <FilesTab clientId={client.id} />}
+      {activeTab === "files" && (
+        // through the files barrel, which publishes it already lazy: the library's browser, and
+        // dnd-kit with it, is fetched when somebody opens this tab rather than with every card
+        <Suspense fallback={<p className="text-[13px] text-muted">Loading…</p>}>
+          <ClientFilesBrowser
+            key={client.id}
+            clientId={client.id}
+            clientName={client.displayName}
+          />
+        </Suspense>
+      )}
       {activeTab === "activity" && (
         // through the barrel, which publishes it already lazy: the feed reaches the whole event
         // registry, and this card is opened far more often than the tab is
@@ -379,84 +382,5 @@ function ProfileTab({ client }: { client: Client }) {
         📎 Client files are in the “Files” tab (up to 25 MB per file).
       </p>
     </>
-  );
-}
-
-function FilesTab({ clientId }: { clientId: string }) {
-  const { data: files } = useClientFiles(clientId);
-  const upload = useUploadClientFile(clientId);
-  const remove = useDeleteClientFile(clientId);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const serverError =
-    upload.error instanceof ApiError
-      ? upload.error.message
-      : remove.error instanceof ApiError
-        ? remove.error.message
-        : null;
-
-  return (
-    <div className="rounded-(--radius-panel) border border-border bg-surface p-5">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-[15px] font-semibold">Files</h2>
-        <input
-          ref={inputRef}
-          type="file"
-          className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) {
-              upload.mutateAsync(file).catch(() => {
-                /* surfaced via serverError below */
-              });
-            }
-            e.target.value = "";
-          }}
-        />
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={upload.isPending}
-          onClick={() => inputRef.current?.click()}
-        >
-          {upload.isPending ? "Uploading…" : "Upload"}
-        </Button>
-      </div>
-      <ul className="space-y-1.5">
-        {(files ?? []).map((file) => (
-          <li
-            key={file.id}
-            className="flex items-center justify-between rounded-(--radius-btn-sm) border border-divider px-2.5 py-1.5 text-[13px]"
-          >
-            <span className="truncate">{file.name}</span>
-            <span className="ml-2 flex shrink-0 items-center gap-2 text-muted">
-              <span className="text-[11px]">{fmtBytes(file.size)}</span>
-              <a
-                href={`/api/clients/${clientId}/files/${file.id}`}
-                className="hover:text-ink"
-                aria-label={`Download ${file.name}`}
-              >
-                <Download size={14} />
-              </a>
-              <IconButton
-                label={`Delete ${file.name}`}
-                className="hover:text-danger"
-                onClick={() => {
-                  remove.mutateAsync(file.id).catch(() => {
-                    /* surfaced via serverError below */
-                  });
-                }}
-              >
-                <Trash2 size={14} />
-              </IconButton>
-            </span>
-          </li>
-        ))}
-        {files?.length === 0 && (
-          <li className="text-[12px] text-muted">No files yet. Up to 25 MB per file.</li>
-        )}
-      </ul>
-      {serverError && <p className="mt-2 text-[12px] text-danger-text">{serverError}</p>}
-    </div>
   );
 }

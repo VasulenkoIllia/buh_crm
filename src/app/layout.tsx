@@ -5,6 +5,7 @@ import {
   BarChart3,
   Calendar,
   CircleDollarSign,
+  FolderOpen,
   Kanban,
   LayoutDashboard,
   Layers,
@@ -20,6 +21,7 @@ import { useAccess, useAuth, useLogout, ME_QUERY_KEY } from "./auth";
 import { useModuleClosedWatch } from "@/shared/lib/module-closed";
 import { cn } from "@/shared/lib/cn";
 import { UserAvatar } from "@/shared/ui/avatar";
+import { ToastProvider } from "@/shared/ui/toast";
 import { SETTINGS_GATES, useSettings } from "@/modules/settings";
 import { NotificationTray } from "@/modules/notifications";
 import { TimerBar } from "@/modules/tasks";
@@ -50,6 +52,7 @@ const NAV: {
   { to: "/calendar", label: "Calendar", icon: Calendar, gate: "calendar" },
   { to: "/services", label: "Services", icon: Layers, gate: "services" },
   { to: "/mailouts", label: "Mailouts", icon: Mail, gate: "mailouts" },
+  { to: "/files", label: "Files", icon: FolderOpen, gate: "files" },
   { to: "/reports", label: "Reports", icon: BarChart3, gate: "reports" },
   { to: "/team", label: "Team", icon: Users, gate: "team" },
   { to: "/archive", label: "Archive", icon: Archive, gate: "archive" },
@@ -85,53 +88,56 @@ export function AppLayout() {
           ),
       );
   return (
-    <div className="flex min-h-screen">
-      <aside className="flex w-56 shrink-0 flex-col bg-sidebar text-white">
-        <SidebarBrand />
-        <nav className="flex-1 space-y-0.5 px-2">
-          {nav.map(({ to, label, icon: Icon, end }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={end}
-              className={({ isActive }) =>
-                cn(
-                  "flex items-center gap-2.5 rounded-(--radius-field) px-3 py-2 text-[13px] text-white/70 transition-colors hover:bg-white/5 hover:text-white",
-                  isActive && "bg-primary text-white",
-                )
-              }
-            >
-              <Icon size={16} />
-              {label}
-            </NavLink>
-          ))}
-        </nav>
-      </aside>
+    // the Undo after a delete (files.md §9) is one line at the bottom, on whichever screen
+    <ToastProvider>
+      <div className="flex min-h-screen">
+        <aside className="flex w-56 shrink-0 flex-col bg-sidebar text-white">
+          <SidebarBrand />
+          <nav className="flex-1 space-y-0.5 px-2">
+            {nav.map(({ to, label, icon: Icon, end }) => (
+              <NavLink
+                key={to}
+                to={to}
+                end={end}
+                className={({ isActive }) =>
+                  cn(
+                    "flex items-center gap-2.5 rounded-(--radius-field) px-3 py-2 text-[13px] text-white/70 transition-colors hover:bg-white/5 hover:text-white",
+                    isActive && "bg-primary text-white",
+                  )
+                }
+              >
+                <Icon size={16} />
+                {label}
+              </NavLink>
+            ))}
+          </nav>
+        </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 items-center justify-between border-b border-border bg-surface px-6">
-          <div className="text-[15px] font-semibold" />
-          <div className="flex items-center gap-4">
-            <FirmClock />
-            <WhenCleared>
-              <TimerBar />
-            </WhenCleared>
-            <HeaderActions />
-          </div>
-        </header>
-        <main className="flex-1 p-6">
-          {/*
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="flex h-14 items-center justify-between border-b border-border bg-surface px-6">
+            <div className="text-[15px] font-semibold" />
+            <div className="flex items-center gap-4">
+              <FirmClock />
+              <WhenCleared>
+                <TimerBar />
+              </WhenCleared>
+              <HeaderActions />
+            </div>
+          </header>
+          <main className="flex-1 p-6">
+            {/*
             The boundary sits HERE, not around the whole app: every screen is loaded on demand
             (see router.tsx), and a page-level boundary would blank the sidebar and the header on
             every navigation. Scoped to the content area, a first visit to a screen shows one line
             where the screen will be, and everything the person was looking at stays put.
           */}
-          <Suspense fallback={<p className="text-[13px] text-muted">Loading…</p>}>
-            <Outlet />
-          </Suspense>
-        </main>
+            <Suspense fallback={<p className="text-[13px] text-muted">Loading…</p>}>
+              <Outlet />
+            </Suspense>
+          </main>
+        </div>
       </div>
-    </div>
+    </ToastProvider>
   );
 }
 

@@ -19,6 +19,8 @@ export const USERS_KEY = ["users"] as const;
 export const CALENDAR_KEY = ["calendar"] as const;
 export const MAILOUTS_KEY = ["mailouts"] as const;
 export const NOTIFICATIONS_KEY = ["notifications"] as const;
+/** The library (files.md): the tree's totals, each place's lists and folders, the Trash. */
+export const FILES_KEY = ["files"] as const;
 /**
  * The log, and the switches that decide what goes into it.
  *

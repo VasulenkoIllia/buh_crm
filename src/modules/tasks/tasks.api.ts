@@ -14,7 +14,7 @@ import type {
 } from "@shared/schema/task";
 import { api } from "@/shared/lib/api";
 import { applyDrop } from "@/shared/lib/drop-target";
-import { CLIENTS_KEY, INVOICES_KEY, TASKS_KEY } from "@/shared/lib/query-keys";
+import { CLIENTS_KEY, FILES_KEY, INVOICES_KEY, TASKS_KEY } from "@/shared/lib/query-keys";
 
 const TIMER_KEY = [...TASKS_KEY, "timer"] as const;
 
@@ -488,6 +488,8 @@ export interface TaskFile {
   size: number;
   mime: string;
   createdAt: string;
+  /** kept in a library folder as well; WHERE is a Clients read, not this Tasks one (files.md §5.2) */
+  filed: boolean;
 }
 
 export function useTaskFiles(taskId: string | undefined) {
@@ -501,13 +503,15 @@ export function useTaskFiles(taskId: string | undefined) {
 /**
  * A file uploaded on a job also lands on its client's card — one row carrying both pointers, not a
  * copy. So the CLIENTS caches have to be invalidated too, or that card keeps showing the old list
- * until something else happens to refresh it.
+ * until something else happens to refresh it; and the library's, whose Attachments and Trash show
+ * the same row (files.md §5).
  */
 function useInvalidateTaskFiles(taskId: string) {
   const queryClient = useQueryClient();
   return () => {
     void queryClient.invalidateQueries({ queryKey: [...TASKS_KEY, "files", taskId] });
     void queryClient.invalidateQueries({ queryKey: CLIENTS_KEY });
+    void queryClient.invalidateQueries({ queryKey: FILES_KEY });
   };
 }
 
@@ -523,11 +527,30 @@ export function useUploadTaskFile(taskId: string) {
   });
 }
 
+/**
+ * A file that is not filed goes to the Trash, and the answer carries the gesture its Undo takes
+ * back; a filed one only leaves the task and stays in its folder, so there is nothing to undo.
+ */
 export function useDeleteTaskFile(taskId: string) {
   const invalidate = useInvalidateTaskFiles(taskId);
   return useMutation({
     mutationFn: (fileId: string) =>
-      api<{ ok: true }>(`/api/tasks/${taskId}/files/${fileId}`, { method: "DELETE" }),
+      api<{ ok: true; batchId?: string }>(`/api/tasks/${taskId}/files/${fileId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: invalidate,
+  });
+}
+
+/** The card's Undo (files.md §9), on the Tasks gate: somebody whose Files is closed can use it. */
+export function useUndoTaskFile(taskId: string) {
+  const invalidate = useInvalidateTaskFiles(taskId);
+  return useMutation({
+    mutationFn: (batchId: string) =>
+      api<{ restored: number }>(`/api/tasks/${taskId}/files/undo`, {
+        method: "POST",
+        body: { batchId },
+      }),
     onSuccess: invalidate,
   });
 }

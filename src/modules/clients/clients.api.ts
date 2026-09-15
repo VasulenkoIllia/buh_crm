@@ -23,14 +23,6 @@ export interface ClientListResponse {
   counts: { regular: number; one_time: number };
 }
 
-export interface ClientFile {
-  id: string;
-  name: string;
-  size: number;
-  mime: string;
-  createdAt: string;
-}
-
 export function useClients(query: Partial<ClientListQuery>, opts?: { enabled?: boolean }) {
   const params = new URLSearchParams();
   if (query.tab) params.set("tab", query.tab);
@@ -150,36 +142,8 @@ export function useRestoreClient() {
   });
 }
 
-export function useClientFiles(clientId: string | undefined) {
-  return useQuery({
-    queryKey: [...CLIENTS_KEY, "files", clientId],
-    queryFn: () => api<ClientFile[]>(`/api/clients/${clientId}/files`),
-    enabled: !!clientId,
-  });
-}
-
-export function useUploadClientFile(clientId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (file: File) => {
-      const formData = new FormData();
-      formData.append("file", file);
-      return api<ClientFile>(`/api/clients/${clientId}/files`, { method: "POST", formData });
-    },
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: [...CLIENTS_KEY, "files", clientId] }),
-  });
-}
-
-export function useDeleteClientFile(clientId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (fileId: string) =>
-      api<{ ok: true }>(`/api/clients/${clientId}/files/${fileId}`, { method: "DELETE" }),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: [...CLIENTS_KEY, "files", clientId] }),
-  });
-}
+// A client's files are the library's now: the card's Files tab is `ClientFilesBrowser`, reading
+// `modules/files/files.api.ts` (files.md §18).
 
 // ── subscriptions & categories (S3) ─────────────────────────────────────────
 
