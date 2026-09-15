@@ -96,6 +96,22 @@ const REQUIRED = [
       "depend on row order, and the log would record something nobody chose",
     mustMatch: /ON public\."MailSenderAccount".*\("isDefault"\).*WHERE.*"isDefault"/is,
   },
+  {
+    name: "Folder_live_name",
+    guarantees:
+      "one live folder name per place, case-insensitive (files.md §6.3). NULLS NOT DISTINCT makes " +
+      "the root, a null parent, one folder like any other; without it two root folders could share a name",
+    mustMatch:
+      /ON public\."Folder".*scope.*"parentId".*lower\(name\).*NULLS NOT DISTINCT.*WHERE.*"deletedAt" IS NULL/is,
+  },
+  {
+    name: "File_live_name",
+    guarantees:
+      "one live file name per folder, so an upload becomes `name (2)` instead of standing beside " +
+      "another W-2.pdf. Unfiled attachments stay outside it: two tasks may each hold a scan.pdf",
+    mustMatch:
+      /ON public\."File".*scope.*"folderId".*lower\(name\).*NULLS NOT DISTINCT.*WHERE.*scope IS NOT NULL.*"deletedAt" IS NULL/is,
+  },
 ];
 
 describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
@@ -201,6 +217,49 @@ describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
         `server, AFTER the dump and BEFORE the pull. Add the DELETE (in FK order) or add the table ` +
         `to KEPT here with a reason.`,
     ).toEqual([]);
+  });
+
+  /**
+   * **The library's hand-written half** (files.md §14.2). The composite keys are what move a
+   * subtree in one statement; the trigger keeps every row they rewrite true to its new scope; the
+   * CHECKs refuse a row whose copies disagree with its scope. Prisma declares the keys, but a
+   * migration that recreated them with SET NULL would silently take files out of the library, and
+   * the trigger and the CHECKs it does not see at all.
+   */
+  it("keeps the library's keys, trigger and CHECKs", async () => {
+    const keys = await prisma.$queryRaw<{ conname: string; upd: string; del: string }[]>`
+      SELECT conname::text, confupdtype::text AS upd, confdeltype::text AS del
+      FROM pg_constraint
+      WHERE conname IN ('File_folderId_scope_fkey', 'Folder_parentId_scope_fkey')
+    `;
+    // c = ON UPDATE CASCADE, r = ON DELETE RESTRICT
+    expect(keys.map((k) => `${k.conname} ${k.upd}${k.del}`).sort()).toEqual([
+      "File_folderId_scope_fkey cr",
+      "Folder_parentId_scope_fkey cr",
+    ]);
+
+    const CHECKS = [
+      "Folder_place_matches_scope",
+      "File_place_matches_scope",
+      "File_attachment_not_personal",
+      "Folder_trash_is_a_gesture",
+      "File_trash_is_a_gesture",
+    ];
+    const checks = await prisma.$queryRaw<{ conname: string }[]>`
+      SELECT conname::text FROM pg_constraint
+      WHERE contype = 'c' AND conname::text = ANY (${CHECKS}::text[])
+    `;
+    expect(checks.map((c) => c.conname).sort()).toEqual([...CHECKS].sort());
+
+    const triggers = await prisma.$queryRaw<{ tgname: string; enabled: string }[]>`
+      SELECT tgname::text, tgenabled::text AS enabled FROM pg_trigger
+      WHERE NOT tgisinternal AND tgname IN ('File_place_from_scope', 'Folder_place_from_scope')
+    `;
+    // O = enabled
+    expect(triggers.map((t) => `${t.tgname} ${t.enabled}`).sort()).toEqual([
+      "File_place_from_scope O",
+      "Folder_place_from_scope O",
+    ]);
   });
 
   it("keeps billing history un-blankable (ON DELETE RESTRICT on the provenance FKs)", async () => {

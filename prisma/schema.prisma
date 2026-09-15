@@ -218,6 +218,12 @@ model User {
   invoicesCancelled        Invoice[]                @relation("InvoiceCancelledBy")
   invoicesArchived         Invoice[]                @relation("InvoiceTidiedBy")
   uploadedFiles            File[]                   @relation("FileUploadedBy")
+  /// the library (files.md): their My files, and what they made or put in the Trash
+  personalFiles            File[]                   @relation("FileOwner")
+  filesDeleted             File[]                   @relation("FileDeletedBy")
+  personalFolders          Folder[]                 @relation("FolderOwner")
+  foldersCreated           Folder[]                 @relation("FolderCreatedBy")
+  foldersDeleted           Folder[]                 @relation("FolderDeletedBy")
   subscriptionPeriods      SubscriptionPeriod[]     @relation("SubscriptionPeriodCreatedBy")
   subscriptionPeriodsEnded SubscriptionPeriod[]     @relation("SubscriptionPeriodEndedBy")
   mailoutsSent             Mailout[]                @relation("MailoutCreatedBy")
@@ -657,6 +663,8 @@ model Client {
   campaigns      CampaignRecipient[]
   mailPreference ClientMailPreference?
   files          File[]                @relation("ClientFiles")
+  /// the folders in the client's three zones (files.md §4). The client's own folder is this row.
+  folders        Folder[]              @relation("ClientFolders")
   convertedLead  Lead?                 @relation("LeadConvertedClient")
   pins           ClientPin[]
 
@@ -1598,22 +1606,39 @@ enum FileStorage {
   s3
 }
 
+/// The library's fixed levels are VALUES on a row, not rows (files.md §4.1): there is nothing to
+/// delete, rename or move, so no code path can. A client's own folder is its Client row, and My
+/// files is its User row.
+enum FileSpace {
+  personal
+  company
+  client
+}
+
+/// A client's three fixed zones (files.md §4.2). `shared` and `from_client` are the two the client
+/// will see once the portal opens.
+enum ClientZone {
+  internal
+  shared
+  from_client
+}
+
 model File {
-  id           String   @id @default(uuid()) @db.Uuid
+  id           String      @id @default(uuid()) @db.Uuid
   name         String
   size         Int // bytes, ≤ 25 MB enforced in service; the file's own size, not its ciphertext's
   mime         String
   path         String // its key in its store: a path under UPLOADS_DIR, or an object in the bucket
-  clientId     String?  @db.Uuid // client-card files
+  clientId     String?     @db.Uuid // client-card files
   /// Attached to a task. ALSO carries `clientId` when that task has a client, which is the whole
   /// mechanism behind "a file uploaded on a job shows up on the client's card": one row with two
   /// pointers, not a copy. Nothing to keep in step, and one file to delete (user, 2026-08-28).
   ///
   /// A task's client cannot be changed after it is created, so a file filed under a client stays
   /// filed correctly forever. A task on a LEAD has no client, and its files stay with the task.
-  taskId       String?  @db.Uuid
-  uploadedById String   @db.Uuid
-  createdAt    DateTime @default(now())
+  taskId       String?     @db.Uuid
+  uploadedById String      @db.Uuid
+  createdAt    DateTime    @default(now())
   /// Where the bytes are. Each row says so itself, so `FILES_STORAGE` decides only where NEW files
   /// go, and moving a file is copying its bytes and then changing this (files.md §15.0).
   storage      FileStorage @default(local)
@@ -1622,18 +1647,86 @@ model File {
   /// its version, and nothing in the bucket lacks a key.
   wrappedKey   Bytes?
   keyVersion   Int?
+  /// Its place in the library (files.md §14.2): `personal:<userId>`, `company`, or
+  /// `client:<clientId>:<zone>`. Null = not in the library: an attachment only, or branding.
+  ///
+  /// `space`, `zone`, `ownerId` and, for a filed file, `clientId` are COPIED from it by the trigger
+  /// `File_place_from_scope` and never written by the app. A move changes `scope` and `folderId`
+  /// only; a folder's move reaches every row below it through the composite key's ON UPDATE
+  /// CASCADE, and the trigger fixes each one's copies.
+  scope        String?
+  space        FileSpace?
+  zone         ClientZone?
+  ownerId      String?     @db.Uuid
+  /// null = at the root of its place
+  folderId     String?     @db.Uuid
+  updatedAt    DateTime?   @updatedAt
+  /// In the Trash (files.md §9). The items of one gesture share a `trashBatchId`, a folder's
+  /// contents included. Nothing else changes, so restoring is clearing these three.
+  deletedAt    DateTime?
+  deletedById  String?     @db.Uuid
+  trashBatchId String?     @db.Uuid
 
   client            Client?      @relation("ClientFiles", fields: [clientId], references: [id], onDelete: Cascade)
   /// SetNull, not Cascade: a document filed under the client must survive its task. Tasks are
   /// archived rather than deleted here, so this is a declaration of intent more than a live path.
   task              Task?        @relation("TaskFiles", fields: [taskId], references: [id], onDelete: SetNull)
   uploadedBy        User         @relation("FileUploadedBy", fields: [uploadedById], references: [id])
+  /// Restrict, not Prisma's composite default SetNull, which would null `scope` and take the file
+  /// out of the library without a word. The purge deletes files before their folders (files.md §9).
+  folder            Folder?      @relation("FolderFiles", fields: [folderId, scope], references: [id, scope], onUpdate: Cascade, onDelete: Restrict)
+  owner             User?        @relation("FileOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  deletedBy         User?        @relation("FileDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
   avatarOfUser      User?        @relation("UserAvatar")
   logoOfProfile     FirmProfile? @relation("FirmLogo")
   mailLogoOfProfile FirmProfile? @relation("FirmMailLogo")
 
   @@index([clientId])
   @@index([taskId])
+  // the foreign key's own index: Postgres never indexes the referencing side (files.md §14.2)
+  @@index([folderId, scope])
+}
+
+/// A folder in the library (files.md §6.1): anywhere below a fixed level, up to 8 deep.
+///
+/// Hand-written in the migration, and guarded by server/schema-invariants.test.ts because Prisma
+/// cannot say them: the trigger that fills `space`, `ownerId`, `clientId` and `zone` from `scope`,
+/// the CHECKs that hold every row to it, and one live name per folder, case-insensitive.
+model Folder {
+  id           String      @id @default(uuid()) @db.Uuid
+  name         String // 1–120 characters, cleaned by the app (files.md §6.1)
+  /// the same key as `File.scope`, never null here
+  scope        String
+  /// Copied from `scope` by the trigger `Folder_place_from_scope`, like File's. Optional in this
+  /// schema only because the app never writes it; the CHECK `Folder_place_matches_scope` holds
+  /// every row to a value.
+  space        FileSpace?
+  ownerId      String?     @db.Uuid
+  clientId     String?     @db.Uuid
+  zone         ClientZone?
+  /// null = directly under its fixed level
+  parentId     String?     @db.Uuid
+  createdById  String?     @db.Uuid
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  deletedAt    DateTime?
+  deletedById  String?     @db.Uuid
+  trashBatchId String?     @db.Uuid
+
+  /// The composite key is what moves a subtree in one statement: a folder's new scope cascades to
+  /// every row below it. Restrict on delete, so the purge must go deepest first (files.md §9).
+  parent    Folder?  @relation("FolderTree", fields: [parentId, scope], references: [id, scope], onUpdate: Cascade, onDelete: Restrict)
+  children  Folder[] @relation("FolderTree")
+  files     File[]   @relation("FolderFiles")
+  owner     User?    @relation("FolderOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  /// Restrict: clients are archived, never deleted, and one holding folders must not vanish
+  client    Client?  @relation("ClientFolders", fields: [clientId], references: [id], onDelete: Restrict)
+  createdBy User?    @relation("FolderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  deletedBy User?    @relation("FolderDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+
+  @@unique([id, scope])
+  // the foreign key's own index, as on File
+  @@index([parentId, scope])
 }
 
 /// One row per scheduled job, holding only its LAST outcome — never a history.

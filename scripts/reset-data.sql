@@ -92,6 +92,12 @@ WHERE NOT EXISTS (SELECT 1 FROM "User" u WHERE u."avatarFileId" = f.id)
   AND NOT EXISTS (SELECT 1 FROM "FirmProfile" p WHERE p."logoFileId" = f.id)
   AND NOT EXISTS (SELECT 1 FROM "FirmProfile" p WHERE p."mailLogoFileId" = f.id);
 
+-- The library's folders (files.md §4), My files and Company included, as their files went just
+-- above. After the files, which the RESTRICT on File's folder key requires, and before "Client",
+-- which a client's folders hold on to. One statement takes the whole tree: its own key is RESTRICT
+-- too, and nothing is left under any of them.
+DELETE FROM "Folder";
+
 DELETE FROM "Client";
 DELETE FROM "Lead";
 DELETE FROM "Notification";

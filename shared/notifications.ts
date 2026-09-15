@@ -524,6 +524,11 @@ export const MODULE_NOTIFICATIONS: Record<string, readonly NotificationTriggerKe
     clients:
       "Editing a client is a step of ordinary work, dozens a day. That is the rule that trimmed the " +
       "original candidate list (§3.2): a lifecycle event yes, a work step no.",
+    files:
+      "Uploads, moves, filing, deletes and restores are steps of ordinary work, seen by the person " +
+      "doing them. A failing storage check or purge goes through job health into ops_sweep_failed, " +
+      "which already mails the admins. Alerts on mass deletes and downloads wait for a month of " +
+      "real use (files.md §21).",
     leads:
       "A stage change is already on the board of the person who made it, and means nothing to anybody " +
       "else until it becomes a client — which raises nothing either, for the same reason.",
