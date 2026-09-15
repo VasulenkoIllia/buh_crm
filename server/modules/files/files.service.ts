@@ -164,26 +164,30 @@ export async function overview(user: User): Promise<FilesOverview> {
   const clients = opens(reader, "clients");
   const mine = repo.inScope(`personal:${user.id}`);
   const company = repo.inScope("company");
-  const [mineTotals, companyTotals, companyAttachments, clientTotals, all] = await Promise.all([
-    repo.totals(mine),
-    repo.totals(company),
-    tasks ? repo.totals(repo.internalTaskFiles) : null,
-    clients ? repo.totals(repo.clientFiles()) : null,
-    repo.totals({
-      OR: [
-        mine,
-        company,
-        ...(tasks ? [repo.internalTaskFiles] : []),
-        ...(clients ? [repo.clientFiles()] : []),
-      ],
-    }),
-  ]);
+  const [mineTotals, companyTotals, companyAttachments, clientTotals, all, trash] =
+    await Promise.all([
+      repo.totals(mine),
+      repo.totals(company),
+      tasks ? repo.totals(repo.internalTaskFiles) : null,
+      clients ? repo.totals(repo.clientFiles()) : null,
+      repo.totals({
+        OR: [
+          mine,
+          company,
+          ...(tasks ? [repo.internalTaskFiles] : []),
+          ...(clients ? [repo.clientFiles()] : []),
+        ],
+      }),
+      // the Trash's own total, by the same rule as its list; it counts in no folder's (§4.4)
+      repo.totals(repo.trashedFilesSeen(user.id, clients, tasks)),
+    ]);
   return {
     all,
     mine: mineTotals,
     company: companyTotals,
     companyAttachments,
     clients: clientTotals,
+    trash,
   };
 }
 

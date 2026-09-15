@@ -1,22 +1,16 @@
 import { z } from "zod";
+import { FILE_ZONES, type FileZone } from "../library.js";
 import { uuid } from "./common.js";
 
 /**
  * The library's shapes (files.md §4–§7). Inputs are zod, validated at the route; outputs are
- * types, read by the Files screen and the client card.
+ * types, read by the Files screen and the client card. The zones' words and the upload rules live
+ * in `shared/library.ts`, which the browser can load without zod.
  */
 
-export const fileZone = z.enum(["internal", "shared", "from_client"]);
-export type FileZone = z.infer<typeof fileZone>;
+export { CLIENT_VISIBLE_ZONES, ZONE_LABEL, type FileZone } from "../library.js";
 
-export const ZONE_LABEL: Record<FileZone, string> = {
-  internal: "Internal",
-  shared: "Shared with client",
-  from_client: "From client",
-};
-
-/** The two zones a client will see once the portal opens (files.md §4.2). */
-export const CLIENT_VISIBLE_ZONES: readonly FileZone[] = ["shared", "from_client"];
+export const fileZone = z.enum(FILE_ZONES);
 
 /** Where an item may be put: the caller's own My files, Company, or one of a client's zones. */
 export const placeInput = z.discriminatedUnion("space", [
@@ -72,6 +66,8 @@ export interface FilesOverview {
   companyAttachments: FileTotals | null;
   /** every live client's files together; null when Clients is closed for the reader */
   clients: FileTotals | null;
+  /** what this reader can see in the Trash, which counts in no folder's total */
+  trash: FileTotals;
 }
 
 export interface ClientFilesNode {

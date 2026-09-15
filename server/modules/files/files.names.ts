@@ -1,3 +1,4 @@
+import { REFUSED_EXTENSIONS } from "@shared/library.js";
 import { ValidationError } from "../../core/errors.js";
 
 /**
@@ -14,27 +15,10 @@ export const FILE_NAME_MAX = 255;
 export const MAX_DEPTH = 8;
 
 /**
- * **Programs and scripts are refused on upload** (files.md §14.3). A denylist, not an allowlist: a
- * tax firm receives QuickBooks files, bank exports, saved emails and archives, and the cards took
- * any type before this module. Stage B reads the extension; stage C adds the detected type, so a
- * renamed program is caught too.
+ * **Programs and scripts are refused on upload** (files.md §14.3). The list is
+ * `shared/library.ts`, which the browser reads too, to say so before it sends anything.
  */
-export const REFUSED_EXTENSIONS: ReadonlySet<string> = new Set([
-  "exe",
-  "msi",
-  "bat",
-  "cmd",
-  "com",
-  "scr",
-  "ps1",
-  "vbs",
-  "js",
-  "jar",
-  "sh",
-  "app",
-  "dmg",
-  "pkg",
-]);
+const REFUSED: ReadonlySet<string> = new Set(REFUSED_EXTENSIONS);
 
 function strip(raw: string): string {
   let out = "";
@@ -92,7 +76,7 @@ export function folderName(raw: string): string {
 }
 
 export function refuseProgram(name: string) {
-  if (REFUSED_EXTENSIONS.has(extensionOf(name))) {
+  if (REFUSED.has(extensionOf(name))) {
     throw new ValidationError(
       `“${name}” is a program or a script, and files like that are not accepted here`,
     );

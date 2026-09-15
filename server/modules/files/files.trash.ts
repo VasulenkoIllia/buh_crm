@@ -96,11 +96,30 @@ async function chainsOf(ids: (string | null)[]) {
 
 // ── what the log says ────────────────────────────────────────────────────────
 
-type Named = { id: string; name: string; clientId: string | null };
+type Named = {
+  id: string;
+  name: string;
+  clientId: string | null;
+  task?: { clientId: string | null; leadId: string | null } | null;
+};
 
-/** A task's file that is not filed has no place: it is logged, as ever, under `file` (§10.1). */
+/**
+ * A file on one of the firm's internal tasks, not filed. The log files it under the Files gate,
+ * where Company's Attachments shows it (files.md §10.3, decision 26), not under Clients, which has
+ * nothing to do with it (owner, 2026-09-15).
+ */
+const onInternalTask = (f: Named) =>
+  !!f.task && f.task.clientId === null && f.task.leadId === null;
+
+/** A client task's or a lead task's file that is not filed is logged, as ever, under `file`. */
 function recordFileTrashed(f: Named, place: Place | null, where: string) {
-  if (!place || place.space === "client") {
+  if (!place && onInternalTask(f)) {
+    record("firm_file.deleted", {
+      subjectId: f.id,
+      subjectLabel: f.name,
+      changes: { name: f.name, place: `Task: ${where}` },
+    });
+  } else if (!place || place.space === "client") {
     // `long`, since this is where a disposal starts; `attachedTo` names the place or the task
     record("file.deleted", {
       subjectId: f.id,
@@ -150,7 +169,13 @@ function recordFolderTrashed(
  * trashed file is not visible under the portal rule (§9), so it writes that too.
  */
 function recordFileRestored(f: Named, place: Place | null, to: string) {
-  if (!place || place.space === "client") {
+  if (!place && onInternalTask(f)) {
+    record("firm_file.restored", {
+      subjectId: f.id,
+      subjectLabel: f.name,
+      changes: { to: `Task: ${to}` },
+    });
+  } else if (!place || place.space === "client") {
     record("file.restored", {
       subjectId: f.id,
       subjectLabel: f.name,
@@ -477,12 +502,25 @@ export async function undoCardTrash(
     repo.batchFiles(batchId),
     repo.batchFolders(batchId),
   ]);
-  const fits = (f: repo.TrashedFileRecord) =>
+  const fitsFile = (f: repo.TrashedFileRecord) =>
     "clientId" in card ? f.clientId === card.clientId : f.taskId === card.taskId;
-  if (files.length === 0 || folders.length > 0 || !files.every(fits)) {
+  // the client card deletes folders too, through its Files tab; a task card only ever one file
+  const fitsFolder = (f: repo.TrashedFolderRecord) =>
+    "clientId" in card && f.scope.startsWith(`client:${card.clientId}:`);
+  if (
+    files.length + folders.length === 0 ||
+    !files.every(fitsFile) ||
+    !folders.every(fitsFolder)
+  ) {
     throw new NotFoundError("Nothing to undo here");
   }
-  return restore([], files, batchId, user);
+  const inBatch = new Set(folders.map((f) => f.id));
+  return restore(
+    folders.filter((f) => !(f.parentId && inBatch.has(f.parentId))),
+    files.filter((f) => !(f.folderId && inBatch.has(f.folderId))),
+    batchId,
+    user,
+  );
 }
 
 // ── the Trash's list ─────────────────────────────────────────────────────────
@@ -606,7 +644,13 @@ export async function purgeTrash(options: { limit?: number; now?: Date } = {}) {
       continue;
     }
     purged++;
-    if (!place || place.space === "client") {
+    if (!place && onInternalTask(f)) {
+      record("firm_file.purged", {
+        subjectId: f.id,
+        subjectLabel: f.name,
+        changes: { name: f.name, from: `Task: ${from}` },
+      });
+    } else if (!place || place.space === "client") {
       record("file.purged", {
         subjectId: f.id,
         subjectLabel: f.name,

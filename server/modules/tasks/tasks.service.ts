@@ -1313,14 +1313,24 @@ export async function addFile(
     mime: file.mimetype,
     uploadedById: actor.id,
   });
-  // the same three file events the client card writes, with `attachedTo` telling them apart — one
-  // log answers "whose documents were taken" whichever screen the document arrived through
-  record("file.uploaded", {
-    subjectId: row.id,
-    subjectLabel: row.name,
-    clientId: task.clientId,
-    changes: { name: row.name, size: row.size, attachedTo: task.title },
-  });
+  if (!task.clientId && !task.leadId) {
+    // an internal task's file belongs to the Files gate in the log, as it does in Company's
+    // Attachments (files.md §10.3, decision 26), not to Clients, which has nothing to do with it
+    record("firm_file.uploaded", {
+      subjectId: row.id,
+      subjectLabel: row.name,
+      changes: { name: row.name, size: row.size, place: `Task: ${task.title}` },
+    });
+  } else {
+    // the same three file events the client card writes, with `attachedTo` telling them apart —
+    // one log answers "whose documents were taken" whichever screen the document arrived through
+    record("file.uploaded", {
+      subjectId: row.id,
+      subjectLabel: row.name,
+      clientId: task.clientId,
+      changes: { name: row.name, size: row.size, attachedTo: task.title },
+    });
+  }
   return { id: row.id, name: row.name, size: row.size, mime: row.mime };
 }
 
@@ -1328,12 +1338,17 @@ export async function getFile(taskId: string, fileId: string) {
   const task = liveTaskOr404(await repo.findTask(taskId));
   const file = await repo.findTaskFile(taskId, fileId);
   if (!file) throw new NotFoundError("File not found");
-  // a read, recorded — for this one the read IS the act (activity-log.md §3.2)
-  record("file.downloaded", {
-    subjectId: file.id,
-    subjectLabel: file.name,
-    clientId: task.clientId,
-  });
+  // a read, recorded — for this one the read IS the act (activity-log.md §3.2); an internal task's
+  // file under the Files gate, like its upload
+  if (!task.clientId && !task.leadId) {
+    record("firm_file.downloaded", { subjectId: file.id, subjectLabel: file.name });
+  } else {
+    record("file.downloaded", {
+      subjectId: file.id,
+      subjectLabel: file.name,
+      clientId: task.clientId,
+    });
+  }
   return file;
 }
 

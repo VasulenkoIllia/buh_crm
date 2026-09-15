@@ -449,4 +449,66 @@ describe("the Trash (files.md §9, stage B.3)", () => {
     });
     await prisma.client.update({ where: { id: clientB }, data: { archivedAt: null } });
   });
+
+  it("logs an internal task's file under the Files gate, where Company's Attachments shows it", async () => {
+    const k = as(keeper);
+    const taskId = await task(); // neither a client nor a lead
+    const up = await k.upload(`/api/tasks/${taskId}/files`, "timesheet.xlsx");
+    expect(up.statusCode).toBe(201);
+    const fileId = up.json().id;
+    const place = `Task: ${TAG} task`;
+
+    expect((await recorded("firm_file.uploaded", fileId)).changes).toEqual({
+      name: "timesheet.xlsx",
+      size: 5,
+      place,
+    });
+    expect(
+      await prisma.activityEvent.count({
+        where: { action: "file.uploaded", subjectId: fileId },
+      }),
+    ).toBe(0);
+    expect((await k.get(`/api/tasks/${taskId}/files/${fileId}`)).statusCode).toBe(200);
+    await recorded("firm_file.downloaded", fileId);
+
+    const off = await k.del(`/api/tasks/${taskId}/files/${fileId}`);
+    expect((await recorded("firm_file.deleted", fileId)).changes).toEqual({
+      name: "timesheet.xlsx",
+      place,
+    });
+    await k.post(`/api/tasks/${taskId}/files/undo`, { batchId: off.json().batchId });
+    expect((await recorded("firm_file.restored", fileId)).changes).toEqual({ to: place });
+  });
+
+  it("lets the client card's Undo take back a folder, and counts the Trash in the tree", async () => {
+    const a = as(admin);
+    const folder = (
+      await a.post(`/api/files/clients/${clientA}/zones/internal/folders`, {
+        name: "2024 return",
+        parentId: null,
+      })
+    ).json().id;
+    const inside = (
+      await a.upload(
+        `/api/files/clients/${clientA}/zones/internal/upload?folderId=${folder}`,
+        "1040.pdf",
+      )
+    ).json().id;
+    const before = (await a.get("/api/files/overview")).json().trash;
+
+    const gone = await a.post(`/api/files/clients/${clientA}/delete`, { folderIds: [folder] });
+    expect(gone.statusCode).toBe(200);
+    expect((await a.get("/api/files/overview")).json().trash.files).toBe(before.files + 1);
+
+    const undone = await a.post(`/api/clients/${clientA}/files/undo`, {
+      batchId: gone.json().batchId,
+    });
+    expect(undone.json()).toMatchObject({ restored: 2 });
+    expect(
+      (await prisma.folder.findUniqueOrThrow({ where: { id: folder } })).deletedAt,
+    ).toBeNull();
+    expect(
+      (await prisma.file.findUniqueOrThrow({ where: { id: inside } })).deletedAt,
+    ).toBeNull();
+  });
 });
