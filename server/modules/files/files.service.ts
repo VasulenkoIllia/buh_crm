@@ -19,6 +19,7 @@ import {
   type FolderRow,
   type MoveInput,
   type MoveResult,
+  type SearchCrumb,
   type SearchHit,
   type SearchPage,
   type SearchQuery,
@@ -176,30 +177,41 @@ const IMAGE_TYPES = [
 const TEXT_TYPES = ["text/plain", "text/csv"];
 const SHOWN_TYPES = ["application/pdf", ...IMAGE_TYPES, ...TEXT_TYPES];
 
+/** A client by any part of its name, or by its code typed as "142", "#142", "C-142" or "C–142". */
+function clientText(q: string): Prisma.ClientWhereInput {
+  const has = { contains: q, mode: "insensitive" as const };
+  const digits = q.replace(/^#?\s*(?:c\s*[-–]?)?\s*/i, "");
+  // a code is digits alone and fits its 32-bit column, so a pasted phone number is no code
+  const code = /^\d+$/.test(digits) ? Number(digits) : 0;
+  return {
+    OR: [
+      { firstName: has },
+      { lastName: has },
+      { companyName: has },
+      ...(code > 0 && code <= 2_147_483_647 ? [{ code }] : []),
+    ],
+  };
+}
+
 /** The words a search matches: the name, the uploader, the client and its `#code`, the task, the folder. */
 function fileText(q: string): Prisma.FileWhereInput {
   const has = { contains: q, mode: "insensitive" as const };
-  const code = Number(q.replace(/^#|^c-?/i, ""));
   return {
     OR: [
       { name: has },
       { uploadedBy: { is: { OR: [{ firstName: has }, { lastName: has }] } } },
-      {
-        client: {
-          is: {
-            OR: [
-              { firstName: has },
-              { lastName: has },
-              { companyName: has },
-              ...(Number.isInteger(code) && code > 0 ? [{ code }] : []),
-            ],
-          },
-        },
-      },
+      { client: { is: clientText(q) } },
       { task: { is: { title: has } } },
       { folder: { is: { name: has } } },
     ],
   };
+}
+
+/** The first ten live clients a query names, each with what its folders hold (files.md §13). */
+async function clientMatches(q: string): Promise<ClientFilesNode[]> {
+  const rows = await repo.searchClients(clientText(q));
+  if (rows.length === 0) return [];
+  return nodesOf(rows, await repo.totalsByClient(rows.map((c) => c.id)));
 }
 
 function fileType(type: NonNullable<SearchQuery["type"]>): Prisma.FileWhereInput {
@@ -299,6 +311,17 @@ export async function search(user: User, query: SearchQuery): Promise<SearchPage
         })
       : [];
 
+  // clients by a name or a code, on the first page, with Clients open (§13): the way to a client
+  // whose files are few, or none
+  const clients =
+    q &&
+    clientsOpen &&
+    !query.type &&
+    query.page === 0 &&
+    (!query.space || query.space === "clients")
+      ? await clientMatches(q)
+      : [];
+
   // every path on the page in two queries: the folder chains, and the clients' names
   const chainIds = [
     ...new Set([
@@ -307,7 +330,9 @@ export async function search(user: User, query: SearchQuery): Promise<SearchPage
     ]),
   ];
   const chains =
-    chainIds.length > 0 ? await repo.ancestries(chainIds) : new Map<string, string[]>();
+    chainIds.length > 0
+      ? await repo.folderChains(chainIds)
+      : new Map<string, { id: string; name: string }[]>();
   const clientIds = [
     ...new Set([
       ...files.flatMap((f) => (f.clientId ? [f.clientId] : [])),
@@ -321,35 +346,73 @@ export async function search(user: User, query: SearchQuery): Promise<SearchPage
     ]),
   );
 
-  const pathOf = (where: SearchWhere, parentId: string | null, taskTitle?: string) => {
-    const chain = parentId ? (chains.get(parentId) ?? []) : [];
-    let head: string[];
-    if (where.kind === "task") head = ["A lead's task", taskTitle ?? "a task"];
-    else if (where.kind === "attachments") {
-      head = where.clientId
-        ? ["Clients", clientNames.get(where.clientId) ?? "a client", "Attachments"]
-        : ["Company", "Attachments"];
-    } else if (where.place.space === "personal") head = [MY_FILES];
-    else if (where.place.space === "company") head = ["Company"];
-    else {
-      head = [
-        "Clients",
-        clientNames.get(where.place.clientId) ?? "a client",
-        ZONE_LABEL[where.place.zone],
+  // each step of a path with where it leads (§13): the place, the client, each folder down to it
+  const crumbsOf = (
+    where: SearchWhere,
+    parentId: string | null,
+    taskTitle?: string,
+  ): SearchCrumb[] => {
+    if (where.kind === "task") {
+      return [
+        { label: "A lead's task", to: null },
+        { label: taskTitle ?? "a task", to: null },
       ];
     }
-    return [...head, ...chain].join(" › ");
+    if (where.kind === "attachments") {
+      return where.clientId
+        ? [
+            { label: "Clients", to: { type: "clients" } },
+            {
+              label: clientNames.get(where.clientId) ?? "a client",
+              to: { type: "client", clientId: where.clientId },
+            },
+            { label: "Attachments", to: { type: "attachments", clientId: where.clientId } },
+          ]
+        : [
+            {
+              label: "Company",
+              to: { type: "place", place: { space: "company" }, folderId: null },
+            },
+            { label: "Attachments", to: { type: "attachments", clientId: null } },
+          ];
+    }
+    const place = where.place;
+    const root: SearchCrumb["to"] = { type: "place", place, folderId: null };
+    let head: SearchCrumb[];
+    if (place.space === "personal") head = [{ label: MY_FILES, to: root }];
+    else if (place.space === "company") head = [{ label: "Company", to: root }];
+    else {
+      head = [
+        { label: "Clients", to: { type: "clients" } },
+        {
+          label: clientNames.get(place.clientId) ?? "a client",
+          to: { type: "client", clientId: place.clientId },
+        },
+        { label: ZONE_LABEL[place.zone], to: root },
+      ];
+    }
+    const chain = parentId ? (chains.get(parentId) ?? []) : [];
+    return [
+      ...head,
+      ...chain.map((f): SearchCrumb => ({
+        label: f.name,
+        to: { type: "place", place, folderId: f.id },
+      })),
+    ];
   };
+  const pathOf = (crumbs: SearchCrumb[]) => crumbs.map((c) => c.label).join(" › ");
 
   const hits: SearchHit[] = [
     ...folders.map((f): SearchHit => {
       const at = whereOf(f.scope, f.parentId, null);
+      const crumbs = crumbsOf(at, f.parentId);
       return {
         kind: "folder",
         id: f.id,
         name: f.name,
         where: at.kind === "place" ? { ...at, folderId: f.id } : at,
-        path: pathOf(at, f.parentId),
+        path: pathOf(crumbs),
+        crumbs,
         size: 0,
         createdAt: f.createdAt.toISOString(),
         uploadedBy: f.createdBy ? personName(f.createdBy) : "",
@@ -359,12 +422,14 @@ export async function search(user: User, query: SearchQuery): Promise<SearchPage
     }),
     ...files.map((f): SearchHit => {
       const at = whereOf(f.scope, f.folderId, f.task);
+      const crumbs = crumbsOf(at, f.scope ? f.folderId : null, f.task?.title);
       return {
         kind: "file",
         id: f.id,
         name: f.name,
         where: at,
-        path: pathOf(at, f.scope ? f.folderId : null, f.task?.title),
+        path: pathOf(crumbs),
+        crumbs,
         size: f.size,
         createdAt: f.createdAt.toISOString(),
         uploadedBy: personName(f.uploadedBy),
@@ -373,7 +438,7 @@ export async function search(user: User, query: SearchQuery): Promise<SearchPage
       };
     }),
   ];
-  return { hits, more: rows.length > repo.SEARCH_PAGE };
+  return { hits, more: rows.length > repo.SEARCH_PAGE, clients };
 }
 
 // ── the tree ─────────────────────────────────────────────────────────────────
@@ -412,8 +477,11 @@ export async function overview(user: User): Promise<FilesOverview> {
   };
 }
 
-export async function clientNodes(): Promise<ClientFilesNode[]> {
-  const [clients, byClient] = await Promise.all([repo.liveClients(), repo.totalsByClient()]);
+/** Clients as the library lists them, by name, each with what its folders hold. */
+function nodesOf(
+  clients: Awaited<ReturnType<typeof repo.liveClients>>,
+  byClient: Map<string, FileTotals>,
+): ClientFilesNode[] {
   return clients
     .map((c) => ({
       id: c.id,
@@ -422,6 +490,11 @@ export async function clientNodes(): Promise<ClientFilesNode[]> {
       totals: byClient.get(c.id) ?? ZERO,
     }))
     .sort((a, b) => a.label.localeCompare(b.label));
+}
+
+export async function clientNodes(): Promise<ClientFilesNode[]> {
+  const [clients, byClient] = await Promise.all([repo.liveClients(), repo.totalsByClient()]);
+  return nodesOf(clients, byClient);
 }
 
 export async function clientDetail(clientId: string): Promise<ClientFilesDetail> {

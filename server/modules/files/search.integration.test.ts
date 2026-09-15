@@ -171,4 +171,67 @@ describe("search (files.md §13)", () => {
     expect(names(res)).toContain(`${TAG}-march.pdf`);
     await setGate(keeper, "clients", "open");
   });
+
+  it("gives every step of a path its own way there", async () => {
+    const body = (await as(admin).get(`/api/files/search?q=${TAG}`)).json();
+    const find = (name: string) => body.hits.find((h: { name: string }) => h.name === name);
+    const company = { type: "place", place: { space: "company" }, folderId: null };
+    const payroll = find(`${TAG} Payroll`);
+    expect(find(`${TAG}-march.pdf`).crumbs).toEqual([
+      { label: "Company", to: company },
+      { label: `${TAG} Payroll`, to: { ...company, folderId: payroll.id } },
+    ]);
+    const w2 = find(`${TAG}-w2.pdf`);
+    expect(w2.crumbs.map((c: { to: { type: string } | null }) => c.to?.type)).toEqual([
+      "clients",
+      "client",
+      "place",
+    ]);
+    expect(w2.crumbs[1].to).toEqual({ type: "client", clientId });
+    // a folder's path leads to where it sits, not into itself
+    expect(payroll.crumbs).toEqual([{ label: "Company", to: company }]);
+  });
+
+  it("finds clients by a name or a code, with no files needed, and only with Clients open", async () => {
+    const a = as(admin);
+    const quiet = await prisma.client.create({ data: { firstName: `${TAG} Kovalenko` } });
+    clientIds.push(quiet.id);
+    type Found = { clients: { id: string; totals: { files: number } }[] };
+    const get = async (query: string): Promise<Found> =>
+      (await a.get(`/api/files/search?${query}`)).json();
+
+    expect((await get(`q=${encodeURIComponent(`${TAG} Koval`)}`)).clients).toEqual([
+      {
+        id: quiet.id,
+        label: `${TAG} Kovalenko`,
+        code: quiet.code,
+        totals: { files: 0, bytes: 0 },
+      },
+    ]);
+    for (const typed of [`${quiet.code}`, `#${quiet.code}`, `C-${quiet.code}`]) {
+      const found = await get(`q=${encodeURIComponent(typed)}`);
+      expect(found.clients.map((c) => c.id)).toContain(quiet.id);
+    }
+    // a dash is part of a code only after C
+    const dashed = await get(`q=${encodeURIComponent(`-${quiet.code}`)}`);
+    expect(dashed.clients.map((c) => c.id)).not.toContain(quiet.id);
+    // the client of a file shows too, with what its folders hold
+    const petrenko = await get(`q=${encodeURIComponent(`${TAG} Petrenko`)}`);
+    expect(petrenko.clients.map((c) => [c.id, c.totals.files])).toEqual([[clientId, 1]]);
+    // a type, another space or a later page shows files alone
+    for (const narrowed of ["&type=pdf", "&space=company", "&page=1"]) {
+      expect((await get(`q=${TAG}${narrowed}`)).clients).toEqual([]);
+    }
+    // the code is a 32-bit column that refuses a longer number, so a pasted phone number is no code
+    await expect(prisma.client.findMany({ where: { code: 5_551_234_567 } })).rejects.toThrow();
+    const phone = await a.get("/api/files/search?q=5551234567");
+    expect(phone.statusCode).toBe(200);
+    expect(phone.json().clients).toEqual([]);
+    // never to somebody whose Clients is closed, and never an archived client
+    await setGate(keeper, "clients", "closed");
+    expect((await as(keeper).get(`/api/files/search?q=${TAG}`)).json().clients).toEqual([]);
+    await setGate(keeper, "clients", "open");
+    await prisma.client.update({ where: { id: quiet.id }, data: { archivedAt: new Date() } });
+    expect((await get(`q=%23${quiet.code}`)).clients).toEqual([]);
+  });
 });

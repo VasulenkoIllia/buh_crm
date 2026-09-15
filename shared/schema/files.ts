@@ -265,6 +265,20 @@ export type SearchWhere =
   /** a lead's task file, which has no place in the library */
   | { kind: "task" };
 
+/**
+ * One step of a hit's path, and where a click on it goes (files.md §13): a place, the Clients list,
+ * a client, a folder, an Attachments. Null for a step there is nowhere to go, such as a lead's task.
+ */
+export interface SearchCrumb {
+  label: string;
+  to:
+    | { type: "place"; place: PlaceInput; folderId: string | null }
+    | { type: "clients" }
+    | { type: "client"; clientId: string }
+    | { type: "attachments"; clientId: string | null }
+    | null;
+}
+
 export interface SearchHit {
   kind: "file" | "folder";
   id: string;
@@ -273,6 +287,8 @@ export interface SearchHit {
   where: SearchWhere;
   /** where it is, in words: "Clients › Petrenko #142 › Internal › 2025" */
   path: string;
+  /** the same path step by step, each step with where it leads */
+  crumbs: SearchCrumb[];
   /** a file's own size; 0 for a folder, whose total the list does not add up here */
   size: number;
   createdAt: string;
@@ -287,4 +303,6 @@ export interface SearchPage {
   hits: SearchHit[];
   /** another page of files follows */
   more: boolean;
+  /** live clients whose name or `#code` matches: the first page's alone, and only with Clients open */
+  clients: ClientFilesNode[];
 }

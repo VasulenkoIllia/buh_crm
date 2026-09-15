@@ -46,10 +46,11 @@ export async function totals(where: Prisma.FileWhereInput): Promise<FileTotals> 
   return { files: r._count._all, bytes: Number(r._sum.size ?? 0) };
 }
 
-export async function totalsByClient(): Promise<Map<string, FileTotals>> {
+/** What each client's folders hold; only the named clients' when `ids` is given. */
+export async function totalsByClient(ids?: string[]): Promise<Map<string, FileTotals>> {
   const rows = await prisma.file.groupBy({
     by: ["clientId"],
-    where: clientFiles(),
+    where: ids ? { AND: [clientFiles(), { clientId: { in: ids } }] } : clientFiles(),
     _count: { _all: true },
     _sum: { size: true },
   });
@@ -137,6 +138,16 @@ export function searchFiles(where: Prisma.FileWhereInput, page: number) {
 }
 
 /** Folders whose names match, on the first page only and at most twenty. */
+/** Live clients by a name or a code, the first ten (files.md §13): the way to one with no files. */
+export function searchClients(where: Prisma.ClientWhereInput) {
+  return prisma.client.findMany({
+    where: { AND: [{ archivedAt: null }, where] },
+    select: clientSelect,
+    orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
+    take: 10,
+  });
+}
+
 export function searchFolders(where: Prisma.FolderWhereInput) {
   return prisma.folder.findMany({
     where,
@@ -198,8 +209,13 @@ export async function ancestry(folderId: string): Promise<{ id: string; name: st
 }
 
 /** The same for many folders in one query: each one's chain of names, the top one first. */
-export async function ancestries(folderIds: string[]): Promise<Map<string, string[]>> {
-  const rows = await prisma.$queryRaw<{ start: string; name: string; depth: number }[]>`
+/** Each folder's chain from its place's root down to it, ids and names, in one query. */
+export async function folderChains(
+  folderIds: string[],
+): Promise<Map<string, { id: string; name: string }[]>> {
+  const rows = await prisma.$queryRaw<
+    { start: string; id: string; name: string; depth: number }[]
+  >`
     WITH RECURSIVE up AS (
       SELECT id AS start, id, name, "parentId", 0 AS depth
       FROM "Folder" WHERE id = ANY (${folderIds}::uuid[])
@@ -207,15 +223,21 @@ export async function ancestries(folderIds: string[]): Promise<Map<string, strin
       SELECT up.start, p.id, p.name, p."parentId", up.depth + 1
       FROM "Folder" p JOIN up ON p.id = up."parentId"
     )
-    SELECT start, name, depth FROM up ORDER BY start, depth DESC
+    SELECT start, id, name, depth FROM up ORDER BY start, depth DESC
   `;
-  const chains = new Map<string, string[]>();
+  const chains = new Map<string, { id: string; name: string }[]>();
   for (const row of rows) {
     const chain = chains.get(row.start) ?? [];
-    chain.push(row.name);
+    chain.push({ id: row.id, name: row.name });
     chains.set(row.start, chain);
   }
   return chains;
+}
+
+/** The same chains by name alone, for the paths written out in words. */
+export async function ancestries(folderIds: string[]): Promise<Map<string, string[]>> {
+  const chains = await folderChains(folderIds);
+  return new Map([...chains].map(([start, chain]) => [start, chain.map((f) => f.name)]));
 }
 
 /** Every folder from these down, trashed ones included, with its path of names from its top. */
