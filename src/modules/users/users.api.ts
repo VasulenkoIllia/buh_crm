@@ -39,11 +39,13 @@ export function useUpdateUser() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateUserInput }) =>
       api<PublicUser>(`/api/users/${id}`, { method: "PATCH", body: input }),
-    onSuccess: () =>
+    onSuccess: (_user, { input }) =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: USERS_KEY }),
-        // a block moves the person's My files into Company (files.md §8.3)
-        queryClient.invalidateQueries({ queryKey: FILES_KEY }),
+        // a block moves the person's My files into Company (files.md §8.3); nothing else does
+        ...(input.status === "blocked"
+          ? [queryClient.invalidateQueries({ queryKey: FILES_KEY })]
+          : []),
       ]),
   });
 }

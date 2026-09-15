@@ -1,6 +1,7 @@
 import { createContext, useContext } from "react";
 import type { FileRow, FolderRow } from "@shared/schema/files";
 import type { UiPlace, View } from "./places";
+import type { Viewable } from "./viewer";
 
 /**
  * **One library, two frames** (files.md §18). The Files screen shows every place the reader may
@@ -54,6 +55,8 @@ export interface LibraryApi {
   movePending: boolean;
   /** folders a drag may not land in: the ones being dragged and everything under them */
   noDrop: ReadonlySet<string>;
+  /** the viewer, stepping through these files from this one (files.md §12) */
+  openViewer: (items: Viewable[], index: number) => void;
 }
 
 export const LibraryContext = createContext<LibraryApi | null>(null);

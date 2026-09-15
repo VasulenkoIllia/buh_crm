@@ -19,6 +19,8 @@ import { useAuth, useCanEdit, useCanOpen } from "@/app/auth";
 import { cn } from "@/shared/lib/cn";
 import { FILES_KEY } from "@/shared/lib/query-keys";
 import { Button } from "@/shared/ui/button";
+import { useDebounced } from "@/shared/lib/use-debounced";
+import { SearchInput } from "@/shared/ui/search-input";
 import { useToast } from "@/shared/ui/toast";
 import { DeleteDialog, FileToFolderDialog, MoveDialog, UploadConfirmDialog } from "./dialogs";
 import { ExtBadge, FolderBadge, errorText, renamedNote, subtreeOf } from "./file-bits";
@@ -46,6 +48,8 @@ import {
 } from "./places";
 import { ClientTree, FirmTree } from "./tree";
 import { UploadQueuePanel, useUploadQueue } from "./upload-queue";
+import { Viewer, type Viewable } from "./viewer";
+import { SearchPane, type SearchFilters } from "./search-pane";
 
 /**
  * **The library's browser** (files.md §18): the tree on the left, the open place on the right,
@@ -73,6 +77,7 @@ function keysFor(view: View): string[] {
     case "attachments":
       return view.clientId ? ["clients", clientNodeKey(view.clientId)] : ["company"];
     case "trash":
+    case "search":
       return [];
   }
 }
@@ -124,6 +129,12 @@ export function Library({ mode }: { mode: LibraryMode }) {
   const [dragged, setDragged] = useState<Picked | null>(null);
   const [noDrop, setNoDrop] = useState<ReadonlySet<string>>(() => new Set<string>());
   const [epoch, setEpoch] = useState(0);
+  const [viewing, setViewing] = useState<{ items: Viewable[]; index: number } | null>(null);
+  // the search box (§13), the Files screen's alone: clearing it goes back to what was open
+  const [query, setQuery] = useState("");
+  const [filters, setFilters] = useState<SearchFilters>({});
+  const [beforeSearch, setBeforeSearch] = useState<View | null>(null);
+  const searched = useDebounced(query.trim(), 300);
   const picker = useRef<HTMLInputElement>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -148,6 +159,11 @@ export function Library({ mode }: { mode: LibraryMode }) {
     (next: View) => {
       setView(next);
       setCreating(false);
+      // the viewer steps through what was open; somewhere else, it has nothing to step through
+      setViewing(null);
+      // going somewhere, from the results or the tree, leaves the search behind
+      setQuery("");
+      setBeforeSearch(null);
       expand(keysFor(next));
     },
     [expand],
@@ -361,7 +377,7 @@ export function Library({ mode }: { mode: LibraryMode }) {
     client,
     creating,
     setCreating,
-    busy: dialog !== null,
+    busy: dialog !== null || viewing !== null,
     epoch,
     upload,
     askMove: (picked) => setDialog({ kind: "move", picked }),
@@ -370,6 +386,7 @@ export function Library({ mode }: { mode: LibraryMode }) {
     runMove,
     movePending: move.isPending,
     noDrop,
+    openViewer: (items, index) => setViewing({ items, index }),
   };
 
   const writableHere = here !== null && canWrite(here.place);
@@ -399,8 +416,25 @@ export function Library({ mode }: { mode: LibraryMode }) {
     </div>
   );
 
+  // typing opens the results; emptying the box goes back to where the reader was
+  function onQuery(next: string) {
+    setQuery(next);
+    const typed = next.trim().length > 0;
+    if (typed && view.type !== "search") {
+      setBeforeSearch(view);
+      setView({ type: "search" });
+      setViewing(null);
+    } else if (!typed && view.type === "search") {
+      setView(beforeSearch ?? startView(mode));
+      setBeforeSearch(null);
+    }
+  }
+
   let pane: ReactNode;
   switch (view.type) {
+    case "search":
+      pane = <SearchPane q={searched} filters={filters} onFilters={setFilters} />;
+      break;
     case "place":
       pane = (
         <FolderPane
@@ -433,7 +467,16 @@ export function Library({ mode }: { mode: LibraryMode }) {
           <span className="text-[13px] text-muted-400">
             {"Everything the firm keeps — yours, the firm's, and each client's."}
           </span>
-          <div className="ml-auto">{tools(false)}</div>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <SearchInput
+              value={query}
+              onChange={(e) => onQuery(e.target.value)}
+              placeholder="Search names and details"
+              aria-label="Search file names and details"
+              className="w-64"
+            />
+            {tools(false)}
+          </div>
         </div>
       )}
       <DndContext
@@ -470,6 +513,14 @@ export function Library({ mode }: { mode: LibraryMode }) {
         }}
       />
       <UploadQueuePanel queue={queue} />
+      {viewing && (
+        <Viewer
+          items={viewing.items}
+          index={viewing.index}
+          onIndex={(index) => setViewing((v) => (v ? { ...v, index } : v))}
+          onClose={() => setViewing(null)}
+        />
+      )}
       {dialog?.kind === "delete" && (
         <DeleteDialog
           picked={dialog.picked}

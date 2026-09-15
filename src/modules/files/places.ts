@@ -18,7 +18,9 @@ export type View =
   | { type: "client"; clientId: string }
   /** a client's task files, or Company's (the firm's internal tasks) when `clientId` is null */
   | { type: "attachments"; clientId: string | null }
-  | { type: "trash" };
+  | { type: "trash" }
+  /** what the search box finds, the Files screen's alone (§13) */
+  | { type: "search" };
 
 export const MY: UiPlace = { kind: "my" };
 export const COMPANY: UiPlace = { kind: "company" };
@@ -50,6 +52,11 @@ export function downloadUrl(p: UiPlace, fileId: string): string {
   return p.kind === "client"
     ? `/api/clients/${p.clientId}/files/${fileId}`
     : `/api/files/${p.kind}/files/${fileId}`;
+}
+
+/** The same file, opened in the CRM (files.md §12): its view route, beside its download. */
+export function viewUrl(p: UiPlace, fileId: string): string {
+  return `${downloadUrl(p, fileId)}/view`;
 }
 
 export function placeLabel(p: UiPlace, clientName?: string): string {

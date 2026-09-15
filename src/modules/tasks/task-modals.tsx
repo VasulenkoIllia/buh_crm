@@ -1,11 +1,11 @@
 import { Suspense, useEffect, useRef, useState } from "react";
-import { Check, Download, FolderInput, Pencil, Trash2 } from "lucide-react";
+import { Check, Download, Eye, FolderInput, Pencil, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { Task, TimeEntry, UpdateTaskInput } from "@shared/schema/task";
 import { useAuth, useCanEdit } from "@/app/auth";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { AddServiceModal, ClientFormModal, useClient, useClients } from "@/modules/clients";
-import { FileToFolderDialog } from "@/modules/files";
+import { FileToFolderDialog, FileViewer, type Viewable } from "@/modules/files";
 import { LeadFormModal, useLeads } from "@/modules/leads";
 import { useSettings } from "@/modules/settings";
 import { ApiError } from "@/shared/lib/api";
@@ -1364,9 +1364,9 @@ function SubtasksSection({ task, disabled }: { task: Task; disabled?: boolean })
  * under the list says so, because a file removed here disappears from there too and that should
  * not be a surprise.
  *
- * Download only. Serving somebody's upload inline from the app's own origin would run whatever is
- * inside it with the reader's session; previewing waits for files to live somewhere of their own
- * (user, 2026-08-28).
+ * Download, and Open for what the CRM shows (a PDF, a picture, text, a CSV): the viewer, a window
+ * over the card, on this task's own view route (files.md §12). That route sends the headers of §12.2, so
+ * nothing opened can run with the reader's session, and every open is logged like a download.
  */
 function FilesSection({ task, disabled }: { task: Task; disabled: boolean }) {
   const { data: files } = useTaskFiles(task.id);
@@ -1376,7 +1376,18 @@ function FilesSection({ task, disabled }: { task: Task; disabled: boolean }) {
   const toast = useToast();
   const [error, setError] = useState<string | null>(null);
   const [filing, setFiling] = useState<TaskFile | null>(null);
+  const [viewing, setViewing] = useState<number | null>(null);
   const pick = useRef<HTMLInputElement>(null);
+  // the viewer steps through the card's whole list; what it cannot show offers its download
+  const viewables: Viewable[] = (files ?? []).map((f) => ({
+    id: f.id,
+    name: f.name,
+    size: f.size,
+    createdAt: f.createdAt,
+    view: f.view,
+    viewUrl: `/api/tasks/${task.id}/files/${f.id}/view`,
+    downloadUrl: `/api/tasks/${task.id}/files/${f.id}`,
+  }));
   // File to folder (files.md §5.3): a client task's file into that client's folders, on the
   // Clients gate; an internal task's into Company, on the Files gate. A lead has no folders.
   const clientsEditable = useCanEdit("clients");
@@ -1444,7 +1455,7 @@ function FilesSection({ task, disabled }: { task: Task; disabled: boolean }) {
         <p className="text-[13px] text-muted">Nothing attached yet.</p>
       ) : (
         <ul className="space-y-1">
-          {(files ?? []).map((file) => (
+          {(files ?? []).map((file, i) => (
             <li
               key={file.id}
               className="flex items-center justify-between rounded-(--radius-btn-sm) border border-divider px-2.5 py-1.5 text-[13px]"
@@ -1462,6 +1473,17 @@ function FilesSection({ task, disabled }: { task: Task; disabled: boolean }) {
               )}
               <span className="ml-2 flex shrink-0 items-center gap-2 text-muted">
                 <span className="text-[11px]">{fmtBytes(file.size)}</span>
+                {file.view && (
+                  <button
+                    type="button"
+                    aria-label={`Open ${file.name}`}
+                    title="Open"
+                    className="hover:text-ink"
+                    onClick={() => setViewing(i)}
+                  >
+                    <Eye size={14} />
+                  </button>
+                )}
                 <a
                   href={`/api/tasks/${task.id}/files/${file.id}`}
                   className="hover:text-ink"
@@ -1512,6 +1534,25 @@ function FilesSection({ task, disabled }: { task: Task; disabled: boolean }) {
         </p>
       )}
       {error && <p className="mt-1 text-[12px] text-danger-text">{error}</p>}
+      {viewing !== null && viewables[viewing] && (
+        // published lazy like the dialog below: until it arrives, its frame says so
+        <Suspense
+          fallback={
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+              <div className="flex h-[92vh] w-full max-w-[1100px] items-center justify-center rounded-(--radius-panel) bg-surface text-[13px] text-muted shadow-(--shadow-modal)">
+                Opening…
+              </div>
+            </div>
+          }
+        >
+          <FileViewer
+            items={viewables}
+            index={viewing}
+            onIndex={setViewing}
+            onClose={() => setViewing(null)}
+          />
+        </Suspense>
+      )}
       {filing && (
         // the files barrel publishes it lazy: until it arrives, the dialog's own frame says so,
         // rather than a click that seems to do nothing

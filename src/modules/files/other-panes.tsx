@@ -1,5 +1,14 @@
 import type { ReactNode } from "react";
-import { Download, FolderInput, Info, Paperclip, RotateCcw, Trash2, User } from "lucide-react";
+import {
+  Download,
+  Eye,
+  FolderInput,
+  Info,
+  Paperclip,
+  RotateCcw,
+  Trash2,
+  User,
+} from "lucide-react";
 import type { AttachmentGroup, FileTotals, TrashBatch } from "@shared/schema/files";
 import { FILE_ZONES, ZONE_LABEL, ZONE_NOTE } from "@shared/library";
 import { plural } from "@shared/text";
@@ -301,6 +310,33 @@ function AttachmentGroupView({
   writable: boolean;
 }) {
   const lib = useLibrary();
+  // a client's file downloads and opens on the Clients gate; an internal task's on its task's
+  const urlOf = (fileId: string) =>
+    clientId
+      ? `/api/clients/${clientId}/files/${fileId}`
+      : `/api/tasks/${group.task.id}/files/${fileId}`;
+  // what opens in the CRM opens in the viewer, stepping through this task's files; the rest download
+  const open = (index: number) => {
+    const file = group.files[index];
+    if (!file) return;
+    if (!file.view) {
+      download([urlOf(file.id)]);
+      return;
+    }
+    lib.openViewer(
+      group.files.map((f) => ({
+        id: f.id,
+        name: f.name,
+        size: f.size,
+        createdAt: f.createdAt,
+        uploadedBy: f.uploadedBy,
+        view: f.view,
+        viewUrl: `${urlOf(f.id)}/view`,
+        downloadUrl: urlOf(f.id),
+      })),
+      index,
+    );
+  };
   return (
     <div className="border-t border-divider first:border-t-0">
       <GroupHead>
@@ -319,16 +355,13 @@ function AttachmentGroupView({
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-[13px]">
           <tbody>
-            {group.files.map((f) => {
-              // a client's file downloads on the Clients gate; an internal task's on its task's
-              const url = clientId
-                ? `/api/clients/${clientId}/files/${f.id}`
-                : `/api/tasks/${group.task.id}/files/${f.id}`;
+            {group.files.map((f, index) => {
+              const url = urlOf(f.id);
               return (
                 <tr
                   key={f.id}
                   className={cn(ROW, "hover:[&>td]:bg-[#f7f8fa]")}
-                  onDoubleClick={() => download([url])}
+                  onDoubleClick={() => open(index)}
                 >
                   <td className={cn(TD, CHECK_CELL)} />
                   <td className={cn(TD, "w-[55%] whitespace-normal")}>
@@ -358,6 +391,15 @@ function AttachmentGroupView({
                     <Menu
                       label={`Actions for ${f.name}`}
                       items={[
+                        ...(f.view
+                          ? [
+                              {
+                                label: "Open",
+                                icon: <Eye size={15} />,
+                                onSelect: () => open(index),
+                              },
+                            ]
+                          : []),
                         {
                           label: "Download",
                           icon: <Download size={15} />,

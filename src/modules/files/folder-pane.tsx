@@ -54,7 +54,7 @@ import {
   TH,
   type Crumb,
 } from "./pane-parts";
-import { downloadUrl, placeKey, placeLabel, type UiPlace } from "./places";
+import { downloadUrl, placeKey, placeLabel, viewUrl, type UiPlace } from "./places";
 
 /**
  * **The open folder** (files.md §7): what is in it, sortable; a selection by checkbox, Shift and
@@ -224,8 +224,30 @@ export function FolderPane({
   }
 
   function open(item: Item) {
-    if (item.kind === "folder") lib.go({ type: "place", place, folderId: item.row.id });
-    else download([downloadUrl(place, item.row.id)]);
+    if (item.kind === "folder") {
+      lib.go({ type: "place", place, folderId: item.row.id });
+      return;
+    }
+    // what opens in the CRM opens in the viewer, stepping through this folder's files in the
+    // order shown; the rest download, as they always did (files.md §12)
+    if (!item.row.view) {
+      download([downloadUrl(place, item.row.id)]);
+      return;
+    }
+    const files = items.flatMap((i) => (i.kind === "file" ? [i.row] : []));
+    lib.openViewer(
+      files.map((f) => ({
+        id: f.id,
+        name: f.name,
+        size: f.size,
+        createdAt: f.createdAt,
+        uploadedBy: f.uploadedBy,
+        view: f.view,
+        viewUrl: viewUrl(place, f.id),
+        downloadUrl: downloadUrl(place, f.id),
+      })),
+      files.findIndex((f) => f.id === item.row.id),
+    );
   }
 
   async function submitRename(item: Item, value: string) {
@@ -605,11 +627,19 @@ function ItemRow({
     disabled: !into || !writable || lib.noDrop.has(item.row.id),
   });
 
-  const actions: (MenuItem | "divider")[] = [
+  const actions: (MenuItem | "divider")[] =
     item.kind === "folder"
-      ? { label: "Open", icon: <FolderOpen size={15} />, onSelect: onOpen }
-      : { label: "Download", icon: <Download size={15} />, onSelect: onOpen },
-  ];
+      ? [{ label: "Open", icon: <FolderOpen size={15} />, onSelect: onOpen }]
+      : item.row.view
+        ? [
+            { label: "Open", icon: <Eye size={15} />, onSelect: onOpen },
+            {
+              label: "Download",
+              icon: <Download size={15} />,
+              onSelect: () => download([downloadUrl(place, item.row.id)]),
+            },
+          ]
+        : [{ label: "Download", icon: <Download size={15} />, onSelect: onOpen }];
   if (writable) {
     actions.push(
       { label: "Rename", icon: <Pencil size={15} />, onSelect: onRename },

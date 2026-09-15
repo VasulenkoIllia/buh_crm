@@ -1,4 +1,5 @@
 import {
+  keepPreviousData,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -16,6 +17,8 @@ import type {
   MoveInput,
   MoveResult,
   RestoreResult,
+  SearchPage,
+  SearchQuery,
   TrashPage,
   TrashResult,
 } from "@shared/schema/files";
@@ -195,4 +198,24 @@ export function useFileToFolder() {
         { method: "POST", body: { zone: v.zone, folderId: v.folderId } },
       ),
   );
+}
+
+/**
+ * Search (§13): names and details, never inside a file, fifty files a page. The last answer stays
+ * on screen while the next is fetched, so the list does not blink at every keystroke.
+ */
+export function useSearch(query: Omit<SearchQuery, "page">) {
+  return useInfiniteQuery({
+    queryKey: [...FILES_KEY, "search", query],
+    queryFn: ({ pageParam }) => {
+      const params = new URLSearchParams({ q: query.q, page: String(pageParam) });
+      if (query.space) params.set("space", query.space);
+      if (query.type) params.set("type", query.type);
+      return api<SearchPage>(`/api/files/search?${params.toString()}`);
+    },
+    initialPageParam: 0,
+    getNextPageParam: (last, pages) => (last.more ? pages.length : undefined),
+    placeholderData: keepPreviousData,
+    enabled: query.q.length > 0 || !!query.space || !!query.type,
+  });
 }

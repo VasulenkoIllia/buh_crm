@@ -12,6 +12,7 @@ import type {
   UpdateTimeEntryInput,
   TimeAuditEntry,
 } from "@shared/schema/task";
+import type { FileView } from "@shared/schema/files";
 import { api } from "@/shared/lib/api";
 import { applyDrop } from "@/shared/lib/drop-target";
 import { CLIENTS_KEY, FILES_KEY, INVOICES_KEY, TASKS_KEY } from "@/shared/lib/query-keys";
@@ -490,6 +491,8 @@ export interface TaskFile {
   createdAt: string;
   /** kept in a library folder as well; WHERE is a Clients read, not this Tasks one (files.md §5.2) */
   filed: boolean;
+  /** what the card's viewer shows it as; null downloads (files.md §12) */
+  view: FileView;
 }
 
 export function useTaskFiles(taskId: string | undefined) {
