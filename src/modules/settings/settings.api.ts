@@ -14,6 +14,7 @@ import type {
 import { api } from "@/shared/lib/api";
 import { SETTINGS_KEY, SYSTEM_HEALTH_KEY } from "@/shared/lib/query-keys";
 import type { JobEventRow, JobHealthRow } from "@shared/system-jobs";
+import type { FirmStorage } from "@shared/schema/files";
 
 /**
  * The System tab's data.
@@ -36,6 +37,15 @@ export interface SystemHealthResponse {
   now: string;
   jobs: JobHealthRow[];
   events: JobEventRow[];
+}
+
+/** Settings → System → Storage (files.md §4.4): an admin's, so it is fetched only for one. */
+export function useStorage(enabled: boolean) {
+  return useQuery({
+    queryKey: [...SYSTEM_HEALTH_KEY, "storage"],
+    queryFn: () => api<FirmStorage>("/api/settings/storage"),
+    enabled,
+  });
 }
 
 export function useSettings() {

@@ -1220,6 +1220,17 @@
   },
   {
     "method": "GET",
+    "url": "/api/settings/storage",
+    "access": "gate:settings:admin"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/settings/storage",
+    "access": "gate:settings:admin",
+    "derived": true
+  },
+  {
+    "method": "GET",
     "url": "/api/settings/system",
     "access": "gate:settings"
   },
@@ -1526,6 +1537,17 @@
     "method": "HEAD",
     "url": "/api/users/:id/avatar",
     "access": "shared",
+    "derived": true
+  },
+  {
+    "method": "GET",
+    "url": "/api/users/:id/personal-files-summary",
+    "access": "gate:team"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/users/:id/personal-files-summary",
+    "access": "gate:team",
     "derived": true
   },
   {

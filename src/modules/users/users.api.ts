@@ -6,9 +6,10 @@ import type {
   UpdateProfileInput,
   UpdateUserInput,
 } from "@shared/schema/user";
+import type { PersonalFilesSummary } from "@shared/schema/files";
 import { ME_QUERY_KEY } from "@/app/auth";
 import { api } from "@/shared/lib/api";
-import { USERS_KEY } from "@/shared/lib/query-keys";
+import { FILES_KEY, USERS_KEY } from "@/shared/lib/query-keys";
 
 export function useUsers() {
   return useQuery({
@@ -38,7 +39,20 @@ export function useUpdateUser() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateUserInput }) =>
       api<PublicUser>(`/api/users/${id}`, { method: "PATCH", body: input }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: USERS_KEY }),
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: USERS_KEY }),
+        // a block moves the person's My files into Company (files.md §8.3)
+        queryClient.invalidateQueries({ queryKey: FILES_KEY }),
+      ]),
+  });
+}
+
+/** What blocking this person would move (files.md §8.3): figures, for the Block dialog. */
+export function usePersonalFilesSummary(id: string) {
+  return useQuery({
+    queryKey: [...USERS_KEY, id, "personal-files"],
+    queryFn: () => api<PersonalFilesSummary>(`/api/users/${id}/personal-files-summary`),
   });
 }
 

@@ -52,6 +52,14 @@ export async function registerRoutes(instance: FastifyInstance) {
     },
   );
 
+  // what blocking would move (files.md §8.3): the one read about somebody else's My files, and it
+  // answers with figures, never a name
+  app.get(
+    "/:id/personal-files-summary",
+    { config: gate("team"), schema: { params: idParams } },
+    async (request) => service.personalFilesSummary(request.params.id),
+  );
+
   // ── Profile (self) ────────────────────────────────────────────────────────
 
   app.patch(

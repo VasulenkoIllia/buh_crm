@@ -325,6 +325,138 @@ export function createFolder(
   });
 }
 
+// ── the system's own moves: a leaver's My files, a lead's files (§8.3, §5.6) ──
+
+/** What a person's My files holds: its live files, the Trash's, and its folders. Never a name. */
+export async function personalContents(db: Tx, ownerId: string) {
+  const scope = `personal:${ownerId}`;
+  const live = await db.file.aggregate({
+    where: { scope, deletedAt: null },
+    _count: { _all: true },
+    _sum: { size: true },
+  });
+  const trashed = await db.file.count({ where: { scope, deletedAt: { not: null } } });
+  const folders = await db.folder.count({ where: { scope } });
+  return { files: live._count._all, bytes: Number(live._sum.size ?? 0), trashed, folders };
+}
+
+/** The same figures, outside any transaction: the Block dialog's. */
+export function personalSummary(ownerId: string) {
+  return personalContents(prisma, ownerId);
+}
+
+/**
+ * **Blocking moves the whole of a person's My files into Company** (§8.3), in the status change's
+ * own transaction, after the status has changed: a new folder at Company's root, then the two root
+ * levels re-parented into it. Every row below follows through the composite keys' `ON UPDATE
+ * CASCADE`, the Trash's included, and the trigger rewrites each row's copied columns. The depth
+ * limit does not apply. Nothing to move, nothing made: null.
+ */
+export async function movePersonalIntoCompany(
+  tx: Tx,
+  ownerId: string,
+  pickName: (taken: ReadonlySet<string>) => string,
+  createdById: string,
+) {
+  const scope = `personal:${ownerId}`;
+  const held = await personalContents(tx, ownerId);
+  if (held.files + held.trashed + held.folders === 0) return null;
+  // among live Company-root folders only: a trashed one of the same name does not count
+  const roots = await tx.folder.findMany({
+    where: { scope: "company", parentId: null, deletedAt: null },
+    select: { name: true },
+  });
+  const name = pickName(new Set(roots.map((f) => f.name.toLowerCase())));
+  // a folder of the same name made at the same moment fails the unique index here, and the whole
+  // block with it; the admin presses Block again
+  const folder = await tx.folder.create({
+    data: { name, scope: "company", parentId: null, createdById },
+    select: { id: true, name: true },
+  });
+  await tx.$executeRaw`
+    UPDATE "Folder" SET scope = 'company', "parentId" = ${folder.id}::uuid
+    WHERE scope = ${scope} AND "parentId" IS NULL
+  `;
+  await tx.$executeRaw`
+    UPDATE "File" SET scope = 'company', "folderId" = ${folder.id}::uuid
+    WHERE scope = ${scope} AND "folderId" IS NULL
+  `;
+  return { folderId: folder.id, folderName: folder.name, ...held };
+}
+
+/**
+ * **A lead's task files, filed into its new client's Internal** (§5.6), in the conversion's own
+ * transaction: oldest first, a name already taken there becoming `(2)`. `taskId` stays, so they
+ * stay on the lead's tasks as well; the trigger gives each row its client.
+ */
+export async function fileLeadTaskFiles(
+  tx: Tx,
+  leadId: string,
+  clientId: string,
+  pickName: (name: string, taken: ReadonlySet<string>) => string,
+) {
+  const scope = `client:${clientId}:internal`;
+  const files = await tx.file.findMany({
+    where: { task: { is: { leadId } }, scope: null, deletedAt: null },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, name: true, task: { select: { title: true } } },
+  });
+  if (files.length === 0) return [];
+  const there = await tx.file.findMany({
+    where: { scope, folderId: null, deletedAt: null },
+    select: { name: true },
+  });
+  const taken = new Set(there.map((f) => f.name.toLowerCase()));
+  const filed: { id: string; name: string; task: string }[] = [];
+  for (const f of files) {
+    const name = pickName(f.name, taken);
+    taken.add(name.toLowerCase());
+    await tx.file.update({ where: { id: f.id }, data: { scope, folderId: null, name } });
+    filed.push({ id: f.id, name, task: f.task?.title ?? "a task" });
+  }
+  return filed;
+}
+
+// ── the firm's storage, for Settings → System (§4.4) ─────────────────────────
+
+/**
+ * **Every stored file, by where it sits in the firm.** Figures only, and firm-wide on purpose: they
+ * ignore who may see what, which is why their route is an admin's.
+ */
+export async function firmStorage() {
+  const [all, mine, company, clients, archivedClients, unfiled, trash, branding, byStore] =
+    await Promise.all([
+      totals({}),
+      totals({ space: "personal", deletedAt: null }),
+      totals({ space: "company", deletedAt: null }),
+      totals({ space: "client", deletedAt: null }),
+      totals({
+        space: "client",
+        deletedAt: null,
+        client: { is: { archivedAt: { not: null } } },
+      }),
+      totals({ scope: null, taskId: { not: null }, deletedAt: null }),
+      totals({ deletedAt: { not: null } }),
+      totals({
+        OR: [
+          { avatarOfUser: { isNot: null } },
+          { logoOfProfile: { isNot: null } },
+          { mailLogoOfProfile: { isNot: null } },
+        ],
+      }),
+      prisma.file.groupBy({ by: ["storage"], _count: { _all: true }, _sum: { size: true } }),
+    ]);
+  const kept = (storage: "local" | "s3"): FileTotals => {
+    const row = byStore.find((r) => r.storage === storage);
+    return { files: row?._count._all ?? 0, bytes: Number(row?._sum.size ?? 0) };
+  };
+  return {
+    all,
+    parts: { mine, company, clients, archivedClients, unfiled, trash, branding },
+    where: { bucket: kept("s3"), disk: kept("local") },
+  };
+}
+
 export function renameFolder(id: string, name: string) {
   return prisma.folder.update({ where: { id }, data: { name }, select: folderSelect });
 }

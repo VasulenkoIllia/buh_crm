@@ -12,6 +12,7 @@ import { LEAD_LIST_LIMIT } from "@shared/schema/lead.js";
 import type { Prisma, User } from "../../generated/prisma/client.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
 import { applyDefaultClientService } from "../clients/index.js";
+import { fileLeadFiles, recordFiled } from "../files/index.js";
 import { diff, labelOf, record } from "../../core/activity.js";
 import * as repo from "./leads.repository.js";
 import { reorder } from "../../core/order.js";
@@ -226,17 +227,27 @@ export async function convert(id: string, input: ConvertLeadInput) {
     throw new ValidationError("This lead is already converted");
   }
 
-  const { client, lead: updated } = await repo.convertLead(id, {
-    firstName: input.firstName,
-    lastName: input.lastName ?? null,
-    // the company label rides straight over — it was never an identity on either side
-    companyName: input.companyName ?? null,
-    phone: input.phone ?? null,
-    email: input.email ?? null,
-    address: input.address ?? null,
-    description: input.description ?? null,
-    ...(input.sourceId ? { source: { connect: { id: input.sourceId } } } : {}),
-  });
+  const {
+    client,
+    lead: updated,
+    extra: filed,
+  } = await repo.convertLead(
+    id,
+    {
+      firstName: input.firstName,
+      lastName: input.lastName ?? null,
+      // the company label rides straight over — it was never an identity on either side
+      companyName: input.companyName ?? null,
+      phone: input.phone ?? null,
+      email: input.email ?? null,
+      address: input.address ?? null,
+      description: input.description ?? null,
+      ...(input.sourceId ? { source: { connect: { id: input.sourceId } } } : {}),
+    },
+    // the lead's task files go into the new client's Internal, in the same transaction (files.md
+    // §5.6); they stay on the lead's tasks as well
+    (tx, clientId) => fileLeadFiles(tx, id, clientId),
+  );
   // a converted lead becomes a new client → give it the default service too (no-op if none)
   await applyDefaultClientService(client.id);
   // the one lead event that outlives the pipeline: where a real client came from. `clientId` is
@@ -248,6 +259,8 @@ export async function convert(id: string, input: ConvertLeadInput) {
     // sentence. Repeating it as a diff field said the same thing twice, and said it as a uuid
     clientId: client.id,
   });
+  // one row per file the conversion filed, the person converting as the actor
+  recordFiled(client.id, filed);
   return { clientId: client.id, lead: toLeadDto(updated) };
 }
 

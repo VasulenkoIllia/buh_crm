@@ -516,7 +516,8 @@ export const MODULE_NOTIFICATIONS: Record<string, readonly NotificationTriggerKe
       "can silence.",
     users:
       "Adding or blocking a colleague is felt at once — they get an invitation, or they lose access " +
-      "mid-session. Nothing is waiting on a message about it.",
+      "mid-session. Blocking also moves their My files into Company, and nobody is told: the admin " +
+      "who blocked saw it in the dialog. Nothing is waiting on a message about it.",
     "two-factor":
       "Its letters are security mail on the invitation channel — to the account's owner, and to the " +
       "admins for an attack or a reset — and deliberately outside the preference system: nobody " +

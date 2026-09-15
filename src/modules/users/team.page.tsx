@@ -3,8 +3,11 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { inviteUserInput, type InviteUserInput, type PublicUser } from "@shared/schema/user";
 import type { TwoFactorPolicy, TwoFactorTeamOverview } from "@shared/schema/two-factor";
+import type { PersonalFilesSummary } from "@shared/schema/files";
+import { plural } from "@shared/text";
 import { useAuth } from "@/app/auth";
 import { ApiError } from "@/shared/lib/api";
+import { fmtBytes } from "@/shared/lib/format";
 import { UserAvatar } from "@/shared/ui/avatar";
 import { Button } from "@/shared/ui/button";
 import { FormField, Input, Select } from "@/shared/ui/field";
@@ -12,7 +15,13 @@ import { Modal } from "@/shared/ui/modal";
 import { StatusPill } from "@/shared/ui/pill";
 import { Segmented } from "@/shared/ui/segmented";
 import { useResetTwoFactor, useSetTwoFactorPolicy, useTwoFactorTeam } from "./two-factor.api";
-import { useInviteUser, useResendInvite, useUpdateUser, useUsers } from "./users.api";
+import {
+  useInviteUser,
+  usePersonalFilesSummary,
+  useResendInvite,
+  useUpdateUser,
+  useUsers,
+} from "./users.api";
 
 export function TeamPage() {
   const { user: me } = useAuth();
@@ -274,6 +283,7 @@ function UserRow({
 }) {
   const updateUser = useUpdateUser();
   const resend = useResendInvite();
+  const [blocking, setBlocking] = useState(false);
 
   const name = `${user.firstName} ${user.lastName}`.trim() || "—";
 
@@ -343,7 +353,10 @@ function UserRow({
                 variant="destructive"
                 size="sm"
                 disabled={updateUser.isPending}
-                onClick={() => updateUser.mutate({ id: user.id, input: { status: "blocked" } })}
+                onClick={() => {
+                  updateUser.reset();
+                  setBlocking(true);
+                }}
               >
                 Block
               </Button>
@@ -360,8 +373,102 @@ function UserRow({
             )}
           </span>
         )}
+        {blocking && (
+          <BlockDialog
+            userId={user.id}
+            name={name}
+            pending={updateUser.isPending}
+            error={updateUser.error instanceof ApiError ? updateUser.error.message : null}
+            onClose={() => setBlocking(false)}
+            onConfirm={() =>
+              updateUser.mutate(
+                { id: user.id, input: { status: "blocked" } },
+                { onSuccess: () => setBlocking(false) },
+              )
+            }
+          />
+        )}
       </td>
     </tr>
+  );
+}
+
+const personalPhrase = (s: PersonalFilesSummary) =>
+  [
+    s.files > 0 ? `${plural(s.files, "file")}, ${fmtBytes(s.bytes)}` : "",
+    s.trashed > 0 ? `${s.trashed} in the Trash` : "",
+  ]
+    .filter(Boolean)
+    .join(", and ");
+
+/**
+ * **Blocking, asked first** (files.md §8.3): it signs the person out everywhere, and moves the whole
+ * of their My files into Company, where everyone with Files can see them. The figures come from the
+ * server, counted the way the move counts, and never name a file.
+ */
+function BlockDialog({
+  userId,
+  name,
+  pending,
+  error,
+  onConfirm,
+  onClose,
+}: {
+  userId: string;
+  name: string;
+  pending: boolean;
+  error: string | null;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  const summary = usePersonalFilesSummary(userId);
+  const s = summary.data;
+  const folder = `Company › ${name} (personal)`;
+  const anything = !!s && s.files + s.trashed + s.folders > 0;
+  return (
+    <Modal
+      open
+      title={`Block ${name}?`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={pending || summary.isLoading}
+            onClick={onConfirm}
+          >
+            {pending ? "Blocking…" : "Block"}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-2.5 text-[13px] text-ink-700">
+        <p>Blocking signs {name} out everywhere.</p>
+        {summary.isLoading && <p className="text-muted">Counting their personal files…</p>}
+        {summary.isError && (
+          <p className="text-muted">
+            Their personal files could not be counted. Whatever they hold still moves to{" "}
+            {folder}.
+          </p>
+        )}
+        {s && anything && (
+          <p>
+            {s.files + s.trashed > 0
+              ? `Their personal files, ${personalPhrase(s)}, will move to `
+              : "Their personal folders will move to "}
+            <b className="font-medium text-ink">{folder}</b>, where everyone with Files can see
+            them.
+          </p>
+        )}
+        {anything && (
+          <p className="text-[12px] text-muted">Unblocking later moves nothing back.</p>
+        )}
+        {error && <p className="text-[12px] text-danger-text">{error}</p>}
+      </div>
+    </Modal>
   );
 }
 

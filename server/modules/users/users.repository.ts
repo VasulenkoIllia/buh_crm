@@ -40,6 +40,31 @@ export function updateUser(id: string, data: Prisma.UserUpdateInput) {
   return prisma.user.update({ where: { id }, data });
 }
 
+/**
+ * **Blocking, in one transaction with what it moves** (files.md §8.3). The guarded update locks the
+ * row first and makes the second of two Block clicks a no-op: only the request that really changes
+ * the status runs `alsoInTx`. An upload into the person's My files, which takes a share lock on
+ * this row, waits for it and then finds them blocked.
+ */
+export function blockUser<T>(
+  id: string,
+  data: Prisma.UserUpdateInput,
+  alsoInTx: (tx: Prisma.TransactionClient) => Promise<T>,
+) {
+  return prisma.$transaction(
+    async (tx) => {
+      const changed = await tx.user.updateMany({
+        where: { id, status: { not: "blocked" } },
+        data: { status: "blocked" },
+      });
+      const moved = changed.count === 1 ? await alsoInTx(tx) : null;
+      const user = await tx.user.update({ where: { id }, data });
+      return { user, moved };
+    },
+    { timeout: 30_000 },
+  );
+}
+
 export function createInviteToken(userId: string, tokenHash: string, expiresAt: Date) {
   return prisma.authToken.create({
     data: { userId, type: "invite", tokenHash, expiresAt },

@@ -356,7 +356,7 @@ async function restore(
   for (const folder of topFolders) {
     const parentId = await repo.nearestLiveFolder(folder.parentId);
     const names_ = await takenAt("folder", folder.scope, parentId);
-    const name = names.firstFreeName(folder.name, names_, names.FOLDER_NAME_MAX);
+    const name = names.firstFreeFolderName(folder.name, names_);
     names_.add(name.toLowerCase());
     if (name !== folder.name) renamed.push({ id: folder.id, name });
     folderPlan.push({ id: folder.id, parentId, name });

@@ -11,6 +11,11 @@ import { ConflictError, NotFoundError, ValidationError } from "../../core/errors
 import { discardFile, storeFile } from "../../core/files.js";
 import { diff, record } from "../../core/activity.js";
 import { personName } from "../../core/names.js";
+import {
+  movePersonalIntoCompany,
+  personalFilesSummary as personalFiles,
+  recordPersonalMove,
+} from "../files/index.js";
 import * as repo from "./users.repository.js";
 
 const INVITE_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -81,7 +86,17 @@ export async function updateUser(id: string, input: UpdateUserInput, actor: User
     throw new ValidationError("Invited users become active by accepting the invite");
   }
 
-  const updated = await repo.updateUser(id, input);
+  /**
+   * **Blocking moves the person's My files into Company, in the same transaction** (files.md §8.3),
+   * so nobody is ever blocked with files left where no one can reach them. Only the request that
+   * really changes the status moves anything: a second Block click moves nothing.
+   */
+  const blocking = input.status === "blocked" && user.status !== "blocked";
+  const { user: updated, moved } = blocking
+    ? await repo.blockUser(id, input, (tx) =>
+        movePersonalIntoCompany(tx, { id, name: personName(user) }, actor.id),
+      )
+    : { user: await repo.updateUser(id, input), moved: null };
 
   /**
    * **A role change is journalled.**
@@ -126,12 +141,24 @@ export async function updateUser(id: string, input: UpdateUserInput, actor: User
       });
     }
   }
+  // beside `user.blocked`: where their personal files went, with the figures and never a name
+  if (moved) recordPersonalMove(moved, personName(user));
 
   if (input.status === "blocked") {
     // blocking invalidates sessions immediately (spec: users.md)
     await destroyAllUserSessions(id);
   }
   return updated;
+}
+
+/**
+ * What blocking this person would move (files.md §8.3), for the Block dialog: the count, the size
+ * and the Trash's count, and never a name.
+ */
+export async function personalFilesSummary(id: string) {
+  const user = await repo.findById(id);
+  if (!user) throw new NotFoundError("User not found");
+  return personalFiles(id);
 }
 
 export async function updateProfile(user: User, input: UpdateProfileInput) {

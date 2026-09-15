@@ -16,8 +16,16 @@ import type {
 } from "@shared/schema/task.js";
 import { codeInSearch } from "@shared/schema/client.js";
 import { deriveStatus, hasLiveInvoice } from "@shared/schema/payment.js";
-import { MAX_FILE_SIZE, storeFile } from "../../core/files.js";
-import { trashCardFile, undoCardTrash } from "../files/index.js";
+import { MAX_FILE_SIZE, deleteStoredFile, storeFile } from "../../core/files.js";
+import {
+  asNameConflict,
+  placeForConvertedLead,
+  recordFiled,
+  refuseProgram,
+  trashCardFile,
+  undoCardTrash,
+  uploadedFileName,
+} from "../files/index.js";
 import type { Prisma, User } from "../../generated/prisma/client.js";
 import { config } from "../../core/config.js";
 import { dateToUtc, todayBusinessMs } from "../../core/dates.js";
@@ -1298,21 +1306,42 @@ export async function addFile(
   file: { buffer: Buffer; filename: string; mimetype: string },
 ) {
   const task = liveTaskOr404(await repo.findTask(taskId));
+  // cleaned and checked like every other upload: programs and scripts are refused (files.md §14.3)
+  const name = uploadedFileName(file.filename);
+  refuseProgram(name);
   if (file.buffer.byteLength > MAX_FILE_SIZE) {
     throw new ValidationError("File must be 25 MB or smaller");
   }
+  // a converted lead's task files its new files where the lead's went, the client's Internal
+  // (files.md §5.6): still read from the task's side, never from the caller
+  const convertedTo =
+    !task.clientId && task.leadId ? await repo.convertedClientOf(task.leadId) : null;
+  const place = convertedTo ? await placeForConvertedLead(convertedTo, name) : null;
   const stored = await storeFile(file.buffer);
-  const row = await repo.createTaskFile({
-    ...stored,
-    taskId,
-    // the client is read from the TASK, never from the caller: a file cannot be filed under
-    // somebody the job has nothing to do with
-    clientId: task.clientId,
-    name: file.filename,
-    size: file.buffer.byteLength,
-    mime: file.mimetype,
-    uploadedById: actor.id,
-  });
+  let row: Awaited<ReturnType<typeof repo.createTaskFile>>;
+  try {
+    row = await repo.createTaskFile({
+      ...stored,
+      taskId,
+      // the client is read from the TASK, never from the caller: a file cannot be filed under
+      // somebody the job has nothing to do with
+      clientId: convertedTo ?? task.clientId,
+      name: place?.name ?? name,
+      size: file.buffer.byteLength,
+      mime: file.mimetype,
+      uploadedById: actor.id,
+      ...(place ? { scope: place.scope, folderId: null } : {}),
+    });
+  } catch (error) {
+    // nothing points at the bytes: take them back rather than leave them for the pruner
+    await deleteStoredFile(stored).catch((e) =>
+      console.error("tasks: could not remove the bytes of a refused upload", e),
+    );
+    throw asNameConflict(
+      error,
+      `“${place?.name ?? name}” arrived there at the same moment; send it again`,
+    );
+  }
   if (!task.clientId && !task.leadId) {
     // an internal task's file belongs to the Files gate in the log, as it does in Company's
     // Attachments (files.md §10.3, decision 26), not to Clients, which has nothing to do with it
@@ -1327,9 +1356,11 @@ export async function addFile(
     record("file.uploaded", {
       subjectId: row.id,
       subjectLabel: row.name,
-      clientId: task.clientId,
+      clientId: convertedTo ?? task.clientId,
       changes: { name: row.name, size: row.size, attachedTo: task.title },
     });
+    if (convertedTo)
+      recordFiled(convertedTo, [{ id: row.id, name: row.name, task: task.title }]);
   }
   return { id: row.id, name: row.name, size: row.size, mime: row.mime };
 }

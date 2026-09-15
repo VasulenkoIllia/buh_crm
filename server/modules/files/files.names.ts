@@ -101,3 +101,30 @@ export function firstFreeName(
     if (!taken.has(candidate.toLowerCase())) return candidate;
   }
 }
+
+/**
+ * `name (2)`, then `(3)`, for a folder. A folder has no extension, so the number goes at the end
+ * even when the name holds a dot: "2024.Q1 (2)", not "2024 (2).Q1".
+ */
+export function firstFreeFolderName(name: string, taken: ReadonlySet<string>): string {
+  if (!taken.has(name.toLowerCase())) return name;
+  for (let n = 2; ; n++) {
+    const suffix = ` (${n})`;
+    const candidate = name.slice(0, FOLDER_NAME_MAX - suffix.length).trimEnd() + suffix;
+    if (!taken.has(candidate.toLowerCase())) return candidate;
+  }
+}
+
+const PERSONAL = " (personal)";
+
+/**
+ * **The Company folder a blocked person's My files move into**: "Olena Petrenko (personal)"
+ * (files.md §8.3). Cleaned like any folder name, and the person's part shortened so that
+ * " (personal) (99)" still fits in 120 characters.
+ */
+export function personalFolderName(person: string): string {
+  const cleaned = strip(person);
+  const who = empty(cleaned) ? "Someone" : cleaned;
+  const room = FOLDER_NAME_MAX - PERSONAL.length - " (99)".length;
+  return `${who.slice(0, room).trimEnd()}${PERSONAL}`;
+}

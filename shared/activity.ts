@@ -1243,6 +1243,16 @@ const EVENTS = {
     changeKeys: ["from", "to", "files", "place"],
     enabledByDefault: true,
   },
+  "firm_folder.personal_moved": {
+    subject: "firm_folder",
+    title: "{actor} blocked a person, and their My files moved into {subject}",
+    when: "blocking a person moves the whole of their My files, the Trash's included, into a new Company folder",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    changeKeys: ["files", "size", "trashed", "from", "to"],
+    enabledByDefault: true,
+  },
 
   // ── the Trash (files.md §9): deleting, restoring, and the nightly purge ─────
   "folder.deleted": {

@@ -11,13 +11,15 @@ import {
   type JobStatus,
   type SystemJobKey,
 } from "@shared/system-jobs";
+import type { FileTotals, FirmStorage } from "@shared/schema/files";
 import { plural } from "@shared/text";
 import { Link } from "react-router-dom";
-import { fmtDateTime, relativeTime } from "@/shared/lib/format";
+import { useAuth } from "@/app/auth";
+import { fmtBytes, fmtDateTime, relativeTime } from "@/shared/lib/format";
 import { cn } from "@/shared/lib/cn";
 import { JOB_TONE_COLORS } from "@/shared/lib/colors";
 import { InfoHint } from "@/shared/ui/info-hint";
-import { useSystemHealth } from "./settings.api";
+import { useStorage, useSystemHealth } from "./settings.api";
 
 /**
  * "Is the CRM quietly broken?" — asked and answered without opening a log.
@@ -97,6 +99,8 @@ export function SystemStatusSection() {
         );
       })}
 
+      <StoragePanel />
+
       <Activity events={data.events} now={now} />
 
       {unknown.length > 0 && (
@@ -133,6 +137,124 @@ export function SystemStatusSection() {
           </div>
         </section>
       )}
+    </div>
+  );
+}
+
+const totalsOf = (t: FileTotals) => `${plural(t.files, "file")} · ${fmtBytes(t.bytes)}`;
+
+/**
+ * **Storage** (files.md §4.4): everything the firm stores, split by where it sits, and how much
+ * room the server's disk has left. A panel below the jobs, not a job: it has no schedule and no
+ * state, so it stays out of the banner's count and colour. An admin's alone, since its figures are
+ * firm-wide and ignore who may see what.
+ */
+function StoragePanel() {
+  const { user } = useAuth();
+  const admin = user?.role === "admin";
+  const { data, error } = useStorage(admin);
+  if (!admin) return null;
+
+  const rows: { label: string; note?: string; totals: FileTotals }[] = data
+    ? [
+        { label: "My files", note: "everyone's together", totals: data.parts.mine },
+        { label: "Company", totals: data.parts.company },
+        {
+          label: "Clients' zones",
+          note:
+            data.parts.archivedClients.files > 0
+              ? `archived clients' included: ${totalsOf(data.parts.archivedClients)}`
+              : undefined,
+          totals: data.parts.clients,
+        },
+        { label: "On tasks, in no folder", totals: data.parts.unfiled },
+        { label: "Trash", note: "removed for good after 30 days", totals: data.parts.trash },
+        { label: "Avatars and logos", totals: data.parts.branding },
+      ]
+    : [];
+
+  return (
+    <section>
+      <h3 className="mb-2 text-[12px] font-bold text-ink-700 uppercase">Storage</h3>
+      <div className="overflow-hidden rounded-(--radius-panel) border border-border bg-surface shadow-(--shadow-card)">
+        {error ? (
+          <p className="px-3.5 py-3 text-[12px] text-danger-text">
+            The storage figures could not be read.
+          </p>
+        ) : !data ? (
+          <p className="px-3.5 py-3 text-[12px] text-muted">Loading…</p>
+        ) : (
+          <>
+            {rows.map((r, i) => (
+              <div
+                key={r.label}
+                className={cn(
+                  "flex items-baseline justify-between gap-3 px-3.5 py-2.5",
+                  i > 0 && "border-t border-divider",
+                )}
+              >
+                <span className="text-[13px] text-ink">
+                  {r.label}
+                  {r.note && <span className="ml-2 text-[12px] text-muted">{r.note}</span>}
+                </span>
+                <span className="text-[12.5px] whitespace-nowrap text-ink-700 tabular-nums">
+                  {totalsOf(r.totals)}
+                </span>
+              </div>
+            ))}
+            <div className="flex items-baseline justify-between gap-3 border-t border-divider bg-[#fafbfc] px-3.5 py-2.5">
+              <span className="text-[13px] font-semibold text-ink">Everything stored</span>
+              <span className="text-[12.5px] font-semibold whitespace-nowrap text-ink tabular-nums">
+                {totalsOf(data.all)}
+              </span>
+            </div>
+            <p className="border-t border-divider px-3.5 py-2.5 text-[12px] text-muted">
+              In the files bucket: {totalsOf(data.where.bucket)}
+              {data.where.disk.files > 0 &&
+                ` · still on the server's disk: ${totalsOf(data.where.disk)}`}
+            </p>
+            <DiskRow disk={data.disk} />
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** The server's disk: the files are in the bucket, but the database and the backup copy grow here. */
+function DiskRow({ disk }: { disk: FirmStorage["disk"] }) {
+  if (!disk) {
+    return (
+      <p className="border-t border-divider px-3.5 py-2.5 text-[12px] text-muted">
+        {"The server's disk could not be measured."}
+      </p>
+    );
+  }
+  const free = disk.total > 0 ? disk.free / disk.total : 0;
+  const tone =
+    free < 0.1 ? JOB_TONE_COLORS.bad : free < 0.2 ? JOB_TONE_COLORS.warn : JOB_TONE_COLORS.ok;
+  return (
+    <div className="border-t border-divider px-3.5 py-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[13px] text-ink">
+          Server disk
+          <span className="ml-2 text-[12px] text-muted">
+            the database and the backup copy grow here
+          </span>
+        </span>
+        <span
+          className="text-[12.5px] whitespace-nowrap tabular-nums"
+          style={{ color: tone.fg }}
+        >
+          {fmtBytes(disk.free)} free of {fmtBytes(disk.total)}
+        </span>
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-divider">
+        <div
+          className="h-full rounded-full"
+          style={{ width: `${Math.round((1 - free) * 100)}%`, backgroundColor: tone.fg }}
+        />
+      </div>
     </div>
   );
 }

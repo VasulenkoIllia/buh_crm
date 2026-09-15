@@ -102,10 +102,12 @@ export const initials = (u?: { firstName?: string | null; lastName?: string | nu
  *
  * Both file lists divided by a megabyte and rounded to one decimal, so anything under 50 KB — a
  * signed form, a text note, most scans of one page — read as "0.0 MB", which looks like an empty
- * file rather than a small one (2026-08-28).
+ * file rather than a small one (2026-08-28). And a firm's totals pass a gigabyte, where "3.1 GB"
+ * says what "3174.4 MB" hides (files.md §4.4).
  */
 export function fmtBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 }

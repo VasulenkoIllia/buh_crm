@@ -13,6 +13,7 @@ import {
 import { gate, shared } from "../../core/access.js";
 import { ValidationError } from "../../core/errors.js";
 import { readStoredFile } from "../../core/files.js";
+import { storageReport } from "../files/index.js";
 import * as service from "./settings.service.js";
 
 const idParams = z.object({ id: uuid });
@@ -112,6 +113,16 @@ export async function registerRoutes(instance: FastifyInstance) {
   app.get("/system", { config: gate("settings") }, async () => {
     return service.getSystemHealth();
   });
+
+  /**
+   * **Settings → System → Storage** (files.md §4.4): everything the firm stores, and the disk it
+   * grows on. Its own route rather than a field on `/system`, and an admin's: the figures are
+   * firm-wide and ignore who may see what, so they stay closed to a bookkeeper even where a firm
+   * opens Settings to one.
+   */
+  app.get("/storage", { config: gate("settings", { adminOnly: true }) }, async () =>
+    storageReport(),
+  );
 
   app.put("/firm/logo", { config: gate("settings") }, async (request) => {
     const part = await request.file();

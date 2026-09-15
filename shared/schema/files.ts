@@ -197,3 +197,39 @@ export interface RestoreResult {
   /** items that took `(2)` because the name was taken meanwhile */
   renamed: { id: string; name: string }[];
 }
+
+// ── a leaver's My files, and the firm's storage (files.md §8.3, §4.4) ────────
+
+/** What blocking a person would move: figures, never a name (§8.3). */
+export interface PersonalFilesSummary {
+  files: number;
+  bytes: number;
+  /** files in their Trash, which move too */
+  trashed: number;
+  /** folders, the Trash's included: an empty folder is still something to move */
+  folders: number;
+}
+
+/** Settings → System → Storage (§4.4): everything the firm stores, for admins. */
+export interface FirmStorage {
+  /** every stored file: the Trash's, and the pictures, included */
+  all: FileTotals;
+  parts: {
+    /** everyone's My files together, never per person */
+    mine: FileTotals;
+    company: FileTotals;
+    /** every client's zones, archived clients' included */
+    clients: FileTotals;
+    /** of `clients`, the archived ones' */
+    archivedClients: FileTotals;
+    /** files on tasks that sit in no folder */
+    unfiled: FileTotals;
+    trash: FileTotals;
+    /** avatars and the firm's logos */
+    branding: FileTotals;
+  };
+  /** where the bytes are: the files bucket, or still the server's disk */
+  where: { bucket: FileTotals; disk: FileTotals };
+  /** the disk the database and the backup mirror grow on; null when it could not be read */
+  disk: { path: string; free: number; total: number } | null;
+}

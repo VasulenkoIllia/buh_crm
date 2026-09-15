@@ -213,6 +213,21 @@ const INTENDED_CHANGES: Record<string, { before: Answer; after: Answer; why: str
       "for a misfiled one (files.md §6.2, decision 4). Its own route because no per-action rule " +
       "exists yet; the ordinary move stays open to anyone with Clients",
   },
+  "GET /api/users/:id/personal-files-summary": {
+    before: "everyone",
+    after: "admin-only",
+    why:
+      "new: the figures shown before a Block, of what will move from the person's My files into " +
+      "Company (files.md §8.3). Behind Team like the Team screen, and it never names a file",
+  },
+  "GET /api/settings/storage": {
+    before: "everyone",
+    after: "admin-only",
+    why:
+      "new: Settings → System → Storage, every stored file in the firm and the disk's free space " +
+      "(files.md §4.4). Firm-wide figures that ignore who may see what, so admin-only even where " +
+      "Settings is opened to a bookkeeper",
+  },
 };
 
 function before(route: string): Answer {

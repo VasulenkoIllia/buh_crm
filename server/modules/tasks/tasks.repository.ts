@@ -282,6 +282,15 @@ export function findTask(id: string) {
   return prisma.task.findUnique({ where: { id }, include: taskInclude });
 }
 
+/** The client a lead became, if it did: its tasks file their new files there (files.md §5.6). */
+export async function convertedClientOf(leadId: string) {
+  const lead = await prisma.lead.findUnique({
+    where: { id: leadId },
+    select: { convertedClientId: true },
+  });
+  return lead?.convertedClientId ?? null;
+}
+
 export function createTask(data: Prisma.TaskUncheckedCreateInput) {
   return prisma.task.create({ data, include: taskInclude });
 }
@@ -707,6 +716,9 @@ export function createTaskFile(
     size: number;
     mime: string;
     uploadedById: string;
+    /** a converted lead's task files it straight into the client's Internal root (§5.6) */
+    scope?: string;
+    folderId?: null;
   },
 ) {
   return prisma.file.create({ data });
