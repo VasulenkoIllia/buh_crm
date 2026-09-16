@@ -208,7 +208,12 @@ describe("search (files.md §13)", () => {
         totals: { files: 0, bytes: 0 },
       },
     ]);
-    for (const typed of [`${quiet.code}`, `#${quiet.code}`, `C-${quiet.code}`]) {
+    for (const typed of [
+      `${quiet.code}`,
+      `#${quiet.code}`,
+      `C-${quiet.code}`,
+      `C ${quiet.code}`,
+    ]) {
       const found = await get(`q=${encodeURIComponent(typed)}`);
       expect(found.clients.map((c) => c.id)).toContain(quiet.id);
     }
@@ -233,5 +238,34 @@ describe("search (files.md §13)", () => {
     await setGate(keeper, "clients", "open");
     await prisma.client.update({ where: { id: quiet.id }, data: { archivedAt: new Date() } });
     expect((await get(`q=%23${quiet.code}`)).clients).toEqual([]);
+  });
+
+  it("takes each word on its own, so a full name finds in any order", async () => {
+    const a = as(admin);
+    const olena = await prisma.client.create({
+      data: { firstName: `Olena${TAG}`, lastName: `Hnatyuk${TAG}` },
+    });
+    clientIds.push(olena.id);
+    await a.upload(
+      `/api/files/clients/${olena.id}/zones/internal/upload`,
+      `${TAG}-lease.pdf`,
+      PDF,
+    );
+    for (const typed of [`Olena${TAG} Hnatyuk${TAG}`, `hnatyuk${TAG}  olena${TAG}`]) {
+      const body = (await a.get(`/api/files/search?q=${encodeURIComponent(typed)}`)).json();
+      expect(body.clients.map((c: { id: string }) => c.id)).toEqual([olena.id]);
+      expect(names(body)).toEqual([`${TAG}-lease.pdf`]);
+    }
+    // the words may sit in different details: here the uploader's first name and the file's name
+    const own = (
+      await as(keeper).get(`/api/files/search?q=${encodeURIComponent(`Bo ${TAG}`)}&space=my`)
+    ).json();
+    expect(names(own)).toEqual([`${TAG}-private.txt`]);
+    // and every word has to be found
+    const none = (
+      await a.get(`/api/files/search?q=${encodeURIComponent(`Olena${TAG} nobody${TAG}`)}`)
+    ).json();
+    expect(none.clients).toEqual([]);
+    expect(none.hits).toEqual([]);
   });
 });

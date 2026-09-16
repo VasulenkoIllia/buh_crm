@@ -177,33 +177,62 @@ const IMAGE_TYPES = [
 const TEXT_TYPES = ["text/plain", "text/csv"];
 const SHOWN_TYPES = ["application/pdf", ...IMAGE_TYPES, ...TEXT_TYPES];
 
-/** A client by any part of its name, or by its code typed as "142", "#142", "C-142" or "C–142". */
-function clientText(q: string): Prisma.ClientWhereInput {
-  const has = { contains: q, mode: "insensitive" as const };
-  const digits = q.replace(/^#?\s*(?:c\s*[-–]?)?\s*/i, "");
-  // a code is digits alone and fits its 32-bit column, so a pasted phone number is no code
+/** The words of a query, each searched on its own (§13); at most eight, to keep the query small. */
+function wordsOf(q: string): string[] {
+  return q.split(/\s+/).filter(Boolean).slice(0, 8);
+}
+
+function containing(text: string) {
+  return { contains: text, mode: "insensitive" as const };
+}
+
+/** A client's code typed as "142", "#142", "C-142", "C–142" or "C 142"; null when it is none. */
+function codeOf(text: string): number | null {
+  const digits = text.replace(/^#?\s*(?:c\s*[-–]?)?\s*/i, "");
+  // digits alone, and within the 32-bit column: a pasted phone number is no code
   const code = /^\d+$/.test(digits) ? Number(digits) : 0;
+  return code > 0 && code <= 2_147_483_647 ? code : null;
+}
+
+/** One word in a client: a part of its name or its company's, or its code. */
+function clientWord(word: string): Prisma.ClientWhereInput {
+  const code = codeOf(word);
   return {
     OR: [
-      { firstName: has },
-      { lastName: has },
-      { companyName: has },
-      ...(code > 0 && code <= 2_147_483_647 ? [{ code }] : []),
+      { firstName: containing(word) },
+      { lastName: containing(word) },
+      { companyName: containing(word) },
+      ...(code ? [{ code }] : []),
     ],
   };
 }
 
-/** The words a search matches: the name, the uploader, the client and its `#code`, the task, the folder. */
+/** A client with every word somewhere in its details, in any order, or the query as its code. */
+function clientText(q: string): Prisma.ClientWhereInput {
+  const code = codeOf(q);
+  return { OR: [{ AND: wordsOf(q).map(clientWord) }, ...(code ? [{ code }] : [])] };
+}
+
+/**
+ * A file with every word somewhere in its details, each in any of them: its name, its folder's,
+ * the uploader's, the client's name or code, the task's title. So "Olena Petrenko" finds her files
+ * and "Petrenko W-2" her W-2.
+ */
 function fileText(q: string): Prisma.FileWhereInput {
-  const has = { contains: q, mode: "insensitive" as const };
-  return {
+  const code = codeOf(q);
+  const word = (w: string): Prisma.FileWhereInput => ({
     OR: [
-      { name: has },
-      { uploadedBy: { is: { OR: [{ firstName: has }, { lastName: has }] } } },
-      { client: { is: clientText(q) } },
-      { task: { is: { title: has } } },
-      { folder: { is: { name: has } } },
+      { name: containing(w) },
+      {
+        uploadedBy: { is: { OR: [{ firstName: containing(w) }, { lastName: containing(w) }] } },
+      },
+      { client: { is: clientWord(w) } },
+      { task: { is: { title: containing(w) } } },
+      { folder: { is: { name: containing(w) } } },
     ],
+  });
+  return {
+    OR: [{ AND: wordsOf(q).map(word) }, ...(code ? [{ client: { is: { code } } }] : [])],
   };
 }
 
@@ -305,7 +334,7 @@ export async function search(user: User, query: SearchQuery): Promise<SearchPage
           AND: [
             { deletedAt: null },
             { OR: folderSeen },
-            { name: { contains: q, mode: "insensitive" } },
+            { AND: wordsOf(q).map((w) => ({ name: containing(w) })) },
             ...(query.space ? [folderSpace[query.space]] : []),
           ],
         })

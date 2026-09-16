@@ -20,6 +20,14 @@ describe("finding a client in the list (files.md §13)", () => {
     expect(matchesClient(petrenko, "-142")).toBe(false);
   });
 
+  it("takes each word on its own, in any order", () => {
+    expect(matchesClient(petrenko, "Petrenko Olena")).toBe(true);
+    expect(matchesClient(petrenko, "olena  petr")).toBe(true);
+    expect(matchesClient(petrenko, "Petrenko 142")).toBe(true);
+    expect(matchesClient(petrenko, "C 142")).toBe(true);
+    expect(matchesClient(petrenko, "Olena Kovalenko")).toBe(false);
+  });
+
   it("keeps every client while nothing is typed", () => {
     expect(matchesClient(petrenko, "  ")).toBe(true);
   });

@@ -137,7 +137,6 @@ export function searchFiles(where: Prisma.FileWhereInput, page: number) {
   });
 }
 
-/** Folders whose names match, on the first page only and at most twenty. */
 /** Live clients by a name or a code, the first ten (files.md §13): the way to one with no files. */
 export function searchClients(where: Prisma.ClientWhereInput) {
   return prisma.client.findMany({
@@ -148,6 +147,7 @@ export function searchClients(where: Prisma.ClientWhereInput) {
   });
 }
 
+/** Folders whose names match, on the first page only and at most twenty. */
 export function searchFolders(where: Prisma.FolderWhereInput) {
   return prisma.folder.findMany({
     where,
@@ -208,7 +208,6 @@ export async function ancestry(folderId: string): Promise<{ id: string; name: st
   return rows.map(({ id, name }) => ({ id, name }));
 }
 
-/** The same for many folders in one query: each one's chain of names, the top one first. */
 /** Each folder's chain from its place's root down to it, ids and names, in one query. */
 export async function folderChains(
   folderIds: string[],
