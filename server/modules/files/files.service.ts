@@ -1,5 +1,12 @@
 import { Prisma, type User } from "../../generated/prisma/client.js";
 import { record } from "../../core/activity.js";
+import {
+  clientText,
+  clientWord,
+  codeOf,
+  containing,
+  wordsOf,
+} from "../../core/client-search.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
 import { MAX_FILE_SIZE, deleteStoredFile, storeFile } from "../../core/files.js";
 import { clientLabel, personName } from "../../core/names.js";
@@ -177,41 +184,8 @@ const IMAGE_TYPES = [
 const TEXT_TYPES = ["text/plain", "text/csv"];
 const SHOWN_TYPES = ["application/pdf", ...IMAGE_TYPES, ...TEXT_TYPES];
 
-/** The words of a query, each searched on its own (§13); at most eight, to keep the query small. */
-function wordsOf(q: string): string[] {
-  return q.split(/\s+/).filter(Boolean).slice(0, 8);
-}
-
-function containing(text: string) {
-  return { contains: text, mode: "insensitive" as const };
-}
-
-/** A client's code typed as "142", "#142", "C-142", "C–142" or "C 142"; null when it is none. */
-function codeOf(text: string): number | null {
-  const digits = text.replace(/^#?\s*(?:c\s*[-–]?)?\s*/i, "");
-  // digits alone, and within the 32-bit column: a pasted phone number is no code
-  const code = /^\d+$/.test(digits) ? Number(digits) : 0;
-  return code > 0 && code <= 2_147_483_647 ? code : null;
-}
-
-/** One word in a client: a part of its name or its company's, or its code. */
-function clientWord(word: string): Prisma.ClientWhereInput {
-  const code = codeOf(word);
-  return {
-    OR: [
-      { firstName: containing(word) },
-      { lastName: containing(word) },
-      { companyName: containing(word) },
-      ...(code ? [{ code }] : []),
-    ],
-  };
-}
-
-/** A client with every word somewhere in its details, in any order, or the query as its code. */
-function clientText(q: string): Prisma.ClientWhereInput {
-  const code = codeOf(q);
-  return { OR: [{ AND: wordsOf(q).map(clientWord) }, ...(code ? [{ code }] : [])] };
-}
+// How a person names a client, and a code as they type it, now shared with the vault:
+// `core/client-search.ts` (files.md §13, secrets.md §10, §20.4).
 
 /**
  * A file with every word somewhere in its details, each in any of them: its name, its folder's,
