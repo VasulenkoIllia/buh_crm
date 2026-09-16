@@ -5,11 +5,11 @@ import type {
   SessionUser,
   UpdateProfileInput,
   UpdateUserInput,
+  BlockSummary,
 } from "@shared/schema/user";
-import type { PersonalFilesSummary } from "@shared/schema/files";
 import { ME_QUERY_KEY } from "@/app/auth";
 import { api } from "@/shared/lib/api";
-import { FILES_KEY, USERS_KEY } from "@/shared/lib/query-keys";
+import { FILES_KEY, USERS_KEY, VAULT_KEY } from "@/shared/lib/query-keys";
 
 export function useUsers() {
   return useQuery({
@@ -42,19 +42,23 @@ export function useUpdateUser() {
     onSuccess: (_user, { input }) =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: USERS_KEY }),
-        // a block moves the person's My files into Company (files.md §8.3); nothing else does
+        // a block moves the person's My files and My secrets into Company (files.md §8.3,
+        // secrets.md §8); nothing else does
         ...(input.status === "blocked"
-          ? [queryClient.invalidateQueries({ queryKey: FILES_KEY })]
+          ? [
+              queryClient.invalidateQueries({ queryKey: FILES_KEY }),
+              queryClient.invalidateQueries({ queryKey: VAULT_KEY }),
+            ]
           : []),
       ]),
   });
 }
 
-/** What blocking this person would move (files.md §8.3): figures, for the Block dialog. */
+/** What blocking this person would move (files.md §8.3, secrets.md §8): figures, for Block. */
 export function usePersonalFilesSummary(id: string) {
   return useQuery({
     queryKey: [...USERS_KEY, id, "personal-files"],
-    queryFn: () => api<PersonalFilesSummary>(`/api/users/${id}/personal-files-summary`),
+    queryFn: () => api<BlockSummary>(`/api/users/${id}/personal-files-summary`),
   });
 }
 

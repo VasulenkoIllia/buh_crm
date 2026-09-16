@@ -402,9 +402,10 @@ const personalPhrase = (s: PersonalFilesSummary) =>
     .join(", and ");
 
 /**
- * **Blocking, asked first** (files.md §8.3): it signs the person out everywhere, and moves the whole
- * of their My files into Company, where everyone with Files can see them. The figures come from the
- * server, counted the way the move counts, and never name a file.
+ * **Blocking, asked first** (files.md §8.3, secrets.md §8): it signs the person out everywhere, and
+ * moves the whole of their My files and My secrets into Company, where everyone with Files or
+ * Secrets can see them. The figures come from the server, counted the way the move counts, and
+ * never name a file or a secret.
  */
 function BlockDialog({
   userId,
@@ -424,7 +425,8 @@ function BlockDialog({
   const summary = usePersonalFilesSummary(userId);
   const s = summary.data;
   const folder = `Company › ${name} (personal)`;
-  const anything = !!s && s.files + s.trashed + s.folders > 0;
+  const anyFiles = !!s && s.files + s.trashed + s.folders > 0;
+  const anything = anyFiles || (!!s && s.secrets > 0);
   return (
     <Modal
       open
@@ -447,19 +449,28 @@ function BlockDialog({
     >
       <div className="space-y-2.5 text-[13px] text-ink-700">
         <p>Blocking signs {name} out everywhere.</p>
-        {summary.isLoading && <p className="text-muted">Counting their personal files…</p>}
+        {summary.isLoading && (
+          <p className="text-muted">Counting their personal files and secrets…</p>
+        )}
         {summary.isError && (
           <p className="text-muted">
-            Their personal files could not be counted. Whatever they hold still moves to{" "}
-            {folder}.
+            Their personal files and secrets could not be counted. Everything they hold still
+            moves to Company.
           </p>
         )}
-        {s && anything && (
+        {s && anyFiles && (
           <p>
             {s.files + s.trashed > 0
               ? `Their personal files, ${personalPhrase(s)}, will move to `
               : "Their personal folders will move to "}
             <b className="font-medium text-ink">{folder}</b>, where everyone with Files can see
+            them.
+          </p>
+        )}
+        {s && s.secrets > 0 && (
+          <p>
+            Their {plural(s.secrets, "personal secret")} will move to{" "}
+            <b className="font-medium text-ink">Company</b>, where everyone with Secrets can see
             them.
           </p>
         )}

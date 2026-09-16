@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { prisma, disconnectDb } from "../server/core/db.js";
 import { record, runWithActivity } from "../server/core/activity.js";
-import { createClient, createSecret } from "../server/modules/clients/index.js";
+import { createClient } from "../server/modules/clients/index.js";
+import { createSecret } from "../server/modules/secrets/index.js";
 import { clean, identityKey, normalisePhone, parseCsv, phoneKey } from "./import-lib.js";
 
 /**
@@ -272,13 +273,16 @@ async function main() {
       });
       created++;
       if (d.ssn) {
-        // never a plain field: encrypted at rest, admin-only reveal, and the access is journalled
+        // never a plain field: encrypted at rest, revealed only behind the viewer's own password, and
+        // every look is journalled
         await createSecret(
-          client.id,
+          { space: "client", clientId: client.id },
           {
+            template: "free_form",
             label: "SSN",
             description: "Imported from the contacts export, 2026-08-27",
-            value: d.ssn,
+            open: {},
+            secret: { value: d.ssn },
           },
           actor,
           null,

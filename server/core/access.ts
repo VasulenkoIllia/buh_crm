@@ -298,7 +298,10 @@ export async function stateFor(
  * than an access decision, and has its own test. The second is the library (files.md §11.3): a route
  * declares one gate and an item's place is not static, so the tree's totals, Company's Attachments
  * and a move from My files or Company into a client ask the caller's map for the other gate, in
- * `modules/files/files.access.ts`, the way the activity reader does.
+ * `modules/files/files.access.ts`, the way the activity reader does. The third is the vault
+ * (secrets.md §12), for the same reason and through the same reader: a client's secrets need
+ * Clients as well as Secrets, readable to read and open to write (`secrets.service.clientPlace`),
+ * and the search, History and Trash leave out the clients a closed Clients gate hides.
  */
 export async function accessHook(request: FastifyRequest, reply: FastifyReply) {
   const declared = (request.routeOptions?.config as Partial<RouteAccessConfig> | undefined)

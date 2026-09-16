@@ -205,6 +205,14 @@ const INTENDED_CHANGES: Record<string, { before: Answer; after: Answer; why: str
       "new: an admin's reset of somebody's second factor. Behind Team; the service also asks for " +
       "the admin's own password and refuses it on their own account (two-factor.md §7)",
   },
+  "POST /api/secrets/clients/:clientId/move-out": {
+    before: "everyone",
+    after: "admin-only",
+    why:
+      "new: moving a secret OUT of a client's list, to another client, Company or My secrets, for " +
+      "one filed under the wrong client (secrets.md §7). Its own route because no per-action rule " +
+      "exists yet; moving out of My secrets or Company stays open to anyone with Secrets",
+  },
   "POST /api/files/clients/:clientId/move-out": {
     before: "everyone",
     after: "admin-only",

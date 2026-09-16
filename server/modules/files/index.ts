@@ -18,6 +18,9 @@ export {
 // every upload's name is cleaned and checked the same way, the task card's included (§14.3)
 export { refuseProgram, uploadedFileName } from "./files.names.js";
 export { asNameConflict } from "./files.service.js";
+// the reader every module with places asks about the OTHER gate: the vault's client lists need
+// Clients open as well as Secrets (secrets.md §4.3, §12), the way the library's do (files.md §11.3)
+export { opens, readerOf, requireOpen, requireReadable, type Reader } from "./files.access.js";
 // Settings → System → Storage (§4.4)
 export { storageReport } from "./files.storage.js";
 // what a file is, from its bytes, and how it leaves the server: the cards' routes send theirs

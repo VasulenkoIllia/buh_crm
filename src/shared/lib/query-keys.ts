@@ -21,6 +21,8 @@ export const MAILOUTS_KEY = ["mailouts"] as const;
 export const NOTIFICATIONS_KEY = ["notifications"] as const;
 /** The library (files.md): the tree's totals, each place's lists and folders, the Trash. */
 export const FILES_KEY = ["files"] as const;
+/** The vault (secrets.md): the tree's counts, each place's list, the Trash, the search. */
+export const VAULT_KEY = ["vault"] as const;
 /**
  * The log, and the switches that decide what goes into it.
  *

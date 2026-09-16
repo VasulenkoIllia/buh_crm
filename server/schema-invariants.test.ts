@@ -262,6 +262,29 @@ describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
     ]);
   });
 
+  /**
+   * **The vault's hand-written half** (secrets.md §13, §14). A place is a value on the row, and the
+   * two columns that say WHICH place must agree with it, or a secret sits somewhere no screen shows
+   * and no reader can see. A delete is one gesture, or the Trash lists a row nobody can restore.
+   * `prisma migrate diff` sees neither CHECK, and it cannot see why `--reset` spares half a table.
+   */
+  it("keeps the vault's CHECKs and the reset rule that spares the firm's own credentials", async () => {
+    const CHECKS = ["Secret_place_matches_space", "Secret_trash_is_a_gesture"];
+    const checks = await prisma.$queryRaw<{ conname: string }[]>`
+      SELECT conname::text FROM pg_constraint
+      WHERE contype = 'c' AND conname::text = ANY (${CHECKS}::text[])
+    `;
+    expect(checks.map((c) => c.conname).sort()).toEqual([...CHECKS].sort());
+
+    // Company and My secrets survive a reset (secrets.md §3.3). The table-by-table check above
+    // cannot see it: that one only asks whether the table is named in the script at all.
+    const sql = await readFile(new URL("../scripts/reset-data.sql", import.meta.url), "utf8");
+    expect(sql).toContain(`DELETE FROM "ClientSecret" WHERE space = 'client';`);
+    // what the rule DOES to the journal is proven by running it: secrets.integration.test.ts,
+    // "a --reset keeps the history of a kept secret that once sat in a client"
+    expect(sql).toContain(`UPDATE "SecretAuditLog" SET "clientId" = NULL`);
+  });
+
   it("keeps billing history un-blankable (ON DELETE RESTRICT on the provenance FKs)", async () => {
     // deleting a company or a service must be REFUSED, not silently blank what an issued
     // invoice or a generated task was for (migration 20260726090000)

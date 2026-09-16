@@ -1,5 +1,6 @@
 import argon2 from "argon2";
 import type {
+  BlockSummary,
   InviteUserInput,
   UpdateProfileInput,
   UpdateUserInput,
@@ -16,6 +17,11 @@ import {
   personalFilesSummary as personalFiles,
   recordPersonalMove,
 } from "../files/index.js";
+import {
+  movePersonalSecrets,
+  personalSecretsCount,
+  recordPersonalSecretsMove,
+} from "../secrets/index.js";
 import * as repo from "./users.repository.js";
 
 const INVITE_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -87,15 +93,18 @@ export async function updateUser(id: string, input: UpdateUserInput, actor: User
   }
 
   /**
-   * **Blocking moves the person's My files into Company, in the same transaction** (files.md §8.3),
-   * so nobody is ever blocked with files left where no one can reach them. Only the request that
-   * really changes the status moves anything: a second Block click moves nothing.
+   * **Blocking moves the person's My files and My secrets into Company, in the same transaction**
+   * (files.md §8.3, secrets.md §8), so nobody is ever blocked with files or credentials left where
+   * no one can reach them. Only the request that really changes the status moves anything: a
+   * second Block click moves nothing.
    */
   const blocking = input.status === "blocked" && user.status !== "blocked";
+  const person = { id, name: personName(user) };
   const { user: updated, moved } = blocking
-    ? await repo.blockUser(id, input, (tx) =>
-        movePersonalIntoCompany(tx, { id, name: personName(user) }, actor.id),
-      )
+    ? await repo.blockUser(id, input, async (tx) => ({
+        files: await movePersonalIntoCompany(tx, person, actor.id),
+        secrets: await movePersonalSecrets(tx, person),
+      }))
     : { user: await repo.updateUser(id, input), moved: null };
 
   /**
@@ -141,8 +150,10 @@ export async function updateUser(id: string, input: UpdateUserInput, actor: User
       });
     }
   }
-  // beside `user.blocked`: where their personal files went, with the figures and never a name
-  if (moved) recordPersonalMove(moved, personName(user));
+  // beside `user.blocked`: where their personal files and secrets went, with the figures and never
+  // a name
+  if (moved?.files) recordPersonalMove(moved.files, person.name);
+  if (moved?.secrets) await recordPersonalSecretsMove(moved.secrets, person.name, actor.id);
 
   if (input.status === "blocked") {
     // blocking invalidates sessions immediately (spec: users.md)
@@ -152,13 +163,14 @@ export async function updateUser(id: string, input: UpdateUserInput, actor: User
 }
 
 /**
- * What blocking this person would move (files.md §8.3), for the Block dialog: the count, the size
- * and the Trash's count, and never a name.
+ * What blocking this person would move (files.md §8.3, secrets.md §8), for the Block dialog: the
+ * files' count, size and Trash, and how many secrets. Figures only, never a name or a title.
  */
-export async function personalFilesSummary(id: string) {
+export async function personalFilesSummary(id: string): Promise<BlockSummary> {
   const user = await repo.findById(id);
   if (!user) throw new NotFoundError("User not found");
-  return personalFiles(id);
+  const [files, secrets] = await Promise.all([personalFiles(id), personalSecretsCount(id)]);
+  return { ...files, secrets };
 }
 
 export async function updateProfile(user: User, input: UpdateProfileInput) {

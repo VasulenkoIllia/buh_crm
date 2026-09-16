@@ -4,25 +4,20 @@ import { z } from "zod";
 import { uuid } from "@shared/schema/common.js";
 import {
   clientListQuery,
-  clientSecretInput,
   createClientInput,
   createSubscriptionInput,
   pauseSubscriptionInput,
   resumeSubscriptionInput,
-  unlockSecretsInput,
   updateClientInput,
   updateSubscriptionInput,
 } from "@shared/schema/client.js";
 import { undoInput } from "@shared/schema/files.js";
 import { gate, shared } from "../../core/access.js";
-import { clientIp } from "../../core/client-ip.js";
 import { sendDownload, sendView } from "../files/index.js";
-import * as secrets from "./secrets.service.js";
 import * as service from "./clients.service.js";
 
 const idParams = z.object({ id: uuid });
 const fileParams = z.object({ id: uuid, fileId: uuid });
-const secretParams = z.object({ id: uuid, secretId: uuid });
 
 export async function registerRoutes(instance: FastifyInstance) {
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -34,15 +29,6 @@ export async function registerRoutes(instance: FastifyInstance) {
    * from them, so gating them would blank four screens that are open.
    */
   const clients = gate("clients");
-  /**
-   * The vault is its OWN gate, not part of `clients`. `clients` can never be fully closed (its
-   * list reads are reference data), and portal logins, bank credentials and КЕП passwords are not
-   * something to leave behind a switch that does not fully shut. The value itself is still
-   * protected the way it has been since 2026-08-14 — the viewer's own password, a five-minute
-   * grant and a journal entry for every look and every failed attempt. This switch decides who
-   * sees the tab at all.
-   */
-  const vault = gate("secrets");
 
   // the reader is passed in because PINS are per-user: the same list, ordered differently for
   // each person who opens it
@@ -198,102 +184,5 @@ export async function registerRoutes(instance: FastifyInstance) {
     { config: clients, schema: { params: idParams, body: undoInput } },
     async (request) =>
       service.undoRemoveFile(request.params.id, request.body.batchId, request.currentUser!),
-  );
-
-  // ── secrets (S7.5) ─────────────────────────────────────────────────────────
-  // Labels and descriptions are ordinary client data; the VALUE needs the viewer's OWN password
-  // and a five-minute window. Every reveal — and every failed unlock — is journalled.
-  //
-  // ("needs an ADMIN" stood here until 2026-09-07, describing a rule deliberately dropped on
-  // 2026-08-14. Anyone cutting new rules from code comments would have restored it.)
-
-  app.get("/:id/secrets", { config: vault, schema: { params: idParams } }, async (request) =>
-    secrets.listSecrets(request.params.id),
-  );
-
-  app.get(
-    "/:id/secrets/grant",
-    { config: vault, schema: { params: idParams } },
-    async (request) => secrets.grantStatus(request.params.id, request.currentUser!),
-  );
-
-  app.post(
-    "/:id/secrets",
-    { config: vault, schema: { params: idParams, body: clientSecretInput } },
-    async (request, reply) =>
-      reply
-        .status(201)
-        .send(
-          await secrets.createSecret(
-            request.params.id,
-            request.body,
-            request.currentUser!,
-            clientIp(request),
-          ),
-        ),
-  );
-
-  app.patch(
-    "/:id/secrets/:secretId",
-    { config: vault, schema: { params: secretParams, body: clientSecretInput } },
-    async (request) =>
-      secrets.updateSecret(
-        request.params.id,
-        request.params.secretId,
-        request.body,
-        request.currentUser!,
-        clientIp(request),
-      ),
-  );
-
-  app.delete(
-    "/:id/secrets/:secretId",
-    { config: vault, schema: { params: secretParams } },
-    async (request) =>
-      secrets.deleteSecret(
-        request.params.id,
-        request.params.secretId,
-        request.currentUser!,
-        clientIp(request),
-      ),
-  );
-
-  // Its OWN rate limit: this route checks a password, and the app-wide 300/min is far too generous
-  // for that. Ten tries a minute is plenty for a typo and useless for guessing.
-  app.post(
-    "/:id/secrets/unlock",
-    {
-      schema: { params: idParams, body: unlockSecretsInput },
-      config: { ...vault, rateLimit: { max: 10, timeWindow: "1 minute" } },
-    },
-    async (request) =>
-      secrets.unlock(request.params.id, request.body, request.currentUser!, clientIp(request)),
-  );
-
-  app.post(
-    "/:id/secrets/:secretId/reveal",
-    {
-      schema: { params: secretParams },
-      config: { ...vault, rateLimit: { max: 30, timeWindow: "1 minute" } },
-    },
-    async (request) =>
-      secrets.revealSecret(
-        request.params.id,
-        request.params.secretId,
-        request.currentUser!,
-        clientIp(request),
-      ),
-  );
-
-  app.get(
-    "/:id/secrets/audit",
-    {
-      config: vault,
-      schema: {
-        params: idParams,
-        querystring: z.object({ page: z.coerce.number().int().min(1).default(1) }),
-      },
-    },
-    async (request) => secrets.listAudit(request.params.id, request.query.page),
   );
 }

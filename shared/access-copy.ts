@@ -48,12 +48,14 @@ export const GATE_COPY: Record<GateKey, GateCopy> = {
   secrets: {
     label: "Secrets",
     hint:
-      "The client card's vault — portal logins, bank credentials, КЕП passwords. Its own switch " +
-      "rather than part of Clients, because Clients can never be fully closed.",
+      "The vault: My secrets, Company, each client's list, the search and the Trash. Portal " +
+      "logins, bank credentials, IP PINs. Its own switch rather than part of Clients, because " +
+      "Clients can never be fully closed.",
     caveat:
-      "The Secrets tab disappears from the client card. The value itself was never protected by " +
-      "role: it needs the viewer's own password, the grant expires after five minutes, and every " +
-      "look and every failed attempt is journalled. This decides who sees the tab at all.",
+      "The Secrets menu goes, and with it the client card's Secrets tab and everyone's own My " +
+      "secrets. A client's secrets also need Clients open. The value itself was never protected by role: it needs the viewer's own " +
+      "password, one unlock lasts five minutes, and every look and every failed attempt is " +
+      "journalled. This decides who sees the vault at all.",
   },
   files: {
     label: "Files",

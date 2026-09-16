@@ -12,6 +12,7 @@ import { purgeOldJobEvents } from "./core/job-health.js";
 import { checkBackups } from "./core/backup-status.js";
 import { checkStoredFiles } from "./core/storage-check.js";
 import { purgeTrash } from "./modules/files/index.js";
+import { purgeTrash as purgeSecretsTrash } from "./modules/secrets/index.js";
 import { plural } from "@shared/text.js";
 import { runDueCampaigns, sweepBounces, sweepStalledSends } from "./modules/mailouts/index.js";
 import {
@@ -379,6 +380,18 @@ async function main() {
     name: "files:purge",
     cronExpr: "30 4 * * *",
     run: () => purgeTrash(),
+  });
+
+  /**
+   * The vault's Trash emptied (secrets.md §9), ten minutes after the library's and for the same
+   * reasons: clear of the 01:00 backup, outside the hour that repeats when the clocks go back, and
+   * with no `catchUp`, since the scheduler runs one on every boot and a deploy would purge again.
+   * No cap either: a secret is a row, not an object in a bucket.
+   */
+  registerJob({
+    name: "secrets:purge",
+    cronExpr: "40 4 * * *",
+    run: () => purgeSecretsTrash(),
   });
 
   await app.listen({ port: config.PORT, host: "0.0.0.0" });

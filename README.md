@@ -5,7 +5,7 @@ the companies they hold, leads, a service catalog, tasks with time tracking, inv
 meetings, client mailouts, and the team.
 
 **Status:** in use, built stage by stage. Clients, Leads, Catalog, Tasks, Payments, Calendar,
-Archive, Client secrets, Mailouts, Notifications, Permissions, the Activity log, nightly backups and
+Archive, Secrets, Mailouts, Notifications, Permissions, the Activity log, nightly backups and
 two-factor sign-in are done and in production; Reports and the production hardening pass are not.
 Specs, design and the dev plan are kept in internal docs, not in this repository.
 
@@ -20,7 +20,7 @@ Specs, design and the dev plan are kept in internal docs, not in this repository
 | **Payments**      | invoices with positions, partial payments, debt, an audited change log                                                                                                                                              |
 | **Calendar**      | meetings and deadlines on one firm clock                                                                                                                                                                            |
 | **Mailouts**      | letter templates, one-off sends, campaigns on a date or a rhythm, unsubscribe, delivery tracking — every mailbox is read back for bounces, so the log says delivered or not rather than merely sent                 |
-| **Secrets**       | a client's credentials, encrypted, behind a password prompt and an access log                                                                                                                                       |
+| **Secrets**       | the firm's credentials in one vault: My secrets, Company and each client's list, eight templates, one search; encrypted, one unlock with your own password, every look logged, a Trash                              |
 | **Archive**       | closed work and settled invoices tidied away — never deleted                                                                                                                                                        |
 | **Notifications** | a bell and staff email, one registry of triggers; the firm decides which fire and who they reach, each person decides which channels they want                                                                      |
 | **Permissions**   | every API route declares who may call it and one hook decides; the firm switches areas open, read-only or closed, per role and per person                                                                           |
@@ -80,13 +80,16 @@ operator's home directory — and end with the command that undoes the deploy:
 `./scripts/backup/restore.sh --rollback <that dump>`. Migrations apply automatically when the
 container starts (`prisma migrate deploy && npm run start`), so there is no separate migration step.
 
-`--reset` asks you to type the database name before it deletes anything, then empties every client
-table — clients, companies, leads, subscriptions, tasks, invoices, payments, meetings, files, and
-everything the mailouts module holds.
+`--reset` is confirmed by hand every time: it prints what it is about to delete, then asks for a
+four-character code it invents on the spot, so the answer cannot be prepared, pasted or remembered.
+`--yes` does not cover it, and without a terminal it refuses to run at all. Then it empties every
+client table — clients, companies, leads, subscriptions, tasks, invoices, payments, meetings, files,
+and everything the mailouts module holds.
 
 What it keeps, deliberately: the team (users, sessions, reset tokens); the firm's own configuration
 (`FirmProfile` and the sender mailboxes) — requisites and the invoice-number format are settings,
-not client data; **who may open what** (the access policies and per-person exceptions) and **what
+not client data; the firm's own credentials in the vault (Company and My secrets; a client's secrets
+go with the client); **who may open what** (the access policies and per-person exceptions) and **what
 the app records** (the notification rules, personal notification preferences, and the activity log
 itself — a reset that erased the log would erase the record of the reset); and the one service
 flagged "default for new clients", so a client created afterwards still has a paid container. Every other service goes. Priorities, the board's fixed

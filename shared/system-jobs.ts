@@ -27,11 +27,19 @@ export type SystemJobKey =
   | "activity:retention"
   | "backup:watchdog"
   | "files:storage-check"
-  | "files:purge";
+  | "files:purge"
+  | "secrets:purge";
 
 /** The part of the app a job keeps running — the screen groups by this. */
 export type SystemJobArea =
-  "work" | "billing" | "mail" | "notifications" | "files" | "backups" | "housekeeping";
+  | "work"
+  | "billing"
+  | "mail"
+  | "notifications"
+  | "files"
+  | "secrets"
+  | "backups"
+  | "housekeeping";
 
 export interface SystemJobSpec {
   area: SystemJobArea;
@@ -237,6 +245,23 @@ export const SYSTEM_JOBS: Record<SystemJobKey, SystemJobSpec> = {
       "is lost: they can still be restored.",
     staleAfterMinutes: DAY + 12 * HOUR,
   },
+  /**
+   * The vault's Trash emptied (secrets.md §9). No cap and no catch-up: these are database rows
+   * rather than objects in a bucket, so a big clean-up is one statement, and a night that did not
+   * run is made good by the next one, thirty days being a window rather than a deadline.
+   */
+  "secrets:purge": {
+    area: "secrets",
+    label: "Vault trash emptied",
+    cadence: "Every night, at 4:40",
+    whenOk:
+      "Removes for good the secrets that have been in the Trash for 30 days, and records each one " +
+      "as the disposal it is. The journal of who looked at them is kept.",
+    whenBad:
+      "Deleted credentials stay in the Trash past their 30 days. Nothing is lost and nobody can " +
+      "read them without the password step, but the firm is holding what it decided to dispose of.",
+    staleAfterMinutes: DAY + 12 * HOUR,
+  },
 };
 
 export const SYSTEM_JOB_KEYS = Object.keys(SYSTEM_JOBS) as SystemJobKey[];
@@ -247,6 +272,7 @@ export const SYSTEM_JOB_AREAS: Array<{ key: SystemJobArea; label: string }> = [
   { key: "mail", label: "Mail" },
   { key: "notifications", label: "Notifications" },
   { key: "files", label: "Files" },
+  { key: "secrets", label: "Secrets" },
   { key: "backups", label: "Backups" },
   { key: "housekeeping", label: "Housekeeping" },
 ];

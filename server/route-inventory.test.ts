@@ -100,10 +100,20 @@ describe("route inventory", () => {
       // upload: the call per directory that finds or makes a folder, one per place (§7.2). And −2
       // real, −1 derived: the client card's old list and Upload, dead since its Files tab became the
       // library's own.
-      total: 301,
-      derivedHead: 77,
-      real: 224,
-      api: 223, // everything but /health
+      // +10 on 2026-09-16, the vault's two fixed places (secrets.md §4.2): the same five routes for
+      // My secrets and for Company — the list, a save, an edit, a delete into the Trash and a
+      // reveal. The eight the client card used to own moved with them, from `/api/clients/:id/
+      // secrets…` to `/api/secrets/…`, which is why the totals grew by the new places alone.
+      // +3 the same day for moves (§7): one out of My secrets, one out of Company, and the admin's
+      // own route out of a client, which is the move that changes whose credential it is. +3 for
+      // the vault's Trash (§9): the list, a gesture restored, one secret restored. +2 for its
+      // search and one secret's History (§10, §11), both reads. +2 for the screen itself (§15): the
+      // numbers beside each place, and the clients with a list, both reads. +3 for deleting a
+      // selection as one gesture (§9), one per place: My secrets, Company, a client.
+      total: 331,
+      derivedHead: 84,
+      real: 247,
+      api: 246, // everything but /health
       anonymous: 9, // 6 credential routes, 2 unsubscribe pages, /health
       // `POST /tasks/timer/start` moved to the `tasks` gate during the 2026-09-07 audit. It takes a
       // taskId and writes against somebody else's module, so it was never really "the caller's own
@@ -111,8 +121,8 @@ describe("route inventory", () => {
       // second factor and name nobody else.
       own: 15,
       shared: 9,
-      gated: 191,
-      adminOnly: 19,
+      gated: 214,
+      adminOnly: 20,
     });
   });
 

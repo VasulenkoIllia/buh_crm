@@ -86,14 +86,39 @@ enum PaymentAuditAction {
   deleted
 }
 
-/// What happened to a client secret. `unlock_failed` is journalled too: a run of them is the only
-/// signal that somebody is guessing a password.
+/// What happened to a secret. `unlock_failed` is journalled too: a run of them is the only signal
+/// that somebody is guessing a password. Since S18 `deleted` means moved to the Trash, and `purged`
+/// is the disposal thirty days later (secrets.md §9).
 enum SecretAuditAction {
   created
   updated
   deleted
   revealed
   unlock_failed
+  moved
+  restored
+  purged
+}
+
+/// Where a secret lives (secrets.md §4.1): one of three fixed places, held as a value on the row.
+/// A CHECK keeps `ownerId` and `clientId` true to it, since exactly one of them belongs to a place.
+enum SecretSpace {
+  personal
+  company
+  client
+}
+
+/// The kind of credential, which decides a secret's fields (secrets.md §5). Fixed once saved: to
+/// change it, a person makes a new entry. `free_form` is what every row held before S18.
+enum SecretTemplate {
+  free_form
+  login
+  tax_account
+  ip_pin
+  bank
+  id_document
+  device
+  payment_card
 }
 
 /// How the emitter finds the people a trigger concerns. Mirrors `RecipientRole` in
@@ -202,7 +227,10 @@ model User {
   taskAssignments          TaskAssignee[]
   tasksCreated             Task[]                   @relation("TaskCreatedBy")
   tasksCancelled           Task[]                   @relation("TaskCancelledBy")
-  secretsCreated           ClientSecret[]           @relation("SecretCreatedBy")
+  secretsCreated           Secret[]                 @relation("SecretCreatedBy")
+  secretsOwned             Secret[]                 @relation("SecretOwner")
+  secretsUpdated           Secret[]                 @relation("SecretUpdatedBy")
+  secretsDeleted           Secret[]                 @relation("SecretDeletedBy")
   secretAudit              SecretAuditLog[]         @relation("SecretAuditBy")
   taskComments             TaskComment[]            @relation("TaskCommentAuthor")
   timeEntries              TimeEntry[]
@@ -653,7 +681,7 @@ model Client {
   source         SourceOption?         @relation(fields: [sourceId], references: [id], onDelete: Restrict)
   companies      Company[] // 1:N — the client's companies (see below)
   people         ClientPerson[] // the "People" tab
-  secrets        ClientSecret[] // the "Secrets" tab — encrypted, admin-only reveal
+  secrets        Secret[] // the client's own list in the vault (S18; Company and My secrets sit outside)
   secretAudit    SecretAuditLog[]
   subscriptions  Subscription[]
   tasks          Task[]
@@ -724,43 +752,71 @@ model ClientPin {
 }
 
 // The "People" tab — people involved with a client + the service they handle.
-/// A credential the firm holds for a client — tax portal, client-bank, КЕП.
+/// A credential the firm holds: a client's, the firm's own, or one person's (secrets.md §13).
 ///
-/// `label` and `description` are readable by anyone who can open the client; the VALUE is
-/// encrypted at rest (AES-256-GCM, key from `SECRETS_KEY`) and only an admin can reveal it, with
-/// their own password, for five minutes (decision 2026-08-01). The list endpoint never returns
-/// the ciphertext, let alone the plaintext.
+/// **The table keeps its old name** through `@@map`, because S18 only ADDED to it: every row it
+/// already held became a free-form secret in its client's list, and nothing was re-encrypted.
+///
+/// `label`, `description` and the template's open `fields` are readable by anyone who may see the
+/// place it sits in; the SECRET fields are sealed together (AES-256-GCM, key from `SECRETS_KEY`)
+/// into `ciphertext`, and revealing them costs the viewer's own password and is journalled.
 ///
 /// All three crypto columns are NULL for a **pointer-only** entry: something too sensitive to hold
 /// at all, recorded as "it lives in the firm's password manager, item X" and nothing more.
-model ClientSecret {
-  id          String   @id @default(uuid()) @db.Uuid
-  clientId    String   @db.Uuid
-  label       String
-  description String?
-  ciphertext  Bytes? // null = pointer-only entry, nothing stored
-  iv          Bytes?
-  authTag     Bytes?
+model Secret {
+  id            String         @id @default(uuid()) @db.Uuid
+  space         SecretSpace    @default(client)
+  /// personal only: whose it is
+  ownerId       String?        @db.Uuid
+  /// client only: whose list it sits in
+  clientId      String?        @db.Uuid
+  template      SecretTemplate @default(free_form)
+  label         String
+  description   String?
+  /// the template's OPEN fields, which the list and the search read
+  fields        Json           @default("{}")
+  /// label, description and open fields, lower-cased, for the search. Never a secret field.
+  searchText    String         @default("")
+  ciphertext    Bytes? // null = pointer-only entry, nothing stored
+  iv            Bytes?
+  authTag       Bytes?
   /// which SECRETS_KEY encrypted this, so the key can be rotated later without guessing
-  keyVersion  Int      @default(1)
-  order       Int      @default(0)
-  createdById String?  @db.Uuid
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  keyVersion    Int            @default(1)
+  /// "Olena Petrenko (personal)" after a blocked person's My secrets moved into Company (§8)
+  movedFromName String?
+  order         Int            @default(0)
+  createdById   String?        @db.Uuid
+  updatedById   String?        @db.Uuid
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  /// the Trash (§9): these three are set together and cleared together, which a CHECK enforces
+  deletedAt     DateTime?
+  deletedById   String?        @db.Uuid
+  trashBatchId  String?        @db.Uuid
 
-  client    Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  client    Client?          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  /// Restrict, not SetNull: a personal secret with no owner is a place that does not exist, and the
+  /// CHECK would refuse it anyway. Users are blocked, never deleted.
+  owner     User?            @relation("SecretOwner", fields: [ownerId], references: [id], onDelete: Restrict)
   createdBy User?            @relation("SecretCreatedBy", fields: [createdById], references: [id])
+  updatedBy User?            @relation("SecretUpdatedBy", fields: [updatedById], references: [id])
+  deletedBy User?            @relation("SecretDeletedBy", fields: [deletedById], references: [id])
   auditLog  SecretAuditLog[]
 
+  @@map("ClientSecret")
   @@index([clientId])
+  @@index([space, clientId])
+  @@index([ownerId])
+  @@index([trashBatchId])
 }
 
 /// Who touched a secret, and when. Modelled on `PaymentAuditLog`; a reveal is an event worth
 /// keeping even though nothing changed.
 model SecretAuditLog {
   id        String            @id @default(uuid()) @db.Uuid
-  secretId  String?           @db.Uuid // null for an unlock attempt, which targets a client
-  clientId  String            @db.Uuid
+  secretId  String?           @db.Uuid // null for an unlock attempt, or once the secret is purged
+  /// null for Company, My secrets and an unlock: the vault is wider than one client (secrets.md §11)
+  clientId  String?           @db.Uuid
   byUserId  String            @db.Uuid
   action    SecretAuditAction
   /// the secret's name AS IT WAS — the FK goes null when the secret is deleted, and a log that
@@ -769,8 +825,8 @@ model SecretAuditLog {
   ip        String?
   createdAt DateTime          @default(now())
 
-  secret ClientSecret? @relation(fields: [secretId], references: [id], onDelete: SetNull)
-  client Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  secret Secret? @relation(fields: [secretId], references: [id], onDelete: SetNull)
+  client Client? @relation(fields: [clientId], references: [id], onDelete: Cascade)
   byUser User          @relation("SecretAuditBy", fields: [byUserId], references: [id])
 
   @@index([clientId, createdAt])

@@ -257,6 +257,20 @@ docker compose exec -T db psql -U "$PG_USER" -d "$PG_DB" -c \
           (select count(*) from "SignInThrottle") counters,
           (select count(*) from "Session" where "createdAt" < now() - interval '"'"'30 days'"'"') past_30_days;'
 
+# The vault (S18, docs/modules/secrets.md §20.3). On the deploy that brings it, every row that was a
+# client's secret before must still be one: `client_secrets` equals the count before, `company` and
+# `personal` are 0, `in_trash` is 0, `templated` is 0 (every old row is free form) and `unsearchable`
+# is 0 (the migration fills the search words). Afterwards `reference_only` is the entries that store
+# nothing, deliberately, and the first three and `templated` grow as people use the vault.
+docker compose exec -T db psql -U "$PG_USER" -d "$PG_DB" -c \
+  'select (select count(*) from "ClientSecret" where space = '"'"'client'"'"') client_secrets,
+          (select count(*) from "ClientSecret" where space = '"'"'company'"'"') company,
+          (select count(*) from "ClientSecret" where space = '"'"'personal'"'"') personal,
+          (select count(*) from "ClientSecret" where "deletedAt" is not null) in_trash,
+          (select count(*) from "ClientSecret" where template <> '"'"'free_form'"'"') templated,
+          (select count(*) from "ClientSecret" where ciphertext is null) reference_only,
+          (select count(*) from "ClientSecret" where "searchText" = '"'"''"'"') unsearchable;'
+
 # ── 5. prune orphaned uploads (reset only) ───────────────────────────────────
 # After the rebuild, so the container is running the image that HAS the script. The APP wrote
 # those files, so they belong to the container's user and a host-side `rm` gets Permission denied

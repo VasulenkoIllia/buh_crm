@@ -46,7 +46,7 @@
  * the group is load-bearing rather than decorative (activity-log.md §4.5).
  */
 export type ActivityGroup =
-  "people" | "clients" | "work" | "money" | "comms" | "files" | "system";
+  "people" | "clients" | "work" | "money" | "comms" | "files" | "secrets" | "system";
 
 /**
  * The thing an event happened TO. Always equal to the segment before the dot in the key — no
@@ -85,7 +85,8 @@ export const SUBJECT_GROUP: Record<ActivitySubject, ActivityGroup> = {
   client: "clients",
   company: "clients",
   subscription: "clients",
-  secret: "clients",
+  // its own group since S18: Company and My secrets are not about a client (secrets.md §3.4)
+  secret: "secrets",
   lead: "clients",
   task: "work",
   time_entry: "work",
@@ -803,17 +804,87 @@ const EVENTS = {
     granularity: "item",
     actorKinds: ["user"],
     retention: "ordinary",
-    changeKeys: ["label", "description", "value"],
+    // `value` is a free-form entry's one field. A template reports by the NAMES of the fields that
+    // moved, open and sealed, and never by what they hold (secrets.md §11).
+    changeKeys: ["label", "description", "value", "openFields", "secretFields"],
     journal: "secret",
     enabledByDefault: true,
   },
   "secret.deleted": {
     subject: "secret",
     title: "{actor} deleted the secret {subject}",
-    when: "a stored credential is destroyed",
+    // S18: "deleted" means moved to the Trash, where thirty days can undo it (secrets.md §9). The
+    // destruction is `secret.purged`, written by the nightly job that empties it.
+    when: "a stored credential is moved to the Trash",
     granularity: "item",
     actorKinds: ["user"],
     retention: "long",
+    journal: "secret",
+    enabledByDefault: true,
+  },
+  "secret.restored": {
+    subject: "secret",
+    title: "{actor} restored the secret {subject}",
+    when: "a secret comes back out of the Trash, by Undo or from the Trash itself",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    journal: "secret",
+    enabledByDefault: true,
+  },
+  /**
+   * **The disposal record** (secrets.md §9). The row goes; this stays, and it is what answers "what
+   * happened to that credential" a year later. The journal keeps its own rows too: `secretId` is
+   * `SetNull`, and every row carries the label it described.
+   */
+  "secret.purged": {
+    subject: "secret",
+    title: "{subject} was removed for good",
+    when: "the nightly purge deletes a secret that has been in the Trash for 30 days",
+    granularity: "item",
+    actorKinds: ["system"],
+    retention: "long",
+    changeKeys: ["from"],
+    enabledByDefault: true,
+  },
+  /**
+   * Blocking a person moves the whole of their My secrets into Company (secrets.md §8). One row for
+   * the act, with the figures and never a title: the titles were somebody's private list until that
+   * moment. Each secret's own journal says it moved.
+   */
+  "secret.personal_moved": {
+    subject: "secret",
+    title: "{actor} blocked a person, and their My secrets moved into Company as {subject}",
+    when: "blocking a person moves the whole of their My secrets, the Trash's included, into Company",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    changeKeys: ["secrets", "trashed", "from", "to"],
+    enabledByDefault: true,
+  },
+  "secret.moved": {
+    subject: "secret",
+    title: "{actor} moved the secret {subject}",
+    when: "a secret changes place, from My secrets or Company",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["from", "to"],
+    journal: "secret",
+    enabledByDefault: true,
+  },
+  /**
+   * Out of a CLIENT, which only an admin may do (secrets.md §7). Kept long, because it is the move
+   * that changes whose credential this is, and the question is asked months later.
+   */
+  "secret.refiled": {
+    subject: "secret",
+    title: "{actor} moved the secret {subject} out of a client",
+    when: "an admin moves a secret out of a client's list",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    changeKeys: ["from", "to"],
     journal: "secret",
     enabledByDefault: true,
   },
@@ -824,7 +895,8 @@ const EVENTS = {
   "secret.vault_unlocked": {
     subject: "secret",
     title: "{actor} unlocked the vault",
-    when: "the vault password is accepted and a reveal window opens",
+    // S18: one window for the whole vault, held by the SESSION, so the row names no client (§6)
+    when: "the vault password is accepted and a reveal window opens for five minutes",
     granularity: "item",
     actorKinds: ["user"],
     retention: "long",

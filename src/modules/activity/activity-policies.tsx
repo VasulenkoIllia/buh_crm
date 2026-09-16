@@ -38,6 +38,7 @@ const GROUP_LABEL: Record<ActivityGroup, string> = {
   money: "Money",
   comms: "Mail",
   files: "Files",
+  secrets: "Secrets",
   system: "The system itself",
 };
 
@@ -48,6 +49,7 @@ const ORDER: ActivityGroup[] = [
   "money",
   "comms",
   "files",
+  "secrets",
   "system",
 ];
 

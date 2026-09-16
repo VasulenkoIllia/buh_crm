@@ -81,6 +81,9 @@ const MailoutsPage = lazy(() =>
 const FilesPage = lazy(() =>
   import("@/modules/files/files.page").then((m) => ({ default: m.FilesPage })),
 );
+const SecretsPage = lazy(() =>
+  import("@/modules/secrets/secrets.page").then((m) => ({ default: m.SecretsPage })),
+);
 
 /** Old /unpaid path → /billing, preserving ?invoice= / ?client= deep links. */
 function RedirectToBilling() {
@@ -182,6 +185,10 @@ export const router = createBrowserRouter([
               {
                 element: <RequireGate gate="files" />,
                 children: [{ path: "files", element: <FilesPage /> }],
+              },
+              {
+                element: <RequireGate gate="secrets" />,
+                children: [{ path: "secrets", element: <SecretsPage /> }],
               },
               {
                 element: <RequireGate gate="reports" />,

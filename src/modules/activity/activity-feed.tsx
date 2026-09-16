@@ -42,6 +42,7 @@ const GROUPS: { value: ActivityGroup | ""; label: string }[] = [
   { value: "money", label: "Money" },
   { value: "comms", label: "Mail" },
   { value: "files", label: "Files" },
+  { value: "secrets", label: "Secrets" },
   { value: "system", label: "System" },
 ];
 

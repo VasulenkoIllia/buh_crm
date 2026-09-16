@@ -8,6 +8,7 @@ import { EntityMeetings } from "@/modules/calendar";
 import { ClientFilesBrowser } from "@/modules/files";
 import { ClientMailouts } from "@/modules/mailouts";
 import { EntityInvoices } from "@/modules/payments";
+import { ClientSecrets } from "@/modules/secrets";
 import { EntityTasks } from "@/modules/tasks";
 import { useSettings } from "@/modules/settings";
 import { fmtDate } from "@/shared/lib/format";
@@ -17,7 +18,6 @@ import { ClientCode } from "@/shared/ui/client-code";
 import { ClientFormModal } from "./client-form";
 import { CompaniesTab } from "./client-companies";
 import { ClientPeopleModal } from "./client-people-modal";
-import { SecretsTab } from "./client-secrets";
 import { AddServiceModal, SubscriptionList } from "./client-services";
 import { useArchiveClient, useClient } from "./clients.api";
 
@@ -180,7 +180,13 @@ export function ClientCardPage() {
       {activeTab === "people" && (
         <PeopleTab client={client} onManage={() => setPeopleOpen(true)} />
       )}
-      {activeTab === "secrets" && <SecretsTab clientId={client.id} />}
+      {activeTab === "secrets" && (
+        // through the secrets barrel, already lazy: the forms, the generator and the move dialog
+        // are fetched when somebody opens this tab rather than with every card
+        <Suspense fallback={<p className="text-[13px] text-muted">Loading…</p>}>
+          <ClientSecrets key={client.id} clientId={client.id} clientName={client.displayName} />
+        </Suspense>
+      )}
       {activeTab === "tasks" && (
         <EntityTasks target={{ kind: "client", id: client.id, label: client.displayName }} />
       )}

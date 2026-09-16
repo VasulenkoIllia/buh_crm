@@ -4,6 +4,7 @@ export * from "./user.js";
 export * from "./settings.js";
 export * from "./catalog.js";
 export * from "./client.js";
+export * from "./secrets.js";
 export * from "./lead.js";
 export * from "./task.js";
 export * from "./payment.js";

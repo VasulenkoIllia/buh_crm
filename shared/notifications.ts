@@ -516,8 +516,8 @@ export const MODULE_NOTIFICATIONS: Record<string, readonly NotificationTriggerKe
       "can silence.",
     users:
       "Adding or blocking a colleague is felt at once — they get an invitation, or they lose access " +
-      "mid-session. Blocking also moves their My files into Company, and nobody is told: the admin " +
-      "who blocked saw it in the dialog. Nothing is waiting on a message about it.",
+      "mid-session. Blocking also moves their My files and My secrets into Company, and nobody is " +
+      "told: the admin who blocked saw it in the dialog. Nothing is waiting on a message about it.",
     "two-factor":
       "Its letters are security mail on the invitation channel — to the account's owner, and to the " +
       "admins for an attack or a reset — and deliberately outside the preference system: nobody " +
@@ -530,6 +530,12 @@ export const MODULE_NOTIFICATIONS: Record<string, readonly NotificationTriggerKe
       "doing them. A failing storage check or purge goes through job health into ops_sweep_failed, " +
       "which already mails the admins. Alerts on mass deletes and downloads wait for a month of " +
       "real use (files.md §21).",
+    secrets:
+      "Storing, editing, revealing, moving and deleting a secret are steps of ordinary work, seen by " +
+      "the person doing them. What matters about a look is that it is RECORDED, and every reveal and " +
+      "every failed unlock is in the journal with an IP and in the activity log. A failing nightly " +
+      "purge goes through job health into ops_sweep_failed, which already mails the admins " +
+      "(secrets.md §17).",
     leads:
       "A stage change is already on the board of the person who made it, and means nothing to anybody " +
       "else until it becomes a client — which raises nothing either, for the same reason.",

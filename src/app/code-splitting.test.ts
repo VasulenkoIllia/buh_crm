@@ -90,6 +90,24 @@ describe("code splitting cannot be undone by accident", () => {
     expect(barrel).toMatch(/lazy\(\s*\(\)\s*=>\s*import\("\.\/activity-policies"\)/);
   });
 
+  /**
+   * The client card imports the secrets barrel for its tab (S18, stage C.3). The tab reaches the
+   * eight forms, the generator and the move dialog, and a card is opened far more often than its
+   * Secrets tab, so the barrel publishes it through lazy() and nothing statically.
+   */
+  it("the secrets barrel reaches the card's tab only through lazy()", async () => {
+    const barrel = await readFile(
+      new URL("../modules/secrets/index.ts", import.meta.url),
+      "utf8",
+    );
+    expect(
+      /^\s*export\s.*from\s+["']\.\//m.test(barrel),
+      "The secrets barrel must not re-export anything statically: the client card imports it, " +
+        "and what it reaches travels with every card.",
+    ).toBe(false);
+    expect(barrel).toMatch(/lazy\(\s*\(\)\s*=>\s*import\("\.\/client-secrets"\)/);
+  });
+
   it("the router loads every screen on demand", async () => {
     const router = await readFile(new URL("./router.tsx", import.meta.url), "utf8");
     // every Page component the router names must arrive through lazy(), not a static import

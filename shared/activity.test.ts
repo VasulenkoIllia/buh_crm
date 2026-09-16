@@ -116,7 +116,11 @@ describe("the activity registry", () => {
     // under their own subjects (files.md §10.1, 2026-09-14); and the Trash's nine — folders
     // deleted, Company and My files documents deleted, four restores and two purges (§9); and a
     // blocked person's My files moving into Company (§8.3, 2026-09-15)
-    expect(ACTIVITY_KEYS.length).toBe(193);
+    // and the vault's two moves (secrets.md §7, 2026-09-16): a secret changing place, and an
+    // admin taking one out of a client, which is kept long because it changes whose it is; and its
+    // Trash's two (§9): a restore, and the nightly purge's disposal record; and a blocked person's
+    // My secrets moving into Company (§8)
+    expect(ACTIVITY_KEYS.length).toBe(198);
     // the checklist is empty because the pass is finished — not because it was abandoned
     expect(PLANNED_EVENT_KEYS).toEqual([]);
   });

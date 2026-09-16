@@ -3,6 +3,7 @@ import { uuid } from "./common.js";
 import { userRole, userStatus } from "./enums.js";
 import { accessMapSchema } from "../access.js";
 import { twoFactorSessionSchema } from "./two-factor.js";
+import type { PersonalFilesSummary } from "./files.js";
 
 export const userSchema = z.object({
   id: uuid,
@@ -105,3 +106,12 @@ export const updateProfileInput = z.object({
   newPassword: password.optional(),
 });
 export type UpdateProfileInput = z.infer<typeof updateProfileInput>;
+
+/**
+ * What blocking a person would move, for the Block dialog: their personal files' figures
+ * (files.md §8.3) and how many secrets their My secrets holds, the Trash's included (secrets.md §8).
+ * Figures only, never a name or a title.
+ */
+export interface BlockSummary extends PersonalFilesSummary {
+  secrets: number;
+}

@@ -153,6 +153,15 @@ export async function destroyAllUserSessions(userId: string) {
   await prisma.session.deleteMany({ where: { userId } });
 }
 
+/**
+ * The session a request carries. A vault grant belongs to the SESSION rather than to the person
+ * (secrets.md §6): unlocking the secrets on one computer opens nothing on another, and signing out
+ * takes the window with it.
+ */
+export function sessionIdOf(request: FastifyRequest): string | null {
+  return readSid(request);
+}
+
 function readSid(request: FastifyRequest): string | null {
   const raw = request.cookies[SESSION_COOKIE];
   if (!raw) return null;

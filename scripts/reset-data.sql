@@ -80,8 +80,23 @@ DELETE FROM "Notification";
 -- a cascade is invisible to the next migration, and this file is checked table by table.
 DELETE FROM "ClientPin";
 DELETE FROM "ClientPerson";
-DELETE FROM "SecretAuditLog";
-DELETE FROM "ClientSecret";
+-- The vault (secrets.md §3.3, §14). The CLIENTS' secrets go, and their journal rows with them.
+-- Company and My secrets STAY, with their own journal rows: the firm's own credentials (IRS
+-- e-Services, EFTPS, the office Wi-Fi) are configuration, like the mailbox the CRM sends from, and a
+-- reset that wiped them would cost a real afternoon to put back. This is the one place in this file
+-- where a table is deliberately cleared in part, which is why every line carries a WHERE.
+-- A kept secret may have sat in a client's list once (an admin moved it out), and its journal rows
+-- from then carry that client. They keep the act and lose the client: deleting them, or leaving
+-- them to the cascade from "Client" below, would take a kept credential's history with it. Then
+-- every row about a client goes, and so does the whole journal of each client secret, including
+-- the rows it gathered in Company before it was moved into a client.
+UPDATE "SecretAuditLog" SET "clientId" = NULL
+WHERE "clientId" IS NOT NULL
+  AND "secretId" IN (SELECT id FROM "ClientSecret" WHERE space <> 'client');
+DELETE FROM "SecretAuditLog"
+WHERE "clientId" IS NOT NULL
+   OR "secretId" IN (SELECT id FROM "ClientSecret" WHERE space = 'client');
+DELETE FROM "ClientSecret" WHERE space = 'client';
 DELETE FROM "Company";
 
 -- Every file EXCEPT the ones a kept row points at. Client documents go; the team's avatars and the

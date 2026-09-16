@@ -298,64 +298,6 @@
     "access": "gate:clients"
   },
   {
-    "method": "GET",
-    "url": "/api/clients/:id/secrets",
-    "access": "gate:secrets"
-  },
-  {
-    "method": "HEAD",
-    "url": "/api/clients/:id/secrets",
-    "access": "gate:secrets",
-    "derived": true
-  },
-  {
-    "method": "POST",
-    "url": "/api/clients/:id/secrets",
-    "access": "gate:secrets"
-  },
-  {
-    "method": "DELETE",
-    "url": "/api/clients/:id/secrets/:secretId",
-    "access": "gate:secrets"
-  },
-  {
-    "method": "PATCH",
-    "url": "/api/clients/:id/secrets/:secretId",
-    "access": "gate:secrets"
-  },
-  {
-    "method": "POST",
-    "url": "/api/clients/:id/secrets/:secretId/reveal",
-    "access": "gate:secrets"
-  },
-  {
-    "method": "GET",
-    "url": "/api/clients/:id/secrets/audit",
-    "access": "gate:secrets"
-  },
-  {
-    "method": "HEAD",
-    "url": "/api/clients/:id/secrets/audit",
-    "access": "gate:secrets",
-    "derived": true
-  },
-  {
-    "method": "GET",
-    "url": "/api/clients/:id/secrets/grant",
-    "access": "gate:secrets"
-  },
-  {
-    "method": "HEAD",
-    "url": "/api/clients/:id/secrets/grant",
-    "access": "gate:secrets",
-    "derived": true
-  },
-  {
-    "method": "POST",
-    "url": "/api/clients/:id/secrets/unlock",
-    "access": "gate:secrets"
-  },
-  {
     "method": "POST",
     "url": "/api/clients/:id/subscriptions",
     "access": "gate:clients"
@@ -1156,6 +1098,221 @@
     "method": "POST",
     "url": "/api/notifications/read-all",
     "access": "own"
+  },
+  {
+    "method": "GET",
+    "url": "/api/secrets/clients",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/secrets/clients",
+    "access": "gate:secrets",
+    "derived": true
+  },
+  {
+    "method": "GET",
+    "url": "/api/secrets/clients/:clientId",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/secrets/clients/:clientId",
+    "access": "gate:secrets",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/secrets/clients/:clientId",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/secrets/clients/:clientId/:secretId",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/secrets/clients/:clientId/:secretId",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "POST",
+    "url": "/api/secrets/clients/:clientId/:secretId/reveal",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "GET",
+    "url": "/api/secrets/clients/:clientId/audit",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/secrets/clients/:clientId/audit",
+    "access": "gate:secrets",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/secrets/clients/:clientId/delete",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "POST",
+    "url": "/api/secrets/clients/:clientId/move-out",
+    "access": "gate:secrets:admin"
+  },
+  {
+    "method": "GET",
+    "url": "/api/secrets/company",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/secrets/company",
+    "access": "gate:secrets",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/secrets/company",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/secrets/company/:secretId",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/secrets/company/:secretId",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "POST",
+    "url": "/api/secrets/company/:secretId/reveal",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "POST",
+    "url": "/api/secrets/company/delete",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "POST",
+    "url": "/api/secrets/company/move",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "GET",
+    "url": "/api/secrets/grant",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/secrets/grant",
+    "access": "gate:secrets",
+    "derived": true
+  },
+  {
+    "method": "GET",
+    "url": "/api/secrets/history/:secretId",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/secrets/history/:secretId",
+    "access": "gate:secrets",
+    "derived": true
+  },
+  {
+    "method": "GET",
+    "url": "/api/secrets/my",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/secrets/my",
+    "access": "gate:secrets",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/secrets/my",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/secrets/my/:secretId",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/secrets/my/:secretId",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "POST",
+    "url": "/api/secrets/my/:secretId/reveal",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "POST",
+    "url": "/api/secrets/my/delete",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "POST",
+    "url": "/api/secrets/my/move",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "GET",
+    "url": "/api/secrets/overview",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/secrets/overview",
+    "access": "gate:secrets",
+    "derived": true
+  },
+  {
+    "method": "GET",
+    "url": "/api/secrets/search",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/secrets/search",
+    "access": "gate:secrets",
+    "derived": true
+  },
+  {
+    "method": "GET",
+    "url": "/api/secrets/trash",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/secrets/trash",
+    "access": "gate:secrets",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/secrets/trash/batches/:batchId/restore",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "POST",
+    "url": "/api/secrets/trash/secrets/:secretId/restore",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "POST",
+    "url": "/api/secrets/unlock",
+    "access": "gate:secrets"
   },
   {
     "method": "GET",

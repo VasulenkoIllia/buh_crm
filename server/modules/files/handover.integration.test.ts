@@ -158,7 +158,8 @@ describe("a leaver's My files (files.md §8.3)", () => {
     expect((await l.post("/api/files/my/delete", { fileIds: [binned] })).statusCode).toBe(200);
 
     const summary = await as(admin).get(`/api/users/${leaver.id}/personal-files-summary`);
-    expect(summary.json()).toEqual({ files: 3, bytes: 15, trashed: 1, folders: 8 });
+    // `secrets` is the vault's figure beside the files' (secrets.md §8); this leaver holds none
+    expect(summary.json()).toEqual({ files: 3, bytes: 15, trashed: 1, folders: 8, secrets: 0 });
     // the one read about somebody else's My files is Team's, and never names a file
     expect(
       (await as(keeper).get(`/api/users/${leaver.id}/personal-files-summary`)).statusCode,
