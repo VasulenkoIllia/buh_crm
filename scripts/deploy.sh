@@ -7,6 +7,9 @@
 #
 # A database dump is always taken first, before anything else can go wrong.
 #
+# --reset is confirmed by hand, every time: it prints what it is about to delete and then asks for a
+# code it invents on the spot. --yes does not cover it, and a pipe or a paste cannot answer it.
+#
 # Why --reset runs BEFORE the pull: migrations apply automatically when the container starts
 # (Dockerfile CMD is `prisma migrate deploy && npm run start`). Wiping first means they land on an
 # empty database — nothing to back-fill, and a migration that drops columns clears an empty table.
@@ -26,6 +29,19 @@ for arg in "$@"; do
     *) echo "unknown option: $arg (try --help)" >&2; exit 2 ;;
   esac
 done
+
+# **The two ways a reset could happen with nobody watching**, refused here rather than after the
+# dump, so a command that was never going to be allowed fails in the first second.
+if $RESET; then
+  if $ASSUME_YES; then
+    echo "--yes does not cover --reset. The wipe is confirmed by hand or not at all." >&2
+    exit 2
+  fi
+  [ -t 0 ] || {
+    echo "--reset needs a terminal: nothing but a person may answer its question." >&2
+    exit 2
+  }
+fi
 
 [ -f .env ] || { echo "no .env in $(pwd) — are you in the project directory?" >&2; exit 1; }
 # shellcheck disable=SC1091
@@ -77,12 +93,48 @@ if $RESET; then
   echo "   up to date"
 
   say "Wiping client data (the team is kept)"
-  if ! $ASSUME_YES; then
-    echo "   This deletes every client, task, invoice and file in \"$PG_DB\"."
-    printf '   Type the database name to confirm: '
-    read -r answer
-    [ "$answer" = "$PG_DB" ] || { echo "   not confirmed — nothing was changed"; exit 1; }
+  # **A reset cannot be waved through, pasted, or answered in advance.**
+  #
+  # This deletes the client book, and the only copy of what it deletes is the dump taken a minute
+  # ago. The confirmation it used to have was the database NAME: the same word every time, sitting
+  # in the shell's history and short enough to be in anybody's paste buffer — and `--yes` skipped
+  # it entirely. Pasting a block of text back into this terminal is not hypothetical here: it ran a
+  # restore script by accident on 2026-09-14.
+  #
+  # So the question is one nobody can answer ahead of time. It says what is about to go, and asks
+  # for a code this run has just invented; whatever was already queued on the terminal is thrown
+  # away first, so it cannot BE the answer. (`--yes` and a missing terminal were already refused at
+  # the top of this script, before the dump.)
+  echo "   About to delete, from \"$PG_DB\":"
+  # `to_jsonb(s) ->> 'space'` rather than the column, so this still runs on a server that has not
+  # deployed the vault yet, where "ClientSecret" has no `space` at all (secrets.md §14).
+  if ! docker compose exec -T db psql -At -v ON_ERROR_STOP=1 -U "$PG_USER" -d "$PG_DB" <<'SQL'
+SELECT '     ' || (SELECT count(*) FROM "Client") || ' clients, '
+  || (SELECT count(*) FROM "Task") || ' tasks, '
+  || (SELECT count(*) FROM "Invoice") || ' invoices, '
+  || (SELECT count(*) FROM "File") || ' files, '
+  || (SELECT count(*) FROM "ClientSecret" s
+      WHERE coalesce(to_jsonb(s) ->> 'space', 'client') = 'client') || ' client secrets';
+SELECT '     keeping ' || (SELECT count(*) FROM "User") || ' people and '
+  || (SELECT count(*) FROM "ClientSecret" s
+      WHERE coalesce(to_jsonb(s) ->> 'space', 'client') <> 'client')
+  || ' secrets in Company and My secrets';
+SQL
+  then
+    echo "     (the counts could not be read; the wipe would still take all of it)"
   fi
+  echo "   The way back afterwards: ./scripts/backup/restore.sh --rollback $DUMP"
+
+  CODE="$(head -c 400 /dev/urandom | LC_ALL=C tr -dc 'A-HJ-NP-Z2-9' | cut -c1-4)"
+  [ ${#CODE} -eq 4 ] || { echo "   ✗ could not make a confirmation code — stopping" >&2; exit 1; }
+  # Anything typed or pasted before the question was asked is not an answer to it. The fractional
+  # timeout wants bash 4; the server has 5, and on an older shell this is skipped rather than noisy.
+  if [ "${BASH_VERSINFO[0]:-0}" -ge 4 ]; then
+    while IFS= read -r -t 0.2 _queued; do :; done || true
+  fi
+  printf '   Type "wipe %s" to confirm: ' "$CODE"
+  read -r answer
+  [ "$answer" = "wipe $CODE" ] || { echo "   not confirmed — nothing was changed"; exit 1; }
   # **Recorded BEFORE the wipe, and it is the one thing the wipe does not take.**
   #
   # This is the most destructive operation in the product and until now the application learned

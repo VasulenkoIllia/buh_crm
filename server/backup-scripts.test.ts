@@ -150,6 +150,40 @@ describe("restore.sh refuses before it touches anything", () => {
   });
 });
 
+/**
+ * **The one command in the product that deletes the client book** (deployment.md, "How the wipe is
+ * confirmed"). None of this can be tested by running the deploy, and every rule here exists because
+ * the cheap version of it failed somewhere: a flag that skipped the question, a question whose
+ * answer was the same every time, and a paste that answered a question before it was asked.
+ */
+describe("--reset asks a question that cannot be answered in advance", () => {
+  const sh = code(DEPLOY);
+
+  it("is not covered by --yes", () => {
+    expect(sh).toMatch(/if \$ASSUME_YES; then[\s\S]{0,200}exit 2/);
+  });
+
+  it("refuses without a terminal, so no pipe or script can answer for a person", () => {
+    expect(sh).toMatch(/\[ -t 0 \] \|\|/);
+  });
+
+  it("asks for a code it invents for this run, and throws queued input away first", () => {
+    expect(sh).toMatch(/CODE="\$\(head -c \d+ \/dev\/urandom/);
+    expect(sh).toContain('[ "$answer" = "wipe $CODE" ]');
+    expect(sh).toMatch(/while IFS= read -r -t [\d.]+ _queued; do :; done/);
+    // the database name is what it used to ask for: constant, remembered, pasteable
+    expect(sh).not.toContain('[ "$answer" = "$PG_DB" ]');
+  });
+
+  it("says what it is about to delete and what it keeps, before it asks", () => {
+    expect(sh).toContain('FROM "Client"');
+    expect(sh).toContain("keeping ");
+    // the vault's place is read through to_jsonb, so this also runs where "space" does not exist yet
+    expect(sh).toContain("to_jsonb(s) ->> 'space'");
+    expect(sh).toMatch(/restore\.sh --rollback \$DUMP/);
+  });
+});
+
 describe("the public repository", () => {
   it("names no bucket, no key and no project — only placeholders", () => {
     const leaks: string[] = [];
