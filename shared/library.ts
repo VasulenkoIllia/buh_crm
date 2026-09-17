@@ -28,6 +28,9 @@ export const CLIENT_VISIBLE_ZONES: readonly FileZone[] = ["shared", "from_client
 /** A file is encrypted and decrypted whole, in memory, so 25 MB a file (decision 15). */
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
+/** A text file made in the CRM is small on purpose: this is hundreds of pages (files.md §7.4). */
+export const MAX_TEXT_BYTES = 1024 * 1024;
+
 /** Folder levels below a fixed level (§6.1). */
 export const MAX_FOLDER_DEPTH = 8;
 

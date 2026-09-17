@@ -120,7 +120,10 @@ describe("the activity registry", () => {
     // admin taking one out of a client, which is kept long because it changes whose it is; and its
     // Trash's two (§9): a restore, and the nightly purge's disposal record; and a blocked person's
     // My secrets moving into Company (§8)
-    expect(ACTIVITY_KEYS.length).toBe(198);
+    // and the library's four for a text file made in the CRM (files.md §7.4, 2026-09-17): one made
+    // and one saved again, for a client's files and for Company and My files under their own
+    // subject
+    expect(ACTIVITY_KEYS.length).toBe(202);
     // the checklist is empty because the pass is finished — not because it was abandoned
     expect(PLANNED_EVENT_KEYS).toEqual([]);
   });

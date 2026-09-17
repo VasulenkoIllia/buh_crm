@@ -367,6 +367,11 @@
   },
   {
     "method": "PATCH",
+    "url": "/api/files/clients/:clientId/files/:fileId/text",
+    "access": "gate:clients"
+  },
+  {
+    "method": "PATCH",
     "url": "/api/files/clients/:clientId/folders/:folderId",
     "access": "gate:clients"
   },
@@ -414,6 +419,11 @@
   },
   {
     "method": "POST",
+    "url": "/api/files/clients/:clientId/zones/:zone/text",
+    "access": "gate:clients"
+  },
+  {
+    "method": "POST",
     "url": "/api/files/clients/:clientId/zones/:zone/upload",
     "access": "gate:clients"
   },
@@ -446,6 +456,11 @@
   {
     "method": "PATCH",
     "url": "/api/files/company/files/:fileId",
+    "access": "gate:files"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/files/company/files/:fileId/text",
     "access": "gate:files"
   },
   {
@@ -497,6 +512,11 @@
   },
   {
     "method": "POST",
+    "url": "/api/files/company/text",
+    "access": "gate:files"
+  },
+  {
+    "method": "POST",
     "url": "/api/files/company/upload",
     "access": "gate:files"
   },
@@ -513,6 +533,11 @@
   {
     "method": "PATCH",
     "url": "/api/files/my/files/:fileId",
+    "access": "gate:files"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/files/my/files/:fileId/text",
     "access": "gate:files"
   },
   {
@@ -560,6 +585,11 @@
   {
     "method": "POST",
     "url": "/api/files/my/move",
+    "access": "gate:files"
+  },
+  {
+    "method": "POST",
+    "url": "/api/files/my/text",
     "access": "gate:files"
   },
   {

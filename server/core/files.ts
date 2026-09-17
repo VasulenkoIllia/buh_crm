@@ -292,8 +292,15 @@ export function createFileStore(
   };
 
   return {
-    /** Encrypts and stores new bytes; the result goes onto the new File row as it is. */
-    async store(bytes: Buffer): Promise<StoredFile> {
+    /**
+     * Encrypts and stores new bytes; the result goes onto the new File row as it is.
+     *
+     * `forId` stores them for a row that is already here, whose text was saved again (files.md
+     * §7.4). The envelope is sealed against the READER's id, so bytes for an existing row must be
+     * sealed under that row's id or it could never open them. They still get an object of their
+     * own, so what they replace stays readable until the row points at the new ones.
+     */
+    async store(bytes: Buffer, forId?: string): Promise<StoredFile> {
       if (bytes.byteLength > MAX_FILE_SIZE) {
         throw new ValidationError(`File exceeds the ${MAX_FILE_SIZE / 1024 / 1024} MB limit`);
       }
@@ -302,10 +309,11 @@ export function createFileStore(
           "Files cannot be stored: SECRETS_KEY is not configured on this server",
         );
       }
-      const id = randomUUID();
+      const id = forId ?? randomUUID();
       // the month keeps a directory listable; the id names the object, and no extension says what
-      // it holds
-      const path = `${new Date().toISOString().slice(0, 7)}/${id}`;
+      // it holds. Bytes for a row that is already here cannot take its name, which its old bytes
+      // still hold, so they get one of their own
+      const path = `${new Date().toISOString().slice(0, 7)}/${forId ? randomUUID() : id}`;
       const sealed = seal(bytes, id);
       await storeFor(writeTo).put(path, sealed.object);
       return {
@@ -428,7 +436,7 @@ export async function ensureUploadsDir() {
   await mkdir(uploadsRoot, { recursive: true });
 }
 
-export const storeFile = (bytes: Buffer) => files.store(bytes);
+export const storeFile = (bytes: Buffer, forId?: string) => files.store(bytes, forId);
 export const readStoredFile = (file: FileBytes) => files.read(file);
 export const deleteStoredFile = (file: Pick<FileBytes, "path" | "storage">) =>
   files.remove(file);

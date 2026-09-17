@@ -30,6 +30,18 @@ export const createFolderInput = z.object({
 });
 export const renameInput = z.object({ name: z.string().max(1000) });
 
+/** A text file made in the CRM (files.md §7.4): its name, and the text it starts with. */
+export const createTextInput = z.object({
+  name: z.string().max(1000),
+  text: z.string().max(2_000_000),
+});
+
+/** Saving that text: the text itself, and the version the editor opened. */
+export const saveTextInput = z.object({
+  text: z.string().max(2_000_000),
+  updatedAt: z.string().datetime().nullable(),
+});
+
 /** One selection, from one place (files.md §7.3), to one folder. */
 export const moveInput = z
   .object({
@@ -119,6 +131,8 @@ export interface FileRow {
   task: { id: string; title: string } | null;
   /** from the type its bytes gave at upload, never from its name */
   view: FileView;
+  /** when its bytes last changed; a text file's editor sends it back to save (files.md §7.4) */
+  updatedAt: string | null;
 }
 
 export interface FolderListing {
@@ -293,6 +307,8 @@ export interface SearchHit {
   size: number;
   createdAt: string;
   uploadedBy: string;
+  /** when a file's bytes last changed; null for a folder */
+  updatedAt: string | null;
   /** a file's: which viewer opens it */
   view: FileView;
   /** the task it is on, when the reader may see that task */

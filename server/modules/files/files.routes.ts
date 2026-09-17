@@ -4,11 +4,13 @@ import { z } from "zod";
 import { uuid } from "@shared/schema/common.js";
 import {
   createFolderInput,
+  createTextInput,
   fileToFolderInput,
   fileZone,
   folderQuery,
   moveInput,
   renameInput,
+  saveTextInput,
   searchQuery,
   trashInput,
   trashQuery,
@@ -18,6 +20,13 @@ import { ValidationError } from "../../core/errors.js";
 import { sendDownload, sendView } from "./files.serve.js";
 import * as service from "./files.service.js";
 import * as trash from "./files.trash.js";
+
+/**
+ * A text file holds 1 MB of text (§7.4), and JSON escaping can nearly double that on the way in,
+ * so its routes take a larger body than Fastify's 1 MB default. The text itself is still measured
+ * in bytes by the service, which is what refuses one that is too long.
+ */
+const TEXT_BODY_LIMIT = 3 * 1024 * 1024;
 
 const folderParams = z.object({ folderId: uuid });
 const fileParams = z.object({ fileId: uuid });
@@ -141,6 +150,35 @@ export async function registerRoutes(instance: FastifyInstance) {
       { config: files, schema: { params: fileParams, body: renameInput } },
       async (request) =>
         service.renameFile(area(request), request.params.fileId, request.body.name),
+    );
+
+    // a text file made here, and its text saved again (§7.4). Limited like an upload: it is one
+    app.post(
+      `/${space}/text`,
+      {
+        config: { ...files, rateLimit: UPLOAD_RATE_LIMIT },
+        bodyLimit: TEXT_BODY_LIMIT,
+        schema: { querystring: folderQuery, body: createTextInput },
+      },
+      async (request, reply) => {
+        const file = await service.createText(
+          place(request),
+          request.query.folderId,
+          request.currentUser!,
+          request.body,
+        );
+        return reply.status(201).send(file);
+      },
+    );
+
+    app.patch(
+      `/${space}/files/:fileId/text`,
+      {
+        config: { ...files, rateLimit: UPLOAD_RATE_LIMIT },
+        bodyLimit: TEXT_BODY_LIMIT,
+        schema: { params: fileParams, body: saveTextInput },
+      },
+      async (request) => service.saveText(area(request), request.params.fileId, request.body),
     );
 
     app.post(
@@ -276,6 +314,39 @@ export async function registerRoutes(instance: FastifyInstance) {
       );
       return reply.status(201).send(file);
     },
+  );
+
+  app.post(
+    "/clients/:clientId/zones/:zone/text",
+    {
+      config: { ...clients, rateLimit: UPLOAD_RATE_LIMIT },
+      bodyLimit: TEXT_BODY_LIMIT,
+      schema: { params: zoneParams, querystring: folderQuery, body: createTextInput },
+    },
+    async (request, reply) => {
+      const file = await service.createText(
+        await service.clientPlace(request.params.clientId, request.params.zone),
+        request.query.folderId,
+        request.currentUser!,
+        request.body,
+      );
+      return reply.status(201).send(file);
+    },
+  );
+
+  app.patch(
+    "/clients/:clientId/files/:fileId/text",
+    {
+      config: { ...clients, rateLimit: UPLOAD_RATE_LIMIT },
+      bodyLimit: TEXT_BODY_LIMIT,
+      schema: { params: clientFileParams, body: saveTextInput },
+    },
+    async (request) =>
+      service.saveText(
+        service.clientArea(request.params.clientId),
+        request.params.fileId,
+        request.body,
+      ),
   );
 
   app.post(

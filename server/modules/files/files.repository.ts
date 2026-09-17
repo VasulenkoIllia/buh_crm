@@ -274,6 +274,7 @@ const fileSelect = {
   mime: true,
   detectedMime: true,
   createdAt: true,
+  updatedAt: true,
   scope: true,
   space: true,
   zone: true,
@@ -570,6 +571,36 @@ export async function firmStorage() {
 
 export function renameFolder(id: string, name: string) {
   return prisma.folder.update({ where: { id }, data: { name }, select: folderSelect });
+}
+
+/**
+ * **New bytes under a row that is already here** (files.md §7.4), and only while it still points at
+ * the bytes the caller read. The key of the old bytes is the guard: every save stores its text
+ * under a key of its own, so the key IS the version, and it compares exactly. A timestamp would
+ * not: `updatedAt` is `timestamp(3) without time zone`, and comparing one through the driver is
+ * not something to hang a lost edit on.
+ *
+ * Null answers for a row that has been saved, moved or trashed since it was read.
+ */
+export async function replaceFileBytes(
+  id: string,
+  openedPath: string,
+  bytes: StoredFile & { size: number; detectedMime: string | null },
+): Promise<FileRecord | null> {
+  const { count } = await prisma.file.updateMany({
+    where: { id, deletedAt: null, path: openedPath },
+    // named one by one on purpose: `StoredFile` also carries the id a NEW row would take, and
+    // spreading it here would move this row to another primary key
+    data: {
+      path: bytes.path,
+      storage: bytes.storage,
+      wrappedKey: bytes.wrappedKey,
+      keyVersion: bytes.keyVersion,
+      size: bytes.size,
+      detectedMime: bytes.detectedMime,
+    },
+  });
+  return count === 0 ? null : prisma.file.findUnique({ where: { id }, select: fileSelect });
 }
 
 export function renameFile(id: string, name: string) {

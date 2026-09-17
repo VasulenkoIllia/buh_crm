@@ -10,6 +10,7 @@ import {
 import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
 import { MAX_FILE_SIZE, deleteStoredFile, storeFile } from "../../core/files.js";
 import { clientLabel, personName } from "../../core/names.js";
+import { MAX_TEXT_BYTES } from "@shared/library.js";
 import {
   CLIENT_VISIBLE_ZONES,
   ZONE_LABEL,
@@ -165,6 +166,7 @@ function fileRow(f: repo.FileRecord, showTask: boolean): FileRow {
     size: f.size,
     mime: f.mime,
     createdAt: f.createdAt.toISOString(),
+    updatedAt: f.updatedAt?.toISOString() ?? null,
     uploadedBy: personName(f.uploadedBy),
     task: showTask && f.task ? { id: f.task.id, title: f.task.title } : null,
     view: viewOf(f.detectedMime),
@@ -417,6 +419,7 @@ export async function search(user: User, query: SearchQuery): Promise<SearchPage
         path: pathOf(crumbs),
         crumbs,
         size: 0,
+        updatedAt: null,
         createdAt: f.createdAt.toISOString(),
         uploadedBy: f.createdBy ? personName(f.createdBy) : "",
         view: null,
@@ -434,6 +437,7 @@ export async function search(user: User, query: SearchQuery): Promise<SearchPage
         path: pathOf(crumbs),
         crumbs,
         size: f.size,
+        updatedAt: f.updatedAt?.toISOString() ?? null,
         createdAt: f.createdAt.toISOString(),
         uploadedBy: personName(f.uploadedBy),
         view: viewOf(f.detectedMime),
@@ -842,6 +846,170 @@ export async function renameFile(area: Area, fileId: string, rawName: string) {
     });
   }
   return { id: file.id, name };
+}
+
+// ── a text file made in the CRM (files.md §7.4) ──────────────────────────────
+
+/** What the CRM makes and edits as text: what it can also show as text (§12.1). */
+const TEXT_MIMES = ["text/plain", "text/csv"];
+
+function textBytes(text: string): Buffer {
+  const bytes = Buffer.from(text, "utf8");
+  if (bytes.byteLength > MAX_TEXT_BYTES) {
+    throw new ValidationError("A text file made here must be 1 MB or smaller");
+  }
+  return bytes;
+}
+
+/**
+ * **A `.txt` made here, filled in and kept like any other file** (§7.4, decision 27). It goes
+ * through the same store, so it is encrypted under its own key, and through the same names, so a
+ * taken name gets "(2)". The bytes still decide the type (§12.2): text whose first bytes say it is
+ * some other format is refused, rather than kept as a file that would never open.
+ */
+export async function createText(
+  place: Place,
+  folderId: string | undefined,
+  user: User,
+  input: { name: string; text: string },
+): Promise<FileRow> {
+  const folder = await liveFolderIn(place, folderId);
+  const typed = names.typedFileName(input.name);
+  const name = names.extensionOf(typed) === "txt" ? typed : `${typed}.txt`;
+  const bytes = textBytes(input.text);
+  const detectedMime = await detectType(bytes, name);
+  if (detectedMime !== "text/plain") {
+    throw new ValidationError("This text cannot be kept as a plain text file");
+  }
+  const scope = scopeOf(place);
+  const at = folder?.id ?? null;
+  const finalName = names.firstFreeName(name, await repo.takenFileNames(scope, at));
+  const stored = await storeFile(bytes);
+  let row: repo.FileRecord;
+  try {
+    row = await repo.createFile(
+      {
+        ...stored,
+        name: finalName,
+        size: bytes.byteLength,
+        mime: detectedMime,
+        detectedMime,
+        uploadedById: user.id,
+        scope,
+        folderId: at,
+      },
+      place.space === "personal" ? place.ownerId : null,
+    );
+  } catch (error) {
+    // nothing points at the bytes: take them back rather than leave them for the pruner
+    await deleteStoredFile(stored).catch((e) =>
+      console.error("files: could not remove the bytes of a refused text file", e),
+    );
+    throw asNameConflict(error, `“${finalName}” arrived here at the same moment; try again`);
+  }
+
+  const where = await words(place, at);
+  if (place.space === "client") {
+    record("file.created", {
+      subjectId: row.id,
+      subjectLabel: row.name,
+      clientId: place.clientId,
+      changes: { name: row.name, size: row.size, attachedTo: where },
+    });
+    if (clientSees(place)) {
+      record("file.shared_with_client", {
+        subjectId: row.id,
+        subjectLabel: row.name,
+        clientId: place.clientId,
+        changes: { place: where },
+      });
+    }
+  } else if (place.space === "company") {
+    record("firm_file.created", {
+      subjectId: row.id,
+      subjectLabel: row.name,
+      changes: { name: row.name, size: row.size, place: where },
+    });
+  } else {
+    record("firm_file.created", {
+      subjectId: row.id,
+      subjectLabel: PERSONAL_FILE,
+      changes: { place: MY_FILES },
+    });
+  }
+  return fileRow(row, false);
+}
+
+/**
+ * **The text of a file that is already here, saved again** (§7.4, decision 28): any text file in
+ * the library, uploaded or made here, where the reader may write.
+ *
+ * The save carries the version the editor opened. A row that has moved on since is refused rather
+ * than overwritten, so two people editing cannot lose one another's work (decision 29). The new
+ * bytes are stored first and the row is pointed at them; only then do the old bytes go, so a
+ * failure in the middle leaves the file readable as it was.
+ */
+export async function saveText(
+  area: Area,
+  fileId: string,
+  input: { text: string; updatedAt: string | null },
+): Promise<FileRow> {
+  const file = await repo.findFile(fileId);
+  if (!file || file.deletedAt || !inArea(file.scope, area)) {
+    throw new NotFoundError("File not found");
+  }
+  if (!TEXT_MIMES.includes(file.detectedMime ?? "")) {
+    throw new ValidationError("Only a text file can be edited here");
+  }
+  // what the editor opened against what is here now: somebody else's save is not laid over
+  const stale = new ConflictError(
+    "Somebody saved this file a moment ago. Open it again and put your changes back in.",
+  );
+  if (input.updatedAt !== (file.updatedAt?.toISOString() ?? null)) throw stale;
+  const bytes = textBytes(input.text);
+  const detectedMime = await detectType(bytes, file.name);
+  if (detectedMime !== file.detectedMime) {
+    throw new ValidationError("This text cannot be kept as a plain text file");
+  }
+  // sealed under the row's own id, since that is what opens it again (§14.4)
+  const stored = await storeFile(bytes, file.id);
+  // and the write itself only lands while the row still points at the bytes just read, so two
+  // saves at the same moment cannot both win
+  const saved = await repo.replaceFileBytes(file.id, file.path, {
+    ...stored,
+    size: bytes.byteLength,
+    detectedMime,
+  });
+  if (!saved) {
+    await deleteStoredFile(stored).catch((e) =>
+      console.error("files: could not remove the bytes of a save that was refused", e),
+    );
+    throw stale;
+  }
+  // the row points at the new bytes now, so the old ones are nobody's
+  await deleteStoredFile(file).catch((e) =>
+    console.error("files: could not remove the bytes a save replaced", e),
+  );
+
+  const place = await placeOfScope(file.scope);
+  const changes = { name: saved.name, size: { from: file.size, to: saved.size } };
+  if (place.space === "client") {
+    record("file.edited", {
+      subjectId: saved.id,
+      subjectLabel: saved.name,
+      clientId: place.clientId,
+      changes,
+    });
+  } else if (place.space === "company") {
+    record("firm_file.edited", { subjectId: saved.id, subjectLabel: saved.name, changes });
+  } else {
+    record("firm_file.edited", {
+      subjectId: saved.id,
+      subjectLabel: PERSONAL_FILE,
+      changes: { place: MY_FILES },
+    });
+  }
+  return fileRow(saved, false);
 }
 
 // ── moves (files.md §6.2, §7.3) ──────────────────────────────────────────────
