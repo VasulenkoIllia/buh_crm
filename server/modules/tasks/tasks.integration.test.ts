@@ -116,6 +116,10 @@ afterAll(async () => {
   await prisma.timeEntry.deleteMany();
   await prisma.subtask.deleteMany();
   await prisma.taskAssignee.deleteMany();
+  // the files uploaded on those tasks outlive them, since `File.taskId` is set null rather than
+  // cascaded. They went unnoticed because this suite wipes the tables it needs at the START; the
+  // next suite to wipe every user trips over them instead (2026-09-17)
+  await prisma.file.deleteMany({ where: { uploadedById: { in: [adminId, userId] } } });
   await prisma.task.deleteMany();
   await prisma.invoice.deleteMany();
   await prisma.subscription.deleteMany();
