@@ -11,6 +11,7 @@ import type {
   ClientFilesDetail,
   ClientFilesNode,
   EnsuredFolder,
+  FileRow,
   FilesOverview,
   FolderListing,
   FolderNode,
@@ -126,6 +127,24 @@ export function useCreateFolder() {
       method: "POST",
       body: { name: v.name, parentId: v.parentId },
     }),
+  );
+}
+
+/** A text file made in the CRM (files.md §7.4): it lands where the reader is, as an upload does. */
+export function useCreateText() {
+  return useLibraryMutation(
+    (v: { place: UiPlace; folderId: string | null; name: string; text: string }) =>
+      api<FileRow>(`${placeBase(v.place)}/text${v.folderId ? `?folderId=${v.folderId}` : ""}`, {
+        method: "POST",
+        body: { name: v.name, text: v.text },
+      }),
+  );
+}
+
+/** Its text saved again, carrying the version the editor opened, so nobody's work is laid over. */
+export function useSaveText() {
+  return useLibraryMutation((v: { url: string; text: string; updatedAt: string | null }) =>
+    api<FileRow>(v.url, { method: "PATCH", body: { text: v.text, updatedAt: v.updatedAt } }),
   );
 }
 

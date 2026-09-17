@@ -6,6 +6,7 @@ import { plural } from "@shared/text";
 import { cn } from "@/shared/lib/cn";
 import { fmtBytes } from "@/shared/lib/format";
 import { Button } from "@/shared/ui/button";
+import { Input, Label, Textarea } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
 import { SearchSelect } from "@/shared/ui/search-select";
 import { Segmented } from "@/shared/ui/segmented";
@@ -484,6 +485,79 @@ export function UploadConfirmDialog({
         {clientName} will see {count === 1 ? "this file" : `these ${count} files`} once the
         portal opens. Putting a file here is showing it to the client.
       </Line>
+    </Modal>
+  );
+}
+
+/**
+ * **A text file made here** (files.md §7.4): a name and the text, into the folder that is open.
+ * `.txt` is added when the name has none, and a taken name gets "(2)", exactly as an upload does.
+ * Renaming it later is the row's own menu, as for every other file.
+ */
+export function NewTextFileDialog({
+  target,
+  busy,
+  error,
+  onCreate,
+  onClose,
+}: {
+  target: Target;
+  busy: boolean;
+  error: string | null;
+  onCreate: (name: string, text: string) => void;
+  onClose: () => void;
+}) {
+  // the person names it; the CRM puts the extension on, so what is made is always a text file
+  const [name, setName] = useState("");
+  const [text, setText] = useState("");
+  return (
+    <Modal
+      open
+      size="lg"
+      title={`New text file in ${target.label}`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button onClick={() => onCreate(name, text)} disabled={busy || name.trim() === ""}>
+            {busy ? "Saving…" : "Create"}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="new-text-name">File name</Label>
+          <div className="flex items-center gap-2">
+            <Input
+              id="new-text-name"
+              value={name}
+              autoFocus
+              className="flex-1"
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Notes"
+            />
+            <span className="text-[13px] tabular-nums text-muted">.txt</span>
+          </div>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="new-text-body">Text</Label>
+          <Textarea
+            id="new-text-body"
+            value={text}
+            rows={14}
+            className="font-mono text-[12.5px]"
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Type the text here."
+          />
+        </div>
+        {clientSees(target.place) && (
+          <Line tone="info">The client will see it once the portal opens.</Line>
+        )}
+        {error && <Line tone="warn">{error}</Line>}
+      </div>
     </Modal>
   );
 }

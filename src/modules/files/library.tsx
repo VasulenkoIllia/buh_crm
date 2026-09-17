@@ -12,7 +12,7 @@ import {
 } from "@dnd-kit/core";
 import { getEventCoordinates } from "@dnd-kit/utilities";
 import { useQueryClient } from "@tanstack/react-query";
-import { FileUp, FolderPlus, FolderUp, Upload } from "lucide-react";
+import { FilePlus, FileUp, FolderPlus, FolderUp, Upload } from "lucide-react";
 import type { FolderNode } from "@shared/schema/files";
 import { plural } from "@shared/text";
 import { useAuth, useCanEdit, useCanOpen } from "@/app/auth";
@@ -23,15 +23,23 @@ import { useDebounced } from "@/shared/lib/use-debounced";
 import { Menu } from "@/shared/ui/menu";
 import { SearchInput } from "@/shared/ui/search-input";
 import { useToast } from "@/shared/ui/toast";
-import { DeleteDialog, FileToFolderDialog, MoveDialog, UploadConfirmDialog } from "./dialogs";
+import {
+  DeleteDialog,
+  FileToFolderDialog,
+  MoveDialog,
+  NewTextFileDialog,
+  UploadConfirmDialog,
+} from "./dialogs";
 import { ExtBadge, FolderBadge, errorText, renamedNote, subtreeOf } from "./file-bits";
 import {
   ensureFolder,
   refreshLibrary,
   useClientNodes,
+  useCreateText,
   useListing,
   useMove,
   useRestore,
+  useSaveText,
   useTrashItems,
 } from "./files.api";
 import { FolderPane } from "./folder-pane";
@@ -147,6 +155,11 @@ export function Library({ mode }: { mode: LibraryMode }) {
   const [noDrop, setNoDrop] = useState<ReadonlySet<string>>(() => new Set<string>());
   const [epoch, setEpoch] = useState(0);
   const [viewing, setViewing] = useState<{ items: Viewable[]; index: number } | null>(null);
+  // a text file made here, and the saves from the viewer's editor (§7.4)
+  const createText = useCreateText();
+  const saveText = useSaveText();
+  const [makingText, setMakingText] = useState<Target | null>(null);
+  const [textError, setTextError] = useState<string | null>(null);
   // folder uploads still making their folders, for the guard on leaving the page
   const [preparing, setPreparing] = useState(0);
   // the search box (§13), the Files screen's alone: clearing it goes back to what was open
@@ -517,6 +530,21 @@ export function Library({ mode }: { mode: LibraryMode }) {
         <FolderPlus size={15} />
         New folder
       </Button>
+      <Button
+        variant="secondary"
+        size={small ? "sm" : "md"}
+        disabled={!writableHere}
+        title={
+          here ? undefined : "Open a folder first: a new file goes into the one that is open"
+        }
+        onClick={() => {
+          setTextError(null);
+          setMakingText(here);
+        }}
+      >
+        <FilePlus size={15} />
+        New text file
+      </Button>
       <Menu
         label="Upload"
         items={[
@@ -660,6 +688,44 @@ export function Library({ mode }: { mode: LibraryMode }) {
           index={viewing.index}
           onIndex={(index) => setViewing((v) => (v ? { ...v, index } : v))}
           onClose={() => setViewing(null)}
+          onSave={async (file, text) => {
+            if (!file.saveUrl) return;
+            const row = await saveText.mutateAsync({
+              url: file.saveUrl,
+              text,
+              updatedAt: file.updatedAt ?? null,
+            });
+            setViewing((v) =>
+              v
+                ? {
+                    ...v,
+                    items: v.items.map((i) =>
+                      i.id === file.id ? { ...i, size: row.size, updatedAt: row.updatedAt } : i,
+                    ),
+                  }
+                : v,
+            );
+          }}
+        />
+      )}
+      {makingText && (
+        <NewTextFileDialog
+          target={makingText}
+          busy={createText.isPending}
+          error={textError}
+          onClose={() => setMakingText(null)}
+          onCreate={(name, text) => {
+            setTextError(null);
+            createText
+              .mutateAsync({
+                place: makingText.place,
+                folderId: makingText.folderId,
+                name,
+                text,
+              })
+              .then(() => setMakingText(null))
+              .catch((e) => setTextError(errorText(e)));
+          }}
         />
       )}
       {dialog?.kind === "delete" && (

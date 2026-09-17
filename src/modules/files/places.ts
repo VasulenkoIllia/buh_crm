@@ -48,6 +48,11 @@ export function placeInput(p: UiPlace): PlaceInput {
   return { space: "client", clientId: p.clientId, zone: p.zone };
 }
 
+/** Where a text file's text is saved again (files.md §7.4): the area's route, as a rename is. */
+export function textUrl(p: UiPlace, fileId: string): string {
+  return `${areaBase(p)}/files/${fileId}/text`;
+}
+
 /** A client's file downloads through the client card's own route, on the Clients gate. */
 export function downloadUrl(p: UiPlace, fileId: string): string {
   return p.kind === "client"

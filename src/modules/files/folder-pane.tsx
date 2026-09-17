@@ -54,7 +54,7 @@ import {
   TH,
   type Crumb,
 } from "./pane-parts";
-import { downloadUrl, placeKey, placeLabel, viewUrl, type UiPlace } from "./places";
+import { downloadUrl, placeKey, placeLabel, textUrl, viewUrl, type UiPlace } from "./places";
 
 /**
  * **The open folder** (files.md §7): what is in it, sortable; a selection by checkbox, Shift and
@@ -261,6 +261,12 @@ export function FolderPane({
         view: f.view,
         viewUrl: viewUrl(place, f.id),
         downloadUrl: downloadUrl(place, f.id),
+        updatedAt: f.updatedAt,
+        // text is edited where its reader may write (§7.4); everything else opens as it did
+        saveUrl:
+          writable && (f.view === "text" || f.view === "csv")
+            ? textUrl(place, f.id)
+            : undefined,
       })),
       files.findIndex((f) => f.id === item.row.id),
     );
