@@ -16,8 +16,15 @@ import { fmtRange } from "./grid";
  */
 export function EntityMeetings({
   target,
+  bare = false,
 }: {
   target: { kind: "client" | "lead"; id: string };
+  /**
+   * A section of a card that is already one panel: no frame of its own, a small heading, a text
+   * action and bordered rows like the tasks beside it. The lead card (variant A, owner 2026-09-18);
+   * the client card's tab keeps the panel.
+   */
+  bare?: boolean;
 }) {
   const filter = target.kind === "client" ? { clientId: target.id } : { leadId: target.id };
   const { data, isLoading, error } = useMeetingsFor(filter);
@@ -28,6 +35,70 @@ export function EntityMeetings({
     (m) => !m.cancelledAt && new Date(m.startAt).getTime() >= now,
   );
   const past = (data ?? []).filter((m) => m.cancelledAt || new Date(m.startAt).getTime() < now);
+
+  const modal = open && (
+    <MeetingModal
+      meetingId={open.id}
+      defaultClientId={target.kind === "client" ? target.id : undefined}
+      defaultLeadId={target.kind === "lead" ? target.id : undefined}
+      onClose={() => setOpen(null)}
+    />
+  );
+
+  if (bare) {
+    return (
+      <div>
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-[13px] font-semibold">
+            Meetings
+            {!!data?.length && (
+              <span className="ml-1.5 font-normal text-muted">{data.length}</span>
+            )}
+          </h3>
+          <Button variant="text" size="sm" className="px-0" onClick={() => setOpen({})}>
+            + Schedule meeting
+          </Button>
+        </div>
+        {error && <p className="text-[13px] text-danger-text">Couldn't load meetings.</p>}
+        {isLoading && <p className="text-[13px] text-muted">Loading…</p>}
+        {data && data.length === 0 && (
+          <p className="text-[13px] text-muted">No meetings yet.</p>
+        )}
+        {[...upcoming, ...past].map((m) => {
+          const gone = !upcoming.includes(m);
+          return (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => setOpen({ id: m.id })}
+              className={cn(
+                "mb-1.5 flex w-full items-center gap-2 rounded-[8px] border border-border bg-surface px-3 py-2 text-left text-[13px] hover:bg-divider/30",
+                gone && "opacity-70",
+              )}
+            >
+              <span
+                className={cn(
+                  "min-w-0 flex-1 truncate font-medium",
+                  m.cancelledAt && "text-faint line-through",
+                )}
+              >
+                {m.title}
+              </span>
+              {m.cancelledAt && (
+                <span className="flex-none rounded-(--radius-chip) bg-divider px-2 py-0.5 text-[11px] text-muted">
+                  called off
+                </span>
+              )}
+              <span className="flex-none text-[12px] text-muted">
+                {fmtDate(m.startAt)} · {fmtRange(m.startAt, m.durationMinutes)}
+              </span>
+            </button>
+          );
+        })}
+        {modal}
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-(--radius-panel) border border-border bg-surface">
@@ -55,14 +126,7 @@ export function EntityMeetings({
       )}
       {past.length > 0 && <Group title="Past" items={past} onOpen={(id) => setOpen({ id })} />}
 
-      {open && (
-        <MeetingModal
-          meetingId={open.id}
-          defaultClientId={target.kind === "client" ? target.id : undefined}
-          defaultLeadId={target.kind === "lead" ? target.id : undefined}
-          onClose={() => setOpen(null)}
-        />
-      )}
+      {modal}
     </div>
   );
 }

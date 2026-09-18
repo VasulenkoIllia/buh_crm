@@ -200,6 +200,17 @@ export function MeetingModal({
   const { data: client } = useClient(clientId);
   const { data: lead } = useLead(target?.kind === "lead" ? target.id : null);
 
+  /**
+   * A card's "Schedule meeting" hands over only the id, so the search field showed "✓ lead" beside
+   * an empty box (user, 2026-09-18). The name arrives with the record fetched above; a label that is
+   * already there (a pick, an edit) is never touched.
+   */
+  useEffect(() => {
+    if (!target || target.label) return;
+    const label = target.kind === "client" ? client?.displayName : lead?.name;
+    if (label) setTarget({ ...target, label });
+  }, [target, client, lead]);
+
   /** the contact this meeting is with, and how to reach them — a person if one was named. */
   const person = client?.people.find((p) => p.id === personId) ?? null;
   const hasPeople = !!client && client.people.length > 0;

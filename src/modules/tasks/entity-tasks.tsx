@@ -17,7 +17,14 @@ import { useAssignees, useTasksFor } from "./tasks.api";
  * A client's or lead's tasks — the rollup list on their card. Read + open
  * details + toggle done live here; "+ New task" opens the form pre-targeted.
  */
-export function EntityTasks({ target }: { target: Target }) {
+export function EntityTasks({
+  target,
+  bare = false,
+}: {
+  target: Target;
+  /** a section of a card that is already one panel; see `EntityMeetings` */
+  bare?: boolean;
+}) {
   const filter = target.kind === "client" ? { clientId: target.id } : { leadId: target.id };
   const { data, isLoading, error } = useTasksFor(filter);
   const { data: services } = useCatalog();
@@ -45,15 +52,24 @@ export function EntityTasks({ target }: { target: Target }) {
       .join(", ");
 
   return (
-    <div className="rounded-(--radius-panel) border border-border bg-surface p-5">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-[15px] font-semibold">
+    <div
+      className={
+        bare ? undefined : "rounded-(--radius-panel) border border-border bg-surface p-5"
+      }
+    >
+      <div className={cn("flex items-center justify-between", bare ? "mb-2" : "mb-3")}>
+        <h2 className={cn("font-semibold", bare ? "text-[13px]" : "text-[15px]")}>
           Tasks
           {tasks.length > 0 && (
-            <span className="ml-1.5 text-[13px] text-muted">{tasks.length}</span>
+            <span className="ml-1.5 text-[13px] font-normal text-muted">{tasks.length}</span>
           )}
         </h2>
-        <Button variant="secondary" size="sm" onClick={() => setFormOpen(true)}>
+        <Button
+          variant={bare ? "text" : "secondary"}
+          size="sm"
+          className={bare ? "px-0" : undefined}
+          onClick={() => setFormOpen(true)}
+        >
           + New task
         </Button>
       </div>
@@ -62,7 +78,9 @@ export function EntityTasks({ target }: { target: Target }) {
       {error && <p className="text-[13px] text-danger-text">Failed to load tasks.</p>}
       {data && tasks.length === 0 && (
         <p className="text-[13px] text-muted">
-          No tasks yet — add one, or subscription tasks will land here as they generate.
+          {bare
+            ? "No tasks yet."
+            : "No tasks yet — add one, or subscription tasks will land here as they generate."}
         </p>
       )}
 

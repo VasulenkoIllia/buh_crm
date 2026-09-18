@@ -9,17 +9,17 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { Link, useSearchParams } from "react-router-dom";
 import type { Lead, LeadStageOption } from "@shared/schema/lead";
-import { ArrowRight, CalendarPlus, Check, GripVertical, X } from "lucide-react";
-import { useAuth } from "@/app/auth";
+import { ArrowRight, Check, GripVertical, Mail, Pencil, Phone, X } from "lucide-react";
+import { useAccess, useAuth } from "@/app/auth";
 import { DRAG_CARD, DRAG_COLUMN, useBoardDrag } from "@/shared/lib/board-drag";
 import { cn } from "@/shared/lib/cn";
 import { fmtDate } from "@/shared/lib/format";
-import { Button } from "@/shared/ui/button";
+import { Button, IconButton } from "@/shared/ui/button";
 import { Chip } from "@/shared/ui/chip";
 import { StatusPill } from "@/shared/ui/pill";
 import { Segmented } from "@/shared/ui/segmented";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
-import { MeetingModal } from "@/modules/calendar";
+import { EntityMeetings } from "@/modules/calendar";
 import { EntityTasks } from "@/modules/tasks";
 import { useSettings } from "@/modules/settings";
 import { ConvertLeadModal, LeadFormModal } from "./lead-modals";
@@ -510,7 +510,7 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
   const markLost = useMarkLost();
   const reopen = useReopenLead();
   const archiveLead = useArchiveLead();
-  const [meetingOpen, setMeetingOpen] = useState(false);
+  const access = useAccess();
   const [editOpen, setEditOpen] = useState(false);
   const [convertOpen, setConvertOpen] = useState(false);
 
@@ -522,42 +522,72 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
   if (editOpen) {
     return <LeadFormModal open onClose={() => setEditOpen(false)} lead={lead} />;
   }
-  if (meetingOpen) {
-    return <MeetingModal defaultLeadId={lead.id} onClose={() => setMeetingOpen(false)} />;
-  }
   if (convertOpen) {
     return <ConvertLeadModal open lead={lead} onClose={() => setConvertOpen(false)} />;
   }
 
   const sourceName = settings?.sources.find((s) => s.id === lead.sourceId)?.name;
-  const serviceName = services?.find((s) => s.id === lead.serviceId)?.name;
-  const stageLabel = lead.stageName;
+  const service = services?.find((s) => s.id === lead.serviceId);
+  const editable = !locked && lead.outcome !== "lost";
 
+  /*
+   * Variant A of the card's redesign (owner, 2026-09-18): one column, 560 px.
+   * - How to reach them sits under the name, and a field with nothing in it is not drawn at all:
+   *   the old grid was a wall of "—" on every fresh lead.
+   * - Meetings and tasks are flat sections of the card, not a panel inside a panel.
+   * - Edit and Close are icons in the header, so the footer holds only the lifecycle and fits on
+   *   one row.
+   */
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="flex max-h-[88vh] w-full max-w-[480px] flex-col overflow-hidden rounded-[12px] bg-surface shadow-(--shadow-modal)">
-        {/* header */}
-        <div className="flex items-start justify-between gap-3 border-b border-[#eef0f3] px-5 py-[18px]">
-          <div>
-            <h2 className="flex items-center gap-2 text-[17px] font-semibold">
-              {lead.name}
+      <div className="flex max-h-[88vh] w-full max-w-[560px] flex-col overflow-hidden rounded-[12px] bg-surface shadow-(--shadow-modal)">
+        <div className="flex items-start gap-3 border-b border-[#eef0f3] px-5 py-4">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-[17px] font-semibold">{lead.name}</h2>
+              <Chip tone="blue" size="sm">
+                {lead.stageName}
+              </Chip>
               {lead.outcome !== "in_process" && <StatusPill status={lead.outcome} />}
-            </h2>
-            <div className="mt-0.5 text-[13px] text-muted">Stage: {stageLabel}</div>
+            </div>
+            {(lead.phone || lead.email) && (
+              <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-0.5 text-[13px] text-muted">
+                {lead.phone && (
+                  // a `tel:` link: a Mac hands the call to the phone in your pocket
+                  <a
+                    href={`tel:${lead.phone.replace(/[^\d+]/g, "")}`}
+                    className="flex items-center gap-1.5 hover:text-primary-link"
+                  >
+                    <Phone size={13} />
+                    {lead.phone}
+                  </a>
+                )}
+                {lead.email && (
+                  // plain selectable text, as in the meeting form: the firm's mail goes out
+                  // through Mailouts, so a `mailto:` would open the wrong thing on a misclick
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <Mail size={13} className="flex-none" />
+                    <span className="truncate">{lead.email}</span>
+                  </span>
+                )}
+              </div>
+            )}
           </div>
-          <button
-            type="button"
-            className="text-[13px] text-muted hover:text-ink"
-            onClick={onClose}
-          >
-            Close
-          </button>
+          <div className="flex flex-none items-center gap-0.5">
+            {editable && (
+              <IconButton label="Edit lead" onClick={() => setEditOpen(true)}>
+                <Pencil size={15} />
+              </IconButton>
+            )}
+            <IconButton label="Close" onClick={onClose}>
+              <X size={17} />
+            </IconButton>
+          </div>
         </div>
 
-        {/* detail grid */}
         {/*
           ONE scrolling region, holding everything between the header and the actions.
 
@@ -569,44 +599,58 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
           merely reachable today.
         */}
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="grid grid-cols-2 gap-x-6 gap-y-3.5 border-b border-[#eef0f3] px-5 py-[18px]">
-            <LeadField label="Phone" value={lead.phone} />
-            <LeadField label="Email" value={lead.email} />
-            <LeadField label="Service" value={serviceName ?? null} />
-            <LeadField label="Source" value={sourceName ?? null} />
-            <LeadField label="Created" value={fmtDate(lead.createdAt)} />
-            <div className="col-span-2">
-              <div className="mb-[3px] text-[11px] uppercase tracking-[.4px] text-muted-400">
-                Background
-              </div>
-              <Background text={lead.description} />
+          <div className="border-b border-[#eef0f3] px-5 py-3.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {service && <ServiceChip name={service.name} color={service.color} />}
+              {sourceName && (
+                <Chip tone="gray" size="sm">
+                  {sourceName}
+                </Chip>
+              )}
+              <Chip tone="gray" size="sm">
+                Added {fmtDate(lead.createdAt)}
+              </Chip>
             </div>
-            {locked && lead.convertedClientId && (
-              <div className="col-span-2">
-                <Link
-                  to={`/clients/${lead.convertedClientId}`}
-                  className="text-[13px] font-medium text-primary-link hover:underline"
-                >
-                  → Open the converted client
-                </Link>
+            {lead.description && (
+              <div className="mt-2.5">
+                <Background text={lead.description} />
               </div>
+            )}
+            {locked && lead.convertedClientId && (
+              <Link
+                to={`/clients/${lead.convertedClientId}`}
+                className="mt-2.5 inline-block text-[13px] font-medium text-primary-link hover:underline"
+              >
+                Open the converted client →
+              </Link>
             )}
           </div>
 
-          {/* tasks for this lead (free internal work) */}
-          <div className="border-b border-[#eef0f3] px-5 py-[18px]">
-            <EntityTasks target={{ kind: "lead", id: lead.id, label: lead.name }} />
-          </div>
+          {/*
+            Other modules' work seen from here, so each follows its own gate, as the client card's
+            tabs do: a closed area shows nothing rather than a block that fails to load.
+            Meetings came to the card 2026-09-18: one booked from here was nowhere to be seen on it
+            (user). Its "Schedule meeting" moved up from the footer into the block it fills.
+          */}
+          {(access("calendar") !== "closed" || access("tasks") !== "closed") && (
+            <div className="space-y-5 px-5 py-4">
+              {access("calendar") !== "closed" && (
+                <EntityMeetings target={{ kind: "lead", id: lead.id }} bare />
+              )}
+              {/* tasks for this lead (free internal work) */}
+              {access("tasks") !== "closed" && (
+                <EntityTasks target={{ kind: "lead", id: lead.id, label: lead.name }} bare />
+              )}
+            </div>
+          )}
         </div>
 
         {/*
-          The actions, ordered by what they mean rather than by what fits.
-          Housekeeping (quiet) → tools → the two outcomes, with the one the pipeline exists for
-          last. Every label is `whitespace-nowrap` and every control is the shared `Button`, which
-          has a fixed height: three of these used to break mid-phrase — "Schedule / meeting",
-          "Mark / as lost", "Convert / to client" — because they were hand-rolled with padding and
-          no height (user, 2026-09-04). Icons are lucide like the rest of the app; the emoji
-          calendar was the only colour glyph in the interface.
+          The lifecycle, and nothing else: housekeeping (quiet) on the left, the two outcomes on
+          the right with the one the pipeline exists for last. Every label is `whitespace-nowrap`
+          and every control is the shared `Button`, which has a fixed height: three of these used
+          to break mid-phrase because they were hand-rolled with padding and no height (user,
+          2026-09-04).
         */}
         <div className="flex flex-wrap items-center gap-2 border-t border-[#eef0f3] bg-[#fafbfc] px-5 py-3">
           {!locked && (
@@ -614,7 +658,7 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
               variant="text"
               size="sm"
               disabled={archiveLead.isPending}
-              className="text-muted hover:text-ink-700"
+              className="px-0 text-muted hover:text-ink-700"
               onClick={() => {
                 if (
                   !window.confirm(
@@ -626,19 +670,6 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
               }}
             >
               Archive
-            </Button>
-          )}
-          <Button
-            variant="secondary"
-            className="whitespace-nowrap"
-            onClick={() => setMeetingOpen(true)}
-          >
-            <CalendarPlus size={14} />
-            Schedule meeting
-          </Button>
-          {!locked && lead.outcome !== "lost" && (
-            <Button variant="secondary" onClick={() => setEditOpen(true)}>
-              Edit
             </Button>
           )}
 
@@ -684,17 +715,6 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function LeadField({ label, value }: { label: string; value: string | null }) {
-  return (
-    <div>
-      <div className="mb-[3px] text-[11px] uppercase tracking-[.4px] text-muted-400">
-        {label}
-      </div>
-      <div className="text-[13px] text-ink-700">{value || "—"}</div>
     </div>
   );
 }
