@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { DndContext, DragOverlay } from "@dnd-kit/core";
 import {
@@ -788,7 +788,15 @@ function BoardCard({
 }) {
   // sortable, not merely draggable: the card is also a DROP TARGET, which is what lets another
   // card be placed above or below it rather than only somewhere in the column
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
     id: task.id,
     // the board now drags TWO kinds of thing; `onDragEnd` and the collision detection both ask
     data: { type: DRAG_CARD },
@@ -807,11 +815,29 @@ function BoardCard({
     animateLayoutChanges: () => false,
   });
 
+  /**
+   * The card is also the ACTIVATOR, so a keyboard drag starts only from the card itself.
+   *
+   * dnd-kit's keyboard sensor listens for Space and Enter on the card, and React bubbles every
+   * key pressed inside it to that listener: the Done and Track buttons, and the Stop timer window,
+   * which is drawn inside the card. With no activator named, the sensor took any of them, swallowed
+   * the key and lifted the card. So a space typed into the timer's comment never arrived, and the
+   * window shrank into the lifted card (user, 2026-09-18). Named, the sensor ignores a key whose
+   * target is anything but the card; focusing the card and pressing Space still drags it.
+   */
+  const nodeRef = useCallback(
+    (node: HTMLElement | null) => {
+      setNodeRef(node);
+      setActivatorNodeRef(node);
+    },
+    [setNodeRef, setActivatorNodeRef],
+  );
+
   return (
     <CardFace
       task={task}
       team={team}
-      nodeRef={setNodeRef}
+      nodeRef={nodeRef}
       wiring={{ ...attributes, ...listeners, onClick: () => !isDragging && onOpen() }}
       style={{
         // CSS.Translate, not the raw transform: sortable also animates the cards that move ASIDE,
