@@ -2,7 +2,13 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../../app.js";
 import { prisma } from "../../core/db.js";
-import { LISTENER_APPLICATION_NAME, publish, realtimeListening } from "../../core/realtime.js";
+import {
+  LISTENER_APPLICATION_NAME,
+  publish,
+  realtimeListening,
+  releaseRealtime,
+  retainRealtime,
+} from "../../core/realtime.js";
 import { createPeople, removePeople, type Person } from "../../test/people.js";
 import { openTestStream, type TestStream } from "../../test/stream-probe.js";
 
@@ -103,6 +109,36 @@ describe("delivery through LISTEN/NOTIFY", () => {
       payload: { pingId: "hello" },
     });
     expect(res.statusCode).toBe(400);
+  });
+
+  it("keeps one listener, and delivers once, when released and retained again mid-connect", async () => {
+    const tab = await streamOf(olena);
+    const listeners = async () => {
+      const [{ n }] = await prisma.$queryRaw<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM pg_stat_activity
+         WHERE application_name = ${LISTENER_APPLICATION_NAME}
+           AND datname = current_database()`;
+      return n;
+    };
+
+    // the app holds one; let go of it, then take it, drop it and take it again before any connects
+    await releaseRealtime();
+    const first = retainRealtime(app.log);
+    const dropped = releaseRealtime();
+    const second = retainRealtime(app.log);
+    await Promise.all([first, dropped, second]);
+    expect(realtimeListening()).toBe(true);
+    // the superseded attempt ends its own connection a moment after it finishes connecting
+    for (let i = 0; i < 50 && (await listeners()) !== 1; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(await listeners()).toBe(1);
+
+    const pingId = randomUUID();
+    await publish([olena.id], "pong", { pingId });
+    await tab.next("pong");
+    await new Promise((r) => setTimeout(r, 200));
+    expect(tab.raw().split(pingId).length - 1).toBe(1);
   });
 
   it("tells every stream to refetch when the listener loses the database, then delivers again", async () => {

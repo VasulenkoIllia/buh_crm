@@ -67,9 +67,9 @@ export async function setPolicy(gate: GateKey, role: UserRole, input: SetAccessS
   const from = await repo.currentPolicyState(gate, role);
   await repo.upsertPolicy(gate, role, input.state);
   invalidateAccessCache();
-  // an open chat stream is a request that outlives this decision: every one is checked again now
-  await publish("everyone", "recheck", {});
   if (from !== input.state) {
+    // an open chat stream is a request that outlives this decision: every one is checked again now
+    await publish("everyone", "recheck", {});
     record("access.policy_changed", {
       // the gate and the role are the subject's identity, so they belong in the label a screen
       // reads, not inside the diff
@@ -86,8 +86,8 @@ export async function setOverride(userId: string, gate: GateKey, input: SetAcces
   const from = await repo.currentOverrideState(userId, gate);
   await repo.upsertOverride(userId, gate, input.state);
   invalidateAccessCache();
-  await publish([userId], "recheck", {});
   if (from !== input.state) {
+    await publish([userId], "recheck", {});
     record("access.override_set", {
       // the PERSON is the subject: "what has been done to this account" is asked about them, and
       // `[subject, subjectId]` is the index that answers it
@@ -104,8 +104,8 @@ export async function clearOverride(userId: string, gate: GateKey) {
   const from = await repo.currentOverrideState(userId, gate);
   await repo.deleteOverride(userId, gate);
   invalidateAccessCache();
-  await publish([userId], "recheck", {});
   if (from !== null) {
+    await publish([userId], "recheck", {});
     record("access.override_cleared", {
       subjectId: userId,
       subjectLabel: GATE_COPY[gate].label,

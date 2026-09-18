@@ -71,6 +71,11 @@ interface OpenStream {
   sessionId: string | null;
   openedAt: number;
   out: PassThrough;
+  /**
+   * The app that opened it. Production runs one, but a test process may hold two, and closing one
+   * must not end the other's streams (review, 2026-09-18).
+   */
+  owner: object;
   /** ended by a shutdown: its person is not announced as offline, since they will be right back */
   quiet?: true;
 }
@@ -215,7 +220,7 @@ export async function recheckStreams(to: Recipients): Promise<void> {
  * Opens the caller's stream. The access hook has already run: the caller is signed in and the
  * `chat` gate is open for them.
  */
-export function openStream(request: FastifyRequest, reply: FastifyReply) {
+export function openStream(request: FastifyRequest, reply: FastifyReply, owner: object) {
   const user = request.currentUser!;
   const out = new PassThrough();
   const stream: OpenStream = {
@@ -224,6 +229,7 @@ export function openStream(request: FastifyRequest, reply: FastifyReply) {
     sessionId: sessionIdOf(request),
     openedAt: Date.now(),
     out,
+    owner,
   };
 
   const mine = [...streams.values()].filter((s) => s.userId === user.id);
@@ -281,18 +287,21 @@ export function deliverToStreams(delivery: RealtimeDelivery) {
 }
 
 /**
- * Ends every open stream, with no `bye`: the browsers reconnect on their own, to whichever process
- * answers next. Called from the module's `preClose`, because `app.close()` waits for every open
- * connection to finish and a stream never does (chat.md §7.4). Nobody is announced as offline:
- * they are back in a few seconds.
+ * Ends every stream this app opened, with no `bye`: the browsers reconnect on their own, to
+ * whichever process answers next. Called from the module's `preClose`, because `app.close()` waits
+ * for every open connection to finish and a stream never does (chat.md §7.4). Nobody is announced
+ * as offline: they are back in a few seconds.
  */
-export function closeAllStreams() {
+export function closeAllStreams(owner: object) {
   for (const stream of [...streams.values()]) {
+    if (stream.owner !== owner) continue;
     stream.quiet = true;
     end(stream);
   }
-  for (const timer of leaving.values()) clearTimeout(timer);
-  leaving.clear();
+  if (streams.size === 0) {
+    for (const timer of leaving.values()) clearTimeout(timer);
+    leaving.clear();
+  }
   stopHeartbeatIfIdle();
 }
 

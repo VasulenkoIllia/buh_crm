@@ -17,6 +17,7 @@ import type {
 } from "@shared/schema/two-factor.js";
 import type { User } from "../../generated/prisma/client.js";
 import { destroyAllUserSessions, generateToken, hashToken } from "../../core/auth.js";
+import { publish } from "../../core/realtime.js";
 import { record, SYSTEM_ACTOR } from "../../core/activity.js";
 import {
   AppError,
@@ -278,6 +279,8 @@ export async function setPolicy(policy: TwoFactorPolicy): Promise<TwoFactorTeamO
   if (current.policy !== policy) {
     await repo.writePolicy(policy, new Date());
     invalidateTwoFactorPolicy();
+    // an open chat stream is held under the rule it opened with: every one is checked again now
+    await publish("everyone", "recheck", {});
     record("settings.two_factor_policy_changed", {
       subjectLabel: "Two-factor sign-in",
       changes: { policy: { from: POLICY_WORDS[current.policy], to: POLICY_WORDS[policy] } },

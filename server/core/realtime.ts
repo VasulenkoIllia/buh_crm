@@ -145,6 +145,13 @@ let client: Client | null = null;
 let retainers = 0;
 let attempt = 0;
 let reconnectTimer: NodeJS.Timeout | null = null;
+/**
+ * **Only the newest attempt to connect may become the listener.** Released and retained again while
+ * one attempt was still connecting, a second starts; without this, whichever finished last replaced
+ * the other without ending it, and every notification was then delivered twice by two connections
+ * (review, 2026-09-18). An attempt that is no longer the newest ends itself.
+ */
+let newest = 0;
 
 /** Whether this process is listening right now; the System screen shows it (stage 0.4). */
 export function realtimeListening(): boolean {
@@ -184,6 +191,7 @@ function lost(c: Client, err?: Error) {
 }
 
 async function connect(isReconnect: boolean) {
+  const attemptNo = ++newest;
   const c = new Client({
     connectionString: config.DATABASE_URL,
     application_name: LISTENER_APPLICATION_NAME,
@@ -193,18 +201,22 @@ async function connect(isReconnect: boolean) {
   // attached before anything can fail: an `error` with no listener would take the process down
   c.on("error", (err) => lost(c, err));
   c.on("end", () => lost(c));
-  c.on("notification", onNotification);
+  // only the listener speaks: a superseded attempt that got as far as LISTEN stays silent
+  c.on("notification", (message) => {
+    if (client === c) onNotification(message);
+  });
   try {
     await c.connect();
     await c.query(`LISTEN ${REALTIME_CHANNEL}`);
   } catch (err) {
-    logger?.error({ err }, "realtime: could not listen; trying again shortly");
     c.end().catch(() => {});
+    if (attemptNo !== newest) return; // superseded: the newer attempt decides
+    logger?.error({ err }, "realtime: could not listen; trying again shortly");
     scheduleReconnect();
     return;
   }
-  if (retainers === 0) {
-    await c.end().catch(() => {}); // released while it was connecting
+  if (retainers === 0 || attemptNo !== newest) {
+    await c.end().catch(() => {}); // released, or superseded, while it was connecting
     return;
   }
   client = c;
@@ -229,6 +241,7 @@ export async function releaseRealtime() {
   if (reconnectTimer) clearTimeout(reconnectTimer);
   reconnectTimer = null;
   attempt = 0;
+  newest++; // an attempt still connecting now ends itself
   const c = client;
   client = null;
   await c?.end().catch(() => {});

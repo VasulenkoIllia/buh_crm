@@ -23,7 +23,7 @@ export async function registerRoutes(instance: FastifyInstance) {
       exposeHeadRoute: false,
       config: { ...gate("chat"), ...STREAM },
     },
-    async (request, reply) => openStream(request, reply),
+    async (request, reply) => openStream(request, reply, instance),
   );
 
   /**

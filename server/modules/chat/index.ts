@@ -15,7 +15,7 @@ export async function chatModule(app: FastifyInstance) {
     listening = true;
   });
   // `app.close()` waits for every open connection, and a stream never finishes by itself
-  app.addHook("preClose", async () => closeAllStreams());
+  app.addHook("preClose", async () => closeAllStreams(app));
   app.addHook("onClose", async () => {
     if (listening) await releaseRealtime();
   });

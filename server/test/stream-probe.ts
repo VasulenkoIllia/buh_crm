@@ -62,7 +62,11 @@ export async function openTestStream(
       let raw = "";
       let pending = "";
       const queue: StreamEvent[] = [];
-      let waiter: (() => void) | null = null;
+      // every `next()` still waiting, so two awaited at once on one stream both hear their event
+      const waiters = new Set<() => void>();
+      const wake = () => {
+        for (const waiter of [...waiters]) waiter();
+      };
       let endedResolve!: () => void;
       const ended = new Promise<void>((r) => (endedResolve = r));
 
@@ -76,12 +80,12 @@ export async function openTestStream(
           pending = pending.slice(cut + 2);
           if (parsed) queue.push(parsed);
         }
-        waiter?.();
+        wake();
       });
       res.on("end", () => endedResolve());
       res.on("close", () => {
         endedResolve();
-        waiter?.();
+        wake();
       });
 
       const isStream = String(res.headers["content-type"] ?? "").startsWith(
@@ -91,17 +95,17 @@ export async function openTestStream(
       const next = (event?: string, timeoutMs = 2_000) =>
         new Promise<StreamEvent>((ok, fail) => {
           const timer = setTimeout(() => {
-            waiter = null;
+            waiters.delete(look);
             fail(new Error(`no "${event ?? "any"}" event within ${timeoutMs} ms; got: ${raw}`));
           }, timeoutMs);
-          const look = () => {
+          function look() {
             const at = queue.findIndex((e) => !event || e.event === event);
             if (at === -1) return;
             clearTimeout(timer);
-            waiter = null;
-            ok(queue.splice(0, at + 1).pop()!);
-          };
-          waiter = look;
+            waiters.delete(look);
+            ok(queue.splice(at, 1)[0]);
+          }
+          waiters.add(look);
           look();
         });
 
