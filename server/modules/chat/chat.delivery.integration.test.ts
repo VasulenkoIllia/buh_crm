@@ -78,6 +78,33 @@ describe("delivery through LISTEN/NOTIFY", () => {
     expect((await petroTab.next("pong")).data).toEqual({ pingId });
   });
 
+  it("answers the delivery test with a pong to the caller alone", async () => {
+    const olenaTab = await streamOf(olena);
+    const petroTab = await streamOf(petro);
+    const pingId = randomUUID();
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/chat/stream/ping",
+      headers: { cookie: olena.cookie },
+      payload: { pingId },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ listening: true });
+    expect((await olenaTab.next("pong")).data).toEqual({ pingId });
+    await expectNothing(petroTab, "pong");
+  });
+
+  it("refuses a delivery test whose id is not an id", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/chat/stream/ping",
+      headers: { cookie: olena.cookie },
+      payload: { pingId: "hello" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
   it("tells every stream to refetch when the listener loses the database, then delivers again", async () => {
     const olenaTab = await streamOf(olena);
     const petroTab = await streamOf(petro);

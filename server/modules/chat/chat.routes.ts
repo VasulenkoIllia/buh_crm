@@ -2,7 +2,8 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { gate } from "../../core/access.js";
 import type { StreamRouteConfig } from "../../core/route-inventory.js";
-import type { ChatPresence } from "@shared/schema/chat.js";
+import { chatPingInput, type ChatPingResult, type ChatPresence } from "@shared/schema/chat.js";
+import { publish, realtimeListening } from "../../core/realtime.js";
 import { onlinePeople, openStream } from "./chat.stream.js";
 
 const STREAM: StreamRouteConfig = { stream: true };
@@ -23,6 +24,20 @@ export async function registerRoutes(instance: FastifyInstance) {
       config: { ...gate("chat"), ...STREAM },
     },
     async (request, reply) => openStream(request, reply),
+  );
+
+  /**
+   * **The delivery test** (Settings → System, "Live connection"): a `pong` to the caller alone,
+   * through the same `NOTIFY` every chat event takes, so the tab can time the whole round trip. It
+   * changes nothing, which is why it is a quiet route (`server/test/quiet-routes.ts`).
+   */
+  app.post(
+    "/stream/ping",
+    { config: gate("chat"), schema: { body: chatPingInput } },
+    async (request): Promise<ChatPingResult> => {
+      await publish([request.currentUser!.id], "pong", { pingId: request.body.pingId });
+      return { listening: realtimeListening() };
+    },
   );
 
   /**

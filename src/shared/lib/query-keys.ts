@@ -31,5 +31,9 @@ export const VAULT_KEY = ["vault"] as const;
  */
 export const ACTIVITY_KEY = ["activity"] as const;
 export const ACTIVITY_POLICIES_KEY = ["activity", "policies"] as const;
+/** The chat (chat.md): a `resync` from the live connection refetches everything under it. */
+export const CHAT_KEY = ["chat"] as const;
+/** who is online, kept current by the stream's `presence` events */
+export const CHAT_PRESENCE_KEY = ["chat", "presence"] as const;
 // the signed-in user's own key stays with the auth provider that owns it (`ME_QUERY_KEY`
 // in app/auth.tsx) — shared/ must not reach up into app/

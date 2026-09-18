@@ -19,4 +19,7 @@ export const QUIET_ROUTES: Record<string, string> = {
   "POST /api/two-factor/me/setup":
     "stores an UNCONFIRMED secret on the caller's own row — nothing is switched on until the " +
     "confirm, which is the act and records `user.two_factor_enabled` (two-factor.md §6.1)",
+  "POST /api/chat/stream/ping":
+    "the live connection's delivery test: sends the caller an event of their own and stores " +
+    "nothing (chat.md §15.1, step 0.4)",
 };

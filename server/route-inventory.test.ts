@@ -115,11 +115,12 @@ describe("route inventory", () => {
       // and one that saves its text, in each of the three places a person may write in.
       // +4 for a free-form secret's files (secrets.md §21, 2026-09-18): add, open, download, remove.
       // +1 the same day, the chat's live connection (chat.md §7.1): a stream, with no derived HEAD.
-      // +1 and its HEAD for who is online (§5.4), a read.
-      total: 344,
+      // +1 and its HEAD for who is online (§5.4), a read. +1 for the delivery test on Settings →
+      // System, which sends the caller an event and changes nothing.
+      total: 345,
       derivedHead: 85,
-      real: 259,
-      api: 258, // everything but /health
+      real: 260,
+      api: 259, // everything but /health
       anonymous: 9, // 6 credential routes, 2 unsubscribe pages, /health
       // `POST /tasks/timer/start` moved to the `tasks` gate during the 2026-09-07 audit. It takes a
       // taskId and writes against somebody else's module, so it was never really "the caller's own
@@ -127,7 +128,7 @@ describe("route inventory", () => {
       // second factor and name nobody else.
       own: 15,
       shared: 9,
-      gated: 226,
+      gated: 227,
       adminOnly: 20,
     });
   });

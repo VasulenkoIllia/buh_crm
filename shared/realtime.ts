@@ -26,6 +26,12 @@ export type ByeReason =
 export interface RealtimeEvents {
   /** the first event of every stream */
   hello: { streamId: string; heartbeatMs: number };
+  /**
+   * Every `heartbeatMs`, to keep proxies from idling the connection out. An event rather than an
+   * SSE comment, because a browser never sees a comment: this is also how a tab notices a connection
+   * that died without closing, and opens a new one.
+   */
+  heartbeat: Record<string, never>;
   /** the stream is about to end, and the tab must not reconnect */
   bye: { reason: ByeReason };
   /**
@@ -33,7 +39,7 @@ export interface RealtimeEvents {
    * refetches everything it holds. Sent by the process itself, never published.
    */
   resync: Record<string, never>;
-  /** the answer to a delivery test, which measures the round trip (stage 0.4) */
+  /** the answer to a delivery test, which measures the round trip (`POST /api/chat/stream/ping`) */
   pong: { pingId: string };
   /**
    * A colleague came online (their first tab opened) or went offline (their last tab closed, and
@@ -45,5 +51,25 @@ export interface RealtimeEvents {
 
 export type RealtimeEventName = keyof RealtimeEvents;
 
-/** The events that go through `LISTEN/NOTIFY`; `hello`, `bye` and `resync` are a stream's own. */
-export type PublishedEventName = Exclude<RealtimeEventName, "hello" | "bye" | "resync">;
+/** The events that go through `LISTEN/NOTIFY`; the other four are a stream's own. */
+export type PublishedEventName = Exclude<
+  RealtimeEventName,
+  "hello" | "heartbeat" | "bye" | "resync"
+>;
+
+/**
+ * Every event name, as a value: an `EventSource` hears a named event only through a listener for
+ * that name. The check below fails to compile when an event is added to `RealtimeEvents` and not
+ * here.
+ */
+export const REALTIME_EVENT_NAMES = [
+  "hello",
+  "heartbeat",
+  "bye",
+  "resync",
+  "pong",
+  "presence",
+] as const satisfies readonly RealtimeEventName[];
+
+type Unlisted = Exclude<RealtimeEventName, (typeof REALTIME_EVENT_NAMES)[number]>;
+export const EVERY_EVENT_LISTED: [Unlisted] extends [never] ? true : Unlisted = true;

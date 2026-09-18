@@ -19,6 +19,7 @@ import { fmtBytes, fmtDateTime, relativeTime } from "@/shared/lib/format";
 import { cn } from "@/shared/lib/cn";
 import { JOB_TONE_COLORS } from "@/shared/lib/colors";
 import { InfoHint } from "@/shared/ui/info-hint";
+import { LiveConnectionPanel } from "./live-connection";
 import { useStorage, useSystemHealth } from "./settings.api";
 
 /**
@@ -98,6 +99,8 @@ export function SystemStatusSection() {
           </section>
         );
       })}
+
+      <LiveConnectionPanel />
 
       <StoragePanel />
 

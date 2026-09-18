@@ -237,6 +237,11 @@
     "stream": true
   },
   {
+    "method": "POST",
+    "url": "/api/chat/stream/ping",
+    "access": "gate:chat"
+  },
+  {
     "method": "GET",
     "url": "/api/clients",
     "access": "shared"

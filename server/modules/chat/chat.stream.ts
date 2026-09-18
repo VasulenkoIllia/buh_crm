@@ -37,9 +37,10 @@ import { mustEnrol } from "../../core/two-factor-policy.js";
  */
 
 /**
- * A comment line on every stream at this interval. Cloudflare drops a connection that sends nothing
- * for about 100 seconds (documented, not yet measured here: chat.md §21), and a stream quiet for
- * that long is the normal state of a chat nobody is writing in.
+ * A `heartbeat` event on every stream at this interval. Cloudflare drops a connection that sends
+ * nothing for about 100 seconds (documented, not yet measured here: chat.md §21), and a stream quiet
+ * for that long is the normal state of a chat nobody is writing in. The tab reads it too: a stream
+ * with no heartbeat for two intervals is dead however open it looks, and the tab opens a new one.
  */
 export const HEARTBEAT_MS = 25_000;
 
@@ -158,11 +159,12 @@ function stopHeartbeatIfIdle() {
 }
 
 /**
- * One pass of the heartbeat: a comment line on every open stream, then every stream checked again.
+ * One pass of the heartbeat: the event on every open stream, then every stream checked again.
  * Returns the check, so a test can wait for it.
  */
 export function heartbeatTick(): Promise<void> {
-  for (const stream of streams.values()) write(stream, ": heartbeat\n\n");
+  const beat = frame("heartbeat", {});
+  for (const stream of streams.values()) write(stream, beat);
   return recheckStreams("everyone");
 }
 

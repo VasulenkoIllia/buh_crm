@@ -73,11 +73,11 @@ describe("the chat stream", () => {
     expect(HEARTBEAT_MS).toBeLessThanOrEqual(30_000);
   });
 
-  it("sends a heartbeat comment on every open stream", async () => {
+  it("sends a heartbeat event on every open stream, which the tab can see", async () => {
     const stream = await open();
     await stream.next("hello");
-    heartbeatTick();
-    await until(() => stream.raw().includes(": heartbeat"), "the heartbeat");
+    await heartbeatTick();
+    expect((await stream.next("heartbeat")).data).toEqual({});
     stream.close();
   });
 
