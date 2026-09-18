@@ -8,6 +8,7 @@ import { Chip } from "@/shared/ui/chip";
 import { Modal } from "@/shared/ui/modal";
 import { useToast } from "@/shared/ui/toast";
 import type { UiPlace } from "./places";
+import { AttachmentsList } from "./attachments";
 import { revealSecret, useHistory } from "./secrets.api";
 import { TemplateIcon, labelOfField, summaryOf } from "./template-bits";
 import { UnlockModal, useVaultWindow } from "./unlock";
@@ -21,6 +22,9 @@ export const ACTION: Record<
   updated: { text: "Changed", tone: "gray" },
   deleted: { text: "Deleted", tone: "gray" },
   restored: { text: "Restored", tone: "teal" },
+  file_added: { text: "File added", tone: "teal" },
+  file_opened: { text: "File opened", tone: "blue" },
+  file_removed: { text: "File removed", tone: "gray" },
   moved: { text: "Moved", tone: "gray" },
   revealed: { text: "Viewed", tone: "blue" },
   purged: { text: "Removed for good", tone: "gray" },
@@ -39,7 +43,7 @@ export const ACTION: Record<
 /** What the window needs of a secret: a search hit carries all of it, and so does a list row. */
 export type Openable = Pick<
   SecretRow,
-  "id" | "template" | "label" | "description" | "fields" | "hasValue"
+  "id" | "template" | "label" | "description" | "fields" | "hasValue" | "files"
 >;
 
 export function SecretWindow({
@@ -111,7 +115,8 @@ export function SecretWindow({
             <TemplateIcon template={secret.template} big />
             <div className="min-w-0">
               <p className="text-[13px] text-muted">{sub}</p>
-              {!secret.hasValue && (
+              {/* a reference only when nothing at all is kept here, files included (§21) */}
+              {!secret.hasValue && secret.files.length === 0 && (
                 <Chip tone="gray" size="sm" className="mt-1">
                   reference only
                 </Chip>
@@ -195,11 +200,13 @@ export function SecretWindow({
               )}
               {error && <p className="mt-2 text-[12px] text-danger-text">{error}</p>}
             </div>
-          ) : (
+          ) : secret.files.length === 0 ? (
             <p className="rounded-(--radius-card) bg-divider px-3 py-2 text-[12.5px] text-ink-700">
               Nothing is stored here. The description says where it lives.
             </p>
-          )}
+          ) : null}
+
+          {secret.files.length > 0 && <AttachmentsList files={secret.files} />}
 
           <div>
             <p className="mb-1 text-[11px] font-semibold uppercase tracking-[.04em] text-muted-400">

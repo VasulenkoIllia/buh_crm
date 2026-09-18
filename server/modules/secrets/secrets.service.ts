@@ -33,6 +33,7 @@ import { ForbiddenError, NotFoundError, ValidationError } from "../../core/error
 import { open, seal, secretsConfigured } from "../../core/secrets-crypto.js";
 import { diff, record } from "../../core/activity.js";
 import { opens, readerOf, requireOpen, requireReadable } from "../files/index.js";
+import { fileRowOf } from "./secrets.file-row.js";
 import { trashWhere } from "./secrets.trash.js";
 import * as repo from "./secrets.repository.js";
 import type { Place } from "./secrets.repository.js";
@@ -43,7 +44,7 @@ const GRANT_MS = GRANT_MINUTES * 60_000;
 /** session id → when its grant expires. Cleared by a restart, deliberately. */
 const grants = new Map<string, number>();
 
-function activeGrant(sessionId: string | null): number | null {
+export function activeGrant(sessionId: string | null): number | null {
   if (!sessionId) return null;
   const until = grants.get(sessionId);
   if (!until) return null;
@@ -315,6 +316,7 @@ export async function listSecrets(place: Place) {
       // who changed it last, which is who the list's "Changed" column names (§15)
       updatedByName: nameOf(s.updatedBy) ?? nameOf(s.createdBy),
       updatedAt: s.updatedAt.toISOString(),
+      files: s.files.map(fileRowOf),
     })),
   );
 }

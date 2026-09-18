@@ -11,6 +11,7 @@
 import type { User } from "../../generated/prisma/client.js";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { record } from "../../core/activity.js";
+import { deleteStoredFile } from "../../core/files.js";
 import { NotFoundError } from "../../core/errors.js";
 import * as repo from "./secrets.repository.js";
 import { placesSeenBy } from "./secrets.search.js";
@@ -155,9 +156,22 @@ export async function purgeTrash(options: { now?: Date } = {}) {
   const clients = await repo.clientLabels([
     ...new Set(due.flatMap((r) => (r.clientId ? [r.clientId] : []))),
   ]);
-  await repo.deleteSecrets(due.map((r) => r.id));
+  // A secret's files go with it (§21): their bytes first, through `core/files.ts`, and then the
+  // secret's row, whose cascade takes theirs. A secret whose bytes a store refused stays in the
+  // Trash, whole, and the next night tries again, as the library's purge does.
+  const kept = new Set<string>();
+  for (const f of await repo.filesOfSecrets(due.map((r) => r.id))) {
+    try {
+      await deleteStoredFile(f);
+    } catch (error) {
+      kept.add(f.secretId ?? "");
+      console.error(`secrets: the purge could not remove the bytes of file ${f.id}`, error);
+    }
+  }
+  const gone = due.filter((r) => !kept.has(r.id));
+  await repo.deleteSecrets(gone.map((r) => r.id));
 
-  for (const row of due) {
+  for (const row of gone) {
     record("secret.purged", {
       subjectId: row.id,
       subjectLabel: row.space === "personal" ? "a personal secret" : row.label,
@@ -165,6 +179,11 @@ export async function purgeTrash(options: { now?: Date } = {}) {
       changes: { from: placeWords(row, clients) },
     });
   }
-  const one = due.length === 1;
-  return { note: `${due.length} secret${one ? "" : "s"} removed for good` };
+  const one = gone.length === 1;
+  const note = `${gone.length} secret${one ? "" : "s"} removed for good`;
+  return {
+    note: kept.size
+      ? `${note}; ${kept.size} kept for tomorrow, their files could not be removed`
+      : note,
+  };
 }

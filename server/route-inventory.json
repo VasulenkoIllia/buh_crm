@@ -1234,6 +1234,26 @@
     "access": "gate:secrets"
   },
   {
+    "method": "POST",
+    "url": "/api/secrets/files",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/secrets/files/:fileId",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "GET",
+    "url": "/api/secrets/files/:fileId",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "GET",
+    "url": "/api/secrets/files/:fileId/view",
+    "access": "gate:secrets"
+  },
+  {
     "method": "GET",
     "url": "/api/secrets/grant",
     "access": "gate:secrets"

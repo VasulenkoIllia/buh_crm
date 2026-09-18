@@ -26,6 +26,7 @@ import type { Prisma, User } from "../../generated/prisma/client.js";
 import { clientText, clientWord, codeOf, wordsOf } from "../../core/client-search.js";
 import { NotFoundError } from "../../core/errors.js";
 import { opens, readerOf } from "../files/index.js";
+import { fileRowOf } from "./secrets.file-row.js";
 import * as repo from "./secrets.repository.js";
 
 const HITS = 50;
@@ -135,6 +136,7 @@ export async function search(user: User, query: SecretSearchQuery): Promise<Secr
       fields: repo.openFields(row.fields),
       hasValue: row.ciphertext !== null,
       updatedAt: row.updatedAt.toISOString(),
+      files: row.files.map(fileRowOf),
       path: crumbs.map((c) => c.label).join(" › "),
       crumbs,
     };

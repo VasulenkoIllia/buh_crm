@@ -37,6 +37,7 @@ const PLACES = [
   "Company",
   "My files, everyone's together",
   "Logos and avatars, outside the library",
+  "Attached to secrets, in the vault",
 ] as const;
 type PlaceLabel = (typeof PLACES)[number];
 
@@ -52,6 +53,8 @@ function judge(f: repo.FileForCheck): Verdict {
     return { problem: "in one client's zone while carrying another client" };
   }
   if (f.folder?.deletedAt) return { problem: "live inside a folder that is in the Trash" };
+  // a CHECK keeps a secret's file out of everything else, so this only names where it is
+  if (f.secretId) return { place: "Attached to secrets, in the vault" };
   if (f.avatarOfUser || f.logoOfProfile || f.mailLogoOfProfile) {
     return f.scope
       ? { problem: "a logo or an avatar inside the library" }

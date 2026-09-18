@@ -3,19 +3,22 @@ import type { SecretTemplate } from "@shared/schema/secrets.js";
 import type { Prisma, SecretAuditAction } from "../../generated/prisma/client.js";
 import { prisma } from "../../core/db.js";
 import { ForbiddenError } from "../../core/errors.js";
+import type { StoredFile } from "../../core/files.js";
 import type { SealedSecret } from "../../core/secrets-crypto.js";
 
 type Tx = Prisma.TransactionClient;
 
 /**
  * What the search reads (secrets.md §10): the open words of a secret, lower-cased, written on every
- * save. The title, the description and the template's OPEN fields — never a secret field, which is
- * the rule a test proves by searching for a stored password and finding nothing.
+ * save. The title, the description, the template's OPEN fields and the names of its files (§21) —
+ * never a secret field, which is the rule a test proves by searching for a stored password and
+ * finding nothing.
  */
 export const searchTextOf = (
   label: string,
   description: string | null,
   fields: Record<string, string> = {},
+  fileNames: string[] = [],
 ) =>
   // a card's last four are open, to tell two cards apart in a list, but the search never reads a
   // number of that kind (§3.2)
@@ -23,6 +26,7 @@ export const searchTextOf = (
     label,
     description ?? "",
     ...Object.entries(fields).flatMap(([k, v]) => (k === "last4" ? [] : [v])),
+    ...fileNames,
   ]
     .join(" ")
     .replace(/\s+/g, " ")
@@ -79,10 +83,27 @@ async function ownerStillHere(tx: Tx, ownerId: string) {
   if (rows.length === 0) throw new ForbiddenError("These personal secrets are no longer open");
 }
 
+const ownersIn = (owners: (string | null)[]) =>
+  [...new Set(owners.filter((o): o is string => !!o))].sort();
+
 /** `write`, behind the guard for every My secrets it touches; with none, straight through. */
 function guarded<T>(owners: (string | null)[], write: (db: Tx) => Promise<T>): Promise<T> {
-  const ids = [...new Set(owners.filter((o): o is string => !!o))].sort();
+  const ids = ownersIn(owners);
   if (ids.length === 0) return write(prisma);
+  return prisma.$transaction(async (tx) => {
+    for (const id of ids) await ownerStillHere(tx, id);
+    return write(tx);
+  });
+}
+
+/**
+ * As `guarded`, and ALWAYS in one transaction: for a write whose statements must hold together,
+ * such as a row lock, a count and an insert. `guarded` goes straight through when no My secrets is
+ * touched, and a `FOR UPDATE` outside a transaction is released the moment it returns (security
+ * review, 2026-09-18: Company's five-file limit could be passed by two uploads at once).
+ */
+function locked<T>(owners: (string | null)[], write: (db: Tx) => Promise<T>): Promise<T> {
+  const ids = ownersIn(owners);
   return prisma.$transaction(async (tx) => {
     for (const id of ids) await ownerStillHere(tx, id);
     return write(tx);
@@ -111,6 +132,7 @@ export function listSecrets(place: Place) {
       fields: true,
       updatedAt: true,
       movedFromName: true,
+      files: { select: FILE_ROW, orderBy: { createdAt: "asc" } },
       // presence only — enough to tell a real secret from a pointer-only entry
       ciphertext: true,
       createdBy: { select: { firstName: true, lastName: true } },
@@ -174,14 +196,20 @@ export function updateSecret(
       keyVersion: data.sealed.keyVersion,
     };
   }
-  return guarded([ownerOf(place)], (db) =>
+  return locked([ownerOf(place)], async (db) =>
     db.secret.update({
       where: { id },
       data: {
         label: data.label,
         description: data.description,
         fields: data.fields,
-        searchText: searchTextOf(data.label, data.description, data.fields),
+        // the files' names are part of what the search reads, and an edit must not drop them
+        searchText: searchTextOf(
+          data.label,
+          data.description,
+          data.fields,
+          await fileNamesOf(db, id),
+        ),
         updatedBy: { connect: { id: data.updatedById } },
         ...crypto,
       },
@@ -267,6 +295,121 @@ export function trashMany(place: Place, ids: string[], deletedById: string, batc
   );
 }
 
+// ── a free-form secret's files (secrets.md §21) ──────────────────────────────
+
+/** What a list, a hit and the entry's window show of a file: open facts, never the bytes. */
+const FILE_ROW = {
+  id: true,
+  name: true,
+  size: true,
+  detectedMime: true,
+  createdAt: true,
+} satisfies Prisma.FileSelect;
+
+async function fileNamesOf(db: Tx, secretId: string): Promise<string[]> {
+  const rows = await db.file.findMany({ where: { secretId }, select: { name: true } });
+  return rows.map((r) => r.name);
+}
+
+/** Writes the search words again after a file came or went: a name is part of them (§21). */
+async function refreshSearchText(db: Tx, secretId: string) {
+  const secret = await db.secret.findUniqueOrThrow({
+    where: { id: secretId },
+    select: { label: true, description: true, fields: true },
+  });
+  await db.secret.update({
+    where: { id: secretId },
+    data: {
+      searchText: searchTextOf(
+        secret.label,
+        secret.description,
+        openFields(secret.fields),
+        await fileNamesOf(db, secretId),
+      ),
+    },
+    select: { id: true },
+  });
+}
+
+/**
+ * **A file onto a secret**, the bytes already stored and sealed by `core/files.ts`. The secret's row
+ * is locked first, so two uploads at the same moment cannot pass the limit together and a secret
+ * deleted meanwhile takes nothing; a My secrets owner who is no longer active refuses it as every
+ * write into their list does. Null when the secret is not there, or holds its limit already.
+ */
+export function attachFile(
+  secretId: string,
+  owner: string | null,
+  limit: number,
+  data: StoredFile & {
+    name: string;
+    size: number;
+    mime: string;
+    detectedMime: string | null;
+    uploadedById: string;
+  },
+) {
+  return locked([owner], async (db) => {
+    const found = await db.$queryRaw<{ id: string }[]>`
+      SELECT id FROM "ClientSecret" WHERE id = ${secretId}::uuid AND "deletedAt" IS NULL FOR UPDATE
+    `;
+    if (found.length === 0) return { refused: "gone" as const };
+    if ((await db.file.count({ where: { secretId } })) >= limit) {
+      return { refused: "full" as const };
+    }
+    const row = await db.file.create({ data: { ...data, secretId }, select: FILE_ROW });
+    await refreshSearchText(db, secretId);
+    return { row };
+  });
+}
+
+/**
+ * A file through the secret it hangs on, only when that secret is one the reader may see (`seen`
+ * is `visibleTo`), so another's My secrets, a client behind a closed gate, an archived client and a
+ * secret in the Trash all answer "not found".
+ */
+export function findSecretFile(seen: Prisma.SecretWhereInput, fileId: string) {
+  return prisma.file.findFirst({
+    where: { id: fileId, secret: { is: seen } },
+    select: {
+      ...FILE_ROW,
+      path: true,
+      storage: true,
+      wrappedKey: true,
+      keyVersion: true,
+      secret: {
+        select: { id: true, label: true, space: true, ownerId: true, clientId: true },
+      },
+    },
+  });
+}
+
+/** The row goes, and the search stops reading its name. The service deletes the bytes after it. */
+export function removeFileRow(fileId: string, secretId: string, owner: string | null) {
+  return locked([owner], async (db) => {
+    await db.file.delete({ where: { id: fileId } });
+    await refreshSearchText(db, secretId);
+  });
+}
+
+/** Every file on the secrets a purge is about to remove: their bytes go before their rows. */
+export function filesOfSecrets(secretIds: string[]) {
+  return prisma.file.findMany({
+    where: { secretId: { in: secretIds } },
+    select: { id: true, secretId: true, path: true, storage: true },
+  });
+}
+
+/** One journal row per person, per file, per minute, as a reveal is counted (§6). */
+export function recentFileOpen(secretId: string, byUserId: string, label: string, since: Date) {
+  return prisma.secretAuditLog
+    .findFirst({
+      where: { secretId, byUserId, action: "file_opened", label, createdAt: { gte: since } },
+      select: { id: true },
+    })
+    .then(Boolean);
+}
+
 // ── a leaver's My secrets (secrets.md §8) ────────────────────────────────────
 
 /** What a person's My secrets holds, the Trash's included: the Block dialog's one figure. */
@@ -311,6 +454,7 @@ export function searchSecrets(where: Prisma.SecretWhereInput, take: number) {
       updatedAt: true,
       space: true,
       clientId: true,
+      files: { select: FILE_ROW, orderBy: { createdAt: "asc" } },
     },
   });
 }
@@ -342,6 +486,30 @@ export async function countByClient(ids: string[]): Promise<Map<string, number>>
 /** Is this secret one the reader may see at all? The place is inside `seen`. */
 export function findVisible(seen: Prisma.SecretWhereInput, id: string) {
   return prisma.secret.findFirst({ where: { AND: [seen, { id }] }, select: { id: true } });
+}
+
+/** The same, with what adding a file needs to know: where it is and what kind it is (§21). */
+export function findVisibleSecret(seen: Prisma.SecretWhereInput, id: string) {
+  return prisma.secret.findFirst({
+    where: { AND: [seen, { id }] },
+    select: {
+      id: true,
+      label: true,
+      template: true,
+      space: true,
+      ownerId: true,
+      clientId: true,
+    },
+  });
+}
+
+/** A secret's files, oldest first, for the answer to an add or a remove. */
+export function filesOf(secretId: string) {
+  return prisma.file.findMany({
+    where: { secretId },
+    select: FILE_ROW,
+    orderBy: { createdAt: "asc" },
+  });
 }
 
 /** A secret's own journal rows, newest first: who stored it, looked at it, changed it. */

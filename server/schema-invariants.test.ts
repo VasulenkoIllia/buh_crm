@@ -269,7 +269,12 @@ describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
    * `prisma migrate diff` sees neither CHECK, and it cannot see why `--reset` spares half a table.
    */
   it("keeps the vault's CHECKs and the reset rule that spares the firm's own credentials", async () => {
-    const CHECKS = ["Secret_place_matches_space", "Secret_trash_is_a_gesture"];
+    // the third keeps a secret's attachment out of the library, tasks, clients and the Files Trash
+    const CHECKS = [
+      "Secret_place_matches_space",
+      "Secret_trash_is_a_gesture",
+      "File_secret_stands_alone",
+    ];
     const checks = await prisma.$queryRaw<{ conname: string }[]>`
       SELECT conname::text FROM pg_constraint
       WHERE contype = 'c' AND conname::text = ANY (${CHECKS}::text[])
@@ -283,6 +288,8 @@ describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
     // what the rule DOES to the journal is proven by running it: secrets.integration.test.ts,
     // "a --reset keeps the history of a kept secret that once sat in a client"
     expect(sql).toContain(`UPDATE "SecretAuditLog" SET "clientId" = NULL`);
+    // and the files of the secrets it keeps stay with them (secrets.md §21)
+    expect(sql).toContain(`AND f."secretId" IS NULL;`);
   });
 
   it("keeps billing history un-blankable (ON DELETE RESTRICT on the provenance FKs)", async () => {

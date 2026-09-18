@@ -112,10 +112,11 @@ describe("route inventory", () => {
       // selection as one gesture (§9), one per place: My secrets, Company, a client.
       // +6 on 2026-09-17 for a text file made in the CRM (files.md §7.4): one that makes a `.txt`
       // and one that saves its text, in each of the three places a person may write in.
-      total: 337,
+      // +4 for a free-form secret's files (secrets.md §21, 2026-09-18): add, open, download, remove.
+      total: 341,
       derivedHead: 84,
-      real: 253,
-      api: 252, // everything but /health
+      real: 257,
+      api: 256, // everything but /health
       anonymous: 9, // 6 credential routes, 2 unsubscribe pages, /health
       // `POST /tasks/timer/start` moved to the `tasks` gate during the 2026-09-07 audit. It takes a
       // taskId and writes against somebody else's module, so it was never really "the caller's own
@@ -123,7 +124,7 @@ describe("route inventory", () => {
       // second factor and name nobody else.
       own: 15,
       shared: 9,
-      gated: 220,
+      gated: 224,
       adminOnly: 20,
     });
   });

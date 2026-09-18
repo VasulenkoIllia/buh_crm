@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Eye, RotateCcw, User } from "lucide-react";
+import { Eye, Paperclip, RotateCcw, User } from "lucide-react";
 import {
   SECRET_TEMPLATES,
   TEMPLATE_COPY,
@@ -49,6 +49,20 @@ export const Failed = () => (
   <p className="px-[18px] py-6 text-[13px] text-danger-text">Failed to load.</p>
 );
 
+/** A paperclip with how many files a secret holds; the names are in its window (§21). */
+function FileCount({ count }: { count: number }) {
+  if (count === 0) return null;
+  return (
+    <span
+      className="ml-1.5 inline-flex items-center gap-0.5 align-[1px] text-[11.5px] tabular-nums text-muted"
+      title={count === 1 ? "1 file" : `${count} files`}
+    >
+      <Paperclip size={12} aria-hidden />
+      {count}
+    </span>
+  );
+}
+
 /** One secret in a list: what it is, who touched it last, and the way into it. */
 function SecretRowView({
   secret,
@@ -95,11 +109,12 @@ function SecretRowView({
             <span className="font-medium text-ink [overflow-wrap:anywhere]">
               {secret.label}
             </span>
-            {!secret.hasValue && (
+            {!secret.hasValue && secret.files.length === 0 && (
               <Chip tone="gray" size="sm" className="ml-1.5 align-[1px]">
                 reference only
               </Chip>
             )}
+            <FileCount count={secret.files.length} />
             {/* a leaver's block moved it here, and whose it was stays visible (§8) */}
             {secret.movedFromName && (
               <Chip tone="amber" size="sm" className="ml-1.5 align-[1px]">
@@ -500,6 +515,7 @@ export function SearchPane({
                             <span className="font-medium text-ink [overflow-wrap:anywhere]">
                               {hit.label}
                             </span>
+                            <FileCount count={hit.files.length} />
                             <span className="block text-[11.5px] text-muted-400">
                               {TEMPLATE_COPY[hit.template].label}
                               {summaryOf(hit) && ` · ${summaryOf(hit)}`}

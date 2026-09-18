@@ -5,6 +5,7 @@ import { uuid } from "@shared/schema/common.js";
 import {
   deleteSecretsInput,
   moveSecretsInput,
+  secretFileTarget,
   secretInput,
   secretSearchQuery,
   unlockVaultInput,
@@ -12,6 +13,9 @@ import {
 import { gate } from "../../core/access.js";
 import { sessionIdOf } from "../../core/auth.js";
 import { clientIp } from "../../core/client-ip.js";
+import { ValidationError } from "../../core/errors.js";
+import { sendDownload, sendView } from "../files/index.js";
+import * as attachments from "./secrets.files.js";
 import * as searching from "./secrets.search.js";
 import * as service from "./secrets.service.js";
 import * as trash from "./secrets.trash.js";
@@ -20,6 +24,9 @@ const secretIdParams = z.object({ secretId: uuid });
 const clientParams = z.object({ clientId: uuid });
 const clientSecretParams = z.object({ clientId: uuid, secretId: uuid });
 const REVEAL_RATE_LIMIT = { max: 30, timeWindow: "1 minute" };
+const fileParams = z.object({ fileId: uuid });
+/** Five files a secret, one request each: this is room for a person, not for a script. */
+const FILE_UPLOAD_LIMIT = { max: 60, timeWindow: "1 minute" };
 
 /**
  * **The whole vault is behind one gate** (secrets.md §12): the Secrets menu, this module, and the
@@ -312,6 +319,78 @@ export async function registerRoutes(instance: FastifyInstance) {
         request.currentUser!,
         clientIp(request),
       ),
+  );
+
+  // ── a free-form secret's files (§21) ────────────────────────────────────────
+  // By the file's own id rather than by place: the service finds the secret the file hangs on
+  // through what the reader may see, and asks the second gate for a client's, as `clientPlace` does.
+
+  app.post(
+    "/files",
+    {
+      config: { ...vault, rateLimit: FILE_UPLOAD_LIMIT },
+      schema: { querystring: secretFileTarget },
+    },
+    async (request, reply) => {
+      const part = await request.file();
+      if (!part) throw new ValidationError("File is required");
+      const files = await attachments.attachFile(
+        request.currentUser!,
+        request.query.secretId,
+        { buffer: await part.toBuffer(), filename: part.filename, mimetype: part.mimetype },
+        clientIp(request),
+      );
+      return reply.status(201).send(files);
+    },
+  );
+
+  // Opening and downloading are looks at the secret: the vault's five minutes, the reveal's limit,
+  // and no HEAD, which fastify would answer by running the handler and logging a look nobody made.
+  app.get(
+    "/files/:fileId",
+    {
+      config: { ...vault, rateLimit: REVEAL_RATE_LIMIT },
+      schema: { params: fileParams },
+      exposeHeadRoute: false,
+    },
+    async (request, reply) =>
+      sendDownload(
+        reply,
+        await attachments.openFile(
+          sessionIdOf(request),
+          request.currentUser!,
+          request.params.fileId,
+          "download",
+          clientIp(request),
+        ),
+      ),
+  );
+
+  app.get(
+    "/files/:fileId/view",
+    {
+      config: { ...vault, rateLimit: REVEAL_RATE_LIMIT },
+      schema: { params: fileParams },
+      exposeHeadRoute: false,
+    },
+    async (request, reply) =>
+      sendView(
+        reply,
+        await attachments.openFile(
+          sessionIdOf(request),
+          request.currentUser!,
+          request.params.fileId,
+          "view",
+          clientIp(request),
+        ),
+      ),
+  );
+
+  app.delete(
+    "/files/:fileId",
+    { config: vault, schema: { params: fileParams } },
+    async (request) =>
+      attachments.removeFile(request.currentUser!, request.params.fileId, clientIp(request)),
   );
 
   // the client card's Access log, which reads that client's journal rows (§11)

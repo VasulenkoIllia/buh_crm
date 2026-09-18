@@ -862,6 +862,45 @@ const EVENTS = {
     changeKeys: ["secrets", "trashed", "from", "to"],
     enabledByDefault: true,
   },
+  /**
+   * A free-form secret's files (secrets.md §21). Adding one is a change to the secret; removing one
+   * is final and kept long, the record that it existed; opening one is a look, as a reveal is. A My
+   * secrets entry says "a file", never its name, as it says "a personal secret" for its title.
+   */
+  "secret.file_added": {
+    subject: "secret",
+    title: "{actor} attached a file to the secret {subject}",
+    when: "a file is attached to a free-form secret",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["file", "size"],
+    journal: "secret",
+    enabledByDefault: true,
+  },
+  "secret.file_removed": {
+    subject: "secret",
+    title: "{actor} removed a file from the secret {subject}",
+    when: "a file is taken off a secret, for good",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    changeKeys: ["file"],
+    journal: "secret",
+    enabledByDefault: true,
+  },
+  "secret.file_opened": {
+    subject: "secret",
+    title: "{actor} opened a file of the secret {subject}",
+    when: "a secret's file is opened in the CRM or downloaded",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["file", "via"],
+    journal: "secret",
+    enabledByDefault: true,
+    isRead: true,
+  },
   "secret.moved": {
     subject: "secret",
     title: "{actor} moved the secret {subject}",

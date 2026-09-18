@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   MoveSecretsInput,
+  SecretFileRow,
   SecretHistoryRow,
   SecretInput,
   SecretRow,
@@ -158,6 +159,25 @@ export function useClientAudit(clientId: string, page: number) {
     queryFn: () => api<SecretAuditPage>(`/api/secrets/clients/${clientId}/audit?page=${page}`),
   });
 }
+
+// ── a free-form secret's files (§21) ────────────────────────────────────────
+// Opening and downloading are plain URLs the browser follows, behind the same five minutes as a
+// value; adding and removing answer the secret's files as they are now.
+
+export const secretFileUrl = (fileId: string) => `/api/secrets/files/${fileId}`;
+export const secretFileViewUrl = (fileId: string) => `/api/secrets/files/${fileId}/view`;
+
+export function attachSecretFile(secretId: string, file: File) {
+  const form = new FormData();
+  form.append("file", file);
+  return api<SecretFileRow[]>(`/api/secrets/files?secretId=${secretId}`, {
+    method: "POST",
+    formData: form,
+  });
+}
+
+export const removeSecretFile = (fileId: string) =>
+  api<SecretFileRow[]>(secretFileUrl(fileId), { method: "DELETE" });
 
 // ── writing ─────────────────────────────────────────────────────────────────
 

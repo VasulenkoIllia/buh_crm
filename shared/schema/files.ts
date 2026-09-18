@@ -253,6 +253,8 @@ export interface FirmStorage {
     trash: FileTotals;
     /** avatars and the firm's logos */
     branding: FileTotals;
+    /** attached to free-form secrets in the vault, its Trash included (secrets.md §21) */
+    secrets: FileTotals;
   };
   /** where the bytes are: the files bucket, or still the server's disk */
   where: { bucket: FileTotals; disk: FileTotals };

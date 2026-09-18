@@ -102,10 +102,14 @@ DELETE FROM "Company";
 -- Every file EXCEPT the ones a kept row points at. Client documents go; the team's avatars and the
 -- firm's two logos stay, because the rows that own them stay. `scripts/prune-uploads.ts` deletes
 -- the bytes of everything dropped here — run it after the deploy, when the new image is up.
+-- A file attached to a secret the vault keeps stays with it (secrets.md §21): the clients' secrets
+-- went above, and their files with them through the cascade, so every attachment still here belongs
+-- to Company or to somebody's My secrets.
 DELETE FROM "File" f
 WHERE NOT EXISTS (SELECT 1 FROM "User" u WHERE u."avatarFileId" = f.id)
   AND NOT EXISTS (SELECT 1 FROM "FirmProfile" p WHERE p."logoFileId" = f.id)
-  AND NOT EXISTS (SELECT 1 FROM "FirmProfile" p WHERE p."mailLogoFileId" = f.id);
+  AND NOT EXISTS (SELECT 1 FROM "FirmProfile" p WHERE p."mailLogoFileId" = f.id)
+  AND f."secretId" IS NULL;
 
 -- The library's folders (files.md §4), My files and Company included, as their files went just
 -- above. After the files, which the RESTRICT on File's folder key requires, and before "Client",

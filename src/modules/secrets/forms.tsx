@@ -6,17 +6,26 @@ import {
   TAX_AGENCIES,
   TEMPLATE_COPY,
   type SecretInput,
+  type SecretRow,
   type SecretTemplate,
 } from "@shared/schema/secrets";
-import { ApiError } from "@/shared/lib/api";
+import { ApiError, api } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { FormField, Input, Textarea } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
+import { useToast } from "@/shared/ui/toast";
+import {
+  AttachmentsField,
+  NO_FILE_CHANGES,
+  applyFileChanges,
+  hasFileChanges,
+  type FileChanges,
+} from "./attachments";
 import { Generator } from "./generator";
 import type { Openable } from "./entry";
-import type { UiPlace } from "./places";
-import { revealSecret, useSaveSecret } from "./secrets.api";
+import { placePath, type UiPlace } from "./places";
+import { revealSecret, useInvalidateVault, useSaveSecret } from "./secrets.api";
 import { TemplateIcon, labelOfField } from "./template-bits";
 import { UnlockModal, useVaultWindow } from "./unlock";
 
@@ -192,6 +201,11 @@ export function SecretForm({
   const form = FORM[template];
   const save = useSaveSecret(place);
   const { unlocked } = useVaultWindow();
+  const toast = useToast();
+  const invalidate = useInvalidateVault();
+  // only a free-form secret takes files (§21), and they change when the form is saved
+  const takesFiles = template === "free_form";
+  const [fileChanges, setFileChanges] = useState<FileChanges>(NO_FILE_CHANGES);
 
   const [title, setTitle] = useState(secret?.label ?? "");
   const [description, setDescription] = useState(secret?.description ?? "");
@@ -245,8 +259,20 @@ export function SecretForm({
     const openShown = form.showOpen ? form.showOpen(open) : form.open.map((f) => f.key);
     const openSent = filled(Object.fromEntries(openShown.map((k) => [k, open[k] ?? ""])));
     const secretSent = filled(sealed);
+    const filesToChange = takesFiles && hasFileChanges(fileChanges);
     try {
-      await save.mutateAsync({
+      // A new secret's id is not in the save's answer, which is its place's list: the list before
+      // the save says which row is the new one. Asked only when there are files to attach to it.
+      // A list that cannot be read must not cost the secret itself: the save goes on, and the files
+      // are named in the toast below as not attached (review, 2026-09-18).
+      const before =
+        filesToChange && !secret
+          ? await api<SecretRow[]>(`/api/secrets/${placePath(place)}`).then(
+              (rows) => new Set(rows.map((r) => r.id)),
+              () => null,
+            )
+          : null;
+      const rows = await save.mutateAsync({
         id: secret?.id,
         // Cast: the boxes are plain strings keyed by the template's form, which no single member of
         // the union describes. The server's strict schema per template is what holds the shape.
@@ -260,7 +286,21 @@ export function SecretForm({
         } as SecretInput,
       });
       setSealed({});
+      let missed: string[] = [];
+      if (filesToChange) {
+        const added = before ? rows.filter((r) => !before.has(r.id)) : [];
+        const target = secret?.id ?? (added.length === 1 ? added[0].id : null);
+        missed = target
+          ? await applyFileChanges(target, fileChanges)
+          : ["open the secret and attach them with Edit"];
+        invalidate();
+      }
       onClose();
+      if (missed.length) {
+        toast({
+          text: `Saved. ${missed.length === 1 ? "A file change" : `${missed.length} file changes`} did not go through: ${missed.join("; ")}`,
+        });
+      }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not save");
     } finally {
@@ -461,6 +501,14 @@ export function SecretForm({
               </p>
             )}
           </div>
+
+          {takesFiles && (
+            <AttachmentsField
+              files={secret?.files ?? []}
+              changes={fileChanges}
+              onChange={setFileChanges}
+            />
+          )}
 
           {error && <p className="text-[12.5px] text-danger-text">{error}</p>}
         </div>

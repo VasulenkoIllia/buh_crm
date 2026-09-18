@@ -170,6 +170,11 @@ function StoragePanel() {
         { label: "On tasks, in no folder", totals: data.parts.unfiled },
         { label: "Trash", note: "removed for good after 30 days", totals: data.parts.trash },
         { label: "Avatars and logos", totals: data.parts.branding },
+        {
+          label: "Attached to secrets",
+          note: "the vault's Trash included",
+          totals: data.parts.secrets,
+        },
       ]
     : [];
 

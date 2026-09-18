@@ -98,6 +98,11 @@ enum SecretAuditAction {
   moved
   restored
   purged
+  /// a free-form secret's attachments (secrets.md §21): one added, one opened or downloaded (each
+  /// look, as `revealed` is for the value), one removed for good
+  file_added
+  file_opened
+  file_removed
 }
 
 /// Where a secret lives (secrets.md §4.1): one of three fixed places, held as a value on the row.
@@ -802,12 +807,14 @@ model Secret {
   updatedBy User?            @relation("SecretUpdatedBy", fields: [updatedById], references: [id])
   deletedBy User?            @relation("SecretDeletedBy", fields: [deletedById], references: [id])
   auditLog  SecretAuditLog[]
+  /// what is attached to a free-form secret (§21)
+  files     File[]           @relation("SecretFiles")
 
-  @@map("ClientSecret")
   @@index([clientId])
   @@index([space, clientId])
   @@index([ownerId])
   @@index([trashBatchId])
+  @@map("ClientSecret")
 }
 
 /// Who touched a secret, and when. Modelled on `PaymentAuditLog`; a reveal is an event worth
@@ -827,7 +834,7 @@ model SecretAuditLog {
 
   secret Secret? @relation(fields: [secretId], references: [id], onDelete: SetNull)
   client Client? @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  byUser User          @relation("SecretAuditBy", fields: [byUserId], references: [id])
+  byUser User    @relation("SecretAuditBy", fields: [byUserId], references: [id])
 
   @@index([clientId, createdAt])
   @@index([byUserId])
@@ -1725,6 +1732,10 @@ model File {
   deletedAt    DateTime?
   deletedById  String?     @db.Uuid
   trashBatchId String?     @db.Uuid
+  /// Attached to a free-form secret in the vault (secrets.md §21). Such a file is outside the
+  /// library, off every task and every client's Files, and never in the Files Trash: it lives and
+  /// goes with its secret, whose Trash covers it. A CHECK in the migration holds all four.
+  secretId     String?     @db.Uuid
 
   client            Client?      @relation("ClientFiles", fields: [clientId], references: [id], onDelete: Cascade)
   /// SetNull, not Cascade: a document filed under the client must survive its task. Tasks are
@@ -1739,9 +1750,13 @@ model File {
   avatarOfUser      User?        @relation("UserAvatar")
   logoOfProfile     FirmProfile? @relation("FirmLogo")
   mailLogoOfProfile FirmProfile? @relation("FirmMailLogo")
+  /// Cascade: a secret removed for good takes its rows. The purge deletes the BYTES first, so
+  /// nothing is left in a store that no row names (secrets.md §21).
+  secret            Secret?      @relation("SecretFiles", fields: [secretId], references: [id], onDelete: Cascade)
 
   @@index([clientId])
   @@index([taskId])
+  @@index([secretId])
   // the foreign key's own index: Postgres never indexes the referencing side (files.md §14.2)
   @@index([folderId, scope])
 }

@@ -1,4 +1,6 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import argon2 from "argon2";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../../app.js";
@@ -8,6 +10,7 @@ import { seal } from "../../core/secrets-crypto.js";
 import * as repo from "./secrets.repository.js";
 import { purgeTrash } from "./secrets.trash.js";
 import { __clearGrants } from "./secrets.service.js";
+import { TEST_UPLOADS_DIR } from "../../test/paths.js";
 
 /**
  * The vault holds tax-portal and client-bank credentials, so these tests are about who can see
@@ -175,6 +178,7 @@ describe("client secrets", () => {
         "template",
         "updatedAt",
         "updatedByName",
+        "files",
       ].sort(),
     );
     expect(JSON.stringify(res.json())).not.toContain("super-secret");
@@ -1769,5 +1773,259 @@ describe("the audit's rules", () => {
     expect(other).not.toBe(adminCookie);
     const locked = await send("POST", `/api/secrets/company/${id}/reveal`, undefined, other);
     expect(locked.statusCode).toBe(403);
+  });
+});
+
+/**
+ * **A file attached to a secret stands alone** (secrets.md §21, S18.1 stage A). The database holds
+ * it: such a file is in no library place, on no task, in no client's Files and never in the Files
+ * Trash, and a secret removed for good takes its rows with it.
+ */
+describe("a secret's files, as the database keeps them", () => {
+  const row = (secretId: string, extra: Record<string, unknown> = {}) =>
+    prisma.file.create({
+      data: {
+        name: "scan.pdf",
+        size: 3,
+        mime: "application/pdf",
+        path: `test/${secretId}-${Math.random().toString(36).slice(2)}`,
+        uploadedById: adminId,
+        secretId,
+        ...extra,
+      },
+    });
+  let adminId = "";
+
+  beforeAll(async () => {
+    adminId = (await prisma.user.findFirstOrThrow({ where: { email: "sec-admin@test.local" } }))
+      .id;
+  });
+
+  it("refuses a secret's file anywhere else, and lets the purge's cascade take it", async () => {
+    const made = await app.inject({
+      method: "POST",
+      url: "/api/secrets/company",
+      headers: { cookie: adminCookie },
+      payload: freeForm("With a scan", "v"),
+    });
+    const secretId = made.json().find((s: { label: string }) => s.label === "With a scan").id;
+
+    const ok = await row(secretId);
+    await expect(row(secretId, { clientId })).rejects.toThrow(/File_secret_stands_alone/);
+    await expect(row(secretId, { scope: "company" })).rejects.toThrow(
+      /File_secret_stands_alone/,
+    );
+    await expect(
+      row(secretId, {
+        deletedAt: new Date(),
+        deletedById: adminId,
+        trashBatchId: "00000000-0000-4000-8000-000000000001",
+      }),
+    ).rejects.toThrow(/File_secret_stands_alone/);
+
+    await prisma.secret.delete({ where: { id: secretId } });
+    expect(await prisma.file.findUnique({ where: { id: ok.id } })).toBeNull();
+  });
+});
+
+/**
+ * **A free-form secret's files** (secrets.md §21, S18.1 stage B): sealed like any file, shown as
+ * open facts, opened only behind the vault's five minutes and journalled per look, taken only by
+ * free form, never a program, five at most, and gone with the secret when the Trash is emptied.
+ */
+describe("a free-form secret's files", () => {
+  const TAG = "fls";
+  const PDF = "%PDF-1.4 hello";
+  const upload = (
+    secretId: string,
+    name: string,
+    body = PDF,
+    cookie = adminCookie,
+    type = "application/pdf",
+  ) => {
+    const boundary = "----buhcrmsecretfile";
+    return app.inject({
+      method: "POST",
+      url: `/api/secrets/files?secretId=${secretId}`,
+      headers: { cookie, "content-type": `multipart/form-data; boundary=${boundary}` },
+      payload: Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${name}"\r\n` +
+          `Content-Type: ${type}\r\n\r\n${body}\r\n--${boundary}--\r\n`,
+      ),
+    });
+  };
+  const send = (
+    method: "GET" | "DELETE" | "POST",
+    url: string,
+    cookie = adminCookie,
+    payload?: unknown,
+  ) =>
+    app.inject({
+      method,
+      url,
+      headers: { cookie },
+      payload: payload as Record<string, unknown>,
+    });
+  const make = async (payload: unknown, url = "/api/secrets/company", cookie = adminCookie) => {
+    const res = await send("POST", url, cookie, payload);
+    expect(res.statusCode).toBe(201);
+    const label = (payload as { label: string }).label;
+    return (res.json() as { id: string; label: string }[]).find((s) => s.label === label)!.id;
+  };
+  const unlock = (cookie = adminCookie) =>
+    send("POST", "/api/secrets/unlock", cookie, { password: PASSWORD });
+
+  it("attaches a file sealed like any other, shows it in the list, and journals it", async () => {
+    const id = await make(freeForm(`Scans ${TAG}`, "v"));
+    const res = await upload(id, "w9 2025.pdf");
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject([{ name: "w9 2025.pdf", size: PDF.length, view: "pdf" }]);
+
+    const row = await prisma.file.findFirstOrThrow({ where: { secretId: id } });
+    expect(row.wrappedKey).not.toBeNull();
+    expect(row).toMatchObject({ scope: null, taskId: null, clientId: null });
+
+    const list = (await send("GET", "/api/secrets/company")).json() as {
+      id: string;
+      files: { name: string }[];
+    }[];
+    expect(list.find((s) => s.id === id)?.files.map((f) => f.name)).toEqual(["w9 2025.pdf"]);
+    expect(
+      await prisma.secretAuditLog.count({
+        where: { secretId: id, action: "file_added", label: `Scans ${TAG} › w9 2025.pdf` },
+      }),
+    ).toBe(1);
+    expect((await loggedEvent("secret.file_added", id)).changes).toEqual({
+      file: "w9 2025.pdf",
+      size: PDF.length,
+    });
+  });
+
+  it("takes files only on a free-form secret, never a program, and five at most", async () => {
+    const login = await make({
+      template: "login",
+      label: `Portal ${TAG}`,
+      open: { site: "example.com" },
+      secret: null,
+    });
+    const onLogin = await upload(login, "scan.pdf");
+    expect(onLogin.statusCode).toBe(400);
+    expect(onLogin.body).toContain("Only a free-form secret takes files");
+
+    const id = await make(freeForm(`Five ${TAG}`, "v"));
+    expect((await upload(id, "tool.exe", "MZ")).statusCode).toBe(400);
+    for (let i = 1; i <= 5; i++)
+      expect((await upload(id, `page ${i}.pdf`)).statusCode).toBe(201);
+    const sixth = await upload(id, "page 6.pdf");
+    expect(sixth.statusCode).toBe(400);
+    expect(sixth.body).toContain("at most 5 files");
+    expect(await prisma.file.count({ where: { secretId: id } })).toBe(5);
+
+    // two at the same moment for the fifth place: the row lock lets one through, not both
+    const race = await make(freeForm(`Race ${TAG}`, "v"));
+    for (let i = 1; i <= 4; i++) await upload(race, `r${i}.pdf`);
+    const both = await Promise.all([upload(race, "a.pdf"), upload(race, "b.pdf")]);
+    expect(both.map((r) => r.statusCode).sort()).toEqual([201, 400]);
+    expect(await prisma.file.count({ where: { secretId: race } })).toBe(5);
+  });
+
+  it("opens a file only behind the unlock, one journal row a minute, and never a view it cannot show", async () => {
+    const id = await make(freeForm(`Lease ${TAG}`, "v"));
+    const [pdf] = (await upload(id, "lease.pdf")).json() as { id: string }[];
+    const [doc] = (
+      await upload(id, "notes.docx", "plain words", adminCookie, "application/octet-stream")
+    )
+      .json()
+      .slice(-1) as { id: string }[];
+
+    __clearGrants();
+    expect((await send("GET", `/api/secrets/files/${pdf.id}`)).statusCode).toBe(403);
+    await unlock();
+    const down = await send("GET", `/api/secrets/files/${pdf.id}`);
+    expect(down.statusCode).toBe(200);
+    expect(down.body).toBe(PDF);
+    expect(down.headers["content-disposition"]).toContain("attachment");
+    const view = await send("GET", `/api/secrets/files/${pdf.id}/view`);
+    expect(view.statusCode).toBe(200);
+    expect(view.headers["content-type"]).toContain("application/pdf");
+    expect(
+      await prisma.secretAuditLog.count({
+        where: { secretId: id, action: "file_opened", label: `Lease ${TAG} › lease.pdf` },
+      }),
+    ).toBe(1);
+    expect((await loggedEvent("secret.file_opened", id)).changes).toMatchObject({
+      file: "lease.pdf",
+    });
+
+    expect((await send("GET", `/api/secrets/files/${doc.id}/view`)).statusCode).toBe(400);
+    expect((await send("GET", `/api/secrets/files/${doc.id}`)).statusCode).toBe(200);
+  });
+
+  it("keeps another person's My secrets' files out of reach, and logs them without a name", async () => {
+    const theirs = await make(freeForm(`Mine ${TAG}`, "v"), "/api/secrets/my", userCookie);
+    const [file] = (await upload(theirs, "passport.pdf", PDF, userCookie)).json() as {
+      id: string;
+    }[];
+    expect((await loggedEvent("secret.file_added", theirs)).changes).toEqual({
+      file: "a file",
+      size: PDF.length,
+    });
+
+    await unlock();
+    expect((await send("GET", `/api/secrets/files/${file.id}`)).statusCode).toBe(404);
+    expect((await send("DELETE", `/api/secrets/files/${file.id}`)).statusCode).toBe(404);
+    expect((await upload(theirs, "more.pdf")).statusCode).toBe(404);
+  });
+
+  it("finds a secret by a file's name, through an edit, and forgets it when the file goes", async () => {
+    const id = await make(freeForm(`Folder ${TAG}`, "v"));
+    const [file] = (await upload(id, "zqlease agreement.pdf")).json() as { id: string }[];
+    const hits = async (q: string) =>
+      (
+        (await send("GET", `/api/secrets/search?q=${encodeURIComponent(q)}`)).json().hits as {
+          id: string;
+        }[]
+      ).map((h) => h.id);
+    expect(await hits("zqlease")).toContain(id);
+
+    // an edit writes the search words again, and must keep the file's name in them
+    await app.inject({
+      method: "PATCH",
+      url: `/api/secrets/company/${id}`,
+      headers: { cookie: adminCookie },
+      payload: freeForm(`Folder renamed ${TAG}`),
+    });
+    expect(await hits("zqlease")).toContain(id);
+
+    const removed = await send("DELETE", `/api/secrets/files/${file.id}`);
+    expect(removed.statusCode).toBe(200);
+    expect(removed.json()).toEqual([]);
+    expect(await hits("zqlease")).not.toContain(id);
+    expect(await prisma.file.findUnique({ where: { id: file.id } })).toBeNull();
+    expect((await loggedEvent("secret.file_removed", id)).changes).toEqual({
+      file: "zqlease agreement.pdf",
+    });
+  });
+
+  it("removes a secret's files with it when the Trash is emptied, the bytes first", async () => {
+    const id = await make(freeForm(`Old scans ${TAG}`, "v"));
+    await upload(id, "old.pdf");
+    const row = await prisma.file.findFirstOrThrow({ where: { secretId: id } });
+    expect(existsSync(join(TEST_UPLOADS_DIR, row.path))).toBe(true);
+
+    expect(
+      (await send("POST", "/api/secrets/company/delete", adminCookie, { ids: [id] }))
+        .statusCode,
+    ).toBe(200);
+    // in the Trash the file waits with its secret
+    expect(await prisma.file.findUnique({ where: { id: row.id } })).not.toBeNull();
+    await prisma.secret.update({
+      where: { id },
+      data: { deletedAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000) },
+    });
+    await purgeTrash();
+    expect(await prisma.secret.findUnique({ where: { id } })).toBeNull();
+    expect(await prisma.file.findUnique({ where: { id: row.id } })).toBeNull();
+    expect(existsSync(join(TEST_UPLOADS_DIR, row.path))).toBe(false);
   });
 });

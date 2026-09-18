@@ -244,6 +244,24 @@ export const secretInput = z.discriminatedUnion("template", [
 export type SecretInput = z.infer<typeof secretInput>;
 
 /** A secret as a list shows it: its open half, and whether anything is sealed under it. */
+/**
+ * **A file attached to a free-form secret** (§21). Its name, size and whether the CRM opens it are
+ * open, like the title; its bytes open only behind the vault's five minutes, as a value does.
+ */
+export const SECRET_FILES_MAX = 5;
+export const secretFileSchema = z.object({
+  id: uuid,
+  name: z.string(),
+  size: z.number().int().nonnegative(),
+  /** how the CRM shows it, or null when it is only downloaded */
+  view: z.enum(["pdf", "image", "text", "csv"]).nullable(),
+  createdAt: z.iso.datetime(),
+});
+export type SecretFileRow = z.infer<typeof secretFileSchema>;
+
+/** Which secret a file goes on: a query parameter, beside the multipart body. */
+export const secretFileTarget = z.object({ secretId: uuid });
+
 export const secretSchema = z.object({
   id: uuid,
   template: z.enum(SECRET_TEMPLATES),
@@ -259,6 +277,8 @@ export const secretSchema = z.object({
   /** who changed it last, or who made it when nobody has since */
   updatedByName: z.string().nullable(),
   updatedAt: z.iso.datetime(),
+  /** a free-form secret's attachments, oldest first; always empty for the other templates */
+  files: z.array(secretFileSchema),
 });
 export type SecretRow = z.infer<typeof secretSchema>;
 
@@ -321,6 +341,7 @@ export interface SecretHit {
   fields: Record<string, string>;
   hasValue: boolean;
   updatedAt: string;
+  files: SecretFileRow[];
   /** where it is, in words: "Clients › Petrenko Olena" */
   path: string;
   /** the same path step by step, each step with where it leads */

@@ -383,6 +383,7 @@ export function everyFileForCheck() {
       keyVersion: true,
       scope: true,
       clientId: true,
+      secretId: true,
       deletedAt: true,
       client: { select: { archivedAt: true } },
       task: {
@@ -536,35 +537,47 @@ export async function fileLeadTaskFiles(
  * ignore who may see what, which is why their route is an admin's.
  */
 export async function firmStorage() {
-  const [all, mine, company, clients, archivedClients, unfiled, trash, branding, byStore] =
-    await Promise.all([
-      totals({}),
-      totals({ space: "personal", deletedAt: null }),
-      totals({ space: "company", deletedAt: null }),
-      totals({ space: "client", deletedAt: null }),
-      totals({
-        space: "client",
-        deletedAt: null,
-        client: { is: { archivedAt: { not: null } } },
-      }),
-      totals({ scope: null, taskId: { not: null }, deletedAt: null }),
-      totals({ deletedAt: { not: null } }),
-      totals({
-        OR: [
-          { avatarOfUser: { isNot: null } },
-          { logoOfProfile: { isNot: null } },
-          { mailLogoOfProfile: { isNot: null } },
-        ],
-      }),
-      prisma.file.groupBy({ by: ["storage"], _count: { _all: true }, _sum: { size: true } }),
-    ]);
+  const [
+    all,
+    mine,
+    company,
+    clients,
+    archivedClients,
+    unfiled,
+    trash,
+    branding,
+    secrets,
+    byStore,
+  ] = await Promise.all([
+    totals({}),
+    totals({ space: "personal", deletedAt: null }),
+    totals({ space: "company", deletedAt: null }),
+    totals({ space: "client", deletedAt: null }),
+    totals({
+      space: "client",
+      deletedAt: null,
+      client: { is: { archivedAt: { not: null } } },
+    }),
+    totals({ scope: null, taskId: { not: null }, deletedAt: null }),
+    totals({ deletedAt: { not: null } }),
+    totals({
+      OR: [
+        { avatarOfUser: { isNot: null } },
+        { logoOfProfile: { isNot: null } },
+        { mailLogoOfProfile: { isNot: null } },
+      ],
+    }),
+    // a secret's files, whether the secret is live or in the vault's Trash (secrets.md §21)
+    totals({ secretId: { not: null } }),
+    prisma.file.groupBy({ by: ["storage"], _count: { _all: true }, _sum: { size: true } }),
+  ]);
   const kept = (storage: "local" | "s3"): FileTotals => {
     const row = byStore.find((r) => r.storage === storage);
     return { files: row?._count._all ?? 0, bytes: Number(row?._sum.size ?? 0) };
   };
   return {
     all,
-    parts: { mine, company, clients, archivedClients, unfiled, trash, branding },
+    parts: { mine, company, clients, archivedClients, unfiled, trash, branding, secrets },
     where: { bucket: kept("s3"), disk: kept("local") },
   };
 }
