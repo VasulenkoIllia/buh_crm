@@ -23,3 +23,7 @@ export async function chatModule(app: FastifyInstance) {
 
 // the announcements channel, made and matched to the team on every boot (server.ts)
 export { ensureAnnouncementsChannel } from "./chat.bootstrap.js";
+
+// a block takes a person out of every group in its own transaction; an unblock brings the channel
+// back (chat.md §11, users.service)
+export { announceBlock, joinChannel, leaveChatsOnBlock } from "./chat.service.js";

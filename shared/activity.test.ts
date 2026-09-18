@@ -123,8 +123,9 @@ describe("the activity registry", () => {
     // and the library's four for a text file made in the CRM (files.md §7.4, 2026-09-17): one made
     // and one saved again, for a client's files and for Company and My files under their own
     // subject; and a free-form secret's files: attached, removed, opened (secrets.md §21,
-    // 2026-09-18)
-    expect(ACTIVITY_KEYS.length).toBe(205);
+    // 2026-09-18); and the chat's six for groups and their people (chat.md §12.1, 2026-09-18):
+    // created, changed, and a person added, taken out, leaving, or given another role
+    expect(ACTIVITY_KEYS.length).toBe(211);
     // the checklist is empty because the pass is finished — not because it was abandoned
     expect(PLANNED_EVENT_KEYS).toEqual([]);
   });

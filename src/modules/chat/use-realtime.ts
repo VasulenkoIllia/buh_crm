@@ -12,6 +12,8 @@ import { realtime, type RealtimeSnapshot } from "@/shared/lib/realtime";
  * `src/shared/lib/realtime.ts`; this is the part that knows about queries.
  *
  * - `resync`: the server may have missed events, so everything under the chat's key is refetched.
+ * - `chat_updated`: a chat's name, people or roles changed; the same, for now (the chat screen
+ *   narrows it to that chat).
  * - a stop other than "too many tabs": who the person is, and what they may open, may have changed
  *   (signed out, a gate closed, the two-factor rule), so the app shell asks again.
  * - `presence`: the list of who is online is patched in place, with no request.
@@ -25,6 +27,11 @@ export function useRealtime(): RealtimeSnapshot {
     const release = connection.retain();
     const offs = [
       connection.on("resync", () => void queryClient.invalidateQueries({ queryKey: CHAT_KEY })),
+      // a chat's name, people or roles moved: the list and that chat are fetched again
+      connection.on(
+        "chat_updated",
+        () => void queryClient.invalidateQueries({ queryKey: CHAT_KEY }),
+      ),
       connection.on("presence", ({ userId, online }) =>
         queryClient.setQueryData<ChatPresence>(CHAT_PRESENCE_KEY, (list) => {
           if (!list) return list;

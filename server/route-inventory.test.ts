@@ -117,10 +117,13 @@ describe("route inventory", () => {
       // +1 the same day, the chat's live connection (chat.md §7.1): a stream, with no derived HEAD.
       // +1 and its HEAD for who is online (§5.4), a read. +1 for the delivery test on Settings →
       // System, which sends the caller an event and changes nothing.
-      total: 345,
-      derivedHead: 85,
-      real: 260,
-      api: 259, // everything but /health
+      // +13 for the chats themselves (chat.md §4, step A.2): the list, one chat, the people, a direct
+      // chat, Saved messages, a group, its words, adding, taking out, a role, handing on, leaving,
+      // and the reader's own settings; three of them reads with their HEADs.
+      total: 361,
+      derivedHead: 88,
+      real: 273,
+      api: 272, // everything but /health
       anonymous: 9, // 6 credential routes, 2 unsubscribe pages, /health
       // `POST /tasks/timer/start` moved to the `tasks` gate during the 2026-09-07 audit. It takes a
       // taskId and writes against somebody else's module, so it was never really "the caller's own
@@ -128,7 +131,7 @@ describe("route inventory", () => {
       // second factor and name nobody else.
       own: 15,
       shared: 9,
-      gated: 227,
+      gated: 240,
       adminOnly: 20,
     });
   });

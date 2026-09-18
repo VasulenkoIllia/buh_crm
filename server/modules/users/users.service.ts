@@ -23,6 +23,7 @@ import {
   personalSecretsCount,
   recordPersonalSecretsMove,
 } from "../secrets/index.js";
+import { announceBlock, joinChannel, leaveChatsOnBlock } from "../chat/index.js";
 import * as repo from "./users.repository.js";
 
 const INVITE_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -105,6 +106,8 @@ export async function updateUser(id: string, input: UpdateUserInput, actor: User
     ? await repo.blockUser(id, input, async (tx) => ({
         files: await movePersonalIntoCompany(tx, person, actor.id),
         secrets: await movePersonalSecrets(tx, person),
+        // out of every group and the channel, in the same transaction (chat.md §11)
+        chats: await leaveChatsOnBlock(tx, id, new Date()),
       }))
     : { user: await repo.updateUser(id, input), moved: null };
 
@@ -157,6 +160,9 @@ export async function updateUser(id: string, input: UpdateUserInput, actor: User
   // a name
   if (moved?.files) recordPersonalMove(moved.files, person.name);
   if (moved?.secrets) await recordPersonalSecretsMove(moved.secrets, person.name, actor.id);
+  if (moved?.chats) await announceBlock(person, moved.chats);
+  // unblocking brings the channel back; the groups are for somebody to add them to again (§11)
+  if (input.status === "active" && user.status === "blocked") await joinChannel(id);
 
   if (input.status === "blocked") {
     // blocking invalidates sessions immediately (spec: users.md)

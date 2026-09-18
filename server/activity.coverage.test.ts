@@ -26,10 +26,6 @@ import inventory from "./route-inventory.json" with { type: "json" };
  * has to be about the ACTS, not about the effort.
  */
 const TIER1_ONLY: Record<string, string> = {
-  chat:
-    "stage 0 of the chat is the transport alone: its one mutating route is the delivery test, " +
-    "which sends the caller an event and changes nothing. Stage A adds the chat's events " +
-    "(chat.md §12) and takes this line out.",
   activity:
     "the log's own module. Its reads record nothing by design (§3.2), and its one mutating " +
     "route writes `settings.activity_switched` from its service — but under the `settings` " +

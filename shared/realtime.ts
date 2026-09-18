@@ -47,6 +47,12 @@ export interface RealtimeEvents {
    * (chat.md §5.4). The list as it stands is `GET /api/chat/presence`.
    */
   presence: { userId: string; online: boolean };
+  /**
+   * A chat's name, people or roles changed, or the reader left or was taken out of it: the tab
+   * refetches the chat list and that chat. Sent to everybody it concerns, the people taken out
+   * included, so their list drops it at once.
+   */
+  chat_updated: { chatId: string };
 }
 
 export type RealtimeEventName = keyof RealtimeEvents;
@@ -69,6 +75,7 @@ export const REALTIME_EVENT_NAMES = [
   "resync",
   "pong",
   "presence",
+  "chat_updated",
 ] as const satisfies readonly RealtimeEventName[];
 
 type Unlisted = Exclude<RealtimeEventName, (typeof REALTIME_EVENT_NAMES)[number]>;

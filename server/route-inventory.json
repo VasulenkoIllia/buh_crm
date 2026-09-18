@@ -221,6 +221,84 @@
   },
   {
     "method": "GET",
+    "url": "/api/chat/chats",
+    "access": "gate:chat"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/chat/chats",
+    "access": "gate:chat",
+    "derived": true
+  },
+  {
+    "method": "GET",
+    "url": "/api/chat/chats/:id",
+    "access": "gate:chat"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/chat/chats/:id",
+    "access": "gate:chat",
+    "derived": true
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/chat/chats/:id",
+    "access": "gate:chat"
+  },
+  {
+    "method": "POST",
+    "url": "/api/chat/chats/:id/leave",
+    "access": "gate:chat"
+  },
+  {
+    "method": "POST",
+    "url": "/api/chat/chats/:id/members",
+    "access": "gate:chat"
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/chat/chats/:id/members/:userId",
+    "access": "gate:chat"
+  },
+  {
+    "method": "PUT",
+    "url": "/api/chat/chats/:id/members/:userId/role",
+    "access": "gate:chat"
+  },
+  {
+    "method": "POST",
+    "url": "/api/chat/chats/:id/owner",
+    "access": "gate:chat"
+  },
+  {
+    "method": "PUT",
+    "url": "/api/chat/chats/:id/settings",
+    "access": "gate:chat"
+  },
+  {
+    "method": "POST",
+    "url": "/api/chat/direct",
+    "access": "gate:chat"
+  },
+  {
+    "method": "POST",
+    "url": "/api/chat/groups",
+    "access": "gate:chat"
+  },
+  {
+    "method": "GET",
+    "url": "/api/chat/people",
+    "access": "gate:chat"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/chat/people",
+    "access": "gate:chat",
+    "derived": true
+  },
+  {
+    "method": "GET",
     "url": "/api/chat/presence",
     "access": "gate:chat"
   },
@@ -229,6 +307,11 @@
     "url": "/api/chat/presence",
     "access": "gate:chat",
     "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/chat/saved",
+    "access": "gate:chat"
   },
   {
     "method": "GET",

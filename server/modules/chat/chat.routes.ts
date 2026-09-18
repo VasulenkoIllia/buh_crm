@@ -2,9 +2,26 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { gate } from "../../core/access.js";
 import type { StreamRouteConfig } from "../../core/route-inventory.js";
-import { chatPingInput, type ChatPingResult, type ChatPresence } from "@shared/schema/chat.js";
+import { z } from "zod";
+import { uuid } from "@shared/schema/common.js";
+import {
+  addMembersInput,
+  chatPingInput,
+  chatSettingsInput,
+  createGroupInput,
+  openDirectInput,
+  setMemberRoleInput,
+  transferOwnerInput,
+  updateGroupInput,
+  type ChatPingResult,
+  type ChatPresence,
+} from "@shared/schema/chat.js";
 import { publish, realtimeListening } from "../../core/realtime.js";
+import * as service from "./chat.service.js";
 import { onlinePeople, openStream } from "./chat.stream.js";
+
+const idParams = z.object({ id: uuid });
+const memberParams = z.object({ id: uuid, userId: uuid });
 
 const STREAM: StreamRouteConfig = { stream: true };
 
@@ -47,4 +64,93 @@ export async function registerRoutes(instance: FastifyInstance) {
   app.get("/presence", { config: gate("chat") }, async (): Promise<ChatPresence> => ({
     online: onlinePeople(),
   }));
+
+  // ── chats (chat.md §4) ───────────────────────────────────────────────────────
+  //
+  // Everything below answers only to a member of the chat it names (§4.4): the service asks, and a
+  // non-member, a firm admin included, is told the chat does not exist.
+
+  const chat = gate("chat");
+
+  app.get("/chats", { config: chat }, async (request) =>
+    service.listChats(request.currentUser!),
+  );
+
+  app.get("/chats/:id", { config: chat, schema: { params: idParams } }, async (request) =>
+    service.getChat(request.currentUser!, request.params.id),
+  );
+
+  /** The active team, with when each was last online: whom a chat can be started with. */
+  app.get("/people", { config: chat }, async () => service.people());
+
+  /** The direct chat with a colleague, made the first time; a quiet route (quiet-routes.ts). */
+  app.post("/direct", { config: chat, schema: { body: openDirectInput } }, async (request) =>
+    service.openDirect(request.currentUser!, request.body.userId),
+  );
+
+  /** The reader's own Saved messages, made the first time; a quiet route. */
+  app.post("/saved", { config: chat }, async (request) =>
+    service.openSaved(request.currentUser!),
+  );
+
+  app.post("/groups", { config: chat, schema: { body: createGroupInput } }, async (request) =>
+    service.createGroup(request.currentUser!, request.body),
+  );
+
+  app.patch(
+    "/chats/:id",
+    { config: chat, schema: { params: idParams, body: updateGroupInput } },
+    async (request) =>
+      service.updateGroup(request.currentUser!, request.params.id, request.body),
+  );
+
+  app.post(
+    "/chats/:id/members",
+    { config: chat, schema: { params: idParams, body: addMembersInput } },
+    async (request) =>
+      service.addMembers(request.currentUser!, request.params.id, request.body),
+  );
+
+  app.delete(
+    "/chats/:id/members/:userId",
+    { config: chat, schema: { params: memberParams } },
+    async (request) =>
+      service.removeMember(request.currentUser!, request.params.id, request.params.userId),
+  );
+
+  app.put(
+    "/chats/:id/members/:userId/role",
+    { config: chat, schema: { params: memberParams, body: setMemberRoleInput } },
+    async (request) =>
+      service.setMemberRole(
+        request.currentUser!,
+        request.params.id,
+        request.params.userId,
+        request.body,
+      ),
+  );
+
+  app.post(
+    "/chats/:id/owner",
+    { config: chat, schema: { params: idParams, body: transferOwnerInput } },
+    async (request) =>
+      service.transferOwner(request.currentUser!, request.params.id, request.body.userId),
+  );
+
+  app.post(
+    "/chats/:id/leave",
+    { config: chat, schema: { params: idParams } },
+    async (request) => {
+      await service.leave(request.currentUser!, request.params.id);
+      return { ok: true };
+    },
+  );
+
+  /** Mute, pin, hide: the reader's own list; a quiet route. */
+  app.put(
+    "/chats/:id/settings",
+    { config: chat, schema: { params: idParams, body: chatSettingsInput } },
+    async (request) =>
+      service.updateSettings(request.currentUser!, request.params.id, request.body),
+  );
 }

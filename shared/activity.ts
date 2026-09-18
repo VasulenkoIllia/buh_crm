@@ -46,7 +46,7 @@
  * the group is load-bearing rather than decorative (activity-log.md §4.5).
  */
 export type ActivityGroup =
-  "people" | "clients" | "work" | "money" | "comms" | "files" | "secrets" | "system";
+  "people" | "clients" | "work" | "money" | "comms" | "chat" | "files" | "secrets" | "system";
 
 /**
  * The thing an event happened TO. Always equal to the segment before the dot in the key — no
@@ -74,6 +74,8 @@ export type ActivitySubject =
   | "folder"
   | "firm_file"
   | "firm_folder"
+  | "chat"
+  | "chat_member"
   | "user"
   | "session"
   | "access"
@@ -100,6 +102,9 @@ export const SUBJECT_GROUP: Record<ActivitySubject, ActivityGroup> = {
   folder: "files",
   firm_file: "files",
   firm_folder: "files",
+  // the chat's own group (chat.md §12.1): groups and who is in them, never what was said
+  chat: "chat",
+  chat_member: "chat",
   user: "people",
   session: "people",
   access: "people",
@@ -142,6 +147,9 @@ export const SUBJECT_GATE: Record<ActivitySubject, string> = {
   // reader of these subjects learns is Company's documents, which Files already opens to them.
   firm_file: "files",
   firm_folder: "files",
+  // a group's name and its people, which only somebody with the chat could see
+  chat: "chat",
+  chat_member: "chat",
   // who is in the system, and what they were allowed to reach — the Team gate's subject matter
   user: "team",
   session: "team",
@@ -949,6 +957,77 @@ const EVENTS = {
     actorKinds: ["user"],
     retention: "long",
     journal: "secret",
+    enabledByDefault: true,
+  },
+
+  // ── chat (chat.md §12) ─────────────────────────────────────────────────────
+  /**
+   * **Groups and who is in them, never what was said.** Sending, editing, reacting, pinning,
+   * voting and reading are the conversation itself, which is its own record with its authors and
+   * times; the log's meaning starts where membership or a deletion changes (§12.1). Direct chats,
+   * Saved messages and the channel have no events here: nobody creates, renames or joins them.
+   *
+   * A group's title is the label, as the spec decided; its description is recorded as changed,
+   * never by what it says, the way My secrets are (secrets.md §11).
+   */
+  "chat.created": {
+    subject: "chat",
+    title: "{actor} created the group {subject}",
+    when: "a group chat is created",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    enabledByDefault: true,
+  },
+  "chat.renamed": {
+    subject: "chat",
+    title: "{actor} changed the group {subject}",
+    when: "a group's title or description changes",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["title", "description"],
+    enabledByDefault: true,
+  },
+  "chat_member.added": {
+    subject: "chat_member",
+    title: "{actor} added {subject} to a group",
+    when: "somebody is added to a group",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["group"],
+    enabledByDefault: true,
+  },
+  /** By a group's admin, or by a block, which takes a person out of every group (§11). */
+  "chat_member.removed": {
+    subject: "chat_member",
+    title: "{actor} took {subject} out of a group",
+    when: "a group's admin removes somebody, or a block takes them out of every group",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["group"],
+    enabledByDefault: true,
+  },
+  "chat_member.left": {
+    subject: "chat_member",
+    title: "{subject} left a group",
+    when: "somebody leaves a group",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["group"],
+    enabledByDefault: true,
+  },
+  "chat_member.role_changed": {
+    subject: "chat_member",
+    title: "{actor} changed {subject}'s role in a group",
+    when: "a group admin is named or removed, or a group's ownership passes on",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["group", "role"],
     enabledByDefault: true,
   },
 

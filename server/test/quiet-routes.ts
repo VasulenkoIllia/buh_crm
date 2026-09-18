@@ -19,6 +19,12 @@ export const QUIET_ROUTES: Record<string, string> = {
   "POST /api/two-factor/me/setup":
     "stores an UNCONFIRMED secret on the caller's own row — nothing is switched on until the " +
     "confirm, which is the act and records `user.two_factor_enabled` (two-factor.md §6.1)",
+  "POST /api/chat/direct":
+    "opens the caller's direct chat with a colleague, made the first time; a conversation is its " +
+    "own record, and the log's meaning starts where a group's people change (chat.md §12.1)",
+  "POST /api/chat/saved": "opens the caller's own Saved messages, made the first time",
+  "PUT /api/chat/chats/:id/settings":
+    "mutes, pins or hides a chat in the caller's own list; nobody else's chat changes",
   "POST /api/chat/stream/ping":
     "the live connection's delivery test: sends the caller an event of their own and stores " +
     "nothing (chat.md §15.1, step 0.4)",

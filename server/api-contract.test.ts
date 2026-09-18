@@ -12,7 +12,11 @@ import {
 } from "@shared/schema/mailouts.js";
 import { invoiceListSchema, invoiceSchema } from "@shared/schema/payment.js";
 import { serviceSchema } from "@shared/schema/catalog.js";
-import { chatPresenceSchema } from "@shared/schema/chat.js";
+import {
+  chatPeopleSchema,
+  chatPresenceSchema,
+  chatSummarySchema,
+} from "@shared/schema/chat.js";
 import { buildApp } from "./app.js";
 import { prisma } from "./core/db.js";
 
@@ -190,6 +194,9 @@ describe("the API sends what the screens are typed against", () => {
 
   it("chat", async () => {
     keeps(chatPresenceSchema, await get("/api/chat/presence"), "GET /api/chat/presence");
+    // the channel is on every active person's list, so this is never an empty array
+    keeps(z.array(chatSummarySchema), await get("/api/chat/chats"), "GET /api/chat/chats");
+    keeps(chatPeopleSchema, await get("/api/chat/people"), "GET /api/chat/people");
   });
 
   it("catalog", async () => {
