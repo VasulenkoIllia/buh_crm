@@ -1,8 +1,8 @@
-import argon2 from "argon2";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../../app.js";
 import { prisma } from "../../core/db.js";
 import { invalidateAccessCache } from "../../core/access.js";
+import { createPeople, removePeople } from "../../test/people.js";
 import { openTestStream, type TestStream } from "../../test/stream-probe.js";
 import {
   HEARTBEAT_MS,
@@ -15,9 +15,9 @@ import {
 /**
  * **The live connection, over real sockets** (chat.md §7.1, §7.4, §19 "Stream").
  *
- * Stage 0.1: the stream opens for somebody the `chat` gate lets in and for nobody else, says hello,
- * keeps itself alive, holds at most ten tabs a person, forgets a tab that went away, and never
- * holds up a shutdown. Delivery between people is stage 0.2.
+ * The stream opens for somebody the `chat` gate lets in and for nobody else, says hello, keeps
+ * itself alive, holds at most ten tabs a person, forgets a tab that went away, and never holds up a
+ * shutdown. Delivery between people is `chat.delivery.integration.test.ts`.
  */
 
 const DOMAIN = "@chat-stream.local";
@@ -25,12 +25,6 @@ let app: Awaited<ReturnType<typeof buildApp>>;
 let cookie: string;
 let userId: string;
 const opened: TestStream[] = [];
-
-function cookieOf(res: { headers: Record<string, unknown> }): string {
-  const setCookie = res.headers["set-cookie"];
-  const raw = Array.isArray(setCookie) ? setCookie[0] : (setCookie as string);
-  return raw.split(";")[0];
-}
 
 async function open(headers: Record<string, string> = { cookie }) {
   const stream = await openTestStream(app, "/api/chat/stream", headers);
@@ -47,39 +41,18 @@ async function until(check: () => boolean, what: string) {
   throw new Error(`timed out waiting for ${what}`);
 }
 
-async function cleanUp() {
-  await prisma.accessOverride.deleteMany({ where: { user: { email: { endsWith: DOMAIN } } } });
-  await prisma.session.deleteMany({ where: { user: { email: { endsWith: DOMAIN } } } });
-  await prisma.user.deleteMany({ where: { email: { endsWith: DOMAIN } } });
-}
-
 beforeAll(async () => {
   app = await buildApp();
-  await cleanUp();
-  const user = await prisma.user.create({
-    data: {
-      firstName: "Stream",
-      lastName: "Tester",
-      email: `olena${DOMAIN}`,
-      passwordHash: await argon2.hash("password-123"),
-      role: "user",
-      status: "active",
-    },
-  });
-  userId = user.id;
-  cookie = cookieOf(
-    await app.inject({
-      method: "POST",
-      url: "/api/auth/login",
-      payload: { email: user.email, password: "password-123" },
-    }),
-  );
+  await removePeople(DOMAIN);
+  const [olena] = await createPeople(app, DOMAIN, ["Olena"]);
+  userId = olena.id;
+  cookie = olena.cookie;
 });
 
 afterAll(async () => {
   for (const stream of opened) stream.close();
   await app?.close();
-  await cleanUp();
+  await removePeople(DOMAIN);
 });
 
 describe("the chat stream", () => {

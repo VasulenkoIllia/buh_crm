@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { PassThrough } from "node:stream";
 import type { FastifyReply, FastifyRequest } from "fastify";
+import type { RealtimeEventName, RealtimeEvents } from "@shared/realtime.js";
 import { sessionIdOf } from "../../core/auth.js";
+import type { RealtimeDelivery } from "../../core/realtime.js";
 
 /**
  * **The live connection: one Server-Sent Events stream per open CRM tab** (chat.md §7.1, and the
@@ -10,7 +12,7 @@ import { sessionIdOf } from "../../core/auth.js";
  * The browser holds `GET /api/chat/stream` open and everything it SENDS goes as an ordinary POST.
  * The stream carries only small events that name what changed; the tab then fetches the content
  * through the ordinary routes, whose checks apply. So this file never decides who may read what: it
- * will deliver "chat X has something new" to the people its caller names (stage 0.2).
+ * delivers "chat X has something new" to the people the publisher named (`deliverToStreams`).
  *
  * **The body is a `PassThrough` handed to `reply.send`, not a hijacked reply.** Fastify then keeps
  * the whole lifecycle (the headers every other response gets, `onResponse`, the error handler), and
@@ -19,7 +21,7 @@ import { sessionIdOf } from "../../core/auth.js";
  *
  * **One process holds these, in memory**, and that is the same bound the access cache and the
  * vault's grants record: one app container. Delivery across containers is `LISTEN/NOTIFY`
- * (`core/realtime.ts`, stage 0.2); what each process keeps is only its own open streams.
+ * (`core/realtime.ts`); what each process keeps is only its own open streams.
  */
 
 /**
@@ -43,14 +45,12 @@ export const MAX_STREAMS_PER_PERSON = 10;
 const MAX_QUEUED_BYTES = 256 * 1024;
 
 /**
- * Why the server closed a stream the browser must NOT simply reopen. Sent as a `bye` event before
- * the end, and the tab stops its `EventSource` rather than reconnecting: after `too_many_streams`
- * a reconnect would close the next-oldest tab, and eleven tabs would take turns for ever.
- *
- * A stream ended with no `bye` (a deploy, a network drop) is meant to be reopened, and the browser
- * does that by itself.
+ * **A `bye` before the end means "do not reconnect"** (`ByeReason` in `shared/realtime.ts`). The tab
+ * stops its `EventSource`: after `too_many_streams` a reconnect would close the next-oldest tab,
+ * and eleven tabs would take turns for ever. A stream ended with no `bye` (a deploy, a network
+ * drop) is meant to be reopened, and the browser does that by itself.
  */
-export type ByeReason = "too_many_streams" | "session_ended" | "gate_closed";
+type ByeReason = RealtimeEvents["bye"]["reason"];
 
 interface OpenStream {
   id: string;
@@ -66,7 +66,7 @@ const streams = new Map<string, OpenStream>();
 
 let heartbeat: NodeJS.Timeout | null = null;
 
-function frame(event: string, data: unknown): string {
+function frame<K extends RealtimeEventName>(event: K, data: RealtimeEvents[K]): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
@@ -145,6 +145,17 @@ export function openStream(request: FastifyRequest, reply: FastifyReply) {
       .header("x-accel-buffering", "no")
       .send(out)
   );
+}
+
+/**
+ * Writes a published event to this process's streams of the people it names. Registered with
+ * `onRealtime` by the module, and called for every notification, whichever process published it.
+ */
+export function deliverToStreams(delivery: RealtimeDelivery) {
+  const chunk = frame(delivery.event, delivery.data);
+  for (const stream of streams.values()) {
+    if (delivery.to === "everyone" || delivery.to.includes(stream.userId)) write(stream, chunk);
+  }
 }
 
 /**

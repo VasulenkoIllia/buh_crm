@@ -1,9 +1,21 @@
 import type { FastifyInstance } from "fastify";
+import { onRealtime, releaseRealtime, retainRealtime } from "../../core/realtime.js";
 import { registerRoutes } from "./chat.routes.js";
-import { closeAllStreams } from "./chat.stream.js";
+import { closeAllStreams, deliverToStreams } from "./chat.stream.js";
 
 export async function chatModule(app: FastifyInstance) {
   await registerRoutes(app);
+
+  // every notification, from whichever process published it, goes to the streams this one holds
+  onRealtime(deliverToStreams);
+  let listening = false;
+  app.addHook("onReady", async () => {
+    await retainRealtime(app.log);
+    listening = true;
+  });
   // `app.close()` waits for every open connection, and a stream never finishes by itself
   app.addHook("preClose", async () => closeAllStreams());
+  app.addHook("onClose", async () => {
+    if (listening) await releaseRealtime();
+  });
 }
