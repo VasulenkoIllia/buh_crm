@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Task } from "@shared/schema/task";
+import { useCanEdit } from "@/app/auth";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { useSettings } from "@/modules/settings";
 import { cn } from "@/shared/lib/cn";
@@ -32,6 +33,8 @@ export function EntityTasks({
   const { data: team } = useAssignees();
   const [formOpen, setFormOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Tasks read-only: the list stays, "+ New task" goes (see `EntityMeetings`)
+  const canAdd = useCanEdit("tasks");
 
   // The rollup asks for this client's WHOLE history (no status filter), so cancelled work comes
   // back with the rest — and must not sit in the open list looking live (2026-08-01 audit).
@@ -64,14 +67,16 @@ export function EntityTasks({
             <span className="ml-1.5 text-[13px] font-normal text-muted">{tasks.length}</span>
           )}
         </h2>
-        <Button
-          variant={bare ? "text" : "secondary"}
-          size="sm"
-          className={bare ? "px-0" : undefined}
-          onClick={() => setFormOpen(true)}
-        >
-          + New task
-        </Button>
+        {canAdd && (
+          <Button
+            variant={bare ? "text" : "secondary"}
+            size="sm"
+            className={bare ? "px-0" : undefined}
+            onClick={() => setFormOpen(true)}
+          >
+            + New task
+          </Button>
+        )}
       </div>
 
       {isLoading && <p className="text-[13px] text-muted">Loading…</p>}

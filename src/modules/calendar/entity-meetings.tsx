@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { CalendarDays } from "lucide-react";
+import { useCanEdit } from "@/app/auth";
 import { cn } from "@/shared/lib/cn";
 import { fmtDate } from "@/shared/lib/format";
 import { Button } from "@/shared/ui/button";
@@ -29,6 +30,9 @@ export function EntityMeetings({
   const filter = target.kind === "client" ? { clientId: target.id } : { leadId: target.id };
   const { data, isLoading, error } = useMeetingsFor(filter);
   const [open, setOpen] = useState<{ id?: string } | null>(null);
+  // Calendar read-only: the meetings are listed, booking one is not offered (the server would
+  // refuse it anyway). Found by the audit of the lead card, 2026-09-18.
+  const canBook = useCanEdit("calendar");
 
   const now = Date.now();
   const upcoming = (data ?? []).filter(
@@ -55,9 +59,11 @@ export function EntityMeetings({
               <span className="ml-1.5 font-normal text-muted">{data.length}</span>
             )}
           </h3>
-          <Button variant="text" size="sm" className="px-0" onClick={() => setOpen({})}>
-            + Schedule meeting
-          </Button>
+          {canBook && (
+            <Button variant="text" size="sm" className="px-0" onClick={() => setOpen({})}>
+              + Schedule meeting
+            </Button>
+          )}
         </div>
         {error && <p className="text-[13px] text-danger-text">Couldn't load meetings.</p>}
         {isLoading && <p className="text-[13px] text-muted">Loading…</p>}
@@ -104,9 +110,11 @@ export function EntityMeetings({
     <div className="rounded-(--radius-panel) border border-border bg-surface">
       <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
         <h2 className="text-[15px] font-semibold">Meetings</h2>
-        <Button size="sm" onClick={() => setOpen({})}>
-          📅 Schedule meeting
-        </Button>
+        {canBook && (
+          <Button size="sm" onClick={() => setOpen({})}>
+            📅 Schedule meeting
+          </Button>
+        )}
       </div>
 
       {error && (
