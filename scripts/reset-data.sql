@@ -134,6 +134,19 @@ DELETE FROM "SourceOption";
 -- after "Lead" above, which is what the RESTRICT on Lead.stageId requires
 DELETE FROM "LeadStage";
 
+-- The chat (chat.md §3.3): every chat, message, reaction, pin, poll and vote. Chats are working data
+-- full of client names, so they go with the clients. "Last seen" is the team's, but it means nothing
+-- without the chats and costs nothing to lose. The announcements channel is recreated empty on the
+-- next boot, with every active person in it (server/modules/chat/chat.bootstrap.ts).
+DELETE FROM "ChatPollVote";
+DELETE FROM "ChatPoll";
+DELETE FROM "ChatReaction";
+DELETE FROM "ChatPin";
+DELETE FROM "ChatMessage";
+DELETE FROM "ChatMember";
+DELETE FROM "Chat";
+DELETE FROM "ChatPresence";
+
 -- Failed-sign-in counters (docs/modules/two-factor.md §9). About the team's addresses rather than
 -- clients, but transient — a quiet quarter of an hour forgets them anyway — so clearing them costs
 -- nothing. Named here rather than kept, which is the decision the invariant test asks for.

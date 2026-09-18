@@ -292,6 +292,38 @@ describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
     expect(sql).toContain(`AND f."secretId" IS NULL;`);
   });
 
+  /**
+   * **The chat's hand-written half** (chat.md §16). The unique `uniqueKey` is Prisma's; what it
+   * cannot see is the rule that makes it mean anything: every kind but a group has exactly one
+   * place, a sealed value is whole or absent, a notice speaks only by its code, and a reaction is an
+   * emoji rather than a sentence of plain text. And `--reset` takes every chat with the clients
+   * (§3.3), which the table-by-table check above sees only as names.
+   */
+  it("keeps the chat's CHECKs, and --reset takes every chat", async () => {
+    const CHECKS = [
+      "Chat_one_place",
+      "Chat_title_only_on_group",
+      "Chat_sealed_whole",
+      "ChatMessage_sealed_whole",
+      "ChatMessage_seq_positive",
+      "ChatMessage_notice_shape",
+      "ChatReaction_emoji_short",
+      "ChatPollVote_option_range",
+      "ChatMember_markers",
+    ];
+    const checks = await prisma.$queryRaw<{ conname: string }[]>`
+      SELECT conname::text FROM pg_constraint
+      WHERE contype = 'c' AND conname::text = ANY (${CHECKS}::text[])
+    `;
+    expect(checks.map((c) => c.conname).sort()).toEqual([...CHECKS].sort());
+
+    const sql = await readFile(new URL("../scripts/reset-data.sql", import.meta.url), "utf8");
+    // whole tables, never a WHERE: no chat survives a reset
+    for (const table of ["ChatMessage", "ChatMember", "Chat"]) {
+      expect(sql).toContain(`DELETE FROM "${table}";`);
+    }
+  });
+
   it("keeps billing history un-blankable (ON DELETE RESTRICT on the provenance FKs)", async () => {
     // deleting a company or a service must be REFUSED, not silently blank what an issued
     // invoice or a generated task was for (migration 20260726090000)

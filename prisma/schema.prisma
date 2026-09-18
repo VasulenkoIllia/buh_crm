@@ -270,6 +270,17 @@ model User {
   roleChangesReceived      UserRoleAuditLog[]       @relation("RoleAuditTarget")
   /// their authenticator, if they have set one up (two-factor.md)
   twoFactorCredential      TwoFactorCredential?
+  /// the chat (chat.md §16)
+  chatsCreated             Chat[]                   @relation("ChatCreatedBy")
+  chatMemberships          ChatMember[]
+  chatMessages             ChatMessage[]            @relation("ChatMessageAuthor")
+  chatMessagesForwarded    ChatMessage[]            @relation("ChatMessageForwardedFrom")
+  chatMessagesDeleted      ChatMessage[]            @relation("ChatMessageDeletedBy")
+  chatReactions            ChatReaction[]
+  chatPins                 ChatPin[]                @relation("ChatPinnedBy")
+  chatPollsClosed          ChatPoll[]               @relation("ChatPollClosedBy")
+  chatPollVotes            ChatPollVote[]
+  chatPresence             ChatPresence?
 }
 
 model AuthToken {
@@ -2094,4 +2105,207 @@ model ActivityPolicy {
   action    String   @id
   enabled   Boolean  @default(true)
   updatedAt DateTime @updatedAt
+}
+
+// ── The chat (S19, docs/modules/chat.md) ──────────────────────────────────────
+//
+// Text, poll options and a group's title are SEALED, like the vault's secrets: AES-256-GCM through
+// server/core/secrets-crypto.ts, a `keyVersion` per row (chat.md §9). What stays in plain columns is
+// what orders, counts and checks access: who, when, which chat, `seq`, reactions, read markers,
+// membership. A person is never deleted (they are blocked), so the keys to `User` only matter to a
+// test suite that wipes the team: memberships and votes go with the person, a message stays and
+// loses its author.
+
+enum ChatKind {
+  direct
+  group
+  saved
+  announcements
+}
+
+enum ChatMemberRole {
+  owner
+  admin
+  member
+}
+
+enum ChatMessageKind {
+  text
+  poll
+  /// a line the chat writes itself ("Olena added Petro"), made of ids and a code, never text
+  notice
+}
+
+enum ChatNotice {
+  created
+  renamed
+  member_added
+  member_removed
+  member_left
+  member_blocked
+  role_changed
+  owner_changed
+}
+
+/// **One conversation.** Four kinds (chat.md §4.1); only a group has a title.
+model Chat {
+  id             String   @id @default(uuid()) @db.Uuid
+  kind           ChatKind
+  /// **The one place this chat may exist**, for every kind but a group: `direct:<id>:<id>` (the
+  /// two people, the smaller id first), `saved:<id>`, `announcements`. Unique, so a second direct
+  /// chat between two people, a second Saved messages or a second channel cannot be written even
+  /// by two requests in the same instant (chat.md §16). A CHECK keeps it set exactly when the kind
+  /// is not a group.
+  uniqueKey      String?  @unique
+  /// a group's title and description, sealed together as JSON; null for every other kind
+  ciphertext     Bytes?
+  iv             Bytes?
+  authTag        Bytes?
+  keyVersion     Int      @default(1)
+  /// the `seq` of the newest message; the next one takes `lastSeq + 1` under this row's lock
+  lastSeq        Int      @default(0)
+  lastActivityAt DateTime @default(now())
+  createdById    String?  @db.Uuid
+  createdAt      DateTime @default(now())
+
+  createdBy User?         @relation("ChatCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  members   ChatMember[]
+  messages  ChatMessage[]
+  pins      ChatPin[]
+}
+
+/// **A person's place in a chat.** The one check every read and write passes (chat.md §4.4): an
+/// ACTIVE membership, `leftAt` null.
+model ChatMember {
+  chatId         String         @db.Uuid
+  userId         String         @db.Uuid
+  role           ChatMemberRole @default(member)
+  joinedAt       DateTime       @default(now())
+  /// null = an active member
+  leftAt         DateTime?
+  /// the highest `seq` this person has seen; unread is the chat's `lastSeq` minus this (§16)
+  lastReadSeq    Int            @default(0)
+  /// the newest message that mentions this person; `@` shows while it is past `lastReadSeq`
+  lastMentionSeq Int            @default(0)
+  /// muted until then; the far future is muted for good
+  mutedUntil     DateTime?
+  /// pinned in this person's list
+  pinnedAt       DateTime?
+  /// hidden from this person's list until a message newer than this arrives
+  hiddenAt       DateTime?
+
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([chatId, userId])
+  @@index([userId, leftAt])
+}
+
+/// **One message**, with its chat's next `seq`, so a chat's history has no gaps and no two
+/// messages share a place (chat.md §5.1, §16).
+model ChatMessage {
+  id              String          @id @default(uuid()) @db.Uuid
+  chatId          String          @db.Uuid
+  seq             Int
+  kind            ChatMessageKind @default(text)
+  /// null only for a notice, or once the person is gone from the team (see the header)
+  authorId        String?         @db.Uuid
+  /// the author's own id for this send, so a send retried after a lost connection posts once
+  clientMessageId String?         @db.Uuid
+  /// the text (a poll's question), sealed; null after a delete for everyone, and on a notice
+  ciphertext      Bytes?
+  iv              Bytes?
+  authTag         Bytes?
+  keyVersion      Int             @default(1)
+  replyToId       String?         @db.Uuid
+  /// "Forwarded from": the original message's author
+  forwardedFromId String?         @db.Uuid
+  /// the people mentioned; `@all` is expanded to the members at the moment of sending
+  mentions        String[]        @db.Uuid
+  /// what a notice says, and whom it is about
+  notice          ChatNotice?
+  noticeUserIds   String[]        @db.Uuid
+  editedAt        DateTime?
+  deletedAt       DateTime?
+  deletedById     String?         @db.Uuid
+  createdAt       DateTime        @default(now())
+
+  chat          Chat           @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  author        User?          @relation("ChatMessageAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  forwardedFrom User?          @relation("ChatMessageForwardedFrom", fields: [forwardedFromId], references: [id], onDelete: SetNull)
+  deletedBy     User?          @relation("ChatMessageDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+  replyTo       ChatMessage?   @relation("ChatMessageReply", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies       ChatMessage[]  @relation("ChatMessageReply")
+  reactions     ChatReaction[]
+  pin           ChatPin?
+  poll          ChatPoll?
+
+  @@unique([chatId, seq])
+  @@unique([authorId, clientMessageId])
+}
+
+/// One emoji from one person on one message; the emoji itself is plain, like every reaction count.
+model ChatReaction {
+  messageId String   @db.Uuid
+  userId    String   @db.Uuid
+  emoji     String
+  createdAt DateTime @default(now())
+
+  message ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, userId, emoji])
+}
+
+/// A message pinned at the top of its chat.
+model ChatPin {
+  messageId  String   @id @db.Uuid
+  chatId     String   @db.Uuid
+  pinnedById String?  @db.Uuid
+  pinnedAt   DateTime @default(now())
+
+  message  ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  chat     Chat        @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  pinnedBy User?       @relation("ChatPinnedBy", fields: [pinnedById], references: [id], onDelete: SetNull)
+
+  @@index([chatId])
+}
+
+/// **A poll** (chat.md §5.5): the question is its message's text, the options are sealed here as a
+/// JSON array, and the votes are rows. Never anonymous.
+model ChatPoll {
+  messageId  String    @id @db.Uuid
+  multiple   Boolean   @default(false)
+  ciphertext Bytes
+  iv         Bytes
+  authTag    Bytes
+  keyVersion Int       @default(1)
+  closedAt   DateTime?
+  closedById String?   @db.Uuid
+
+  message  ChatMessage    @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  closedBy User?          @relation("ChatPollClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
+  votes    ChatPollVote[]
+}
+
+model ChatPollVote {
+  messageId String   @db.Uuid
+  userId    String   @db.Uuid
+  /// the option's place in the poll, from 0
+  option    Int
+  votedAt   DateTime @default(now())
+
+  poll ChatPoll @relation(fields: [messageId], references: [messageId], onDelete: Cascade)
+  user User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, userId, option])
+}
+
+/// **When a person was last online** (chat.md §5.4): written when their last tab closes. Who is
+/// online NOW lives in the app's memory, not here.
+model ChatPresence {
+  userId     String   @id @db.Uuid
+  lastSeenAt DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

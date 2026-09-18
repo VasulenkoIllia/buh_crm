@@ -20,3 +20,6 @@ export async function chatModule(app: FastifyInstance) {
     if (listening) await releaseRealtime();
   });
 }
+
+// the announcements channel, made and matched to the team on every boot (server.ts)
+export { ensureAnnouncementsChannel } from "./chat.bootstrap.js";

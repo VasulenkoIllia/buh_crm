@@ -1,5 +1,6 @@
 import { buildApp } from "./app.js";
 import { ensureBaseData, ensureBootstrapAdmin, recordBootEvents } from "./core/bootstrap.js";
+import { ensureAnnouncementsChannel } from "./modules/chat/index.js";
 import { purgeOldActivity } from "./core/activity.js";
 import { config, strayBackupVariables } from "./core/config.js";
 import { disconnectDb } from "./core/db.js";
@@ -39,6 +40,8 @@ async function main() {
   await ensureUploadsDir();
   await ensureBaseData();
   await ensureBootstrapAdmin(app.log);
+  // after the admin, so the very first boot of a fresh install puts them in it too
+  await ensureAnnouncementsChannel();
   /**
    * After the admin, so a fresh install's very first rows read in the order they happened. Costs
    * one indexed query and one insert per boot, and answers the question every incident starts with:
