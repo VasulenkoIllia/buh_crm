@@ -1,10 +1,6 @@
 import { Client, type Notification } from "pg";
 import type { FastifyBaseLogger } from "fastify";
-import type {
-  PublishedEventName,
-  RealtimeEventName,
-  RealtimeEvents,
-} from "@shared/realtime.js";
+import type { PublishedEventName, RealtimeEvents } from "@shared/realtime.js";
 import { prisma } from "./db.js";
 import { config, isTest } from "./config.js";
 
@@ -40,11 +36,24 @@ const RECONNECT_MAX_MS = 30_000;
 /** Who an event is for: user ids, or every stream this process holds. */
 export type Recipients = readonly string[] | "everyone";
 
-export interface RealtimeDelivery<K extends RealtimeEventName = RealtimeEventName> {
-  to: Recipients;
-  event: K;
-  data: RealtimeEvents[K];
+/**
+ * **Between app processes only; no browser sees these.**
+ *
+ * `recheck` asks every process to look again, now, at the streams of the people named: their
+ * session, their `chat` gate, the firm's two-factor rule. Signing out, blocking, a changed password
+ * and a changed role or access switch send it, so a stream ends at once rather than on its next
+ * heartbeat (chat.md §7.4). It names people, never a session: a session id is a credential.
+ */
+export interface ControlEvents {
+  recheck: Record<string, never>;
 }
+
+type EventMap = RealtimeEvents & ControlEvents;
+type EventName = keyof EventMap;
+
+export type RealtimeDelivery<K extends EventName = EventName> = {
+  [E in K]: { to: Recipients; event: E; data: EventMap[E] };
+}[K];
 
 type Handler = (delivery: RealtimeDelivery) => void;
 
@@ -101,10 +110,10 @@ export class RealtimePayloadError extends Error {}
  * event catches up on its next refetch. Under test a payload that breaks the rules throws, so a
  * producer that would leak text cannot ship.
  */
-export async function publish<K extends PublishedEventName>(
+export async function publish<K extends PublishedEventName | keyof ControlEvents>(
   to: Recipients,
   event: K,
-  data: RealtimeEvents[K],
+  data: EventMap[K],
 ): Promise<void> {
   const payload = JSON.stringify({ to, event, data });
   const bytes = Buffer.byteLength(payload);

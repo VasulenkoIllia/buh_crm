@@ -221,6 +221,17 @@
   },
   {
     "method": "GET",
+    "url": "/api/chat/presence",
+    "access": "gate:chat"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/chat/presence",
+    "access": "gate:chat",
+    "derived": true
+  },
+  {
+    "method": "GET",
     "url": "/api/chat/stream",
     "access": "gate:chat",
     "stream": true

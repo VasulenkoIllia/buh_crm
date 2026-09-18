@@ -1,9 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { PassThrough } from "node:stream";
-import type { FastifyReply, FastifyRequest } from "fastify";
-import type { RealtimeEventName, RealtimeEvents } from "@shared/realtime.js";
-import { sessionIdOf } from "../../core/auth.js";
-import type { RealtimeDelivery } from "../../core/realtime.js";
+import type { FastifyBaseLogger, FastifyReply, FastifyRequest } from "fastify";
+import { allowsMethod } from "@shared/access.js";
+import type { ByeReason, RealtimeEventName, RealtimeEvents } from "@shared/realtime.js";
+import type { User } from "../../generated/prisma/client.js";
+import { stateFor } from "../../core/access.js";
+import { liveSessionUsers, sessionIdOf } from "../../core/auth.js";
+import { isTest } from "../../core/config.js";
+import { publish, type RealtimeDelivery, type Recipients } from "../../core/realtime.js";
+import { mustEnrol } from "../../core/two-factor-policy.js";
 
 /**
  * **The live connection: one Server-Sent Events stream per open CRM tab** (chat.md §7.1, and the
@@ -19,9 +24,16 @@ import type { RealtimeDelivery } from "../../core/realtime.js";
  * when the browser goes away it destroys the payload itself (`sendStream` in `fastify/lib/reply.js`),
  * which is the one signal this file needs to forget the stream.
  *
+ * **A stream outlives the request that opened it**, so the access hook's answer at that moment is
+ * not enough (chat.md §7.4). Every heartbeat asks again, for every stream: is its session still
+ * live, is `chat` still open to its person, does the firm's two-factor rule let them in. And a
+ * `recheck` from another part of the app (a sign-out, a block, an access switch) asks the same at
+ * once for the people it names.
+ *
  * **One process holds these, in memory**, and that is the same bound the access cache and the
  * vault's grants record: one app container. Delivery across containers is `LISTEN/NOTIFY`
- * (`core/realtime.ts`); what each process keeps is only its own open streams.
+ * (`core/realtime.ts`); what each process keeps is only its own open streams, and "online" is
+ * what this process sees.
  */
 
 /**
@@ -38,34 +50,48 @@ export const RETRY_MS = 5_000;
 export const MAX_STREAMS_PER_PERSON = 10;
 
 /**
+ * How long a person whose last tab closed still counts as online. A reload, or a deploy's restart,
+ * closes a tab and opens it again a moment later, and without this every colleague would see them
+ * blink offline and back. Short under test, where waiting ten seconds proves nothing more.
+ */
+export const OFFLINE_GRACE_MS = isTest ? 150 : 10_000;
+
+/**
  * Bytes a stream may have queued and unsent before it is treated as dead. Events are a few hundred
  * bytes, so this is a stalled connection, not a busy one; without a bound, a half-open socket
  * would grow a buffer until TCP gave up on it.
  */
 const MAX_QUEUED_BYTES = 256 * 1024;
 
-/**
- * **A `bye` before the end means "do not reconnect"** (`ByeReason` in `shared/realtime.ts`). The tab
- * stops its `EventSource`: after `too_many_streams` a reconnect would close the next-oldest tab,
- * and eleven tabs would take turns for ever. A stream ended with no `bye` (a deploy, a network
- * drop) is meant to be reopened, and the browser does that by itself.
- */
-type ByeReason = RealtimeEvents["bye"]["reason"];
-
 interface OpenStream {
   id: string;
   userId: string;
-  /** the session it was opened under, so ending a session can end exactly its streams (stage 0.3) */
+  /** the session it was opened under, which every heartbeat checks again */
   sessionId: string | null;
   openedAt: number;
   out: PassThrough;
+  /** ended by a shutdown: its person is not announced as offline, since they will be right back */
+  quiet?: true;
 }
 
 /** Insertion order is age, which is what "close the oldest" reads. */
 const streams = new Map<string, OpenStream>();
 
-let heartbeat: NodeJS.Timeout | null = null;
+/** People whose last tab closed less than `OFFLINE_GRACE_MS` ago, still shown as online. */
+const leaving = new Map<string, NodeJS.Timeout>();
 
+let heartbeat: NodeJS.Timeout | null = null;
+let log: FastifyBaseLogger | null = null;
+
+export function useStreamLogger(logger: FastifyBaseLogger) {
+  log = logger;
+}
+
+/**
+ * **A `bye` before the end means "do not simply reconnect"** (`ByeReason` in `shared/realtime.ts`,
+ * which says what the tab does for each). A stream ended with no `bye` (a deploy, a network drop) is
+ * meant to be reopened, and the browser does that by itself.
+ */
 function frame<K extends RealtimeEventName>(event: K, data: RealtimeEvents[K]): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
@@ -86,6 +112,38 @@ function end(stream: OpenStream, reason?: ByeReason) {
   streams.delete(stream.id);
 }
 
+function streamsOf(userId: string): number {
+  let n = 0;
+  for (const s of streams.values()) if (s.userId === userId) n++;
+  return n;
+}
+
+// ── presence ──────────────────────────────────────────────────────────────────
+
+function announce(userId: string, online: boolean) {
+  void publish("everyone", "presence", { userId, online });
+}
+
+/** The last tab closed: offline once the grace has passed with no tab reopened. */
+function leave(userId: string) {
+  if (leaving.has(userId)) return;
+  const timer = setTimeout(() => {
+    leaving.delete(userId);
+    if (streamsOf(userId) === 0) announce(userId, false);
+  }, OFFLINE_GRACE_MS);
+  timer.unref();
+  leaving.set(userId, timer);
+}
+
+/** Everybody with a tab open, or who closed their last one a moment ago. */
+export function onlinePeople(): string[] {
+  const people = new Set(leaving.keys());
+  for (const s of streams.values()) people.add(s.userId);
+  return [...people];
+}
+
+// ── the heartbeat, and asking again ───────────────────────────────────────────
+
 function ensureHeartbeat() {
   if (heartbeat || streams.size === 0) return;
   heartbeat = setInterval(heartbeatTick, HEARTBEAT_MS);
@@ -99,10 +157,57 @@ function stopHeartbeatIfIdle() {
   }
 }
 
-/** One pass of the heartbeat: a comment line on every open stream. Exported for its test. */
-export function heartbeatTick() {
+/**
+ * One pass of the heartbeat: a comment line on every open stream, then every stream checked again.
+ * Returns the check, so a test can wait for it.
+ */
+export function heartbeatTick(): Promise<void> {
   for (const stream of streams.values()) write(stream, ": heartbeat\n\n");
+  return recheckStreams("everyone");
 }
+
+/** What the access hook would answer this person now, as a reason to end their stream. */
+async function refusal(user: User): Promise<ByeReason | null> {
+  if (await mustEnrol(user)) return "two_factor_required";
+  if (!allowsMethod(await stateFor(user, "chat"), "GET")) return "gate_closed";
+  return null;
+}
+
+/**
+ * **Checks the streams of the people named again, and ends each one its person may no longer hold.**
+ *
+ * A failure to ask (the database is away) ends nothing: a stream carries ids, never content, and
+ * closing every tab in the firm because a query failed would be the louder mistake. The next
+ * heartbeat asks again.
+ */
+export async function recheckStreams(to: Recipients): Promise<void> {
+  const targets = [...streams.values()].filter(
+    (s) => to === "everyone" || to.includes(s.userId),
+  );
+  if (targets.length === 0) return;
+  try {
+    const sids = [...new Set(targets.map((s) => s.sessionId).filter((id) => id !== null))];
+    const live = await liveSessionUsers(sids);
+    const verdicts = new Map<string, Promise<ByeReason | null>>();
+    for (const stream of targets) {
+      const user = stream.sessionId ? live.get(stream.sessionId) : undefined;
+      if (!user) {
+        end(stream, "session_ended");
+        continue;
+      }
+      if (!verdicts.has(user.id)) verdicts.set(user.id, refusal(user));
+      const reason = await verdicts.get(user.id)!;
+      if (reason) end(stream, reason);
+    }
+  } catch (err) {
+    log?.error(
+      { err },
+      "chat stream: could not check the open streams; trying on the next beat",
+    );
+  }
+}
+
+// ── opening, delivering, closing ──────────────────────────────────────────────
 
 /**
  * Opens the caller's stream. The access hook has already run: the caller is signed in and the
@@ -124,11 +229,21 @@ export function openStream(request: FastifyRequest, reply: FastifyReply) {
     end(oldest, "too_many_streams");
   }
 
+  // back within the grace: still online, so nobody is told anything
+  const returning = leaving.get(user.id);
+  if (returning) {
+    clearTimeout(returning);
+    leaving.delete(user.id);
+  } else if (mine.length === 0) {
+    announce(user.id, true);
+  }
+
   streams.set(stream.id, stream);
   // the browser went away, or `end()` finished it: either way it is no longer ours to write to
   out.on("close", () => {
     streams.delete(stream.id);
     stopHeartbeatIfIdle();
+    if (!stream.quiet && streamsOf(stream.userId) === 0) leave(stream.userId);
   });
   ensureHeartbeat();
 
@@ -148,10 +263,15 @@ export function openStream(request: FastifyRequest, reply: FastifyReply) {
 }
 
 /**
- * Writes a published event to this process's streams of the people it names. Registered with
- * `onRealtime` by the module, and called for every notification, whichever process published it.
+ * Handles a published event in this process. Registered with `onRealtime` by the module, and
+ * called for every notification, whichever process published it: `recheck` is acted on here, and
+ * every other event is written to the streams of the people it names.
  */
 export function deliverToStreams(delivery: RealtimeDelivery) {
+  if (delivery.event === "recheck") {
+    void recheckStreams(delivery.to);
+    return;
+  }
   const chunk = frame(delivery.event, delivery.data);
   for (const stream of streams.values()) {
     if (delivery.to === "everyone" || delivery.to.includes(stream.userId)) write(stream, chunk);
@@ -161,17 +281,20 @@ export function deliverToStreams(delivery: RealtimeDelivery) {
 /**
  * Ends every open stream, with no `bye`: the browsers reconnect on their own, to whichever process
  * answers next. Called from the module's `preClose`, because `app.close()` waits for every open
- * connection to finish and a stream never does (chat.md §7.4).
+ * connection to finish and a stream never does (chat.md §7.4). Nobody is announced as offline:
+ * they are back in a few seconds.
  */
 export function closeAllStreams() {
-  for (const stream of [...streams.values()]) end(stream);
+  for (const stream of [...streams.values()]) {
+    stream.quiet = true;
+    end(stream);
+  }
+  for (const timer of leaving.values()) clearTimeout(timer);
+  leaving.clear();
   stopHeartbeatIfIdle();
 }
 
 /** How many streams this process holds, for one person or for everybody. */
 export function openStreamCount(userId?: string): number {
-  if (!userId) return streams.size;
-  let n = 0;
-  for (const s of streams.values()) if (s.userId === userId) n++;
-  return n;
+  return userId ? streamsOf(userId) : streams.size;
 }

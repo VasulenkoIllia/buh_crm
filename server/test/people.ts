@@ -21,6 +21,16 @@ function cookieOf(res: { headers: Record<string, unknown> }): string {
   return raw.split(";")[0];
 }
 
+/** A further session for somebody already created: a second computer. */
+export async function signIn(app: FastifyInstance, email: string): Promise<string> {
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    payload: { email, password: PASSWORD },
+  });
+  return cookieOf(res);
+}
+
 export async function removePeople(domain: string) {
   const where = { user: { email: { endsWith: domain } } };
   await prisma.accessOverride.deleteMany({ where });
@@ -47,12 +57,7 @@ export async function createPeople(
         status: "active",
       },
     });
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/auth/login",
-      payload: { email: user.email, password: PASSWORD },
-    });
-    people.push({ id: user.id, email: user.email, cookie: cookieOf(res) });
+    people.push({ id: user.id, email: user.email, cookie: await signIn(app, user.email) });
   }
   return people;
 }

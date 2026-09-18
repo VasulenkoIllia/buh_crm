@@ -7,6 +7,7 @@ import type {
 } from "@shared/schema/user.js";
 import type { User } from "../../generated/prisma/client.js";
 import { destroyAllUserSessions, generateToken } from "../../core/auth.js";
+import { publish } from "../../core/realtime.js";
 import { sendEmail, webOrigin } from "../../core/email.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
 import { discardFile, storeFile } from "../../core/files.js";
@@ -137,6 +138,8 @@ export async function updateUser(id: string, input: UpdateUserInput, actor: User
       subjectLabel: personName(user),
       changes: { role: { from: user.role, to: input.role } },
     });
+    // a role decides the gates, so their open chat streams are checked again now (chat.md §7.4)
+    await publish([id], "recheck", {});
   }
 
   if (input.status && input.status !== user.status) {

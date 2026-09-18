@@ -12,6 +12,7 @@ import {
 } from "@shared/schema/mailouts.js";
 import { invoiceListSchema, invoiceSchema } from "@shared/schema/payment.js";
 import { serviceSchema } from "@shared/schema/catalog.js";
+import { chatPresenceSchema } from "@shared/schema/chat.js";
 import { buildApp } from "./app.js";
 import { prisma } from "./core/db.js";
 
@@ -185,6 +186,10 @@ describe("the API sends what the screens are typed against", () => {
   it("clients", async () => {
     keeps(clientListShape, await get("/api/clients?tab=all"), "GET /api/clients");
     keeps(clientSchema, await get(`/api/clients/${clientId}`), "GET /api/clients/:id");
+  });
+
+  it("chat", async () => {
+    keeps(chatPresenceSchema, await get("/api/chat/presence"), "GET /api/chat/presence");
   });
 
   it("catalog", async () => {

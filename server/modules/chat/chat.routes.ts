@@ -2,7 +2,8 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { gate } from "../../core/access.js";
 import type { StreamRouteConfig } from "../../core/route-inventory.js";
-import { openStream } from "./chat.stream.js";
+import type { ChatPresence } from "@shared/schema/chat.js";
+import { onlinePeople, openStream } from "./chat.stream.js";
 
 const STREAM: StreamRouteConfig = { stream: true };
 
@@ -23,4 +24,12 @@ export async function registerRoutes(instance: FastifyInstance) {
     },
     async (request, reply) => openStream(request, reply),
   );
+
+  /**
+   * Who has a CRM tab open right now (chat.md §5.4): every colleague sees it. The tab reads it once,
+   * and then keeps it current from the stream's `presence` events.
+   */
+  app.get("/presence", { config: gate("chat") }, async (): Promise<ChatPresence> => ({
+    online: onlinePeople(),
+  }));
 }

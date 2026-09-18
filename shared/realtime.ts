@@ -7,8 +7,20 @@
  * already open. `core/realtime.ts` enforces it on every publish.
  */
 
-/** Why the server closed a stream the browser must not reopen by itself (`chat.stream.ts`). */
-export type ByeReason = "too_many_streams" | "session_ended" | "gate_closed";
+/**
+ * Why the server closed a stream the browser must not simply reopen (`chat.stream.ts`).
+ *
+ * - `too_many_streams`: the person opened an eleventh tab. Reopening would close the next-oldest,
+ *   and the tabs would take turns for ever.
+ * - `session_ended`: the session the stream was opened under is gone (signed out, blocked, a
+ *   password changed, expired). The tab asks who it is before opening again: a password changed
+ *   on THIS computer comes with a fresh session, and then the stream reopens under it.
+ * - `gate_closed`: the `chat` gate is closed for this person now.
+ * - `two_factor_required`: the firm's two-factor rule is holding this person back, as it would any
+ *   other request.
+ */
+export type ByeReason =
+  "too_many_streams" | "session_ended" | "gate_closed" | "two_factor_required";
 
 /** Every event a stream can carry, by name. */
 export interface RealtimeEvents {
@@ -23,6 +35,12 @@ export interface RealtimeEvents {
   resync: Record<string, never>;
   /** the answer to a delivery test, which measures the round trip (stage 0.4) */
   pong: { pingId: string };
+  /**
+   * A colleague came online (their first tab opened) or went offline (their last tab closed, and
+   * stayed closed for a short grace, so a reload does not flicker). Every colleague sees it
+   * (chat.md §5.4). The list as it stands is `GET /api/chat/presence`.
+   */
+  presence: { userId: string; online: boolean };
 }
 
 export type RealtimeEventName = keyof RealtimeEvents;

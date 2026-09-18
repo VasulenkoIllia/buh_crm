@@ -3,6 +3,7 @@ import { GATES, type AccessState, type GateKey } from "@shared/access.js";
 import { GATE_COPY } from "@shared/access-copy.js";
 import type { UserRole } from "@shared/schema/enums.js";
 import { invalidateAccessCache } from "../../core/access.js";
+import { publish } from "../../core/realtime.js";
 import { record } from "../../core/activity.js";
 import * as repo from "./access.repository.js";
 import { NotFoundError, ValidationError } from "../../core/errors.js";
@@ -66,6 +67,8 @@ export async function setPolicy(gate: GateKey, role: UserRole, input: SetAccessS
   const from = await repo.currentPolicyState(gate, role);
   await repo.upsertPolicy(gate, role, input.state);
   invalidateAccessCache();
+  // an open chat stream is a request that outlives this decision: every one is checked again now
+  await publish("everyone", "recheck", {});
   if (from !== input.state) {
     record("access.policy_changed", {
       // the gate and the role are the subject's identity, so they belong in the label a screen
@@ -83,6 +86,7 @@ export async function setOverride(userId: string, gate: GateKey, input: SetAcces
   const from = await repo.currentOverrideState(userId, gate);
   await repo.upsertOverride(userId, gate, input.state);
   invalidateAccessCache();
+  await publish([userId], "recheck", {});
   if (from !== input.state) {
     record("access.override_set", {
       // the PERSON is the subject: "what has been done to this account" is asked about them, and
@@ -100,6 +104,7 @@ export async function clearOverride(userId: string, gate: GateKey) {
   const from = await repo.currentOverrideState(userId, gate);
   await repo.deleteOverride(userId, gate);
   invalidateAccessCache();
+  await publish([userId], "recheck", {});
   if (from !== null) {
     record("access.override_cleared", {
       subjectId: userId,

@@ -5,6 +5,7 @@ import { prisma } from "./db.js";
 import { record, setActivityActor } from "./activity.js";
 import { clientIp } from "./client-ip.js";
 import { personName } from "./names.js";
+import { publish } from "./realtime.js";
 
 // Cookie sessions, Postgres-backed (decision 2026-07-17), bounded since 2026-09-12 by two rules
 // (docs/modules/two-factor.md §8, decisions 5 and 8):
@@ -132,6 +133,8 @@ export async function destroySession(request: FastifyRequest, reply: FastifyRepl
         return null;
       });
     await prisma.session.deleteMany({ where: { id: sid } });
+    // a chat stream opened under this session ends now, not on its next heartbeat (chat.md §7.4)
+    if (session) await publish([session.userId], "recheck", {});
     // only when a session actually went: `/logout` answers `{ok:true}` to a browser with no
     // session at all, and recording that as a sign-out would be inventing an event
     if (session) {
@@ -151,6 +154,8 @@ export async function destroySession(request: FastifyRequest, reply: FastifyRepl
 
 export async function destroyAllUserSessions(userId: string) {
   await prisma.session.deleteMany({ where: { userId } });
+  // blocked, a password reset or changed: their chat streams end now (chat.md §7.4)
+  await publish([userId], "recheck", {});
 }
 
 /**
@@ -167,6 +172,34 @@ function readSid(request: FastifyRequest): string | null {
   if (!raw) return null;
   const unsigned = request.unsignCookie(raw);
   return unsigned.valid ? unsigned.value : null;
+}
+
+/** Inside both bounds (see the top of this file), and its person not blocked. */
+function isLive(
+  session: { expiresAt: Date; createdAt: Date; user: { status: string } },
+  now = Date.now(),
+): boolean {
+  if (session.expiresAt.getTime() <= now) return false;
+  if (session.createdAt.getTime() + SESSION_MAX_AGE_MS <= now) return false;
+  return session.user.status === "active";
+}
+
+/**
+ * **The person each of these sessions still stands for**, by the same rules as `resolveUser` and
+ * in one query, for the chat streams re-checking the sessions they were opened under (chat.md
+ * §7.4). A session that is gone or past a bound is simply absent from the answer.
+ *
+ * It never moves an expiry: a heartbeat is not the person doing anything, and a stream cannot set
+ * a cookie anyway, its headers went out when it opened.
+ */
+export async function liveSessionUsers(sids: readonly string[]): Promise<Map<string, User>> {
+  if (sids.length === 0) return new Map();
+  const sessions = await prisma.session.findMany({
+    where: { id: { in: [...sids] } },
+    include: { user: true },
+  });
+  const now = Date.now();
+  return new Map(sessions.filter((s) => isLive(s, now)).map((s) => [s.id, s.user]));
 }
 
 /**
@@ -186,12 +219,10 @@ export async function resolveUser(
     where: { id: sid },
     include: { user: true },
   });
-  if (!session) return null;
+  if (!session || !isLive(session)) return null;
   const now = Date.now();
   const expiresAt = session.expiresAt.getTime();
   const hardEnd = session.createdAt.getTime() + SESSION_MAX_AGE_MS;
-  if (expiresAt <= now || hardEnd <= now) return null;
-  if (session.user.status !== "active") return null;
 
   /**
    * Where the expiry belongs: a week from now, never past the absolute end. It is written when it
