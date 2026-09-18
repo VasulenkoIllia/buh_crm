@@ -39,6 +39,18 @@ export interface RouteRecord {
    * (`own({ beforeTwoFactor: true })`, two-factor.md §6.4). Recorded so the list is reviewable.
    */
   beforeTwoFactor?: true;
+  /**
+   * A Server-Sent Events stream (`config: { stream: true }`, chat.md §7.4): its response does not
+   * end while the caller is allowed in. Recorded because every suite that walks this list with
+   * `app.inject` waits for a response to end, and would wait for ever on one of these. They probe it
+   * over a real socket instead (`server/test/stream-probe.ts`).
+   */
+  stream?: true;
+}
+
+/** What a streaming route adds to its `config`, beside its access declaration. */
+export interface StreamRouteConfig {
+  stream: true;
 }
 
 export function describeAccess(access: RouteAccess): string {
@@ -81,6 +93,7 @@ export function collectRouteInventory(app: FastifyInstance): RouteRecord[] {
 
     const access = describeAccess(declared);
     const beforeTwoFactor = declared.kind === "own" && declared.beforeTwoFactor === true;
+    const stream = (route.config as Partial<StreamRouteConfig> | undefined)?.stream === true;
     const methods = Array.isArray(route.method) ? route.method : [route.method];
     for (const method of methods) {
       rows.push({
@@ -88,6 +101,7 @@ export function collectRouteInventory(app: FastifyInstance): RouteRecord[] {
         url: route.url,
         access,
         ...(beforeTwoFactor ? { beforeTwoFactor: true as const } : {}),
+        ...(stream ? { stream: true as const } : {}),
       });
     }
   });

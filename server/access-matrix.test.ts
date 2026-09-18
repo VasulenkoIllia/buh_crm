@@ -12,6 +12,7 @@ import { buildApp } from "./app.js";
 import { prisma } from "./core/db.js";
 import { invalidateAccessCache } from "./core/access.js";
 import type { RouteRecord } from "./core/route-inventory.js";
+import { openTestStream } from "./test/stream-probe.js";
 
 /**
  * **Every gate, in every state, against every route it governs — as real HTTP.**
@@ -126,6 +127,21 @@ function expected(record: RouteRecord, state: AccessState, isAdmin: boolean) {
 }
 
 async function probe(record: RouteRecord, cookie: string) {
+  /**
+   * A stream the caller is let into never ends, and `app.inject` waits for the end. It is opened
+   * over a real socket instead, which answers as soon as the status is known (chat.md §7.4).
+   */
+  if (record.stream) {
+    const stream = await openTestStream(app, concrete(record.url), { cookie });
+    stream.close();
+    const code = (stream.body as { error?: { code?: string } } | null)?.error?.code ?? null;
+    const raw = stream.status === 403 ? code : null;
+    return {
+      status: stream.status,
+      code: raw === "module_closed" || raw === "admin_only" ? raw : "through",
+      raw,
+    };
+  }
   const res = await app.inject({
     method: record.method as "GET",
     url: concrete(record.url),

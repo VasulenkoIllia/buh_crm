@@ -536,6 +536,10 @@ export const MODULE_NOTIFICATIONS: Record<string, readonly NotificationTriggerKe
       "every failed unlock is in the journal with an IP and in the activity log. A failing nightly " +
       "purge goes through job health into ops_sweep_failed, which already mails the admins " +
       "(secrets.md §17).",
+    chat:
+      "A message is ordinary work, not a record's lifecycle. Chat tells people through its own " +
+      "unread counts, sound and browser notifications, which each person controls per chat, and " +
+      "the bell stays for the CRM's lifecycle events (chat.md §10).",
     leads:
       "A stage change is already on the board of the person who made it, and means nothing to anybody " +
       "else until it becomes a client — which raises nothing either, for the same reason.",

@@ -221,6 +221,12 @@
   },
   {
     "method": "GET",
+    "url": "/api/chat/stream",
+    "access": "gate:chat",
+    "stream": true
+  },
+  {
+    "method": "GET",
     "url": "/api/clients",
     "access": "shared"
   },

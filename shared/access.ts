@@ -123,6 +123,16 @@ const GATE_SPECS = {
     enforcement: "routes",
     defaults: { admin: "open", user: "open" },
   },
+  /**
+   * **The firm's messenger** (chat.md §13): the Chat page, its stream and every `/api/chat` route.
+   * Inside it, membership of a chat is the rule, checked by the service (§4.4). Closing it for a
+   * role keeps their memberships, so reopening brings every chat back.
+   */
+  chat: {
+    states: ON_OFF,
+    enforcement: "routes",
+    defaults: { admin: "open", user: "open" },
+  },
   services: {
     states: ALL,
     enforcement: "routes",

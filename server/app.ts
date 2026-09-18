@@ -25,6 +25,7 @@ import { accessModule } from "./modules/access/index.js";
 import { activityModule } from "./modules/activity/index.js";
 import { authModule } from "./modules/auth/index.js";
 import { catalogModule } from "./modules/catalog/index.js";
+import { chatModule } from "./modules/chat/index.js";
 import { clientsModule } from "./modules/clients/index.js";
 import { filesModule } from "./modules/files/index.js";
 import { secretsModule } from "./modules/secrets/index.js";
@@ -315,6 +316,7 @@ export async function buildApp() {
   await app.register(twoFactorModule, { prefix: "/api/two-factor" }); // S16 — the second factor
   await app.register(filesModule, { prefix: "/api/files" }); // S17 — the library
   await app.register(secretsModule, { prefix: "/api/secrets" }); // S18 — the vault
+  await app.register(chatModule, { prefix: "/api/chat" }); // S19 — the messenger
 
   // ── Serve the built SPA in production (single-container: API + web) ────────
   // Vite builds the frontend into ./dist; this app serves it and falls back to

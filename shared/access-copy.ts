@@ -86,6 +86,13 @@ export const GATE_COPY: Record<GateKey, GateCopy> = {
     hint: "Meetings and the task-deadline overlay.",
     caveat: "The screen and the meetings on it go. Meetings raised from a task are unaffected.",
   },
+  chat: {
+    label: "Chat",
+    hint: "Direct messages, groups, Saved messages and the firm's announcements channel.",
+    caveat:
+      "The Chat menu goes, with every chat in it and the live connection. Nobody is removed " +
+      "from a chat, so reopening brings everything back. Admins never read chats they are not in.",
+  },
   services: {
     label: "Services",
     hint: "The services catalog and its task templates.",
