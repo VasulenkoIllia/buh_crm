@@ -7,7 +7,7 @@ export const pillCls = (selected: boolean) =>
     "rounded-(--radius-chip) border px-2.5 py-1 text-[12px] font-medium",
     selected
       ? "border-primary bg-[#eef1fb] text-primary-link"
-      : "border-border bg-surface text-muted hover:bg-divider",
+      : "border-border bg-surface text-muted hover:bg-hover",
   );
 
 export function StatusPill({ status }: { status: string }) {

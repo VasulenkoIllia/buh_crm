@@ -28,6 +28,13 @@
   --color-faint: #9aa1ab;
   --color-border: #e2e5e9;
   --color-divider: #f2f4f6;
+  /**
+   * What a control looks like under the pointer. `--color-divider` was doing this job and is too
+   * close to the page itself (`--color-app-bg` #eceef1): on the client card, Edit and Archive
+   * hovered into the background and disappeared (owner, 2026-09-21). This reads against both the
+   * page and a white panel.
+   */
+  --color-hover: #e3e8ee;
   --color-surface: #ffffff;
   --color-app-bg: #eceef1;
 

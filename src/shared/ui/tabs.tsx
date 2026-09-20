@@ -96,7 +96,7 @@ export function FilterChips<T extends string>({
               "whitespace-nowrap rounded-(--radius-field) px-3 py-1.5 text-[13px] font-medium transition-colors",
               active
                 ? "bg-primary text-white"
-                : "border border-border bg-surface text-ink-700 hover:bg-divider",
+                : "border border-border bg-surface text-ink-700 hover:bg-hover",
               // an inactive chip that has something worth looking at (overdue invoices)
               !active && o.tone === "danger" && o.count ? "text-danger-text" : "",
             )}

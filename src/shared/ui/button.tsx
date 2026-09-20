@@ -32,7 +32,8 @@ const buttonVariants = cva(
     variants: {
       variant: {
         primary: "bg-primary text-white hover:bg-link-hover",
-        secondary: "border border-border bg-surface text-ink hover:bg-divider",
+        secondary:
+          "border border-border bg-surface text-ink hover:border-muted-400/50 hover:bg-hover",
         positive: "bg-success text-white hover:opacity-90",
         destructive: "bg-danger text-white hover:opacity-90",
         text: "text-primary-link hover:text-link-hover hover:underline",
@@ -100,7 +101,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
       aria-label={label}
       className={cn(
         "inline-flex flex-none items-center justify-center rounded-(--radius-btn-sm)",
-        "text-muted transition-colors hover:bg-divider disabled:opacity-50",
+        "text-muted transition-colors hover:bg-hover disabled:opacity-50",
         size === "sm" ? "h-6 w-6 [&_svg]:size-[14px]" : "h-7 w-7 [&_svg]:size-[15px]",
         danger ? "hover:text-danger" : "hover:text-ink",
         FOCUS,

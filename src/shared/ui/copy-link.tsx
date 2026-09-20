@@ -44,7 +44,7 @@ export function CopyLink({
       aria-label={copied ? "Copied" : label}
       className={cn(
         "flex shrink-0 items-center gap-1 rounded-(--radius-btn-sm) p-1 text-[11.5px] transition-colors",
-        copied ? "text-success" : "text-muted hover:bg-divider hover:text-ink",
+        copied ? "text-success" : "text-muted hover:bg-hover hover:text-ink",
       )}
     >
       {copied ? <Check size={16} /> : <Link2 size={16} />}
