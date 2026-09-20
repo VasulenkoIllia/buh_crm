@@ -30,6 +30,19 @@ const LINKS: { kind: Kind; pattern: RegExp }[] = [
   { kind: "client", pattern: new RegExp(`^/clients/(${UUID})$`, "i") },
 ];
 
+/**
+ * **Is this message nothing but CRM links?** Then the card is the message, and the URL itself is
+ * not drawn at all (owner, 2026-09-20: "можна без відображення посилання? просто щоб відразу в чаті
+ * падала картка"). A sentence with a link inside it keeps its words and gets the card underneath.
+ */
+export function isOnlyCrmLinks(text: string): boolean {
+  const links = crmLinksIn(text);
+  if (links.length === 0) return false;
+  let left = text;
+  for (const link of links) left = left.split(link.url).join(" ");
+  return left.trim() === "";
+}
+
 /** The CRM links in a message, in the order they appear, at most two — a message is not a list. */
 export function crmLinksIn(text: string): CrmLink[] {
   const out: CrmLink[] = [];
@@ -87,10 +100,26 @@ export function CrmLinkCard({ link, mine }: { link: CrmLink; mine: boolean }) {
   const record = useQuery({
     queryKey: ["chat", "crm-link", link.kind, link.id],
     queryFn: () => nameOf(link),
-    // a record the reader may not open answers 403 or 404: the plain link in the text is the answer
+    // a record the reader may not open answers 403 or 404 — and then the link itself is the answer,
+    // because a message whose only content was that link must not come out empty
     retry: false,
     staleTime: 5 * 60_000,
   });
+  if (record.isError) {
+    return (
+      <a
+        href={link.url}
+        target="_blank"
+        rel="noreferrer noopener"
+        className={cn(
+          "mt-1 block truncate text-[12.5px]",
+          mine ? "underline decoration-white/60" : "text-primary-link hover:underline",
+        )}
+      >
+        {link.url}
+      </a>
+    );
+  }
   if (!record.data) return null;
 
   const Icon = link.kind === "client" ? UserRound : record.data.done ? CheckCircle2 : ListTodo;

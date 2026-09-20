@@ -22,7 +22,7 @@ import { cn } from "@/shared/lib/cn";
 import { fmtDate, fmtTime } from "@/shared/lib/format";
 import { UserAvatar } from "@/shared/ui/avatar";
 import { MessageFiles } from "./attachments";
-import { CrmLinkCard, crmLinksIn } from "./crm-card";
+import { CrmLinkCard, crmLinksIn, isOnlyCrmLinks } from "./crm-card";
 import { EmojiPicker } from "./emoji-picker";
 import { PollCard } from "./poll";
 import { RichText } from "./rich-text";
@@ -418,6 +418,7 @@ function MessageMenu({
   can: { edit: boolean; delete: boolean; pin: boolean; readBy: boolean };
   onClose: () => void;
   on: {
+    react: (emoji: string) => void;
     reply: () => void;
     forward: () => void;
     copy: () => void;
@@ -428,6 +429,7 @@ function MessageMenu({
     remove: () => void;
   };
 }) {
+  const [all, setAll] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   /**
    * Where it actually fits. The menu is drawn into the BODY rather than into the row: a virtualised
@@ -479,6 +481,32 @@ function MessageMenu({
       style={{ position: "fixed", left: place.left, top: place.top }}
       className="z-[60] w-[200px] overflow-hidden rounded-(--radius-panel) border border-border bg-surface py-1 shadow-(--shadow-modal)"
     >
+      {/* the reactions first, as they are in Telegram: most of the time that is what the menu is
+          opened for (owner, 2026-09-20) */}
+      {all ? (
+        <EmojiPicker onPick={(emoji) => act(() => on.react(emoji))()} onClose={onClose} />
+      ) : (
+        <div className="mb-1 flex items-center gap-0.5 border-b border-divider px-2 pb-1.5">
+          {QUICK.map((emoji) => (
+            <button
+              key={emoji}
+              type="button"
+              onClick={act(() => on.react(emoji))}
+              className="rounded-full px-1 text-[16px] hover:bg-divider"
+            >
+              {emoji}
+            </button>
+          ))}
+          <button
+            type="button"
+            aria-label="More emoji"
+            onClick={() => setAll(true)}
+            className="ml-auto rounded-full px-1.5 text-[13px] text-muted hover:bg-divider hover:text-ink"
+          >
+            +
+          </button>
+        </div>
+      )}
       <button type="button" className={item} onClick={act(on.reply)}>
         <CornerUpLeft className="size-3.5" />
         Reply
@@ -602,6 +630,9 @@ function Row({
       {inGroup && !mine && author && <UserAvatar user={author} size="sm" className="mt-1" />}
       <div className={cn("max-w-[min(680px,78%)]", mine && "items-end")}>
         <div
+          // double-click is the quickest reaction there is, and the one everybody already knows
+          // from Telegram (owner, 2026-09-20). The same again takes it back, as any reaction does
+          onDoubleClick={() => !message.deletedAt && onReact(message, "❤️")}
           className={cn(
             "rounded-(--radius-panel) px-3 py-2 text-[13px]",
             mine ? "bg-primary text-white" : "border border-border bg-surface text-ink",
@@ -631,7 +662,10 @@ function Row({
               {message.replyTo.deleted ? "Message deleted" : message.replyTo.preview}
             </button>
           )}
-          {message.text && <RichText text={message.text} mentions={mentionNames} mine={mine} />}
+          {/* a message that is nothing but a link to a record IS the record's card (§5.6) */}
+          {message.text && !isOnlyCrmLinks(message.text) && (
+            <RichText text={message.text} mentions={mentionNames} mine={mine} />
+          )}
           {message.text &&
             crmLinksIn(message.text).map((link) => (
               <CrmLinkCard key={link.id} link={link} mine={mine} />
@@ -741,6 +775,7 @@ function Row({
           }}
           onClose={() => setMenuAt(null)}
           on={{
+            react: (emoji) => onReact(message, emoji),
             reply: () => onReply(message),
             forward: () => onForward(message),
             copy: () => void navigator.clipboard?.writeText(message.text ?? ""),
