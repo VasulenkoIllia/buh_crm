@@ -230,6 +230,17 @@ export async function buildApp() {
      * covers a 403 on such a path too, which would otherwise read as somebody refused a gate.
      */
     const routed = Boolean(request.routeOptions?.url);
+    /**
+     * **The one declaration that turns the tier-1 row off** (`activity: "none"`, chat.md §12.2).
+     *
+     * It breaks the rule that every changing request that reaches a route leaves a row, so it is
+     * done in the open: two routes carry it, the chat's typing pings and its read markers, both
+     * listed with their reason in `server/test/silent-routes.ts` and held to that list by a test.
+     * They change nothing a person would ever look up, and at one ping every three seconds while
+     * somebody types they would be most of the table.
+     */
+    const silent =
+      (request.routeOptions?.config as { activity?: "none" } | undefined)?.activity === "none";
     await flushStore(store, {
       outcome: status < 400 ? "ok" : status === 401 || status === 403 ? "refused" : "failed",
       /**
@@ -244,7 +255,7 @@ export async function buildApp() {
        * which also covers 401: being unauthenticated is nobody having asked yet, and a signed-out
        * browser's stray poll does not belong in that list.
        */
-      tier1: routed && (MUTATING_METHODS.has(request.method) || status === 403),
+      tier1: routed && !silent && (MUTATING_METHODS.has(request.method) || status === 403),
       statusCode: status,
     });
   });

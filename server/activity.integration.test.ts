@@ -118,6 +118,12 @@ describe("tier 1 — every mutation, automatically", () => {
   it("writes a row for every mutating route in the committed inventory", async () => {
     const routes = finalizeInventory(app.routeInventory)
       .filter((r) => !r.derived && !["GET", "HEAD", "OPTIONS"].includes(r.method))
+      /**
+       * Except the two that declare `activity: "none"` and write no row at all — the chat's typing
+       * pings and read markers (chat.md §12.2). That exception is held to exactly those two,
+       * with a reason each, by `activity.coverage.test.ts` and `server/test/silent-routes.ts`.
+       */
+      .filter((r) => r.activity !== "none")
       // last, or every route after it answers 401 with a cleared cookie
       .sort((a, b) => Number(a.url.endsWith("/logout")) - Number(b.url.endsWith("/logout")));
     expect(routes.length).toBeGreaterThan(100);

@@ -69,6 +69,8 @@ export const chatSummarySchema = z.object({
   unread: z.number().int(),
   /** somebody mentioned the reader in a message they have not read yet */
   mentioned: z.boolean(),
+  /** how far the others have read: ✓✓ on everything up to it (§5.4) */
+  othersReadSeq: z.number().int(),
   mutedUntil: z.iso.datetime().nullable(),
   pinnedAt: z.iso.datetime().nullable(),
   lastActivityAt: z.iso.datetime(),
@@ -78,6 +80,9 @@ export type ChatSummary = z.infer<typeof chatSummarySchema>;
 export const chatMemberSchema = chatPersonSchema.extend({
   role: chatMemberRole,
   joinedAt: z.iso.datetime(),
+  /** how far this person has read, and when their marker last moved */
+  readSeq: z.number().int(),
+  lastReadAt: z.iso.datetime().nullable(),
 });
 export type ChatMember = z.infer<typeof chatMemberSchema>;
 
@@ -245,3 +250,12 @@ export const historyQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
 export type HistoryQuery = z.infer<typeof historyQuery>;
+
+/** Who has read a message, and when they last read in that chat (§5.4). */
+export const readBySchema = z.object({
+  people: z.array(chatPersonSchema.extend({ at: z.iso.datetime().nullable() })),
+});
+export type ReadBy = z.infer<typeof readBySchema>;
+
+export const markReadInput = z.object({ seq: z.number().int().min(0) });
+export type MarkReadInput = z.infer<typeof markReadInput>;

@@ -299,9 +299,21 @@
     "derived": true
   },
   {
+    "method": "POST",
+    "url": "/api/chat/chats/:id/read",
+    "access": "gate:chat",
+    "activity": "none"
+  },
+  {
     "method": "PUT",
     "url": "/api/chat/chats/:id/settings",
     "access": "gate:chat"
+  },
+  {
+    "method": "POST",
+    "url": "/api/chat/chats/:id/typing",
+    "access": "gate:chat",
+    "activity": "none"
   },
   {
     "method": "POST",
@@ -342,6 +354,17 @@
     "method": "PUT",
     "url": "/api/chat/messages/:messageId/reaction",
     "access": "gate:chat"
+  },
+  {
+    "method": "GET",
+    "url": "/api/chat/messages/:messageId/read-by",
+    "access": "gate:chat"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/chat/messages/:messageId/read-by",
+    "access": "gate:chat",
+    "derived": true
   },
   {
     "method": "PUT",

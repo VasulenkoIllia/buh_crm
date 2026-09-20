@@ -41,9 +41,11 @@ for (const line of lines) {
 
 const inventory = JSON.parse(
   readFileSync(new URL("../route-inventory.json", import.meta.url), "utf8"),
-) as { method: string; url: string }[];
+) as { method: string; url: string; activity?: "none" }[];
+// a route declared `activity: "none"` writes no row at all, so there is nothing here to judge;
+// `silent-routes.ts` holds that list to exactly the two that carry it
 const changing = inventory
-  .filter((r) => MUTATING.test(r.method))
+  .filter((r) => MUTATING.test(r.method) && r.activity !== "none")
   .map((r) => `${r.method} ${r.url}`);
 
 /**

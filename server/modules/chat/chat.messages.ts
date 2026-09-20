@@ -5,6 +5,7 @@ import type {
   EditMessageInput,
   ForwardInput,
   HistoryQuery,
+  ReadBy,
   SendMessageInput,
   VoteInput,
 } from "@shared/schema/chat.js";
@@ -401,4 +402,53 @@ export async function closePoll(user: User, messageId: string): Promise<ChatMess
   if (!row.poll.closedAt) await repo.closePoll(messageId, user.id, new Date());
   await tell(m.chat, m.chat.members, "chat_message_changed", row.seq);
   return toMessage((await repo.messageById(messageId))!);
+}
+
+// ── read markers and typing (chat.md §5.4) ─────────────────────────────────────
+
+/**
+ * **How far the reader has read their own chat.** It moves forward only, never past what the chat
+ * holds, and it tells the others so an author sees ✓✓ and the reader's own other tabs catch up.
+ *
+ * It writes no activity row at all (`activity: "none"`, §12.2): it is the reader's own place in a
+ * conversation, moved by scrolling.
+ */
+export async function markRead(
+  user: User,
+  chatId: string,
+  seq: number,
+): Promise<{ seq: number }> {
+  const m = await requireMember(chatId, user.id);
+  const upTo = Math.min(seq, m.chat.lastSeq);
+  if (upTo <= m.lastReadSeq) return { seq: m.lastReadSeq };
+  const moved = await repo.markRead(chatId, user.id, upTo, new Date());
+  if (moved) {
+    await publish(
+      m.chat.members.map((x) => x.userId),
+      "chat_read",
+      { chatId, userId: user.id, seq: upTo },
+    );
+  }
+  return { seq: upTo };
+}
+
+/** Who has read this message, with when each of them last read in the chat (§5.4). */
+export async function readBy(user: User, messageId: string): Promise<ReadBy> {
+  const { row } = await messageFor(user, messageId);
+  const readers = await repo.readersOf(row.chatId, row.seq);
+  return {
+    people: readers.map((r) => ({ ...r.user, at: r.lastReadAt?.toISOString() ?? null })),
+  };
+}
+
+/**
+ * **"Olena is typing…"**, for five seconds, stored nowhere. Only somebody who may write can be
+ * typing, so a chat that is read only (a blocked colleague, the channel) sends nothing. It writes
+ * no activity row either.
+ */
+export async function typing(user: User, chatId: string): Promise<void> {
+  const m = await requireMember(chatId, user.id);
+  requireWriter(m, user);
+  const others = m.chat.members.map((x) => x.userId).filter((id) => id !== user.id);
+  await publish(others, "typing", { chatId, userId: user.id });
 }

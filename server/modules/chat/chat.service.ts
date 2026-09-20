@@ -63,6 +63,10 @@ function summaryOf(m: Membership, meId: string, now = Date.now()): ChatSummary {
     lastReadSeq: m.lastReadSeq,
     unread: Math.max(0, chat.lastSeq - m.lastReadSeq),
     mentioned: m.lastMentionSeq > m.lastReadSeq,
+    othersReadSeq: chat.members.reduce(
+      (far, x) => (x.userId === meId ? far : Math.max(far, x.lastReadSeq)),
+      0,
+    ),
     mutedUntil:
       m.mutedUntil && m.mutedUntil.getTime() > now ? m.mutedUntil.toISOString() : null,
     pinnedAt: m.pinnedAt?.toISOString() ?? null,
@@ -78,6 +82,8 @@ function detailOf(m: Membership, meId: string): ChatDetail {
       ...x.user,
       role: x.role,
       joinedAt: x.joinedAt.toISOString(),
+      readSeq: x.lastReadSeq,
+      lastReadAt: x.lastReadAt?.toISOString() ?? null,
     })),
   };
 }

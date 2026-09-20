@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { gate } from "../../core/access.js";
-import type { StreamRouteConfig } from "../../core/route-inventory.js";
+import type { SilentRouteConfig, StreamRouteConfig } from "../../core/route-inventory.js";
 import { z } from "zod";
 import { uuid } from "@shared/schema/common.js";
 import {
@@ -20,6 +20,7 @@ import {
   editMessageInput,
   forwardInput,
   historyQuery,
+  markReadInput,
   reactInput,
   sendMessageInput,
   voteInput,
@@ -235,5 +236,49 @@ export async function registerRoutes(instance: FastifyInstance) {
     "/messages/:messageId/poll/close",
     { config: chat, schema: { params: messageParams } },
     async (request) => messages.closePoll(request.currentUser!, request.params.messageId),
+  );
+
+  // ── read markers and typing (chat.md §5.4, §12.2) ────────────────────────────
+  //
+  // **The two routes that write no activity row at all.** They change nothing a person would ever
+  // look up, and at a ping every three seconds while somebody types they would be most of the
+  // table. Declared in the open with `activity: "none"`, listed with their reason in
+  // `server/test/silent-routes.ts`, and held to that list by `activity.coverage.test.ts`.
+  const silent: SilentRouteConfig = { activity: "none" };
+
+  app.post(
+    "/chats/:id/read",
+    {
+      config: {
+        ...chat,
+        ...silent,
+        rateLimit: { max: isTest ? 10_000 : 60, timeWindow: "1 minute" },
+      },
+      schema: { params: idParams, body: markReadInput },
+    },
+    async (request) =>
+      messages.markRead(request.currentUser!, request.params.id, request.body.seq),
+  );
+
+  app.post(
+    "/chats/:id/typing",
+    {
+      config: {
+        ...chat,
+        ...silent,
+        rateLimit: { max: isTest ? 10_000 : 30, timeWindow: "1 minute" },
+      },
+      schema: { params: idParams },
+    },
+    async (request) => {
+      await messages.typing(request.currentUser!, request.params.id);
+      return { ok: true };
+    },
+  );
+
+  app.get(
+    "/messages/:messageId/read-by",
+    { config: chat, schema: { params: messageParams } },
+    async (request) => messages.readBy(request.currentUser!, request.params.messageId),
   );
 }

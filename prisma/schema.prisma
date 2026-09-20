@@ -2185,6 +2185,8 @@ model ChatMember {
   leftAt         DateTime?
   /// the highest `seq` this person has seen; unread is the chat's `lastSeq` minus this (§16)
   lastReadSeq    Int            @default(0)
+  /// when that marker last moved: what "Read by" shows beside each name (§5.4)
+  lastReadAt     DateTime?
   /// the newest message that mentions this person; `@` shows while it is past `lastReadSeq`
   lastMentionSeq Int            @default(0)
   /// muted until then; the far future is muted for good

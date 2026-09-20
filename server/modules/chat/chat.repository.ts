@@ -82,7 +82,14 @@ const CHAT_WITH_MEMBERS = {
   members: {
     where: { leftAt: null },
     orderBy: { joinedAt: "asc" },
-    select: { userId: true, role: true, joinedAt: true, user: { select: PERSON } },
+    select: {
+      userId: true,
+      role: true,
+      joinedAt: true,
+      lastReadSeq: true,
+      lastReadAt: true,
+      user: { select: PERSON },
+    },
   },
 } as const satisfies Prisma.ChatInclude;
 
@@ -552,4 +559,26 @@ export function closePoll(messageId: string, byUserId: string, at: Date) {
 
 export function peopleByIds(ids: readonly string[]) {
   return prisma.user.findMany({ where: { id: { in: [...ids] } }, select: PERSON });
+}
+
+/**
+ * **A read marker only moves forward** (§19): a page read out of order, or an answer that crossed
+ * a scroll, can never take it back. The count says whether it moved at all, so a marker standing
+ * still tells nobody anything.
+ */
+export async function markRead(chatId: string, userId: string, seq: number, at: Date) {
+  const { count } = await prisma.chatMember.updateMany({
+    where: { chatId, userId, leftAt: null, lastReadSeq: { lt: seq } },
+    data: { lastReadSeq: seq, lastReadAt: at },
+  });
+  return count === 1;
+}
+
+/** Who in the chat has read as far as this place, and when their marker last moved. */
+export function readersOf(chatId: string, seq: number) {
+  return prisma.chatMember.findMany({
+    where: { chatId, leftAt: null, lastReadSeq: { gte: seq } },
+    select: { lastReadAt: true, user: { select: PERSON } },
+    orderBy: { lastReadAt: "asc" },
+  });
 }

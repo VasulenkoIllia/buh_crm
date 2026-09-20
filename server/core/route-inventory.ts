@@ -46,11 +46,23 @@ export interface RouteRecord {
    * over a real socket instead (`server/test/stream-probe.ts`).
    */
   stream?: true;
+  /**
+   * `config: { activity: "none" }`: this route writes NO activity row at all, not even the bare
+   * tier-1 one (chat.md §12.2). The two that carry it are the chat's typing pings and read markers:
+   * they change nothing a person would ever look up, and they would be most of the table's rows.
+   * `server/test/silent-routes.ts` holds the list, with a reason each.
+   */
+  activity?: "none";
 }
 
 /** What a streaming route adds to its `config`, beside its access declaration. */
 export interface StreamRouteConfig {
   stream: true;
+}
+
+/** What a route that writes no activity row adds to its `config`. See `RouteRecord.activity`. */
+export interface SilentRouteConfig {
+  activity: "none";
 }
 
 export function describeAccess(access: RouteAccess): string {
@@ -94,6 +106,8 @@ export function collectRouteInventory(app: FastifyInstance): RouteRecord[] {
     const access = describeAccess(declared);
     const beforeTwoFactor = declared.kind === "own" && declared.beforeTwoFactor === true;
     const stream = (route.config as Partial<StreamRouteConfig> | undefined)?.stream === true;
+    const silent =
+      (route.config as Partial<SilentRouteConfig> | undefined)?.activity === "none";
     const methods = Array.isArray(route.method) ? route.method : [route.method];
     for (const method of methods) {
       rows.push({
@@ -102,6 +116,7 @@ export function collectRouteInventory(app: FastifyInstance): RouteRecord[] {
         access,
         ...(beforeTwoFactor ? { beforeTwoFactor: true as const } : {}),
         ...(stream ? { stream: true as const } : {}),
+        ...(silent ? { activity: "none" as const } : {}),
       });
     }
   });

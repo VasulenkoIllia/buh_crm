@@ -57,6 +57,10 @@ export interface RealtimeEvents {
   chat_message: { chatId: string; seq: number };
   /** a message changed where it stands: edited, deleted, reacted to, pinned, voted in */
   chat_message_changed: { chatId: string; seq: number };
+  /** somebody's read marker moved: ✓✓ for the author, and the reader's other tabs catch up */
+  chat_read: { chatId: string; userId: string; seq: number };
+  /** "Olena is typing…", true for five seconds and stored nowhere (§5.4) */
+  typing: { chatId: string; userId: string };
 }
 
 export type RealtimeEventName = keyof RealtimeEvents;
@@ -82,6 +86,8 @@ export const REALTIME_EVENT_NAMES = [
   "chat_updated",
   "chat_message",
   "chat_message_changed",
+  "chat_read",
+  "typing",
 ] as const satisfies readonly RealtimeEventName[];
 
 type Unlisted = Exclude<RealtimeEventName, (typeof REALTIME_EVENT_NAMES)[number]>;

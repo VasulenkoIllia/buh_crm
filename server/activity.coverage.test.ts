@@ -1,4 +1,5 @@
 import { QUIET_ROUTES } from "./test/quiet-routes.js";
+import { SILENT_ROUTES } from "./test/silent-routes.js";
 import { readdir, readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import inventory from "./route-inventory.json" with { type: "json" };
@@ -25,6 +26,26 @@ import inventory from "./route-inventory.json" with { type: "json" };
  * Modules whose mutating routes are deliberately tier-1 only. Each needs a reason, and the reason
  * has to be about the ACTS, not about the effort.
  */
+/**
+ * **The routes that write no row at all**, held to the list that names them. The exception itself
+ * is `server/test/silent-routes.ts`; this is what stops a third route joining it quietly.
+ */
+describe("routes that write no activity row", () => {
+  it("are exactly the two the list names, each with a reason", async () => {
+    const inventory = JSON.parse(
+      await readFile(new URL("route-inventory.json", import.meta.url), "utf8"),
+    ) as { method: string; url: string; activity?: "none" }[];
+    const shipped = inventory
+      .filter((r) => r.activity === "none")
+      .map((r) => `${r.method} ${r.url}`)
+      .sort();
+    expect(shipped).toEqual(Object.keys(SILENT_ROUTES).sort());
+    for (const [route, why] of Object.entries(SILENT_ROUTES)) {
+      expect(why.length, `${route} needs a reason, not a word`).toBeGreaterThan(20);
+    }
+  });
+});
+
 const TIER1_ONLY: Record<string, string> = {
   activity:
     "the log's own module. Its reads record nothing by design (§3.2), and its one mutating " +
