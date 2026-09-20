@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { Info } from "lucide-react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { ChatFile, ChatFileItem, ChatMessage } from "@shared/schema/chat";
 import { useAuth } from "@/app/auth";
 import { FileViewer, type Viewable } from "@/modules/files";
@@ -76,6 +76,12 @@ export function ChatPage() {
   const [readBy, setReadBy] = useState<string | null>(null);
   const [forwarding, setForwarding] = useState<ChatMessage | null>(null);
   const [goTo, setGoTo] = useState<string | null>(null);
+  /**
+   * `?m=<place>` — a link to one message, which is what "Copy link" puts on the clipboard. The
+   * conversation loads older pages until it has that place and scrolls to it.
+   */
+  const [params, setParams] = useSearchParams();
+  const linkedSeq = Number(params.get("m")) || null;
   /** the CRM's own viewer, over the chat's files (§6.2) */
   const [viewing, setViewing] = useState<{ items: Viewable[]; index: number } | null>(null);
 
@@ -133,8 +139,8 @@ export function ChatPage() {
         }}
         onOpenHit={(hit) => {
           // the conversation loads older pages until it has it, then scrolls (§8)
-          if (hit.chatId !== chatId) navigate(`/chat/${hit.chatId}`);
-          setGoTo(hit.messageId);
+          if (hit.chatId !== chatId) navigate(`/chat/${hit.chatId}?m=${hit.seq}`);
+          else setGoTo(hit.messageId);
         }}
         onNewGroup={(title, memberIds) =>
           createGroup.mutate(
@@ -212,7 +218,11 @@ export function ChatPage() {
               }
               onOpenFile={openFiles}
               goTo={goTo}
-              onWent={() => setGoTo(null)}
+              goToSeq={linkedSeq}
+              onWent={() => {
+                setGoTo(null);
+                if (linkedSeq) setParams({}, { replace: true });
+              }}
               typing={typing}
             />
 

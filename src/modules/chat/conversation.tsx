@@ -4,9 +4,12 @@ import {
   Check,
   CheckCheck,
   ChevronDown,
+  Copy,
   CornerUpLeft,
   CornerUpRight,
   Eye,
+  Link2,
+  MoreHorizontal,
   Pencil,
   Pin,
   SmilePlus,
@@ -69,6 +72,7 @@ export function Conversation({
   firstUnread,
   onOpenFile,
   goTo,
+  goToSeq,
   onWent,
   typing,
 }: {
@@ -94,6 +98,8 @@ export function Conversation({
   onOpenFile: (files: ChatFile[], index: number, at: string) => void;
   /** a message to scroll to, from the pinned bar or a reply's quote */
   goTo: string | null;
+  /** …or one named by its place, which is what a link to a message carries (§5.2) */
+  goToSeq: number | null;
   /** told once the view has gone there, so the ask can be forgotten */
   onWent?: () => void;
   typing: string[];
@@ -193,12 +199,16 @@ export function Conversation({
    */
   const heldHeight = useRef<number | null>(null);
   useEffect(() => {
-    const wanted = asked ?? goTo;
+    const wanted = asked ?? goTo ?? (goToSeq ? `seq:${goToSeq}` : null);
     if (!wanted || wentTo.current === wanted) {
       hunted.current = 0;
       return;
     }
-    const at = rows.findIndex((r) => r.kind === "message" && r.message.id === wanted);
+    const at = rows.findIndex(
+      (r) =>
+        r.kind === "message" &&
+        (r.message.id === wanted || (goToSeq !== null && r.message.seq === goToSeq)),
+    );
     if (at < 0) {
       if (more && !loadingMore && hunted.current < HUNT) {
         hunted.current++;
@@ -215,7 +225,7 @@ export function Conversation({
     hunted.current = 0;
     virtual.scrollToIndex(at, { align: "center" });
     if (!asked) onWent?.();
-  }, [asked, goTo, rows, virtual, onWent, more, loadingMore, onLoadMore]);
+  }, [asked, goTo, goToSeq, rows, virtual, onWent, more, loadingMore, onLoadMore]);
 
   useLayoutEffect(() => {
     const el = box.current;
@@ -388,6 +398,114 @@ function ReactionPicker({
   );
 }
 
+/**
+ * **What a person does with one message** (the owner's ask, 2026-09-20: "як в телеграмі"): a
+ * right-click anywhere on the bubble, or the ⋯ beside it, opens this. Reply and a reaction stay on
+ * the hover row too, because on a desktop one click beats two for the things people do most.
+ */
+function MessageMenu({
+  message,
+  at,
+  can,
+  onClose,
+  on,
+}: {
+  message: ChatMessage;
+  /** where the pointer was; negative means "beside the row" */
+  at: { x: number; y: number };
+  can: { edit: boolean; delete: boolean; pin: boolean; readBy: boolean };
+  onClose: () => void;
+  on: {
+    reply: () => void;
+    forward: () => void;
+    copy: () => void;
+    link: () => void;
+    pin: () => void;
+    readBy: () => void;
+    edit: () => void;
+    remove: () => void;
+  };
+}) {
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const away = (event: MouseEvent) => {
+      if (!box.current?.contains(event.target as Node)) onClose();
+    };
+    const escape = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    window.addEventListener("mousedown", away);
+    window.addEventListener("keydown", escape);
+    return () => {
+      window.removeEventListener("mousedown", away);
+      window.removeEventListener("keydown", escape);
+    };
+  }, [onClose]);
+
+  const item =
+    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12.5px] text-ink hover:bg-divider";
+  const act = (run: () => void) => () => {
+    run();
+    onClose();
+  };
+  const placed =
+    at.x >= 0
+      ? { position: "fixed" as const, left: Math.min(at.x, window.innerWidth - 210), top: at.y }
+      : undefined;
+
+  return (
+    <div
+      ref={box}
+      style={placed}
+      className={cn(
+        "z-40 w-[200px] overflow-hidden rounded-(--radius-panel) border border-border bg-surface py-1 shadow-(--shadow-card)",
+        !placed && "absolute top-6 right-0",
+      )}
+    >
+      <button type="button" className={item} onClick={act(on.reply)}>
+        <CornerUpLeft className="size-3.5" />
+        Reply
+      </button>
+      <button type="button" className={item} onClick={act(on.forward)}>
+        <CornerUpRight className="size-3.5" />
+        Forward
+      </button>
+      {message.text && (
+        <button type="button" className={item} onClick={act(on.copy)}>
+          <Copy className="size-3.5" />
+          Copy text
+        </button>
+      )}
+      <button type="button" className={item} onClick={act(on.link)}>
+        <Link2 className="size-3.5" />
+        Copy link
+      </button>
+      {can.pin && (
+        <button type="button" className={item} onClick={act(on.pin)}>
+          <Pin className="size-3.5" />
+          {message.pinned ? "Unpin" : "Pin"}
+        </button>
+      )}
+      {can.readBy && (
+        <button type="button" className={item} onClick={act(on.readBy)}>
+          <Eye className="size-3.5" />
+          Read by
+        </button>
+      )}
+      {can.edit && (
+        <button type="button" className={item} onClick={act(on.edit)}>
+          <Pencil className="size-3.5" />
+          Edit
+        </button>
+      )}
+      {can.delete && (
+        <button type="button" className={cn(item, "text-danger-text")} onClick={act(on.remove)}>
+          <Trash2 className="size-3.5" />
+          Delete
+        </button>
+      )}
+    </div>
+  );
+}
+
 function Row({
   chat,
   message,
@@ -429,6 +547,7 @@ function Row({
   mentionNames: string[];
 }) {
   const [reacting, setReacting] = useState(false);
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
 
   if (message.kind === "notice") {
     const names = (message.notice?.userIds ?? []).map((id) => nameOf(people, id)).join(", ");
@@ -448,10 +567,15 @@ function Row({
   const read = chat.othersReadSeq >= message.seq;
 
   return (
-    <div className={cn("group flex gap-2 py-1", mine && "flex-row-reverse")}>
+    <div className={cn("group relative flex gap-2 py-1", mine && "flex-row-reverse")}>
       {inGroup && !mine && author && <UserAvatar user={author} size="sm" className="mt-1" />}
       <div className={cn("max-w-[min(680px,78%)]", mine && "items-end")}>
         <div
+          onContextMenu={(e) => {
+            if (message.deletedAt) return;
+            e.preventDefault();
+            setMenuAt({ x: e.clientX, y: e.clientY });
+          }}
           className={cn(
             "rounded-(--radius-panel) px-3 py-2 text-[13px]",
             mine ? "bg-primary text-white" : "border border-border bg-surface text-ink",
@@ -562,53 +686,39 @@ function Row({
           </button>
           <button
             type="button"
-            aria-label="Forward"
-            onClick={() => onForward(message)}
+            aria-label="More"
+            onClick={() => setMenuAt({ x: -1, y: -1 })}
             className="text-muted hover:text-ink"
           >
-            <CornerUpRight className="size-3.5" />
+            <MoreHorizontal className="size-3.5" />
           </button>
-          {(chat.kind !== "announcements" || firmAdmin) && (
-            <button
-              type="button"
-              aria-label={message.pinned ? "Unpin" : "Pin"}
-              onClick={() => onPin(message, !message.pinned)}
-              className={cn("hover:text-ink", message.pinned ? "text-ink" : "text-muted")}
-            >
-              <Pin className="size-3.5" />
-            </button>
-          )}
-          {mine && inGroup && (
-            <button
-              type="button"
-              aria-label="Read by"
-              onClick={() => onReadBy(message)}
-              className="text-muted hover:text-ink"
-            >
-              <Eye className="size-3.5" />
-            </button>
-          )}
-          {mine && message.kind !== "poll" && (
-            <button
-              type="button"
-              aria-label="Edit"
-              onClick={() => onEdit(message)}
-              className="text-muted hover:text-ink"
-            >
-              <Pencil className="size-3.5" />
-            </button>
-          )}
-          {(mine || firmAdmin) && (
-            <button
-              type="button"
-              aria-label="Delete"
-              onClick={() => onDelete(message)}
-              className="text-muted hover:text-danger-text"
-            >
-              <Trash2 className="size-3.5" />
-            </button>
-          )}
         </div>
+      )}
+      {menuAt && (
+        <MessageMenu
+          message={message}
+          at={menuAt}
+          can={{
+            edit: mine && message.kind !== "poll",
+            delete: mine || firmAdmin,
+            pin: chat.kind !== "announcements" || firmAdmin,
+            readBy: mine && inGroup,
+          }}
+          onClose={() => setMenuAt(null)}
+          on={{
+            reply: () => onReply(message),
+            forward: () => onForward(message),
+            copy: () => void navigator.clipboard?.writeText(message.text ?? ""),
+            link: () =>
+              void navigator.clipboard?.writeText(
+                `${window.location.origin}/chat/${chat.id}?m=${message.seq}`,
+              ),
+            pin: () => onPin(message, !message.pinned),
+            readBy: () => onReadBy(message),
+            edit: () => onEdit(message),
+            remove: () => onDelete(message),
+          }}
+        />
       )}
     </div>
   );

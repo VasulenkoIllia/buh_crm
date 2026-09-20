@@ -155,6 +155,16 @@ export function TasksPage() {
   useEffect(() => {
     if (taskParam) setSelectedId(taskParam);
   }, [taskParam]);
+  /**
+   * **Opening a task puts it in the address bar** (`?task=<id>`), so the link to it is simply the
+   * page's own URL — which is what a person copies to send it to a colleague in the chat. Before
+   * this, a task opened by clicking left the address at `/tasks` and there was nothing to copy
+   * (owner, 2026-09-20).
+   */
+  const openDetails = (id: string) => {
+    setSelectedId(id);
+    setSearchParams({ task: id }, { replace: true });
+  };
   const closeDetails = () => {
     setSelectedId(null);
     if (taskParam) setSearchParams({}, { replace: true });
@@ -322,7 +332,7 @@ export function TasksPage() {
           columns={columns}
           tasks={tasks}
           team={team ?? []}
-          onOpen={(t) => setSelectedId(t.id)}
+          onOpen={(t) => openDetails(t.id)}
           onAddInColumn={openNewTask}
         />
       )}
@@ -386,7 +396,7 @@ export function TasksPage() {
             setTicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))
           }
           onWiden={() => (done ? setDonePeriod("all") : setCancelledPeriod("all"))}
-          onOpen={(t) => setSelectedId(t.id)}
+          onOpen={(t) => openDetails(t.id)}
         />
       )}
       {data && columns && layout === "table" && (
@@ -395,7 +405,7 @@ export function TasksPage() {
             columns={columns}
             tasks={tasks}
             team={team ?? []}
-            onOpen={(t) => setSelectedId(t.id)}
+            onOpen={(t) => openDetails(t.id)}
             ticked={closed ? ticked : undefined}
             onTick={
               closed

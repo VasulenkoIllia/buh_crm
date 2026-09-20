@@ -799,6 +799,31 @@ export function ClientLeadSearch({
 
 // ── details ──────────────────────────────────────────────────────────────────
 
+/**
+ * **The link to this task**, for sending it to a colleague — in the chat, in an email, anywhere.
+ * It is the page's own address with `?task=<id>`, which the Tasks page now keeps in the address bar
+ * while a task is open; this is the button for the people who do not think to look up there
+ * (owner, 2026-09-20).
+ */
+function CopyTaskLink({ id }: { id: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <Button
+      variant="text"
+      onClick={() => {
+        void navigator.clipboard
+          ?.writeText(`${window.location.origin}/tasks?task=${id}`)
+          .then(() => {
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 2000);
+          });
+      }}
+    >
+      {copied ? "Link copied" : "Copy link"}
+    </Button>
+  );
+}
+
 export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () => void }) {
   const { user } = useAuth();
   const { data: services } = useCatalog();
@@ -888,6 +913,7 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
               📦 Archive
             </Button>
           )}
+          <CopyTaskLink id={task.id} />
           <Button variant="secondary" onClick={onClose}>
             Close
           </Button>
