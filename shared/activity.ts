@@ -76,6 +76,7 @@ export type ActivitySubject =
   | "firm_folder"
   | "chat"
   | "chat_member"
+  | "chat_message"
   | "user"
   | "session"
   | "access"
@@ -105,6 +106,7 @@ export const SUBJECT_GROUP: Record<ActivitySubject, ActivityGroup> = {
   // the chat's own group (chat.md §12.1): groups and who is in them, never what was said
   chat: "chat",
   chat_member: "chat",
+  chat_message: "chat",
   user: "people",
   session: "people",
   access: "people",
@@ -150,6 +152,7 @@ export const SUBJECT_GATE: Record<ActivitySubject, string> = {
   // a group's name and its people, which only somebody with the chat could see
   chat: "chat",
   chat_member: "chat",
+  chat_message: "chat",
   // who is in the system, and what they were allowed to reach — the Team gate's subject matter
   user: "team",
   session: "team",
@@ -1028,6 +1031,23 @@ const EVENTS = {
     actorKinds: ["user"],
     retention: "ordinary",
     changeKeys: ["group", "role"],
+    enabledByDefault: true,
+  },
+
+  /**
+   * **The one thing a message does that the conversation cannot hold.** A delete destroys the text
+   * at once and for good (§5.3), so the row that says it happened is the only record left: who
+   * deleted, whose message it was, and which chat. Never a word of what it said, and a direct chat
+   * is named as one (§12.1).
+   */
+  "chat_message.deleted": {
+    subject: "chat_message",
+    title: "{actor} deleted a message in {subject}",
+    when: "a message is deleted for everyone, by its author or by an admin",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    changeKeys: ["author"],
     enabledByDefault: true,
   },
 

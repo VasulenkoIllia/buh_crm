@@ -53,6 +53,10 @@ export interface RealtimeEvents {
    * included, so their list drops it at once.
    */
   chat_updated: { chatId: string };
+  /** a message was sent: the tab fetches what is after the `seq` it holds */
+  chat_message: { chatId: string; seq: number };
+  /** a message changed where it stands: edited, deleted, reacted to, pinned, voted in */
+  chat_message_changed: { chatId: string; seq: number };
 }
 
 export type RealtimeEventName = keyof RealtimeEvents;
@@ -76,6 +80,8 @@ export const REALTIME_EVENT_NAMES = [
   "pong",
   "presence",
   "chat_updated",
+  "chat_message",
+  "chat_message_changed",
 ] as const satisfies readonly RealtimeEventName[];
 
 type Unlisted = Exclude<RealtimeEventName, (typeof REALTIME_EVENT_NAMES)[number]>;

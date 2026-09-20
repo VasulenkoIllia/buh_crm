@@ -25,6 +25,17 @@ export const QUIET_ROUTES: Record<string, string> = {
   "POST /api/chat/saved": "opens the caller's own Saved messages, made the first time",
   "PUT /api/chat/chats/:id/settings":
     "mutes, pins or hides a chat in the caller's own list; nobody else's chat changes",
+  "POST /api/chat/chats/:id/messages":
+    "a message sent. The conversation is its own record, with its authors and times; the log's " +
+    "meaning starts where membership or a deletion changes (chat.md §12.1, §12.2)",
+  "PATCH /api/chat/messages/:messageId": "a message edited by its author, for the same reason",
+  "POST /api/chat/forward": "the same words sent again in another chat the sender is in",
+  "PUT /api/chat/messages/:messageId/reaction": "an emoji on a message, and taking it back",
+  "PUT /api/chat/messages/:messageId/pin":
+    "a message pinned at the top of its chat, or unpinned",
+  "PUT /api/chat/messages/:messageId/vote": "an answer in a poll, which the poll itself shows",
+  "POST /api/chat/messages/:messageId/poll/close":
+    "a poll closed by its author or a group's admin",
   "POST /api/chat/stream/ping":
     "the live connection's delivery test: sends the caller an event of their own and stores " +
     "nothing (chat.md §15.1, step 0.4)",

@@ -120,10 +120,13 @@ describe("route inventory", () => {
       // +13 for the chats themselves (chat.md §4, step A.2): the list, one chat, the people, a direct
       // chat, Saved messages, a group, its words, adding, taking out, a role, handing on, leaving,
       // and the reader's own settings; three of them reads with their HEADs.
-      total: 361,
-      derivedHead: 88,
-      real: 273,
-      api: 272, // everything but /health
+      // +10 for the messages themselves (chat.md §5, step A.3): the history, the pinned, a send, an
+      // edit, a delete, a forward, a reaction, a pin, a vote and closing a poll; two of them reads
+      // with their HEADs.
+      total: 373,
+      derivedHead: 90,
+      real: 283,
+      api: 282, // everything but /health
       anonymous: 9, // 6 credential routes, 2 unsubscribe pages, /health
       // `POST /tasks/timer/start` moved to the `tasks` gate during the 2026-09-07 audit. It takes a
       // taskId and writes against somebody else's module, so it was never really "the caller's own
@@ -131,7 +134,7 @@ describe("route inventory", () => {
       // second factor and name nobody else.
       own: 15,
       shared: 9,
-      gated: 240,
+      gated: 250,
       adminOnly: 20,
     });
   });

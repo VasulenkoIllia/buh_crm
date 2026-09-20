@@ -16,12 +16,24 @@ import {
   type ChatPingResult,
   type ChatPresence,
 } from "@shared/schema/chat.js";
+import {
+  editMessageInput,
+  forwardInput,
+  historyQuery,
+  reactInput,
+  sendMessageInput,
+  voteInput,
+} from "@shared/schema/chat.js";
+import { isTest } from "../../core/config.js";
 import { publish, realtimeListening } from "../../core/realtime.js";
+import * as messages from "./chat.messages.js";
 import * as service from "./chat.service.js";
 import { onlinePeople, openStream } from "./chat.stream.js";
 
 const idParams = z.object({ id: uuid });
 const memberParams = z.object({ id: uuid, userId: uuid });
+const messageParams = z.object({ messageId: uuid });
+const pinInput = z.object({ pinned: z.boolean() });
 
 const STREAM: StreamRouteConfig = { stream: true };
 
@@ -152,5 +164,76 @@ export async function registerRoutes(instance: FastifyInstance) {
     { config: chat, schema: { params: idParams, body: chatSettingsInput } },
     async (request) =>
       service.updateSettings(request.currentUser!, request.params.id, request.body),
+  );
+
+  // ── messages (chat.md §5) ────────────────────────────────────────────────────
+  //
+  // Every one of these is a member's, and none of them describes itself in the activity log: a
+  // conversation is its own record (§12.1), so they are quiet routes and keep their tier-1 rows.
+  // The exception is a delete, which destroys the text and is the one act the log must hold.
+
+  /** Sends are bounded per session, as §7.3 sets out. */
+  const sending = { rateLimit: { max: isTest ? 10_000 : 60, timeWindow: "1 minute" } };
+
+  app.get(
+    "/chats/:id/messages",
+    { config: chat, schema: { params: idParams, querystring: historyQuery } },
+    async (request) => messages.history(request.currentUser!, request.params.id, request.query),
+  );
+
+  app.get("/chats/:id/pins", { config: chat, schema: { params: idParams } }, async (request) =>
+    messages.pinned(request.currentUser!, request.params.id),
+  );
+
+  app.post(
+    "/chats/:id/messages",
+    { config: { ...chat, ...sending }, schema: { params: idParams, body: sendMessageInput } },
+    async (request) => messages.send(request.currentUser!, request.params.id, request.body),
+  );
+
+  app.patch(
+    "/messages/:messageId",
+    { config: chat, schema: { params: messageParams, body: editMessageInput } },
+    async (request) =>
+      messages.edit(request.currentUser!, request.params.messageId, request.body),
+  );
+
+  app.delete(
+    "/messages/:messageId",
+    { config: chat, schema: { params: messageParams } },
+    async (request) => messages.remove(request.currentUser!, request.params.messageId),
+  );
+
+  app.post("/forward", { config: chat, schema: { body: forwardInput } }, async (request) => {
+    await messages.forward(request.currentUser!, request.body);
+    return { ok: true };
+  });
+
+  /** One of each emoji per person: sending the same one again takes it back. */
+  app.put(
+    "/messages/:messageId/reaction",
+    { config: chat, schema: { params: messageParams, body: reactInput } },
+    async (request) =>
+      messages.react(request.currentUser!, request.params.messageId, request.body.emoji),
+  );
+
+  app.put(
+    "/messages/:messageId/pin",
+    { config: chat, schema: { params: messageParams, body: pinInput } },
+    async (request) =>
+      messages.setPinned(request.currentUser!, request.params.messageId, request.body.pinned),
+  );
+
+  app.put(
+    "/messages/:messageId/vote",
+    { config: chat, schema: { params: messageParams, body: voteInput } },
+    async (request) =>
+      messages.vote(request.currentUser!, request.params.messageId, request.body),
+  );
+
+  app.post(
+    "/messages/:messageId/poll/close",
+    { config: chat, schema: { params: messageParams } },
+    async (request) => messages.closePoll(request.currentUser!, request.params.messageId),
   );
 }

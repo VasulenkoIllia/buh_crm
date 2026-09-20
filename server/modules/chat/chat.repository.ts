@@ -307,3 +307,249 @@ export function leaveChannelTx(tx: Tx, userId: string, at: Date) {
     data: { leftAt: at },
   });
 }
+
+// ── messages (chat.md §5) ──────────────────────────────────────────────────────
+
+/** Everything one message shows: who reacted, whether it is pinned, its poll and its votes. */
+const MESSAGE_PARTS = {
+  reactions: { select: { emoji: true, userId: true } },
+  pin: { select: { messageId: true } },
+  poll: {
+    select: {
+      multiple: true,
+      ciphertext: true,
+      iv: true,
+      authTag: true,
+      keyVersion: true,
+      closedAt: true,
+      votes: { select: { option: true, userId: true } },
+    },
+  },
+  replyTo: {
+    select: {
+      id: true,
+      seq: true,
+      authorId: true,
+      deletedAt: true,
+      ciphertext: true,
+      iv: true,
+      authTag: true,
+      keyVersion: true,
+    },
+  },
+} as const satisfies Prisma.ChatMessageInclude;
+
+export type MessageRow = Prisma.ChatMessageGetPayload<{ include: typeof MESSAGE_PARTS }>;
+
+export function messageById(messageId: string) {
+  return prisma.chatMessage.findUnique({
+    where: { id: messageId },
+    include: { ...MESSAGE_PARTS, chat: { select: { id: true, kind: true } } },
+  });
+}
+
+export function messagesById(ids: readonly string[]) {
+  return prisma.chatMessage.findMany({
+    where: { id: { in: [...ids] } },
+    include: MESSAGE_PARTS,
+    orderBy: { seq: "asc" },
+  });
+}
+
+/**
+ * A page of history (§7.2): the newest 50, the 50 below a place, or everything after one, which is
+ * how a tab catches up when its connection comes back.
+ */
+export async function messagePage(
+  chatId: string,
+  opts: { before?: number; after?: number; limit: number },
+): Promise<{ rows: MessageRow[]; more: boolean }> {
+  if (opts.after !== undefined) {
+    const rows = await prisma.chatMessage.findMany({
+      where: { chatId, seq: { gt: opts.after } },
+      include: MESSAGE_PARTS,
+      orderBy: { seq: "asc" },
+      take: opts.limit + 1,
+    });
+    return { rows: rows.slice(0, opts.limit), more: rows.length > opts.limit };
+  }
+  const rows = await prisma.chatMessage.findMany({
+    where: { chatId, ...(opts.before ? { seq: { lt: opts.before } } : {}) },
+    include: MESSAGE_PARTS,
+    orderBy: { seq: "desc" },
+    take: opts.limit + 1,
+  });
+  const page = rows.slice(0, opts.limit).reverse();
+  return { rows: page, more: rows.length > opts.limit };
+}
+
+export function pinnedMessages(chatId: string) {
+  return prisma.chatMessage.findMany({
+    where: { chatId, pin: { isNot: null } },
+    include: MESSAGE_PARTS,
+    orderBy: { seq: "asc" },
+  });
+}
+
+export function sentAlready(authorId: string, clientMessageId: string) {
+  return prisma.chatMessage.findUnique({
+    where: { authorId_clientMessageId: { authorId, clientMessageId } },
+    include: MESSAGE_PARTS,
+  });
+}
+
+export interface NewMessage {
+  chatId: string;
+  seq: number;
+  authorId: string;
+  clientMessageId: string;
+  sealed: {
+    ciphertext: Uint8Array<ArrayBuffer>;
+    iv: Uint8Array<ArrayBuffer>;
+    authTag: Uint8Array<ArrayBuffer>;
+    keyVersion: number;
+  } | null;
+  replyToId?: string | null;
+  forwardedFromId?: string | null;
+  mentions?: string[];
+  kind?: "text" | "poll";
+  at: Date;
+}
+
+export function insertMessageTx(tx: Tx, m: NewMessage) {
+  return tx.chatMessage.create({
+    data: {
+      chatId: m.chatId,
+      seq: m.seq,
+      kind: m.kind ?? "text",
+      authorId: m.authorId,
+      clientMessageId: m.clientMessageId,
+      ...(m.sealed ?? {}),
+      replyToId: m.replyToId ?? null,
+      forwardedFromId: m.forwardedFromId ?? null,
+      mentions: m.mentions ?? [],
+      createdAt: m.at,
+    },
+    select: { id: true },
+  });
+}
+
+export function insertPollTx(
+  tx: Tx,
+  messageId: string,
+  multiple: boolean,
+  sealed: {
+    ciphertext: Uint8Array<ArrayBuffer>;
+    iv: Uint8Array<ArrayBuffer>;
+    authTag: Uint8Array<ArrayBuffer>;
+    keyVersion: number;
+  },
+) {
+  return tx.chatPoll.create({ data: { messageId, multiple, ...sealed } });
+}
+
+/** The sender has read their own message, and everybody named in it has an `@` waiting. */
+export async function markSentTx(
+  tx: Tx,
+  chatId: string,
+  authorId: string,
+  seq: number,
+  mentioned: readonly string[],
+) {
+  await tx.chatMember.updateMany({
+    where: { chatId, userId: authorId, lastReadSeq: { lt: seq } },
+    data: { lastReadSeq: seq },
+  });
+  if (mentioned.length > 0) {
+    await tx.chatMember.updateMany({
+      where: { chatId, userId: { in: [...mentioned] }, leftAt: null },
+      data: { lastMentionSeq: seq },
+    });
+  }
+}
+
+export function editMessage(
+  messageId: string,
+  sealed: {
+    ciphertext: Uint8Array<ArrayBuffer>;
+    iv: Uint8Array<ArrayBuffer>;
+    authTag: Uint8Array<ArrayBuffer>;
+    keyVersion: number;
+  },
+  at: Date,
+) {
+  return prisma.chatMessage.update({
+    where: { id: messageId },
+    data: { ...sealed, editedAt: at },
+  });
+}
+
+/**
+ * **A delete for everyone destroys the text at once** (§5.3): the sealed columns are cleared, so
+ * nothing is left to open. The row stays, so the chat's places have no hole, and it reads
+ * "Message deleted".
+ */
+export function deleteMessage(messageId: string, byUserId: string, at: Date) {
+  return prisma.chatMessage.update({
+    where: { id: messageId },
+    data: {
+      ciphertext: null,
+      iv: null,
+      authTag: null,
+      deletedAt: at,
+      deletedById: byUserId,
+      mentions: [],
+    },
+  });
+}
+
+export async function toggleReaction(messageId: string, userId: string, emoji: string) {
+  const existing = await prisma.chatReaction.findUnique({
+    where: { messageId_userId_emoji: { messageId, userId, emoji } },
+  });
+  if (existing) {
+    await prisma.chatReaction.delete({
+      where: { messageId_userId_emoji: { messageId, userId, emoji } },
+    });
+    return false;
+  }
+  await prisma.chatReaction.create({ data: { messageId, userId, emoji } });
+  return true;
+}
+
+export function pinMessage(messageId: string, chatId: string, byUserId: string) {
+  return prisma.chatPin.upsert({
+    where: { messageId },
+    create: { messageId, chatId, pinnedById: byUserId },
+    update: {},
+  });
+}
+
+export function unpinMessage(messageId: string) {
+  return prisma.chatPin.deleteMany({ where: { messageId } });
+}
+
+export async function replaceVotes(
+  messageId: string,
+  userId: string,
+  options: readonly number[],
+) {
+  await prisma.$transaction([
+    prisma.chatPollVote.deleteMany({ where: { messageId, userId } }),
+    prisma.chatPollVote.createMany({
+      data: options.map((option) => ({ messageId, userId, option })),
+      skipDuplicates: true,
+    }),
+  ]);
+}
+
+export function closePoll(messageId: string, byUserId: string, at: Date) {
+  return prisma.chatPoll.update({
+    where: { messageId },
+    data: { closedAt: at, closedById: byUserId },
+  });
+}
+
+export function peopleByIds(ids: readonly string[]) {
+  return prisma.user.findMany({ where: { id: { in: [...ids] } }, select: PERSON });
+}

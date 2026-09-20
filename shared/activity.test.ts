@@ -125,7 +125,8 @@ describe("the activity registry", () => {
     // subject; and a free-form secret's files: attached, removed, opened (secrets.md §21,
     // 2026-09-18); and the chat's six for groups and their people (chat.md §12.1, 2026-09-18):
     // created, changed, and a person added, taken out, leaving, or given another role
-    expect(ACTIVITY_KEYS.length).toBe(211);
+    // and one for a message deleted for everyone, whose text is gone at once (§5.3, step A.3)
+    expect(ACTIVITY_KEYS.length).toBe(212);
     // the checklist is empty because the pass is finished — not because it was abandoned
     expect(PLANNED_EVENT_KEYS).toEqual([]);
   });

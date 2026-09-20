@@ -1,0 +1,404 @@
+import { randomUUID } from "node:crypto";
+import type {
+  ChatMessage,
+  ChatMessagePage,
+  EditMessageInput,
+  ForwardInput,
+  HistoryQuery,
+  SendMessageInput,
+  VoteInput,
+} from "@shared/schema/chat.js";
+import type { User } from "../../generated/prisma/client.js";
+import { record } from "../../core/activity.js";
+import { ForbiddenError, NotFoundError, ValidationError } from "../../core/errors.js";
+import { personName } from "../../core/names.js";
+import { publish } from "../../core/realtime.js";
+import * as repo from "./chat.repository.js";
+import { openGroup, openOptions, openText, sealOptions, sealText } from "./chat.sealing.js";
+import { requireMember } from "./chat.service.js";
+
+/**
+ * **Messages** (chat.md §5): sending, editing, deleting for everyone, replying, forwarding,
+ * reacting, pinning, mentioning and polls. Who may read them is `chat.service.ts`: every one of
+ * these starts with the caller's active membership of the chat.
+ *
+ * **A message's place (`seq`) is taken under the chat's row lock** and its text is sealed before it
+ * is written, so nothing a person wrote is ever in a plain column. The tab hears `chat_message`
+ * with the chat and the place, and fetches the message through the ordinary route: the event
+ * carries no text (§7.1).
+ *
+ * **A send is idempotent.** The author names the send (`clientMessageId`), and a retry after a lost
+ * connection finds the first one and answers with it rather than posting twice.
+ */
+
+const PAGE = 50;
+/** The first line of a quoted message, as a reply shows it. */
+const PREVIEW = 120;
+
+type MessageRow = repo.MessageRow;
+
+// ── who may write ──────────────────────────────────────────────────────────────
+
+type Membership = Awaited<ReturnType<typeof requireMember>>;
+
+/**
+ * Reading a chat is membership; WRITING has three rules on top of it (§4.1, §5.3, §11):
+ * only firm admins post in the channel, nobody writes to a blocked colleague, and everybody else
+ * in a chat they are in may write.
+ */
+function requireWriter(m: Membership, user: User) {
+  if (m.chat.kind === "announcements" && user.role !== "admin") {
+    throw new ForbiddenError("Only an admin posts in the announcements channel");
+  }
+  if (m.chat.kind === "direct") {
+    const peer = m.chat.members.find((x) => x.userId !== user.id)?.user;
+    if (!peer || peer.status !== "active") {
+      throw new ForbiddenError("This colleague is blocked, so the chat is read only");
+    }
+  }
+}
+
+function manages(m: Membership): boolean {
+  return m.role === "owner" || m.role === "admin";
+}
+
+// ── what a message looks like ──────────────────────────────────────────────────
+
+function previewOf(row: {
+  deletedAt: Date | null;
+  ciphertext: Uint8Array | null;
+  iv: Uint8Array | null;
+  authTag: Uint8Array | null;
+  keyVersion: number;
+}): string | null {
+  const text = openText(row);
+  if (text === null) return null;
+  const line = text.split("\n")[0].trim();
+  return line.length > PREVIEW ? `${line.slice(0, PREVIEW)}…` : line;
+}
+
+function toMessage(row: MessageRow): ChatMessage {
+  const reactions = new Map<string, string[]>();
+  for (const r of row.reactions) {
+    reactions.set(r.emoji, [...(reactions.get(r.emoji) ?? []), r.userId]);
+  }
+  const votes = new Map<number, string[]>();
+  for (const v of row.poll?.votes ?? []) {
+    votes.set(v.option, [...(votes.get(v.option) ?? []), v.userId]);
+  }
+  return {
+    id: row.id,
+    seq: row.seq,
+    kind: row.kind,
+    authorId: row.authorId,
+    text: openText(row),
+    notice: row.notice ? { code: row.notice, userIds: row.noticeUserIds } : null,
+    replyTo: row.replyTo
+      ? {
+          id: row.replyTo.id,
+          seq: row.replyTo.seq,
+          authorId: row.replyTo.authorId,
+          preview: previewOf(row.replyTo),
+          deleted: row.replyTo.deletedAt !== null,
+        }
+      : null,
+    forwardedFromId: row.forwardedFromId,
+    mentions: row.mentions,
+    reactions: [...reactions].map(([emoji, userIds]) => ({ emoji, userIds })),
+    poll: row.poll
+      ? {
+          multiple: row.poll.multiple,
+          options: openOptions(row.poll),
+          closedAt: row.poll.closedAt?.toISOString() ?? null,
+          votes: [...votes].map(([option, userIds]) => ({ option, userIds })),
+        }
+      : null,
+    pinned: row.pin !== null,
+    editedAt: row.editedAt?.toISOString() ?? null,
+    deletedAt: row.deletedAt?.toISOString() ?? null,
+    deletedByOther: row.deletedAt !== null && row.deletedById !== row.authorId,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+/** The people a page names: its authors, whom its notices are about, and who it was forwarded from. */
+async function peopleIn(messages: readonly ChatMessage[]) {
+  const ids = new Set<string>();
+  for (const m of messages) {
+    if (m.authorId) ids.add(m.authorId);
+    if (m.forwardedFromId) ids.add(m.forwardedFromId);
+    if (m.replyTo?.authorId) ids.add(m.replyTo.authorId);
+    for (const id of m.notice?.userIds ?? []) ids.add(id);
+    for (const r of m.reactions) for (const id of r.userIds) ids.add(id);
+    for (const v of m.poll?.votes ?? []) for (const id of v.userIds) ids.add(id);
+  }
+  return ids.size === 0 ? [] : repo.peopleByIds([...ids]);
+}
+
+async function page(rows: MessageRow[], more: boolean): Promise<ChatMessagePage> {
+  const messages = rows.map(toMessage);
+  return { messages, people: await peopleIn(messages), more };
+}
+
+// ── reading ────────────────────────────────────────────────────────────────────
+
+export async function history(
+  user: User,
+  chatId: string,
+  query: HistoryQuery,
+): Promise<ChatMessagePage> {
+  await requireMember(chatId, user.id);
+  const { rows, more } = await repo.messagePage(chatId, {
+    before: query.before,
+    after: query.after,
+    limit: query.limit ?? PAGE,
+  });
+  return page(rows, more);
+}
+
+export async function pinned(user: User, chatId: string): Promise<ChatMessagePage> {
+  await requireMember(chatId, user.id);
+  return page(await repo.pinnedMessages(chatId), false);
+}
+
+/** The message, and the caller's membership of the chat it is in. */
+async function messageFor(user: User, messageId: string) {
+  const row = await repo.messageById(messageId);
+  if (!row) throw new NotFoundError("Message not found");
+  const m = await requireMember(row.chatId, user.id);
+  return { row, m };
+}
+
+async function tell(
+  chat: { id: string },
+  members: readonly { userId: string }[],
+  event: "chat_message" | "chat_message_changed",
+  seq: number,
+) {
+  await publish(
+    members.map((x) => x.userId),
+    event,
+    { chatId: chat.id, seq },
+  );
+}
+
+// ── sending ────────────────────────────────────────────────────────────────────
+
+export async function send(
+  user: User,
+  chatId: string,
+  input: SendMessageInput,
+): Promise<ChatMessage> {
+  const m = await requireMember(chatId, user.id);
+  requireWriter(m, user);
+
+  const already = await repo.sentAlready(user.id, input.clientMessageId);
+  // the same send, retried after a lost connection: the first one is the answer
+  if (already) return toMessage(already);
+
+  if (input.replyToId) {
+    const original = await repo.messageById(input.replyToId);
+    if (!original || original.chatId !== chatId) {
+      throw new ValidationError("That message is not in this chat");
+    }
+  }
+  const members = new Set(m.chat.members.map((x) => x.userId));
+  const mentions = [...new Set(input.mentions ?? [])].filter((id) => members.has(id));
+  const text = input.text?.trim() ?? "";
+  const at = new Date();
+
+  const messageId = await repo.transaction(async (tx) => {
+    const seq = await repo.nextSeq(tx, chatId, at);
+    const { id } = await repo.insertMessageTx(tx, {
+      chatId,
+      seq,
+      authorId: user.id,
+      clientMessageId: input.clientMessageId,
+      sealed: text ? sealText(text) : null,
+      replyToId: input.replyToId,
+      mentions,
+      kind: input.poll ? "poll" : "text",
+      at,
+    });
+    if (input.poll) {
+      await repo.insertPollTx(tx, id, input.poll.multiple, sealOptions(input.poll.options));
+    }
+    await repo.markSentTx(tx, chatId, user.id, seq, mentions);
+    return id;
+  });
+
+  const saved = await repo.messageById(messageId);
+  await tell(m.chat, m.chat.members, "chat_message", saved!.seq);
+  return toMessage(saved!);
+}
+
+export async function edit(
+  user: User,
+  messageId: string,
+  input: EditMessageInput,
+): Promise<ChatMessage> {
+  const { row, m } = await messageFor(user, messageId);
+  if (row.authorId !== user.id) throw new ForbiddenError("Only its author edits a message");
+  if (row.deletedAt) throw new ValidationError("This message was deleted");
+  if (row.kind === "notice")
+    throw new ValidationError("This line was written by the chat itself");
+  if (row.poll && row.poll.votes.length > 0) {
+    throw new ValidationError("A poll cannot be changed once somebody has voted");
+  }
+  await repo.editMessage(messageId, sealText(input.text), new Date());
+  await tell(m.chat, m.chat.members, "chat_message_changed", row.seq);
+  return toMessage((await repo.messageById(messageId))!);
+}
+
+/**
+ * **A delete for everyone** (§5.3): its author any time, a group's admins in their group, a firm
+ * admin in the channel. The text is destroyed at once; the row stays so the chat's places have no
+ * hole, and the log keeps who deleted whose message, in which chat, and no word of it (§12.1).
+ */
+export async function remove(user: User, messageId: string): Promise<ChatMessage> {
+  const { row, m } = await messageFor(user, messageId);
+  const mine = row.authorId === user.id;
+  const asAdmin =
+    (m.chat.kind === "group" && manages(m)) ||
+    (m.chat.kind === "announcements" && user.role === "admin");
+  if (!mine && !asAdmin)
+    throw new ForbiddenError("Only its author or an admin deletes a message");
+  if (row.kind === "notice")
+    throw new ValidationError("This line was written by the chat itself");
+  if (row.deletedAt) return toMessage(row);
+
+  await repo.deleteMessage(messageId, user.id, new Date());
+  const author = row.authorId ? await repo.findPerson(row.authorId) : null;
+  record("chat_message.deleted", {
+    subjectId: messageId,
+    subjectLabel: whichChat(m),
+    changes: { author: mine ? "their own" : personName(author) },
+  });
+  await tell(m.chat, m.chat.members, "chat_message_changed", row.seq);
+  return toMessage((await repo.messageById(messageId))!);
+}
+
+/** What the log calls the chat: a group by its title, everything else by what it is (§12.1). */
+function whichChat(m: Membership): string {
+  switch (m.chat.kind) {
+    case "group":
+      return openGroup(m.chat)?.title ?? "a group";
+    case "announcements":
+      return "the announcements channel";
+    case "saved":
+      return "Saved messages";
+    default:
+      return "a direct chat";
+  }
+}
+
+/**
+ * **Forwarding copies the words into another chat** (§5.2), marked with whom they came from. The
+ * sender must be in both chats and able to write in the one they are sending to.
+ */
+export async function forward(user: User, input: ForwardInput): Promise<void> {
+  const sources = await repo.messagesById(input.messageIds);
+  if (sources.length !== new Set(input.messageIds).size) {
+    throw new NotFoundError("Message not found");
+  }
+  for (const source of sources) {
+    await requireMember(source.chatId, user.id);
+    if (source.deletedAt) throw new ValidationError("A deleted message cannot be forwarded");
+    if (source.kind !== "text")
+      throw new ValidationError("Only a message's words are forwarded");
+  }
+
+  for (const chatId of new Set(input.toChatIds)) {
+    const m = await requireMember(chatId, user.id);
+    requireWriter(m, user);
+    for (const source of sources) {
+      const text = openText(source);
+      if (text === null) continue;
+      const at = new Date();
+      const seq = await repo.transaction(async (tx) => {
+        const seq = await repo.nextSeq(tx, chatId, at);
+        await repo.insertMessageTx(tx, {
+          chatId,
+          seq,
+          authorId: user.id,
+          clientMessageId: randomUUID(),
+          sealed: sealText(text),
+          // a message forwarded on keeps the first author, as Telegram does
+          forwardedFromId: source.forwardedFromId ?? source.authorId,
+          at,
+        });
+        await repo.markSentTx(tx, chatId, user.id, seq, []);
+        return seq;
+      });
+      await tell(m.chat, m.chat.members, "chat_message", seq);
+    }
+  }
+}
+
+// ── reacting, pinning, voting ──────────────────────────────────────────────────
+
+export async function react(
+  user: User,
+  messageId: string,
+  emoji: string,
+): Promise<ChatMessage> {
+  const { row, m } = await messageFor(user, messageId);
+  if (row.deletedAt) throw new ValidationError("This message was deleted");
+  await repo.toggleReaction(messageId, user.id, emoji);
+  await tell(m.chat, m.chat.members, "chat_message_changed", row.seq);
+  return toMessage((await repo.messageById(messageId))!);
+}
+
+/** Pinned by either person in a direct chat, by a group's admins, by a firm admin in the channel. */
+function requirePinner(m: Membership, user: User) {
+  if (m.chat.kind === "group" && !manages(m)) {
+    throw new ForbiddenError("Only the group's admins pin a message");
+  }
+  if (m.chat.kind === "announcements" && user.role !== "admin") {
+    throw new ForbiddenError("Only an admin pins in the announcements channel");
+  }
+}
+
+export async function setPinned(
+  user: User,
+  messageId: string,
+  pinned: boolean,
+): Promise<ChatMessage> {
+  const { row, m } = await messageFor(user, messageId);
+  requirePinner(m, user);
+  if (pinned && row.deletedAt) throw new ValidationError("This message was deleted");
+  if (pinned) await repo.pinMessage(messageId, row.chatId, user.id);
+  else await repo.unpinMessage(messageId);
+  await tell(m.chat, m.chat.members, "chat_message_changed", row.seq);
+  return toMessage((await repo.messageById(messageId))!);
+}
+
+export async function vote(
+  user: User,
+  messageId: string,
+  input: VoteInput,
+): Promise<ChatMessage> {
+  const { row, m } = await messageFor(user, messageId);
+  if (!row.poll) throw new ValidationError("This message is not a poll");
+  if (row.poll.closedAt) throw new ValidationError("This poll is closed");
+  const options = [...new Set(input.options)];
+  if (!row.poll.multiple && options.length > 1) {
+    throw new ValidationError("This poll takes one answer");
+  }
+  const count = openOptions(row.poll).length;
+  if (options.some((o) => o >= count)) throw new ValidationError("No such option");
+  await repo.replaceVotes(messageId, user.id, options);
+  await tell(m.chat, m.chat.members, "chat_message_changed", row.seq);
+  return toMessage((await repo.messageById(messageId))!);
+}
+
+export async function closePoll(user: User, messageId: string): Promise<ChatMessage> {
+  const { row, m } = await messageFor(user, messageId);
+  if (!row.poll) throw new ValidationError("This message is not a poll");
+  if (row.authorId !== user.id && !(m.chat.kind === "group" && manages(m))) {
+    throw new ForbiddenError("Only its author or the group's admins close a poll");
+  }
+  if (!row.poll.closedAt) await repo.closePoll(messageId, user.id, new Date());
+  await tell(m.chat, m.chat.members, "chat_message_changed", row.seq);
+  return toMessage((await repo.messageById(messageId))!);
+}

@@ -267,9 +267,36 @@
     "access": "gate:chat"
   },
   {
+    "method": "GET",
+    "url": "/api/chat/chats/:id/messages",
+    "access": "gate:chat"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/chat/chats/:id/messages",
+    "access": "gate:chat",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/chat/chats/:id/messages",
+    "access": "gate:chat"
+  },
+  {
     "method": "POST",
     "url": "/api/chat/chats/:id/owner",
     "access": "gate:chat"
+  },
+  {
+    "method": "GET",
+    "url": "/api/chat/chats/:id/pins",
+    "access": "gate:chat"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/chat/chats/:id/pins",
+    "access": "gate:chat",
+    "derived": true
   },
   {
     "method": "PUT",
@@ -283,7 +310,42 @@
   },
   {
     "method": "POST",
+    "url": "/api/chat/forward",
+    "access": "gate:chat"
+  },
+  {
+    "method": "POST",
     "url": "/api/chat/groups",
+    "access": "gate:chat"
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/chat/messages/:messageId",
+    "access": "gate:chat"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/chat/messages/:messageId",
+    "access": "gate:chat"
+  },
+  {
+    "method": "PUT",
+    "url": "/api/chat/messages/:messageId/pin",
+    "access": "gate:chat"
+  },
+  {
+    "method": "POST",
+    "url": "/api/chat/messages/:messageId/poll/close",
+    "access": "gate:chat"
+  },
+  {
+    "method": "PUT",
+    "url": "/api/chat/messages/:messageId/reaction",
+    "access": "gate:chat"
+  },
+  {
+    "method": "PUT",
+    "url": "/api/chat/messages/:messageId/vote",
     "access": "gate:chat"
   },
   {
