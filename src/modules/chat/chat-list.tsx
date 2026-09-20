@@ -74,7 +74,13 @@ function lastLine(chat: ChatSummary): string {
   if (last.notice) return NOTICE_LINE[last.notice] ?? "The group changed";
   if (last.deleted) return "Message deleted";
   if (last.kind === "poll") return `Poll: ${plain(last.preview ?? "")}`;
-  return plain(last.preview ?? "");
+  const words = plain(last.preview ?? "");
+  // a photo sent with no words would otherwise be an empty line (§4.2, §6.1)
+  if (last.files > 0) {
+    const carried = last.files === 1 ? "File" : `${last.files} files`;
+    return words ? `${carried} · ${words}` : carried;
+  }
+  return words;
 }
 
 export function ChatList({

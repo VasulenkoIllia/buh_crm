@@ -310,6 +310,11 @@ describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
       "ChatReaction_emoji_short",
       "ChatPollVote_option_range",
       "ChatMember_markers",
+      // stage B (chat.md §6.3): a file sent in a chat is in nothing else, ten files a message,
+      // and a photo's preview is a file of its own — the one read that is never logged
+      "File_chat_stands_alone",
+      "ChatMessageFile_position_in_range",
+      "ChatMessageFile_preview_is_another_file",
     ];
     const checks = await prisma.$queryRaw<{ conname: string }[]>`
       SELECT conname::text FROM pg_constraint

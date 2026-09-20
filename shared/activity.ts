@@ -77,6 +77,7 @@ export type ActivitySubject =
   | "chat"
   | "chat_member"
   | "chat_message"
+  | "chat_file"
   | "user"
   | "session"
   | "access"
@@ -107,6 +108,7 @@ export const SUBJECT_GROUP: Record<ActivitySubject, ActivityGroup> = {
   chat: "chat",
   chat_member: "chat",
   chat_message: "chat",
+  chat_file: "chat",
   user: "people",
   session: "people",
   access: "people",
@@ -153,6 +155,8 @@ export const SUBJECT_GATE: Record<ActivitySubject, string> = {
   chat: "chat",
   chat_member: "chat",
   chat_message: "chat",
+  // a file sent in a chat, logged without its name: only somebody in the chat could see it
+  chat_file: "chat",
   // who is in the system, and what they were allowed to reach — the Team gate's subject matter
   user: "team",
   session: "team",
@@ -1049,6 +1053,38 @@ const EVENTS = {
     retention: "long",
     changeKeys: ["author"],
     enabledByDefault: true,
+  },
+
+  /**
+   * **Files sent in chats** (chat.md §6, §12.1), the two acts a conversation cannot hold by itself:
+   * a document left the person's computer, and a document reached somebody's. Both are labelled
+   * "a chat file" with no name and no chat, exactly as a personal file is (files.md §10.3): the
+   * activity screen is read by whoever the firm opens the `activity` gate to, which is not the set
+   * of people in the chat. The row's `subjectId` holds the file's id, so an investigation can find
+   * it.
+   */
+  "chat_file.uploaded": {
+    subject: "chat_file",
+    title: "{actor} sent {subject}",
+    when: "a file is sent in a chat",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["size"],
+    enabledByDefault: true,
+  },
+  "chat_file.downloaded": {
+    subject: "chat_file",
+    title: "{actor} opened {subject}",
+    // as in Files: an open in the CRM and a download are the same act, and each row says which
+    // (`via`), because a row with no change at all would be dropped as an empty diff
+    when: "a file sent in a chat is opened or downloaded",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["via"],
+    enabledByDefault: true,
+    isRead: true,
   },
 
   // ── invoice: money ─────────────────────────────────────────────────────────

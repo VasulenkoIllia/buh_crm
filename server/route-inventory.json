@@ -248,6 +248,11 @@
   },
   {
     "method": "POST",
+    "url": "/api/chat/chats/:id/files",
+    "access": "gate:chat"
+  },
+  {
+    "method": "POST",
     "url": "/api/chat/chats/:id/leave",
     "access": "gate:chat"
   },
@@ -318,6 +323,27 @@
   {
     "method": "POST",
     "url": "/api/chat/direct",
+    "access": "gate:chat"
+  },
+  {
+    "method": "GET",
+    "url": "/api/chat/files/:fileId/download",
+    "access": "gate:chat"
+  },
+  {
+    "method": "GET",
+    "url": "/api/chat/files/:fileId/preview",
+    "access": "gate:chat"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/chat/files/:fileId/preview",
+    "access": "gate:chat",
+    "derived": true
+  },
+  {
+    "method": "GET",
+    "url": "/api/chat/files/:fileId/view",
     "access": "gate:chat"
   },
   {

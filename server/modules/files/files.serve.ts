@@ -33,4 +33,25 @@ export async function sendView(reply: FastifyReply, file: Served) {
   return reply.send(await readStoredFile(file));
 }
 
+/**
+ * **A chat photo's preview** (chat.md §6.2): the small JPEG the sender's browser drew, served to
+ * the chat's members. The third door, and the only one that may be cached — a file's bytes never
+ * change and its id is unique, so a conversation scrolled up and down does not fetch every
+ * thumbnail again. A library file is `no-store` because its access can be taken away between two
+ * reads; a preview is refetched on a hard reload, and its access is asked again then.
+ *
+ * The caller has already checked that this file is a picture and that the reader may see it.
+ */
+export async function sendPreview(reply: FastifyReply, file: Served) {
+  reply.header("Content-Type", file.detectedMime ?? "application/octet-stream");
+  reply.header(
+    "Content-Disposition",
+    `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+  );
+  reply.header("X-Content-Type-Options", "nosniff");
+  reply.header("Content-Security-Policy", "sandbox");
+  reply.header("Cache-Control", "private, max-age=604800, immutable");
+  return reply.send(await readStoredFile(file));
+}
+
 export const NOT_VIEWABLE = "This file does not open in the CRM; download it instead";

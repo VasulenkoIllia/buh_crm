@@ -65,6 +65,8 @@ export const chatLastMessageSchema = z.object({
   notice: z.string().nullable(),
   /** the first line, or null for a deleted message and for a notice */
   preview: z.string().nullable(),
+  /** how many files it carried, so a photo sent with no words is not an empty line (§4.2) */
+  files: z.number().int(),
   deleted: z.boolean(),
   at: z.iso.datetime(),
 });
@@ -147,6 +149,38 @@ export const chatSettingsInput = z
   .refine((v) => Object.values(v).some((x) => x !== undefined), "Nothing to change");
 export type ChatSettingsInput = z.infer<typeof chatSettingsInput>;
 
+// ── files (chat.md §6) ─────────────────────────────────────────────────────────
+
+/** At most ten files a message (§6.1); each is the library's own 25 MB. */
+export const CHAT_FILES_MAX = 10;
+
+/**
+ * A file a message carries, as the conversation draws it. Its name, size and type are plain, like
+ * every file name in the CRM (§9); its bytes are sealed and come through the chat's own routes,
+ * which ask whether the reader is in a chat holding a live message that carries it (§6.3).
+ */
+export const chatFileSchema = z.object({
+  fileId: uuid,
+  name: z.string(),
+  size: z.number().int(),
+  /** what its bytes said it was at upload, never what the browser claimed */
+  detectedMime: z.string().nullable(),
+  /** which of the CRM's viewers opens it; null is a download */
+  view: z.enum(["pdf", "image", "text", "csv"]).nullable(),
+  /** the small JPEG the sender's browser drew (§6.2); null means it shows as a card */
+  previewFileId: uuid.nullable(),
+  position: z.number().int(),
+});
+export type ChatFile = z.infer<typeof chatFileSchema>;
+
+/**
+ * What an upload answers with, before the message is sent (§6.1): the file is stored and waiting,
+ * and the send names it. Until then only its uploader can see it, and an upload never sent is
+ * swept away the next night.
+ */
+export const chatUploadSchema = chatFileSchema.omit({ position: true });
+export type ChatUpload = z.infer<typeof chatUploadSchema>;
+
 // ── messages (chat.md §5) ──────────────────────────────────────────────────────
 
 export const chatMessageKind = z.enum(["text", "poll", "notice"]);
@@ -199,6 +233,8 @@ export const chatMessageSchema = z.object({
   mentions: z.array(uuid),
   reactions: z.array(chatReactionSchema),
   poll: chatPollSchema.nullable(),
+  /** what it carries, in the order they were sent (§6.1) */
+  files: z.array(chatFileSchema),
   pinned: z.boolean(),
   editedAt: z.iso.datetime().nullable(),
   deletedAt: z.iso.datetime().nullable(),
@@ -234,9 +270,21 @@ export const sendMessageInput = z
     /** the people named in the text; `@all` is expanded by the composer */
     mentions: z.array(uuid).max(200).optional(),
     poll: newPollInput.optional(),
+    /**
+     * Files already uploaded into this chat by this sender and not yet sent (§6.1), newest last.
+     * Each names its photo preview, uploaded beside it.
+     */
+    files: z
+      .array(z.object({ fileId: uuid, previewFileId: uuid.nullable().optional() }))
+      .max(CHAT_FILES_MAX)
+      .optional(),
   })
-  .refine((v) => (v.text?.trim() ?? "") !== "" || v.poll, "A message needs something in it")
-  .refine((v) => !(v.poll && v.replyToId), "A poll cannot be a reply");
+  .refine(
+    (v) => (v.text?.trim() ?? "") !== "" || v.poll || (v.files?.length ?? 0) > 0,
+    "A message needs something in it",
+  )
+  .refine((v) => !(v.poll && v.replyToId), "A poll cannot be a reply")
+  .refine((v) => !(v.poll && (v.files?.length ?? 0) > 0), "A poll carries no files");
 export type SendMessageInput = z.infer<typeof sendMessageInput>;
 
 export const editMessageInput = z.object({ text: z.string().trim().min(1).max(MESSAGE_LIMIT) });

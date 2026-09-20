@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { BarChart3, Send, Smile, X } from "lucide-react";
-import { MESSAGE_LIMIT, type ChatMember, type ChatMessage } from "@shared/schema/chat";
+import { BarChart3, Paperclip, Send, Smile, X } from "lucide-react";
+import {
+  CHAT_FILES_MAX,
+  MESSAGE_LIMIT,
+  type ChatMember,
+  type ChatMessage,
+} from "@shared/schema/chat";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
+import { AttachmentStrip, useAttachments } from "./attachments";
 import { EmojiPicker } from "./emoji-picker";
 import { MentionPicker, mentionQuery, putMention, type Mentionable } from "./mentions";
 import { wrapSelection } from "./rich-text";
@@ -56,7 +62,11 @@ export function Composer({
   editing: ChatMessage | null;
   disabled?: string | null;
   canPoll: boolean;
-  onSend: (text: string, mentions: string[]) => void;
+  onSend: (
+    text: string,
+    mentions: string[],
+    files: { fileId: string; previewFileId: string | null }[],
+  ) => void;
   onEdit: (text: string) => void;
   onCancel: () => void;
   onTyping: () => void;
@@ -64,6 +74,9 @@ export function Composer({
 }) {
   const [text, setText] = useState("");
   const [picking, setPicking] = useState(false);
+  const attached = useAttachments(chatId);
+  const [refused, setRefused] = useState<string | null>(null);
+  const picker = useRef<HTMLInputElement>(null);
   /** whom the person has named so far, so the server marks exactly them (§5.2) */
   const [named, setNamed] = useState<Mentionable[]>([]);
   const field = useRef<HTMLTextAreaElement>(null);
@@ -101,8 +114,12 @@ export function Composer({
 
   const submit = () => {
     const body = text.trim();
-    if (!body) return;
+    const files = attached.forSend();
+    // a message needs words or files, and a file still going up is not one yet (§6.1)
+    if (!body && files.length === 0) return;
+    if (attached.busy) return;
     if (editing) {
+      if (!body) return;
       onEdit(body);
     } else {
       // everybody whose name is still in the text, and everybody when the text says `@all`
@@ -110,11 +127,25 @@ export function Composer({
       const ids = all
         ? members.map((m) => m.id)
         : named.filter((p) => body.includes(`@${p.name}`)).map((p) => p.id);
-      onSend(body, [...new Set(ids)]);
+      onSend(body, [...new Set(ids)], files);
     }
     setText("");
     setNamed([]);
+    attached.clear();
+    setRefused(null);
     keepDraft(chatId, "");
+  };
+
+  /** Picked, dropped or pasted — one door, so what is refused is said the same way every time. */
+  const take = (files: File[]) => {
+    if (files.length === 0) return;
+    const { refused: no, tooBig, tooMany } = attached.add(files);
+    const said = [
+      no.length > 0 ? `${no.join(", ")}: programs are not accepted` : "",
+      tooBig.length > 0 ? `${tooBig.join(", ")}: over 25 MB` : "",
+      tooMany ? `A message carries at most ${CHAT_FILES_MAX} files` : "",
+    ].filter(Boolean);
+    setRefused(said.length > 0 ? said.join(". ") : null);
   };
 
   const mark = (marks: string) => {
@@ -163,6 +194,8 @@ export function Composer({
           </button>
         </div>
       )}
+      <AttachmentStrip queue={attached} />
+      {refused && <p className="px-4 pt-1.5 text-[11.5px] text-danger-text">{refused}</p>}
       <div className="relative flex items-end gap-2 px-3 py-2">
         <textarea
           ref={field}
@@ -173,6 +206,19 @@ export function Composer({
             setText(e.target.value);
             setMentionsOff(false);
             onTyping();
+          }}
+          onPaste={(e) => {
+            // a screenshot pasted into the field is a photo to send, not text (§6.1)
+            const pasted = [...e.clipboardData.files];
+            if (pasted.length === 0) return;
+            e.preventDefault();
+            take(pasted);
+          }}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            if (e.dataTransfer.files.length === 0) return;
+            e.preventDefault();
+            take([...e.dataTransfer.files]);
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
@@ -195,6 +241,28 @@ export function Composer({
             "text-[13px] outline-none focus:border-primary",
           )}
         />
+        {!editing && (
+          <>
+            <input
+              ref={picker}
+              type="file"
+              multiple
+              hidden
+              onChange={(e) => {
+                take([...(e.target.files ?? [])]);
+                e.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              aria-label="Attach"
+              onClick={() => picker.current?.click()}
+              className="mb-1 text-muted hover:text-ink"
+            >
+              <Paperclip className="size-[18px]" />
+            </button>
+          </>
+        )}
         <button
           type="button"
           aria-label="Emoji"
@@ -226,9 +294,16 @@ export function Composer({
             <BarChart3 className="size-[18px]" />
           </button>
         )}
-        <Button size="sm" className="mb-0.5" disabled={!text.trim()} onClick={submit}>
+        <Button
+          size="sm"
+          className="mb-0.5"
+          disabled={
+            attached.busy || (!text.trim() && (editing !== null || attached.items.length === 0))
+          }
+          onClick={submit}
+        >
           <Send className="size-3.5" />
-          {editing ? "Save" : "Send"}
+          {editing ? "Save" : attached.busy ? "Uploading…" : "Send"}
         </Button>
       </div>
       {left < 200 && (

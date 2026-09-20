@@ -31,7 +31,7 @@ import { openGroup, openText, sealGroup } from "./chat.sealing.js";
  * read again inside it, so two admins acting at once cannot both remove the last owner.
  */
 
-type Membership = repo.MembershipRow;
+export type Membership = repo.MembershipRow;
 type ChatRow = Membership["chat"];
 
 const MUTE_MS: Record<Exclude<MuteFor, "off" | "forever">, number> = {
@@ -62,6 +62,7 @@ function lastMessageOf(chat: ChatRow): ChatSummary["lastMessage"] {
     kind: last.kind,
     notice: last.notice,
     preview: line && line.length > PREVIEW ? `${line.slice(0, PREVIEW)}…` : line,
+    files: last._count.files,
     deleted: last.deletedAt !== null,
     at: last.createdAt.toISOString(),
   };
@@ -145,6 +146,23 @@ export async function requireMember(chatId: string, userId: string): Promise<Mem
   const m = await repo.membershipIn(chatId, userId);
   if (!m || m.leftAt) throw new NotFoundError("Chat not found");
   return m;
+}
+
+/**
+ * Reading a chat is membership; PUTTING something in it has three rules on top (§4.1, §5.3, §11):
+ * only firm admins post in the channel, nobody writes to a blocked colleague, and everybody else
+ * in a chat they are in may write. A file is a message, so it passes here too (§6.1).
+ */
+export function requireWriter(m: Membership, user: User) {
+  if (m.chat.kind === "announcements" && user.role !== "admin") {
+    throw new ForbiddenError("Only an admin posts in the announcements channel");
+  }
+  if (m.chat.kind === "direct") {
+    const peer = m.chat.members.find((x) => x.userId !== user.id)?.user;
+    if (!peer || peer.status !== "active") {
+      throw new ForbiddenError("This colleague is blocked, so the chat is read only");
+    }
+  }
 }
 
 export async function getChat(user: User, chatId: string): Promise<ChatDetail> {

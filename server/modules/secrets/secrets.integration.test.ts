@@ -1698,7 +1698,19 @@ describe("the audit's rules", () => {
       expect(hits.some((h) => h.id === id)).toBe(false);
     }
     await loggedEvent("secret.created", id);
-    const events = await prisma.activityEvent.findMany({ where: { subjectId: id } });
+    // the WORDS of each row, not the whole row: a uuid is hex, and one holding "731" or "4444" by
+    // chance failed this on a run in 2026-09-20 while proving nothing either way
+    const events = await prisma.activityEvent.findMany({
+      where: { subjectId: id },
+      select: {
+        action: true,
+        subjectLabel: true,
+        clientLabel: true,
+        changes: true,
+        route: true,
+        refusalCode: true,
+      },
+    });
     expect(JSON.stringify(events)).not.toMatch(/731|4444|5555/);
   });
 

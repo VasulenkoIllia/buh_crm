@@ -15,6 +15,7 @@ import { useAuth } from "@/app/auth";
 import { cn } from "@/shared/lib/cn";
 import { fmtDate, fmtTime } from "@/shared/lib/format";
 import { UserAvatar } from "@/shared/ui/avatar";
+import { MessageFiles } from "./attachments";
 import { PollCard } from "./poll";
 import { RichText } from "./rich-text";
 
@@ -331,7 +332,10 @@ function Row({
           {message.deletedAt ? (
             <p>{message.deletedByOther ? "Deleted by an admin" : "Message deleted"}</p>
           ) : (
-            <RichText text={message.text ?? ""} mentions={mentionNames} />
+            <>
+              {message.text && <RichText text={message.text} mentions={mentionNames} />}
+              <MessageFiles files={message.files} mine={mine} />
+            </>
           )}
           {message.poll && !message.deletedAt && (
             <PollCard

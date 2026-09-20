@@ -93,6 +93,8 @@ const LAST_MESSAGE = {
     iv: true,
     authTag: true,
     keyVersion: true,
+    /** so a photo sent with no words is "Photo" in the list rather than an empty line (§4.2) */
+    _count: { select: { files: true } },
   },
 } as const satisfies Prisma.Chat$messagesArgs;
 
@@ -336,8 +338,20 @@ export function leaveChannelTx(tx: Tx, userId: string, at: Date) {
 
 // ── messages (chat.md §5) ──────────────────────────────────────────────────────
 
-/** Everything one message shows: who reacted, whether it is pinned, its poll and its votes. */
+/**
+ * Everything one message shows: who reacted, whether it is pinned, its poll and its votes, and the
+ * files it carries (§6.3) — names and sizes, never bytes.
+ */
 const MESSAGE_PARTS = {
+  files: {
+    select: {
+      fileId: true,
+      previewFileId: true,
+      position: true,
+      file: { select: { name: true, size: true, detectedMime: true } },
+    },
+    orderBy: { position: "asc" },
+  },
   reactions: { select: { emoji: true, userId: true } },
   pin: { select: { messageId: true } },
   poll: {
@@ -600,5 +614,122 @@ export function readersOf(chatId: string, seq: number) {
     where: { chatId, leftAt: null, lastReadSeq: { gte: seq } },
     select: { lastReadAt: true, user: { select: PERSON } },
     orderBy: { lastReadAt: "asc" },
+  });
+}
+
+// ── files (chat.md §6) ─────────────────────────────────────────────────────────
+
+/** Everything a chat file's row is asked for: what it shows, and what opens its bytes. */
+export const CHAT_FILE = {
+  id: true,
+  name: true,
+  size: true,
+  mime: true,
+  detectedMime: true,
+  path: true,
+  storage: true,
+  wrappedKey: true,
+  keyVersion: true,
+  uploadedById: true,
+  chatId: true,
+  createdAt: true,
+} as const satisfies Prisma.FileSelect;
+
+export type ChatFileRow = Prisma.FileGetPayload<{ select: typeof CHAT_FILE }>;
+
+export interface NewChatFile {
+  chatId: string;
+  name: string;
+  size: number;
+  mime: string;
+  detectedMime: string | null;
+  path: string;
+  storage: "local" | "s3";
+  wrappedKey: Uint8Array<ArrayBuffer>;
+  keyVersion: number;
+  uploadedById: string;
+}
+
+/** A file sent into a chat: no place in the library, no task, no client, no secret (§6.3). */
+export function insertChatFile(file: NewChatFile) {
+  return prisma.file.create({ data: file, select: CHAT_FILE });
+}
+
+export function deleteFileRow(fileId: string) {
+  return prisma.file.delete({ where: { id: fileId } });
+}
+
+/** Carried by no message at all: an upload waiting for its send, or one nobody ever sent. */
+const UNSENT = { inChatMessages: { none: {} }, previewInChatMessages: { none: {} } } as const;
+
+/**
+ * The uploads this person made into THIS chat that no message carries yet — what a send may name
+ * (§6.1). Somebody else's upload, one made into another chat and one already sent are all simply
+ * not here, and the send refuses what it cannot find.
+ */
+export function unsentUploads(chatId: string, uploaderId: string, ids: readonly string[]) {
+  return prisma.file.findMany({
+    where: {
+      id: { in: [...ids] },
+      chatId,
+      uploadedById: uploaderId,
+      deletedAt: null,
+      ...UNSENT,
+    },
+    select: CHAT_FILE,
+  });
+}
+
+export function linkFilesTx(
+  tx: Tx,
+  messageId: string,
+  files: readonly { fileId: string; previewFileId: string | null; position: number }[],
+) {
+  return tx.chatMessageFile.createMany({
+    data: files.map((f) => ({ messageId, ...f })),
+  });
+}
+
+/** A live message of a chat this person is in: the one thing that opens a chat file (§6.3). */
+const REACHABLE = (userId: string) =>
+  ({
+    some: {
+      message: {
+        deletedAt: null,
+        chat: { members: { some: { userId, leftAt: null } } },
+      },
+    },
+  }) as const;
+
+/**
+ * **Who may open a chat file** (§6.3): a member of any chat holding a live message that carries
+ * it, as the file or as its photo preview. Its uploader may open it while nothing carries it yet,
+ * which is the composer showing what is about to be sent.
+ *
+ * A deleted message's files are not here, and neither is a file in the Trash.
+ */
+export function openableChatFile(fileId: string, userId: string) {
+  return prisma.file.findFirst({
+    where: {
+      id: fileId,
+      chatId: { not: null },
+      deletedAt: null,
+      OR: [
+        { inChatMessages: REACHABLE(userId) },
+        { previewInChatMessages: REACHABLE(userId) },
+        { uploadedById: userId, ...UNSENT },
+      ],
+    },
+    select: CHAT_FILE,
+  });
+}
+
+/** Uploads no message ever named, older than this: the nightly sweep's work (§6.1). */
+export function staleUploads(before: Date, limit: number) {
+  return prisma.file.findMany({
+    where: { chatId: { not: null }, deletedAt: null, createdAt: { lt: before }, ...UNSENT },
+    select: { id: true, path: true, storage: true },
+    orderBy: { createdAt: "asc" },
+    take: limit,
   });
 }

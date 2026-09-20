@@ -14,9 +14,10 @@ import { record } from "../../core/activity.js";
 import { ForbiddenError, NotFoundError, ValidationError } from "../../core/errors.js";
 import { personName } from "../../core/names.js";
 import { publish } from "../../core/realtime.js";
+import * as attachments from "./chat.files.js";
 import * as repo from "./chat.repository.js";
 import { openOptions, openText, sealOptions, sealText } from "./chat.sealing.js";
-import { requireMember } from "./chat.service.js";
+import { requireMember, requireWriter } from "./chat.service.js";
 
 /**
  * **Messages** (chat.md §5): sending, editing, deleting for everyone, replying, forwarding,
@@ -41,23 +42,6 @@ type MessageRow = repo.MessageRow;
 // ── who may write ──────────────────────────────────────────────────────────────
 
 type Membership = Awaited<ReturnType<typeof requireMember>>;
-
-/**
- * Reading a chat is membership; WRITING has three rules on top of it (§4.1, §5.3, §11):
- * only firm admins post in the channel, nobody writes to a blocked colleague, and everybody else
- * in a chat they are in may write.
- */
-function requireWriter(m: Membership, user: User) {
-  if (m.chat.kind === "announcements" && user.role !== "admin") {
-    throw new ForbiddenError("Only an admin posts in the announcements channel");
-  }
-  if (m.chat.kind === "direct") {
-    const peer = m.chat.members.find((x) => x.userId !== user.id)?.user;
-    if (!peer || peer.status !== "active") {
-      throw new ForbiddenError("This colleague is blocked, so the chat is read only");
-    }
-  }
-}
 
 function manages(m: Membership): boolean {
   return m.role === "owner" || m.role === "admin";
@@ -106,6 +90,7 @@ function toMessage(row: MessageRow): ChatMessage {
     forwardedFromId: row.forwardedFromId,
     mentions: row.mentions,
     reactions: [...reactions].map(([emoji, userIds]) => ({ emoji, userIds })),
+    files: attachments.filesOf(row.files),
     poll: row.poll
       ? {
           multiple: row.poll.multiple,
@@ -209,6 +194,8 @@ export async function send(
   const members = new Set(m.chat.members.map((x) => x.userId));
   const mentions = [...new Set(input.mentions ?? [])].filter((id) => members.has(id));
   const text = input.text?.trim() ?? "";
+  // what the sender uploaded a moment ago, checked before the place is taken (§6.1)
+  const carried = await attachments.forSend(chatId, user, input.files ?? []);
   const at = new Date();
 
   const messageId = await repo.transaction(async (tx) => {
@@ -227,6 +214,7 @@ export async function send(
     if (input.poll) {
       await repo.insertPollTx(tx, id, input.poll.multiple, sealOptions(input.poll.options));
     }
+    if (carried.length > 0) await repo.linkFilesTx(tx, id, carried);
     await repo.markSentTx(tx, chatId, user.id, seq, mentions);
     return id;
   });

@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { gate } from "../../core/access.js";
 import type { SilentRouteConfig, StreamRouteConfig } from "../../core/route-inventory.js";
@@ -26,12 +26,16 @@ import {
   voteInput,
 } from "@shared/schema/chat.js";
 import { isTest } from "../../core/config.js";
+import { ValidationError } from "../../core/errors.js";
 import { publish, realtimeListening } from "../../core/realtime.js";
+import { UPLOAD_RATE_LIMIT, sendDownload, sendPreview, sendView } from "../files/index.js";
+import * as attachments from "./chat.files.js";
 import * as messages from "./chat.messages.js";
 import * as service from "./chat.service.js";
 import { onlinePeople, openStream } from "./chat.stream.js";
 
 const idParams = z.object({ id: uuid });
+const fileParams = z.object({ fileId: uuid });
 const memberParams = z.object({ id: uuid, userId: uuid });
 const messageParams = z.object({ messageId: uuid });
 const pinInput = z.object({ pinned: z.boolean() });
@@ -285,4 +289,91 @@ export async function registerRoutes(instance: FastifyInstance) {
     { config: chat, schema: { params: messageParams } },
     async (request) => messages.readBy(request.currentUser!, request.params.messageId),
   );
+
+  // ── files (chat.md §6) ───────────────────────────────────────────────────────
+  //
+  // Three doors, all of them a member's: one in, and two out. Who may open a file is the messages
+  // that carry it (§6.3), so the routes that serve one name the FILE and not a chat — a forwarded
+  // file is one file in several chats.
+
+  /**
+   * **A file into a chat**, before the message that carries it is sent (§6.1), with the small JPEG
+   * the browser drew for a photo beside it. Its own limit, as every upload route in the CRM has,
+   * so a queue of files does not spend the global one (files.md §7.1).
+   */
+  app.post(
+    "/chats/:id/files",
+    { config: { ...chat, rateLimit: UPLOAD_RATE_LIMIT }, schema: { params: idParams } },
+    async (request, reply) => {
+      const { file, preview } = await incomingFiles(request);
+      const upload = await attachments.upload(
+        request.currentUser!,
+        request.params.id,
+        file,
+        preview,
+      );
+      return reply.status(201).send(upload);
+    },
+  );
+
+  /**
+   * Opened in the CRM, and downloaded: the same act, each logged as what it was (§6.2). No HEAD on
+   * either, as in Files: fastify would answer one by running the handler, logging an open nobody
+   * made and decrypting the file for nothing.
+   */
+  app.get(
+    "/files/:fileId/view",
+    { config: chat, schema: { params: fileParams }, exposeHeadRoute: false },
+    async (request, reply) =>
+      sendView(
+        reply,
+        await attachments.open(request.currentUser!, request.params.fileId, "view"),
+      ),
+  );
+
+  app.get(
+    "/files/:fileId/download",
+    { config: chat, schema: { params: fileParams }, exposeHeadRoute: false },
+    async (request, reply) =>
+      sendDownload(
+        reply,
+        await attachments.open(request.currentUser!, request.params.fileId, "download"),
+      ),
+  );
+
+  /**
+   * A photo's preview: a member's read like the others, and the one that is never logged (§6.2).
+   * It keeps its HEAD, which is what a browser sends to revalidate a cached picture.
+   */
+  app.get(
+    "/files/:fileId/preview",
+    { config: chat, schema: { params: fileParams } },
+    async (request, reply) =>
+      sendPreview(
+        reply,
+        await attachments.openPreview(request.currentUser!, request.params.fileId),
+      ),
+  );
+}
+
+/**
+ * The file a chat upload carries, and the preview part beside it when the sender's browser drew one
+ * (§6.2). The app allows one file a request; this is the one route that takes two, and says so
+ * here rather than raising the limit for everything.
+ */
+async function incomingFiles(request: FastifyRequest) {
+  let file: attachments.Incoming | undefined;
+  let preview: attachments.Incoming | undefined;
+  for await (const part of request.parts({ limits: { files: 2 } })) {
+    if (part.type !== "file") continue;
+    const incoming = {
+      buffer: await part.toBuffer(),
+      filename: part.filename,
+      mimetype: part.mimetype,
+    };
+    if (part.fieldname === "preview") preview ??= incoming;
+    else file ??= incoming;
+  }
+  if (!file) throw new ValidationError("File is required");
+  return { file, preview };
 }

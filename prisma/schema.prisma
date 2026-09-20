@@ -1747,6 +1747,15 @@ model File {
   /// library, off every task and every client's Files, and never in the Files Trash: it lives and
   /// goes with its secret, whose Trash covers it. A CHECK in the migration holds all four.
   secretId     String?     @db.Uuid
+  /// **Sent into a chat** (chat.md §6.3): outside the library, off every task, client and secret,
+  /// and out of Files' lists and search, which all read a place this row does not have. A CHECK
+  /// holds that.
+  ///
+  /// It says where the file came FROM, and nothing about who may open it: that is decided by the
+  /// live messages carrying it (`ChatMessageFile`), because forwarding puts one file in several
+  /// chats. What it is for is the housekeeping — keeping chat files out of everything else, and
+  /// finding an upload whose message was never sent.
+  chatId       String?     @db.Uuid
 
   client            Client?      @relation("ClientFiles", fields: [clientId], references: [id], onDelete: Cascade)
   /// SetNull, not Cascade: a document filed under the client must survive its task. Tasks are
@@ -1764,10 +1773,16 @@ model File {
   /// Cascade: a secret removed for good takes its rows. The purge deletes the BYTES first, so
   /// nothing is left in a store that no row names (secrets.md §21).
   secret            Secret?      @relation("SecretFiles", fields: [secretId], references: [id], onDelete: Cascade)
+  /// SetNull: `--reset` empties the chat tables, and a file left behind by that must not stop it.
+  chat              Chat?        @relation("ChatFiles", fields: [chatId], references: [id], onDelete: SetNull)
+  /// the messages carrying this file, and the messages this file is the photo preview of
+  inChatMessages      ChatMessageFile[] @relation("ChatMessageFile")
+  previewInChatMessages ChatMessageFile[] @relation("ChatMessagePreview")
 
   @@index([clientId])
   @@index([taskId])
   @@index([secretId])
+  @@index([chatId])
   // the foreign key's own index: Postgres never indexes the referencing side (files.md §14.2)
   @@index([folderId, scope])
 }
@@ -2172,6 +2187,8 @@ model Chat {
   members   ChatMember[]
   messages  ChatMessage[]
   pins      ChatPin[]
+  /// the files sent here, including an upload whose message was never sent (chat.md §6.3)
+  files     File[]        @relation("ChatFiles")
 }
 
 /// **A person's place in a chat.** The one check every read and write passes (chat.md §4.4): an
@@ -2241,6 +2258,7 @@ model ChatMessage {
   reactions     ChatReaction[]
   pin           ChatPin?
   poll          ChatPoll?
+  files         ChatMessageFile[]
 
   @@unique([chatId, seq])
   /// **The same send, retried, posts once** (chat.md §5.1). Keyed by the CHAT as well as the
@@ -2304,6 +2322,33 @@ model ChatPollVote {
   user User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([messageId, userId, option])
+}
+
+/// **A file a message carries** (chat.md §6.3).
+///
+/// A table rather than a column on `File`, because one file can hang off several messages:
+/// forwarding reuses it instead of copying its bytes, so the same photo sent on to three chats is
+/// one object in the bucket and one row in `File`. It also answers who may open it — a member of
+/// any chat holding a LIVE message that carries it — which no column could.
+model ChatMessageFile {
+  messageId     String  @db.Uuid
+  fileId        String  @db.Uuid
+  /// The small JPEG the browser drew for a photo (§6.2), a file in its own right. Null for
+  /// everything that shows as a card, and for a photo the sender's browser could not draw.
+  previewFileId String? @db.Uuid
+  /// its place in the message, from 0; at most ten per message, which a CHECK holds
+  position      Int
+
+  message ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  /// Cascade both ways: the purge deletes a file's bytes and its row, and a link to a row that is
+  /// gone would say the message still carries something.
+  file    File        @relation("ChatMessageFile", fields: [fileId], references: [id], onDelete: Cascade)
+  preview File?       @relation("ChatMessagePreview", fields: [previewFileId], references: [id], onDelete: SetNull)
+
+  @@id([messageId, fileId])
+  /// "is this file carried by a live message of a chat I am in": the access read, for every open
+  @@index([fileId])
+  @@index([previewFileId])
 }
 
 /// **When a person was last online** (chat.md §5.4): written when their last tab closes. Who is

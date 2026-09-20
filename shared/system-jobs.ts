@@ -28,10 +28,12 @@ export type SystemJobKey =
   | "backup:watchdog"
   | "files:storage-check"
   | "files:purge"
-  | "secrets:purge";
+  | "secrets:purge"
+  | "chat:unsent-files";
 
 /** The part of the app a job keeps running — the screen groups by this. */
 export type SystemJobArea =
+  | "chat"
   | "work"
   | "billing"
   | "mail"
@@ -262,6 +264,23 @@ export const SYSTEM_JOBS: Record<SystemJobKey, SystemJobSpec> = {
       "read them without the password step, but the firm is holding what it decided to dispose of.",
     staleAfterMinutes: DAY + 12 * HOUR,
   },
+  /**
+   * Files picked in a chat and uploaded, whose message was never sent (chat.md §6.1): the tab was
+   * closed, or the send was abandoned. Nobody but their uploader can reach them and no message
+   * names them, so a day later they go, bytes and row together.
+   */
+  "chat:unsent-files": {
+    area: "chat",
+    label: "Unsent chat files cleared",
+    cadence: "Every night, at 4:50",
+    whenOk:
+      "Removes files uploaded in a chat whose message was never sent, once they are a day old, " +
+      "at most 500 a night.",
+    whenBad:
+      "Storage grows with files nobody ever sent. Nothing anybody can see is affected: a file a " +
+      "message carries is never touched by this.",
+    staleAfterMinutes: DAY + 12 * HOUR,
+  },
 };
 
 export const SYSTEM_JOB_KEYS = Object.keys(SYSTEM_JOBS) as SystemJobKey[];
@@ -273,6 +292,7 @@ export const SYSTEM_JOB_AREAS: Array<{ key: SystemJobArea; label: string }> = [
   { key: "notifications", label: "Notifications" },
   { key: "files", label: "Files" },
   { key: "secrets", label: "Secrets" },
+  { key: "chat", label: "Chat" },
   { key: "backups", label: "Backups" },
   { key: "housekeeping", label: "Housekeeping" },
 ];

@@ -201,11 +201,12 @@ export function ChatPage() {
                 if (editing) edit.mutate({ id: editing.id, text });
                 setEditing(null);
               }}
-              onSend={(text, mentions) => {
+              onSend={(text, mentions, files) => {
                 send.mutate({
                   clientMessageId: crypto.randomUUID(),
-                  text,
+                  ...(text ? { text } : {}),
                   ...(mentions.length ? { mentions } : {}),
+                  ...(files.length ? { files } : {}),
                   ...(replyTo ? { replyToId: replyTo.id } : {}),
                 });
                 setReplyTo(null);

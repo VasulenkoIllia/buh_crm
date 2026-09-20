@@ -104,7 +104,8 @@ DELETE FROM "Company";
 -- the bytes of everything dropped here — run it after the deploy, when the new image is up.
 -- A file attached to a secret the vault keeps stays with it (secrets.md §21): the clients' secrets
 -- went above, and their files with them through the cascade, so every attachment still here belongs
--- to Company or to somebody's My secrets.
+-- to Company or to somebody's My secrets. A file sent in a chat goes here, with the chats below it
+-- (chat.md §6.3): the link rows follow through their cascade.
 DELETE FROM "File" f
 WHERE NOT EXISTS (SELECT 1 FROM "User" u WHERE u."avatarFileId" = f.id)
   AND NOT EXISTS (SELECT 1 FROM "FirmProfile" p WHERE p."logoFileId" = f.id)
@@ -142,6 +143,9 @@ DELETE FROM "ChatPollVote";
 DELETE FROM "ChatPoll";
 DELETE FROM "ChatReaction";
 DELETE FROM "ChatPin";
+-- already empty: their files went with every other file above, and this cascades from them. Named
+-- so the table is accounted for, and so it still holds if that order ever changes.
+DELETE FROM "ChatMessageFile";
 DELETE FROM "ChatMessage";
 DELETE FROM "ChatMember";
 DELETE FROM "Chat";

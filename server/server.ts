@@ -1,6 +1,6 @@
 import { buildApp } from "./app.js";
 import { ensureBaseData, ensureBootstrapAdmin, recordBootEvents } from "./core/bootstrap.js";
-import { ensureAnnouncementsChannel } from "./modules/chat/index.js";
+import { ensureAnnouncementsChannel, sweepUnsentChatUploads } from "./modules/chat/index.js";
 import { purgeOldActivity } from "./core/activity.js";
 import { config, strayBackupVariables } from "./core/config.js";
 import { disconnectDb } from "./core/db.js";
@@ -395,6 +395,25 @@ async function main() {
     name: "secrets:purge",
     cronExpr: "40 4 * * *",
     run: () => purgeSecretsTrash(),
+  });
+
+  /**
+   * **Files uploaded into a chat whose message was never sent** (chat.md §6.1): a file picked, sent
+   * up, and then the tab closed. Nothing reaches them and nothing ever will, so a day later their
+   * bytes and their rows go. Ten minutes after the vault's purge, for the same reasons: clear of
+   * the 01:00 backup, outside the hour that repeats when the clocks go back, and no catch-up, since
+   * every deploy would otherwise sweep again.
+   */
+  registerJob({
+    name: "chat:unsent-files",
+    cronExpr: "50 4 * * *",
+    run: async () => {
+      const gone = await sweepUnsentChatUploads();
+      return {
+        note: gone > 0 ? `${plural(gone, "unsent file")} removed` : "Nothing to clear",
+        did: gone,
+      };
+    },
   });
 
   await app.listen({ port: config.PORT, host: "0.0.0.0" });
