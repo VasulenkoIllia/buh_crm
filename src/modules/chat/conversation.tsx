@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Check,
@@ -411,7 +412,7 @@ function MessageMenu({
   on,
 }: {
   message: ChatMessage;
-  /** where the pointer was; negative means "beside the row" */
+  /** where the pointer was, in the window's own coordinates */
   at: { x: number; y: number };
   can: { edit: boolean; delete: boolean; pin: boolean; readBy: boolean };
   onClose: () => void;
@@ -427,16 +428,40 @@ function MessageMenu({
   };
 }) {
   const box = useRef<HTMLDivElement>(null);
+  /**
+   * Where it actually fits. The menu is drawn into the BODY rather than into the row: a virtualised
+   * row carries a `transform`, and a transform makes `position: fixed` measure from itself instead
+   * of from the window — which is why the first version landed over the messages and was cut off by
+   * the conversation's own scrolling (found in use, 2026-09-20).
+   */
+  const [place, setPlace] = useState({ left: at.x, top: at.y });
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    const margin = 8;
+    // upwards when there is no room below, which is most of the time near the composer, and
+    // always inside the window: a menu opened from the ⋯ of a row near the top went off it
+    const wanted = at.y + height + margin > window.innerHeight ? at.y - height - margin : at.y;
+    setPlace({
+      left: Math.max(margin, Math.min(at.x, window.innerWidth - width - margin)),
+      top: Math.max(margin, Math.min(wanted, window.innerHeight - height - margin)),
+    });
+  }, [at.x, at.y]);
+
   useEffect(() => {
     const away = (event: MouseEvent) => {
       if (!box.current?.contains(event.target as Node)) onClose();
     };
     const escape = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    // a scroll of the conversation leaves the menu hanging where it was: close it instead
     window.addEventListener("mousedown", away);
     window.addEventListener("keydown", escape);
+    window.addEventListener("wheel", onClose, { passive: true });
     return () => {
       window.removeEventListener("mousedown", away);
       window.removeEventListener("keydown", escape);
+      window.removeEventListener("wheel", onClose);
     };
   }, [onClose]);
 
@@ -446,19 +471,12 @@ function MessageMenu({
     run();
     onClose();
   };
-  const placed =
-    at.x >= 0
-      ? { position: "fixed" as const, left: Math.min(at.x, window.innerWidth - 210), top: at.y }
-      : undefined;
 
-  return (
+  return createPortal(
     <div
       ref={box}
-      style={placed}
-      className={cn(
-        "z-40 w-[200px] overflow-hidden rounded-(--radius-panel) border border-border bg-surface py-1 shadow-(--shadow-card)",
-        !placed && "absolute top-6 right-0",
-      )}
+      style={{ position: "fixed", left: place.left, top: place.top }}
+      className="z-[60] w-[200px] overflow-hidden rounded-(--radius-panel) border border-border bg-surface py-1 shadow-(--shadow-modal)"
     >
       <button type="button" className={item} onClick={act(on.reply)}>
         <CornerUpLeft className="size-3.5" />
@@ -502,7 +520,8 @@ function MessageMenu({
           Delete
         </button>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -566,16 +585,22 @@ function Row({
   // ✓ the server has it, ✓✓ somebody else has read it (§5.4)
   const read = chat.othersReadSeq >= message.seq;
 
+  /** A two-finger tap on a Mac is a secondary click: it lands wherever the pointer is, so the whole
+   *  line listens, not just the bubble (found in use, 2026-09-20). */
+  const openMenu = (e: { preventDefault: () => void; clientX: number; clientY: number }) => {
+    if (message.deletedAt) return;
+    e.preventDefault();
+    setMenuAt({ x: e.clientX, y: e.clientY });
+  };
+
   return (
-    <div className={cn("group relative flex gap-2 py-1", mine && "flex-row-reverse")}>
+    <div
+      onContextMenu={openMenu}
+      className={cn("group relative flex gap-2 py-1", mine && "flex-row-reverse")}
+    >
       {inGroup && !mine && author && <UserAvatar user={author} size="sm" className="mt-1" />}
       <div className={cn("max-w-[min(680px,78%)]", mine && "items-end")}>
         <div
-          onContextMenu={(e) => {
-            if (message.deletedAt) return;
-            e.preventDefault();
-            setMenuAt({ x: e.clientX, y: e.clientY });
-          }}
           className={cn(
             "rounded-(--radius-panel) px-3 py-2 text-[13px]",
             mine ? "bg-primary text-white" : "border border-border bg-surface text-ink",
