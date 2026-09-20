@@ -19,6 +19,7 @@ import { ClientFormModal } from "./client-form";
 import { CompaniesTab } from "./client-companies";
 import { ClientPeopleModal } from "./client-people-modal";
 import { AddServiceModal, SubscriptionList } from "./client-services";
+import { CopyLink } from "@/shared/ui/copy-link";
 import { useArchiveClient, useClient } from "./clients.api";
 
 /**
@@ -141,7 +142,8 @@ export function ClientCardPage() {
             {[client.companyName, companiesLabel].filter(Boolean).join(" · ")}
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <CopyLink href={`/clients/${client.id}`} label="Copy link to this client" />
           <button
             type="button"
             onClick={() => setEditOpen(true)}

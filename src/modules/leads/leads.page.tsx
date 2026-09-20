@@ -9,6 +9,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { Link } from "react-router-dom";
 import { useRecordParam } from "@/shared/lib/use-record-param";
+import { CopyLink } from "@/shared/ui/copy-link";
 import type { Lead, LeadStageOption } from "@shared/schema/lead";
 import { ArrowRight, Check, GripVertical, Mail, Pencil, Phone, X } from "lucide-react";
 import { useAccess, useAuth } from "@/app/auth";
@@ -584,6 +585,7 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
             )}
           </div>
           <div className="flex flex-none items-center gap-0.5">
+            <CopyLink icon href={`/leads?lead=${lead.id}`} label="Copy link to this lead" />
             {editable && (
               <IconButton label="Edit lead" onClick={() => setEditOpen(true)}>
                 <Pencil size={15} />
