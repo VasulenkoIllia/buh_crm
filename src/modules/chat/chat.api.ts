@@ -226,15 +226,17 @@ export function useChatLive(chatId: string | null) {
         void client.invalidateQueries({ queryKey: chatKeys.chats });
         if (e.chatId !== chatId) return;
         void catchUp(client, chatId);
-        // a message may have brought files with it (§6.4)
+        // a message may have brought files with it (§6.4), and is a word to be found (§8)
         void client.invalidateQueries({ queryKey: chatKeys.files(chatId) });
+        void client.invalidateQueries({ queryKey: chatKeys.search });
       }),
       connection.on("chat_message_changed", (e) => {
         void client.invalidateQueries({ queryKey: chatKeys.chats });
         if (e.chatId !== chatId) return;
         void refetchAt(client, chatId, e.seq);
-        // …and a delete may have taken them away
+        // …and a delete or an edit may have taken both away
         void client.invalidateQueries({ queryKey: chatKeys.files(chatId) });
+        void client.invalidateQueries({ queryKey: chatKeys.search });
       }),
       connection.on("chat_read", (e) => {
         if (e.chatId !== chatId) return;

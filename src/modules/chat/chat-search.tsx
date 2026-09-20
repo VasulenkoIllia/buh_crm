@@ -141,6 +141,11 @@ export function ChatSearchBox({
       {enough && (
         <div className="min-h-0 flex-1 overflow-y-auto border-t border-divider">
           {found.isLoading && <p className="px-3 py-2 text-[12.5px] text-muted">Searching…</p>}
+          {found.isError && (
+            <p className="px-3 py-2 text-[12.5px] text-danger-text">
+              The search did not answer. Try again.
+            </p>
+          )}
           {found.data && found.data.hits.length === 0 && (
             <p className="px-3 py-2 text-[12.5px] text-muted">Nothing found.</p>
           )}

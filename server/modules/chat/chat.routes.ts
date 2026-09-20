@@ -300,7 +300,15 @@ export async function registerRoutes(instance: FastifyInstance) {
    */
   app.get(
     "/search",
-    { config: chat, schema: { querystring: chatSearchQuery } },
+    {
+      config: {
+        ...chat,
+        // a budget of its own, as the sends have: each ask is a grouped intersection over the
+        // token table, and a box types one per keystroke once it is past the debounce
+        rateLimit: { max: isTest ? 10_000 : 120, timeWindow: "1 minute" },
+      },
+      schema: { querystring: chatSearchQuery },
+    },
     async (request) => search.search(request.currentUser!, request.query),
   );
 
@@ -330,6 +338,9 @@ export async function registerRoutes(instance: FastifyInstance) {
     "/chats/:id/files",
     { config: { ...chat, rateLimit: UPLOAD_RATE_LIMIT }, schema: { params: idParams } },
     async (request, reply) => {
+      // asked BEFORE the body is read: a file for a chat the caller is not in is refused without
+      // 25 MB being buffered for it (security review, 2026-09-20)
+      await attachments.mayUpload(request.currentUser!, request.params.id);
       const { file, preview } = await incomingFiles(request);
       const upload = await attachments.upload(
         request.currentUser!,

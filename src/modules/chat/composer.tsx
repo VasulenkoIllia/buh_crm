@@ -117,7 +117,9 @@ export function Composer({
     const files = attached.forSend();
     // a message needs words or files, and a file still going up is not one yet (§6.1)
     if (!body && files.length === 0) return;
-    if (attached.busy) return;
+    // …and one that did not go up at all must be dealt with rather than dropped from the send in
+    // silence, which is what happened before (review, 2026-09-20)
+    if (attached.busy || attached.failed > 0) return;
     if (editing) {
       if (!body) return;
       onEdit(body);
@@ -195,6 +197,14 @@ export function Composer({
         </div>
       )}
       <AttachmentStrip queue={attached} />
+      {attached.failed > 0 && (
+        <p className="px-4 pt-1.5 text-[11.5px] text-danger-text">
+          {attached.failed === 1
+            ? "A file did not go up"
+            : `${attached.failed} files did not go up`}
+          . Try again, or take it off.
+        </p>
+      )}
       {refused && <p className="px-4 pt-1.5 text-[11.5px] text-danger-text">{refused}</p>}
       <div className="relative flex items-end gap-2 px-3 py-2">
         <textarea
@@ -298,7 +308,9 @@ export function Composer({
           size="sm"
           className="mb-0.5"
           disabled={
-            attached.busy || (!text.trim() && (editing !== null || attached.items.length === 0))
+            attached.busy ||
+            attached.failed > 0 ||
+            (!text.trim() && (editing !== null || attached.items.length === 0))
           }
           onClick={submit}
         >

@@ -64,7 +64,10 @@ export function ChatFilesTab({
       </select>
 
       {files.isLoading && <p className="text-[12.5px] text-muted">Loading…</p>}
-      {!files.isLoading && rows.length === 0 && (
+      {files.isError && (
+        <p className="text-[12.5px] text-danger-text">The list did not load. Try again.</p>
+      )}
+      {!files.isLoading && !files.isError && rows.length === 0 && (
         <p className="text-[12.5px] text-muted">
           {q || senderId ? "Nothing matches." : "No files in this chat yet."}
         </p>

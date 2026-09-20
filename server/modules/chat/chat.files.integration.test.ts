@@ -9,6 +9,7 @@ import type {
 import { buildApp } from "../../app.js";
 import { prisma } from "../../core/db.js";
 import { purgeTrash } from "../files/index.js";
+import * as repo from "./chat.repository.js";
 import { createPeople, removePeople, type Person } from "../../test/people.js";
 import { sweepUnsentChatUploads } from "./index.js";
 
@@ -139,6 +140,21 @@ async function logged(action: string, subjectId: string) {
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error(`no ${action} row for ${subjectId}`);
+}
+
+/**
+ * How many rows an action left, once the log has stopped moving. A row is written after the
+ * response, so a count taken straight away is a race of its own — this waits for the first and then
+ * for a moment more, which is what makes "exactly one" mean anything.
+ */
+async function settledCount(action: string, subjectId: string, since: Date): Promise<number> {
+  const count = () =>
+    prisma.activityEvent.count({ where: { action, subjectId, occurredAt: { gte: since } } });
+  for (let attempt = 0; attempt < 40 && (await count()) === 0; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  return count();
 }
 
 async function removeChatsOf(domain: string) {
@@ -284,6 +300,29 @@ describe("who may open one", () => {
     await say(olena, chatId, { files: [doc] });
     expect((await call(petro, "GET", `/files/${doc.fileId}/preview`)).status).toBe(404);
     expect((await call(petro, "GET", `/files/${doc.fileId}/view`)).status).toBe(200);
+
+    // the door takes a PREVIEW's id and nothing else: a photo sent as the attachment is an
+    // image too, and the wider question would make this a quiet way to fetch it (review 2026-09-20)
+    const photograph = await sent(olena, chatId, "screenshot.png");
+    await say(olena, chatId, { files: [photograph] });
+    expect((await call(petro, "GET", `/files/${photograph.fileId}/preview`)).status).toBe(404);
+    expect(
+      (await call(petro, "GET", `/files/${photograph.previewFileId}/preview`)).status,
+    ).toBe(200);
+
+    // a photo's preview, fetched again and again as a conversation scrolls, writes no row at all
+    const photo = await sent(olena, chatId, "chart.png");
+    await say(olena, chatId, { files: [photo] });
+    const since = new Date();
+    for (let n = 0; n < 3; n++) {
+      expect((await call(petro, "GET", `/files/${photo.previewFileId}/preview`)).status).toBe(
+        200,
+      );
+    }
+    const rows = await prisma.activityEvent.count({
+      where: { subjectId: photo.previewFileId!, occurredAt: { gte: since } },
+    });
+    expect(rows).toBe(0);
   });
 });
 
@@ -516,5 +555,131 @@ describe("the Trash, and coming back (§6.3)", () => {
     expect(await prisma.file.count({ where: { id: file.fileId } })).toBe(0);
     const purged = await logged("chat_file.purged", file.fileId);
     expect(purged.subjectLabel).toBe("a chat file");
+  });
+});
+
+/**
+ * **What two people doing something in the same instant used to do** (the reviews of 2026-09-20):
+ * the code was right in order and wrong at the same moment.
+ *
+ * Two shapes of test here, and they are not the same thing. The ones that send or delete twice at
+ * once are SMOKE tests: two `app.inject` calls in one process usually serialise, so they cannot
+ * force the interleaving and would pass without the fix. The ones that call the guard itself —
+ * `claimUploadsTx`, `deleteIfStillUnsent`, `trashFileIfLive`, `sourceForForward` — are the proof,
+ * because each asks the database the question the loser of a race asks, and each must be told no.
+ */
+describe("two things at once", () => {
+  it("refuses an upload another message has already claimed", async () => {
+    const chatId = await group(olena, "Claimed", [petro]);
+    const file = await sent(olena, chatId, "claimed.png");
+    const message = await say(olena, chatId, { files: [file] });
+    expect(message.files).toHaveLength(1);
+
+    // the loser's transaction, asking under the lock what the winner has just committed
+    const claimed = await repo.transaction((tx) =>
+      repo.claimUploadsTx(tx, chatId, olena.id, [file.fileId]),
+    );
+    expect(claimed).toBe(false);
+    // and one nobody has taken is still claimable
+    const spare = await sent(olena, chatId, "spare.png");
+    expect(
+      await repo.transaction((tx) => repo.claimUploadsTx(tx, chatId, olena.id, [spare.fileId])),
+    ).toBe(true);
+  });
+
+  it("moves a file to the Trash once, however many deletes ask", async () => {
+    const chatId = await group(olena, "Trashed once", [petro]);
+    const file = await sent(olena, chatId, "once-only.png");
+    await say(olena, chatId, { files: [file] });
+    const at = new Date();
+    expect(await repo.trashFileIfLive(file.fileId, olena.id, at, randomUUID())).toBe(true);
+    // the second caller is told it did nothing, which is what keeps the log to one disposal
+    expect(await repo.trashFileIfLive(file.fileId, petro.id, at, randomUUID())).toBe(false);
+    await prisma.file.update({
+      where: { id: file.fileId },
+      data: { deletedAt: null, deletedById: null, trashBatchId: null },
+    });
+  });
+
+  it("posts one message when the same upload is sent twice at once", async () => {
+    const chatId = await group(olena, "Two sends", [petro]);
+    const file = await sent(olena, chatId, "once.png");
+
+    const both = await Promise.all([
+      call(olena, "POST", `/chats/${chatId}/messages`, {
+        clientMessageId: randomUUID(),
+        files: [file],
+      }),
+      call(olena, "POST", `/chats/${chatId}/messages`, {
+        clientMessageId: randomUUID(),
+        files: [file],
+      }),
+    ]);
+    const ok = both.filter((r) => r.status === 200);
+    expect(ok).toHaveLength(1);
+    expect(both.filter((r) => r.status === 400)).toHaveLength(1);
+    // and the file hangs off exactly the one message that won
+    const page = await history(petro, chatId);
+    expect(page.messages.filter((m) => m.files.length > 0)).toHaveLength(1);
+  });
+
+  it("writes one disposal when two messages carrying one file are deleted at once", async () => {
+    const first = await group(olena, "Shared A", [petro]);
+    const second = await group(olena, "Shared B", [petro]);
+    const file = await sent(olena, first, "shared-once.png");
+    const original = await say(olena, first, { files: [file] });
+    expect(
+      (
+        await call(olena, "POST", "/forward", {
+          messageIds: [original.id],
+          toChatIds: [second],
+        })
+      ).status,
+    ).toBe(200);
+    const copy = ((await call(petro, "GET", `/chats/${second}/files`)).body as ChatFilesPage)
+      .files[0];
+
+    const since = new Date();
+    await Promise.all([
+      call(olena, "DELETE", `/messages/${original.id}`),
+      call(olena, "DELETE", `/messages/${copy.messageId}`),
+    ]);
+    // the file goes to the Trash once, and the log says so once
+    const row = await prisma.file.findUniqueOrThrow({ where: { id: file.fileId } });
+    expect(row.deletedAt).not.toBeNull();
+    expect(await settledCount("chat_file.deleted", file.fileId, since)).toBe(1);
+  });
+
+  it("does not sweep an upload that was sent while the sweep was reading its list", async () => {
+    const chatId = await group(olena, "Sweep race", [petro]);
+    const file = await sent(olena, chatId, "just-in-time.png");
+    // the sweep's list is read minutes before it reaches a row; this is that row, sent in between
+    await say(olena, chatId, { files: [file] });
+    const stale = await repo.staleUploads(new Date(Date.now() + 60_000), 100);
+    expect(stale.map((f) => f.id)).not.toContain(file.fileId);
+    // and even handed the id from an older list, the sweep's own delete refuses it
+    expect(await repo.deleteIfStillUnsent(file.fileId)).toBe(false);
+    expect(await prisma.file.count({ where: { id: file.fileId } })).toBe(1);
+  });
+
+  it("does not forward a file that was trashed a moment before", async () => {
+    const chatId = await group(olena, "Forward race", [petro]);
+    const elsewhere = await group(olena, "Forward race, elsewhere", [petro]);
+    const file = await sent(olena, chatId, "about-to-go.png");
+    const message = await say(olena, chatId, { text: "here it is", files: [file] });
+
+    // what the forward reads at the moment it copies, rather than what it read at the start
+    expect((await repo.sourceForForward(message.id))?.files).toHaveLength(1);
+    await call(olena, "DELETE", `/messages/${message.id}`);
+    expect(await repo.sourceForForward(message.id)).toBeNull();
+
+    // a message whose file alone was trashed still forwards its words, and carries no dead file
+    const other = await sent(olena, elsewhere, "second.png");
+    const live = await say(olena, elsewhere, { text: "and this", files: [other] });
+    await prisma.file.update({
+      where: { id: other.fileId },
+      data: { deletedAt: new Date(), deletedById: olena.id, trashBatchId: randomUUID() },
+    });
+    expect((await repo.sourceForForward(live.id))?.files).toHaveLength(0);
   });
 });

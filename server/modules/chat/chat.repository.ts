@@ -530,8 +530,11 @@ export function editMessage(
  * nothing is left to open. The row stays, so the chat's places have no hole, and it reads
  * "Message deleted".
  */
-export function deleteMessage(messageId: string, byUserId: string, at: Date) {
-  return prisma.chatMessage.update({
+export const deleteMessage = (messageId: string, byUserId: string, at: Date) =>
+  deleteMessageTx(prisma, messageId, byUserId, at);
+
+export function deleteMessageTx(tx: Tx, messageId: string, byUserId: string, at: Date) {
+  return tx.chatMessage.update({
     where: { id: messageId },
     data: {
       ciphertext: null,
@@ -542,6 +545,68 @@ export function deleteMessage(messageId: string, byUserId: string, at: Date) {
       mentions: [],
     },
   });
+}
+
+/**
+ * **Of these files, the ones a live message OTHER than this one still carries** — asked inside the
+ * delete's own transaction, with the rows locked first.
+ *
+ * The lock is the whole point. Two deletes of the two messages carrying one forwarded file each
+ * asked this outside a transaction, each saw the other's message still live, and NEITHER trashed
+ * the file: it stayed live with nothing carrying it, reachable by nobody and swept by nothing
+ * (found by the test written for the review's own finding, 2026-09-20). Locked, the second to
+ * arrive reads the first's delete and disposes of it.
+ */
+export async function carriedElsewhereTx(
+  tx: Tx,
+  fileIds: readonly string[],
+  exceptMessageId: string,
+): Promise<Set<string>> {
+  if (fileIds.length === 0) return new Set();
+  await tx.$queryRaw`SELECT id FROM "File" WHERE id = ANY(${[...fileIds]}::uuid[]) FOR UPDATE`;
+  const rows = await tx.chatMessageFile.findMany({
+    where: {
+      messageId: { not: exceptMessageId },
+      message: { deletedAt: null },
+      OR: [{ fileId: { in: [...fileIds] } }, { previewFileId: { in: [...fileIds] } }],
+    },
+    select: { fileId: true, previewFileId: true },
+  });
+  const held = new Set<string>();
+  for (const row of rows) {
+    held.add(row.fileId);
+    if (row.previewFileId) held.add(row.previewFileId);
+  }
+  return held;
+}
+
+export function linksOfMessageTx(tx: Tx, messageId: string) {
+  return tx.chatMessageFile.findMany({
+    where: { messageId },
+    select: { fileId: true, previewFileId: true, position: true },
+    orderBy: { position: "asc" },
+  });
+}
+
+export function filesByIdsTx(tx: Tx, ids: readonly string[]) {
+  return tx.file.findMany({ where: { id: { in: [...ids] } }, select: CHAT_FILE });
+}
+
+export function trashFilesTx(
+  tx: Tx,
+  ids: readonly string[],
+  byUserId: string,
+  at: Date,
+  batchId: string,
+) {
+  return tx.file.updateMany({
+    where: { id: { in: [...ids] }, deletedAt: null },
+    data: { deletedAt: at, deletedById: byUserId, trashBatchId: batchId },
+  });
+}
+
+export function deleteFileRowsTx(tx: Tx, ids: readonly string[]) {
+  return tx.file.deleteMany({ where: { id: { in: [...ids] } } });
 }
 
 export async function toggleReaction(messageId: string, userId: string, emoji: string) {
@@ -724,6 +789,41 @@ export function openableChatFile(fileId: string, userId: string) {
   });
 }
 
+/**
+ * **The preview door's own question** (§6.2), deliberately narrower than the one above: a file that
+ * a live message names AS A PREVIEW, or an upload of the caller's that nothing carries yet.
+ *
+ * It must not accept a file that a message carries as the file itself. A photo sent as the
+ * attachment — a screenshot, a scan — is an `image/jpeg` like its thumbnail, so the wider question
+ * would let anybody who may open it fetch the same bytes through the one door that writes no log
+ * row and may be cached for a week (security review, 2026-09-20).
+ */
+export function openableChatPreview(fileId: string, userId: string) {
+  return prisma.file.findFirst({
+    where: {
+      id: fileId,
+      chatId: { not: null },
+      deletedAt: null,
+      OR: [{ previewInChatMessages: REACHABLE(userId) }, { uploadedById: userId, ...UNSENT }],
+    },
+    select: CHAT_FILE,
+  });
+}
+
+/**
+ * **Delete this upload only if it is STILL unsent** — the sweep's snapshot is minutes old by the
+ * time it reaches a row, and a send in between would have linked it. Deleting it then would take
+ * the link with it through the cascade and leave the message with a hole, which is the one thing
+ * the send's own check exists to prevent (review, 2026-09-20). The count says whether the row went;
+ * its bytes are removed only then.
+ */
+export async function deleteIfStillUnsent(fileId: string): Promise<boolean> {
+  const { count } = await prisma.file.deleteMany({
+    where: { id: fileId, chatId: { not: null }, deletedAt: null, ...UNSENT },
+  });
+  return count === 1;
+}
+
 /** Uploads no message ever named, older than this: the nightly sweep's work (§6.1). */
 export function staleUploads(before: Date, limit: number) {
   return prisma.file.findMany({
@@ -732,6 +832,54 @@ export function staleUploads(before: Date, limit: number) {
     orderBy: { createdAt: "asc" },
     take: limit,
   });
+}
+
+/**
+ * **What a forward may copy, read at the moment it copies it**: the source if it is still live, and
+ * of its files the ones still live too. A delete a moment earlier trashes a file nothing else
+ * carries, and copying that link would put a dead attachment on a brand-new message (review,
+ * 2026-09-20).
+ */
+export function sourceForForward(messageId: string) {
+  return prisma.chatMessage.findFirst({
+    where: { id: messageId, deletedAt: null },
+    select: {
+      id: true,
+      files: {
+        where: { file: { deletedAt: null } },
+        select: { fileId: true, previewFileId: true, position: true },
+        orderBy: { position: "asc" },
+      },
+    },
+  });
+}
+
+/**
+ * **The uploads a send is claiming, locked and checked inside its own transaction.** `forSend`
+ * asks the same question before the transaction, which is what gives a person a clear refusal; this
+ * is what makes it true: two sends naming the same upload in the same instant both passed that
+ * check and both linked it (review, 2026-09-20). The second waits on the lock, reads the link the
+ * first committed, and is refused.
+ */
+export async function claimUploadsTx(
+  tx: Tx,
+  chatId: string,
+  uploaderId: string,
+  ids: readonly string[],
+): Promise<boolean> {
+  if (ids.length === 0) return true;
+  await tx.$queryRaw`SELECT id FROM "File" WHERE id = ANY(${[...ids]}::uuid[]) FOR UPDATE`;
+  const still = await tx.file.findMany({
+    where: {
+      id: { in: [...ids] },
+      chatId,
+      uploadedById: uploaderId,
+      deletedAt: null,
+      ...UNSENT,
+    },
+    select: { id: true },
+  });
+  return still.length === ids.length;
 }
 
 /** One message's files, for a delete deciding what to put in the Trash and for a forward. */
@@ -768,18 +916,28 @@ export async function stillCarried(
   return held;
 }
 
-/** Into the Trash, as one gesture, with the rest of the library's Trash (files.md §9). */
-export function trashFiles(
-  ids: readonly string[],
+/**
+ * Into the Trash, with the rest of the library's Trash (files.md §9). One file at a time and
+ * guarded by `deletedAt: null`, so the count is the answer to "did THIS call trash it": two deletes
+ * of two messages carrying the same forwarded file used to write the disposal twice (review,
+ * 2026-09-20).
+ */
+export async function trashFileIfLiveTx(
+  tx: Tx,
+  fileId: string,
   byUserId: string,
   at: Date,
   batchId: string,
-) {
-  return prisma.file.updateMany({
-    where: { id: { in: [...ids] }, deletedAt: null },
+): Promise<boolean> {
+  const { count } = await tx.file.updateMany({
+    where: { id: fileId, deletedAt: null },
     data: { deletedAt: at, deletedById: byUserId, trashBatchId: batchId },
   });
+  return count === 1;
 }
+
+export const trashFileIfLive = (fileId: string, byUserId: string, at: Date, batchId: string) =>
+  trashFileIfLiveTx(prisma, fileId, byUserId, at, batchId);
 
 export function filesByIds(ids: readonly string[]) {
   return prisma.file.findMany({ where: { id: { in: [...ids] } }, select: CHAT_FILE });
@@ -921,6 +1079,9 @@ export function searchMessages(
     WHERE t.token = ANY(${tokens.map((t) => Buffer.from(t))}::bytea[])
       AND m."deletedAt" IS NULL
       AND (${f.chatId ?? null}::uuid IS NULL OR m."chatId" = ${f.chatId ?? null}::uuid)
+      -- the token table carries the chat of its own, which is what its (token, chatId) index is
+      -- for: searching ONE chat reads that index instead of every message holding the word
+      AND (${f.chatId ?? null}::uuid IS NULL OR t."chatId" = ${f.chatId ?? null}::uuid)
       AND (${f.senderId ?? null}::uuid IS NULL OR m."authorId" = ${f.senderId ?? null}::uuid)
       AND (${f.from ?? null}::timestamptz IS NULL OR m."createdAt" >= ${f.from ?? null}::timestamptz)
       AND (${f.to ?? null}::timestamptz IS NULL OR m."createdAt" <= ${f.to ?? null}::timestamptz)
@@ -930,7 +1091,9 @@ export function searchMessages(
       )
     GROUP BY m.id
     HAVING count(DISTINCT t.token) = ${tokens.length}
-    ORDER BY m."createdAt" DESC
+    -- the id as well: two messages written in the same millisecond have no order of their own, and
+    -- a page boundary inside such a pair would repeat one and skip the other (review, 2026-09-20)
+    ORDER BY m."createdAt" DESC, m.id DESC
     LIMIT ${f.take} OFFSET ${f.skip}
   `;
 }

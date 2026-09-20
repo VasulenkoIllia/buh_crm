@@ -124,9 +124,7 @@ export async function upload(
   incoming: Incoming,
   preview?: Incoming,
 ): Promise<ChatUpload> {
-  const m = await requireMember(chatId, user.id);
-  requireWriter(m, user);
-
+  await mayUpload(user, chatId);
   const row = await store(chatId, user, incoming);
   let previewRow: Row | null = null;
   if (preview) {
@@ -161,6 +159,15 @@ export async function upload(
     changes: { size: row.size },
   });
   return uploadOf(row, previewRow?.id ?? null);
+}
+
+/**
+ * May this person put a file in this chat at all — asked by the ROUTE before it reads a byte of the
+ * body, so 25 MB is not buffered for a chat the caller is not in (security review, 2026-09-20), and
+ * again here, so the service does not depend on a caller remembering to.
+ */
+export async function mayUpload(user: User, chatId: string) {
+  requireWriter(await requireMember(chatId, user.id), user);
 }
 
 /**
@@ -241,7 +248,9 @@ export async function open(user: User, fileId: string, via: "view" | "download")
  * become a quiet way to fetch a document.
  */
 export async function openPreview(user: User, fileId: string) {
-  const file = await repo.openableChatFile(fileId, user.id);
+  // the preview's OWN question: a file a message names as a preview, never one it carries as the
+  // file itself, or this door would be a quiet way to fetch the photo (security review)
+  const file = await repo.openableChatPreview(fileId, user.id);
   if (!file) throw new NotFoundError("File not found");
   if (!PREVIEW_TYPES.has(file.detectedMime ?? "")) throw new NotFoundError("File not found");
   return file;
@@ -288,6 +297,11 @@ export async function listFiles(
  * them** (§6.3). Forwarding reuses a file rather than copying it, so the same photo can hang off
  * three messages in three chats, and the one being deleted is not the file's last home.
  *
+ * **The decision is made inside the delete's own transaction**, with the file rows locked. Asked
+ * outside it, two deletes of the two messages carrying one forwarded file each saw the other's
+ * message still live, and neither disposed of the file: it stayed live with nothing carrying it,
+ * reachable by nobody and swept by nothing (2026-09-20, from a test written for the review).
+ *
  * What is let go goes into the Files Trash, as one gesture, and is seen there by the person who
  * deleted the message and by whoever uploaded it (`files.trash.ts`). Thirty days later the nightly
  * purge removes it for good, like every other file the firm disposes of.
@@ -295,39 +309,60 @@ export async function listFiles(
  * **A photo's preview does not go to the Trash**: it is a thumbnail the browser drew, worth
  * nothing without its photo, and a Trash listing it beside the photo would read like two files.
  * It is simply removed, bytes and row.
+ *
+ * Returns what to WRITE IN THE LOG once the caller's own work is done: `record()` never runs inside
+ * a transaction, and only the call that actually moved a file may claim its disposal.
  */
-export async function onMessageDeleted(user: User, messageId: string): Promise<void> {
-  const links = await repo.linksOfMessage(messageId);
-  if (links.length === 0) return;
-  const previews = new Set(links.flatMap((l) => (l.previewFileId ? [l.previewFileId] : [])));
-  const ids = [...new Set([...links.map((l) => l.fileId), ...previews])];
-  const held = await repo.stillCarried(ids, messageId);
-  const letGo = ids.filter((id) => !held.has(id));
-  if (letGo.length === 0) return;
+export async function onMessageDeleted(
+  user: User,
+  messageId: string,
+  at: Date,
+): Promise<() => void> {
+  const disposed = await repo.transaction(async (tx) => {
+    const links = await repo.linksOfMessageTx(tx, messageId);
+    if (links.length === 0)
+      return { trashed: [] as string[], previews: [] as repo.ChatFileRow[] };
+    const previews = new Set(links.flatMap((l) => (l.previewFileId ? [l.previewFileId] : [])));
+    const ids = [...new Set([...links.map((l) => l.fileId), ...previews])];
+    // locked, and asked again inside the transaction: whoever commits second sees the other delete
+    const held = await repo.carriedElsewhereTx(tx, ids, messageId);
+    const letGo = ids.filter((id) => !held.has(id));
+    if (letGo.length === 0) return { trashed: [], previews: [] };
 
-  const rows = await repo.filesByIds(letGo);
-  const toTrash = rows.filter((r) => !previews.has(r.id));
-  if (toTrash.length > 0) {
-    await repo.trashFiles(
-      toTrash.map((r) => r.id),
-      user.id,
-      new Date(),
-      randomUUID(),
-    );
-    for (const file of toTrash) {
-      record("chat_file.deleted", { subjectId: file.id, subjectLabel: A_CHAT_FILE });
+    const rows = await repo.filesByIdsTx(tx, letGo);
+    const batchId = randomUUID();
+    const trashed: string[] = [];
+    for (const file of rows.filter((r) => !previews.has(r.id))) {
+      // the count is the answer to "did THIS call move it": one disposal, one row in the log
+      if (await repo.trashFileIfLiveTx(tx, file.id, user.id, at, batchId))
+        trashed.push(file.id);
     }
-  }
-  for (const preview of rows.filter((r) => previews.has(r.id))) {
-    await takeBack(preview);
-    await repo.deleteFileRow(preview.id).catch((e) => {
-      console.error("chat: could not remove a preview whose photo was deleted", e);
-    });
-  }
+    const toDrop = rows.filter((r) => previews.has(r.id));
+    if (toDrop.length > 0) {
+      await repo.deleteFileRowsTx(
+        tx,
+        toDrop.map((r) => r.id),
+      );
+    }
+    return { trashed, previews: toDrop };
+  });
+
+  // outside the transaction, as everything that is not the write itself must be (AGENTS.md)
+  for (const preview of disposed.previews) await takeBack(preview);
+  return () => {
+    for (const fileId of disposed.trashed) {
+      record("chat_file.deleted", { subjectId: fileId, subjectLabel: A_CHAT_FILE });
+    }
+  };
 }
 
-/** What a forward carries: the same files, in the same order, without copying a byte (§6.3). */
-export const linksToForward = (messageId: string) => repo.linksOfMessage(messageId);
+/**
+ * **What a forward carries** (§6.3): the same files, in the same order, without copying a byte —
+ * read again here rather than from the batch the forward started with, so a message deleted in
+ * between is not copied and a file trashed in between is not attached dead. `null` means the source
+ * is gone since.
+ */
+export const sourceForForward = (messageId: string) => repo.sourceForForward(messageId);
 
 // ── the sweep (§6.1) ───────────────────────────────────────────────────────────
 
@@ -343,8 +378,12 @@ export async function sweepUnsentUploads(now = new Date()): Promise<number> {
   let gone = 0;
   for (const file of stale) {
     try {
+      // the ROW first, and only if it is still unsent: the list was read minutes ago, and a send in
+      // between would have linked it — deleting it then would take the link with it and leave the
+      // message with a hole (review, 2026-09-20). Bytes nothing points at are the pruner's job
+      // (`scripts/prune-uploads.ts`), so this order can only ever leave the harmless kind of litter.
+      if (!(await repo.deleteIfStillUnsent(file.id))) continue;
       await deleteStoredFile(file);
-      await repo.deleteFileRow(file.id);
       gone++;
     } catch (error) {
       console.error("chat: could not sweep an unsent upload", file.id, error);

@@ -215,7 +215,18 @@ export async function send(
     if (input.poll) {
       await repo.insertPollTx(tx, id, input.poll.multiple, sealOptions(input.poll.options));
     }
-    if (carried.length > 0) await repo.linkFilesTx(tx, id, carried);
+    if (carried.length > 0) {
+      // the same question `forSend` asked, asked again under a lock: two sends naming one upload in
+      // the same instant both passed it outside the transaction (review, 2026-09-20)
+      const ids = carried.flatMap((f) => [
+        f.fileId,
+        ...(f.previewFileId ? [f.previewFileId] : []),
+      ]);
+      if (!(await repo.claimUploadsTx(tx, chatId, user.id, ids))) {
+        throw new ValidationError("That file is not ready to send");
+      }
+      await repo.linkFilesTx(tx, id, carried);
+    }
     // the words it can be found by, written with it rather than after it (§8)
     await search.indexTx(tx, chatId, id, [text, ...(input.poll?.options ?? [])]);
     await repo.markSentTx(tx, chatId, user.id, seq, mentions);
@@ -266,17 +277,20 @@ export async function remove(user: User, messageId: string): Promise<ChatMessage
     throw new ValidationError("This line was written by the chat itself");
   if (row.deletedAt) return toMessage(row);
 
-  await repo.deleteMessage(messageId, user.id, new Date());
+  const at = new Date();
+  await repo.deleteMessage(messageId, user.id, at);
   // the text is gone, and so are the words it could be found by (§8)
   await search.forget(messageId);
-  // its files go to the Trash unless another live message still carries them
-  await attachments.onMessageDeleted(user, messageId);
+  // its files go to the Trash unless another live message still carries them; what that disposed
+  // of is written to the log below, with the delete itself
+  const sayWhatWentWithIt = await attachments.onMessageDeleted(user, messageId, at);
   const author = row.authorId ? await repo.findPerson(row.authorId) : null;
   record("chat_message.deleted", {
     subjectId: messageId,
     subjectLabel: whichChat(m),
     changes: { author: mine ? "their own" : personName(author) },
   });
+  sayWhatWentWithIt();
   await tell(m.chat, m.chat.members, "chat_message_changed", row.seq);
   return toMessage((await repo.messageById(messageId))!);
 }
@@ -317,9 +331,13 @@ export async function forward(user: User, input: ForwardInput): Promise<void> {
     requireWriter(m, user);
     for (const source of sources) {
       const text = openText(source);
-      // the FILES travel with it, and reuse the same objects in the bucket (§6.3): a photo sent on
-      // to three chats is one file, which is why the link is a table
-      const carried = await attachments.linksToForward(source.id);
+      // the source, read again at the moment it is copied: deleted since, and there is nothing to
+      // forward; a file trashed since is not in this list either (review, 2026-09-20). The FILES
+      // travel with it and reuse the same objects in the bucket (§6.3): a photo sent on to three
+      // chats is one file, which is why the link is a table
+      const fresh = await attachments.sourceForForward(source.id);
+      if (!fresh) continue;
+      const carried = fresh.files;
       if (text === null && carried.length === 0) continue;
       const at = new Date();
       const seq = await repo.transaction(async (tx) => {

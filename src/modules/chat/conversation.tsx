@@ -156,6 +156,13 @@ export function Conversation({
    */
   const HUNT = 20;
   const hunted = useRef(0);
+  /**
+   * **Older messages arrive above, and the reader stays where they were.** A prepended page grows
+   * everything below it, so without putting the scroll back by exactly that much the conversation
+   * jumps on every "scroll up for more" (review, 2026-09-20). Armed by whoever asks for a page:
+   * the scroll handler below, and the hunt above.
+   */
+  const heldHeight = useRef<number | null>(null);
   useEffect(() => {
     const wanted = asked ?? goTo;
     if (!wanted || wentTo.current === wanted) {
@@ -166,6 +173,11 @@ export function Conversation({
     if (at < 0) {
       if (more && !loadingMore && hunted.current < HUNT) {
         hunted.current++;
+        // the hunt is a scroll of its own: hold the reader's place while the page arrives, and
+        // stop sticking to the newest line, or the two effects pull against each other and the
+        // conversation flickers all the way up (review, 2026-09-20)
+        heldHeight.current = box.current?.scrollHeight ?? null;
+        setAtBottom(false);
         onLoadMore();
       }
       return;
@@ -176,12 +188,6 @@ export function Conversation({
     if (!asked) onWent?.();
   }, [asked, goTo, rows, virtual, onWent, more, loadingMore, onLoadMore]);
 
-  /**
-   * **Older messages arrive above, and the reader stays where they were.** A prepended page grows
-   * everything below it, so without putting the scroll back by exactly that much the conversation
-   * jumps on every "scroll up for more" (review, 2026-09-20).
-   */
-  const heldHeight = useRef<number | null>(null);
   useLayoutEffect(() => {
     const el = box.current;
     const was = heldHeight.current;

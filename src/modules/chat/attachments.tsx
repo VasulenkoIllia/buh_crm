@@ -52,6 +52,16 @@ export function useAttachments(chatId: string) {
   const live = useRef<Pending[]>([]);
   const seq = useRef(0);
   const wake = useRef<number | undefined>(undefined);
+  /**
+   * The requests in the air, by item. Kept in a ref rather than on the item: an XHR is not state,
+   * and what it is for is being able to stop it — removing a file that is going up used to leave it
+   * uploading to the end and land in the bucket as an orphan (review, 2026-09-20).
+   */
+  const flying = useRef(new Map<number, XMLHttpRequest>());
+  const stop = (id: number) => {
+    flying.current.get(id)?.abort();
+    flying.current.delete(id);
+  };
 
   const commit = (next: Pending[]) => {
     live.current = next;
@@ -86,19 +96,28 @@ export function useAttachments(chatId: string) {
     if (!item) return;
     patch(id, { state: "sending", attempts: item.attempts + 1, progress: 0 });
     const xhr = new XMLHttpRequest();
+    flying.current.set(id, xhr);
     xhr.open("POST", `/api/chat/chats/${chatId}/files`);
     xhr.withCredentials = true;
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) patch(id, { progress: e.loaded / e.total });
     };
     xhr.onload = () => {
+      flying.current.delete(id);
       const current = live.current.find((i) => i.id === id);
       if (xhr.status === 201) {
-        const body = JSON.parse(xhr.responseText) as {
-          fileId: string;
-          previewFileId: string | null;
-        };
-        patch(id, { state: "done", progress: 1, sent: body });
+        // a 201 with a body that is not what it should be would otherwise throw here, and the item
+        // would stand at "sending" for ever, with no error and no retry (review, 2026-09-20)
+        try {
+          const body = JSON.parse(xhr.responseText) as {
+            fileId: string;
+            previewFileId: string | null;
+          };
+          if (typeof body.fileId !== "string") throw new Error("no file id");
+          patch(id, { state: "done", progress: 1, sent: body });
+        } catch {
+          patch(id, { state: "failed", error: "The server's answer made no sense" });
+        }
       } else if (xhr.status === 429 && (current?.attempts ?? 0) < MAX_ATTEMPTS) {
         const seconds = Number(xhr.getResponseHeader("Retry-After"));
         const wait = (Number.isFinite(seconds) && seconds > 0 ? seconds : 5) * 1000;
@@ -109,9 +128,12 @@ export function useAttachments(chatId: string) {
       pump();
     };
     xhr.onerror = () => {
+      flying.current.delete(id);
       patch(id, { state: "failed", error: "The connection dropped" });
       pump();
     };
+    // aborted by `drop` or `clear`: the item is gone, and nothing is left to say about it
+    xhr.onabort = () => flying.current.delete(id);
     const form = new FormData();
     form.append("file", item.file);
     if (item.preview) form.append("preview", item.preview, "preview.jpg");
@@ -158,6 +180,7 @@ export function useAttachments(chatId: string) {
       commit(next);
       return { refused, tooBig, tooMany };
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- patch reads the queue through its ref
     [pump],
   );
 
@@ -168,6 +191,7 @@ export function useAttachments(chatId: string) {
   const drop = useCallback((id: number) => {
     const item = live.current.find((i) => i.id === id);
     if (item) forget(item);
+    stop(id);
     commit(live.current.filter((i) => i.id !== id));
   }, []);
 
@@ -176,11 +200,15 @@ export function useAttachments(chatId: string) {
       patch(id, { state: "waiting", attempts: 0, notBefore: 0, error: undefined });
       pump();
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- patch reads the queue through its ref
     [pump],
   );
 
   const clear = useCallback(() => {
-    for (const item of live.current) forget(item);
+    for (const item of live.current) {
+      forget(item);
+      stop(item.id);
+    }
     commit([]);
   }, []);
 
