@@ -78,7 +78,26 @@ export function findPerson(id: string) {
   return prisma.user.findUnique({ where: { id }, select: PERSON });
 }
 
+/** The newest message, for the one line the chat list shows (§4.2). */
+const LAST_MESSAGE = {
+  orderBy: { seq: "desc" },
+  take: 1,
+  select: {
+    seq: true,
+    authorId: true,
+    kind: true,
+    notice: true,
+    deletedAt: true,
+    createdAt: true,
+    ciphertext: true,
+    iv: true,
+    authTag: true,
+    keyVersion: true,
+  },
+} as const satisfies Prisma.Chat$messagesArgs;
+
 const CHAT_WITH_MEMBERS = {
+  messages: LAST_MESSAGE,
   members: {
     where: { leftAt: null },
     orderBy: { joinedAt: "asc" },

@@ -84,6 +84,9 @@ const FilesPage = lazy(() =>
 const SecretsPage = lazy(() =>
   import("@/modules/secrets/secrets.page").then((m) => ({ default: m.SecretsPage })),
 );
+const ChatPage = lazy(() =>
+  import("@/modules/chat/chat.page").then((m) => ({ default: m.ChatPage })),
+);
 
 /** Old /unpaid path → /billing, preserving ?invoice= / ?client= deep links. */
 function RedirectToBilling() {
@@ -189,6 +192,13 @@ export const router = createBrowserRouter([
               {
                 element: <RequireGate gate="secrets" />,
                 children: [{ path: "secrets", element: <SecretsPage /> }],
+              },
+              {
+                element: <RequireGate gate="chat" />,
+                children: [
+                  { path: "chat", element: <ChatPage /> },
+                  { path: "chat/:chatId", element: <ChatPage /> },
+                ],
               },
               {
                 element: <RequireGate gate="reports" />,

@@ -57,6 +57,18 @@ export type ChatPeople = z.infer<typeof chatPeopleSchema>;
  * One row of the chat list (§4.2). A direct chat is named by `peer`, a group by `title`; Saved
  * messages and the channel are named by the screen from `kind`.
  */
+/** The one line a chat's row shows (§4.2), and when it was said. */
+export const chatLastMessageSchema = z.object({
+  seq: z.number().int(),
+  authorId: uuid.nullable(),
+  kind: z.enum(["text", "poll", "notice"]),
+  notice: z.string().nullable(),
+  /** the first line, or null for a deleted message and for a notice */
+  preview: z.string().nullable(),
+  deleted: z.boolean(),
+  at: z.iso.datetime(),
+});
+
 export const chatSummarySchema = z.object({
   id: uuid,
   kind: chatKind,
@@ -71,6 +83,7 @@ export const chatSummarySchema = z.object({
   mentioned: z.boolean(),
   /** how far the others have read: ✓✓ on everything up to it (§5.4) */
   othersReadSeq: z.number().int(),
+  lastMessage: chatLastMessageSchema.nullable(),
   mutedUntil: z.iso.datetime().nullable(),
   pinnedAt: z.iso.datetime().nullable(),
   lastActivityAt: z.iso.datetime(),

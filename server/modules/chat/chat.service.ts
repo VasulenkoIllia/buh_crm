@@ -16,7 +16,7 @@ import { personName } from "../../core/names.js";
 import { publish } from "../../core/realtime.js";
 import { ANNOUNCEMENTS_KEY } from "./chat.bootstrap.js";
 import * as repo from "./chat.repository.js";
-import { openGroup, sealGroup } from "./chat.sealing.js";
+import { openGroup, openText, sealGroup } from "./chat.sealing.js";
 
 /**
  * **Chats and who is in them** (chat.md §4): the list, the four kinds, groups with their owner and
@@ -48,6 +48,25 @@ function titleOf(chat: Pick<ChatRow, "kind" | "ciphertext" | "iv" | "authTag" | 
   return chat.kind === "group" ? (openGroup(chat)?.title ?? null) : null;
 }
 
+/** The first line of the newest message, as the list shows it. */
+const PREVIEW = 120;
+
+function lastMessageOf(chat: ChatRow): ChatSummary["lastMessage"] {
+  const last = chat.messages[0];
+  if (!last) return null;
+  const text = openText(last);
+  const line = text?.split("\n")[0].trim() ?? null;
+  return {
+    seq: last.seq,
+    authorId: last.authorId,
+    kind: last.kind,
+    notice: last.notice,
+    preview: line && line.length > PREVIEW ? `${line.slice(0, PREVIEW)}…` : line,
+    deleted: last.deletedAt !== null,
+    at: last.createdAt.toISOString(),
+  };
+}
+
 function summaryOf(m: Membership, meId: string, now = Date.now()): ChatSummary {
   const { chat } = m;
   const peer =
@@ -63,6 +82,7 @@ function summaryOf(m: Membership, meId: string, now = Date.now()): ChatSummary {
     lastReadSeq: m.lastReadSeq,
     unread: Math.max(0, chat.lastSeq - m.lastReadSeq),
     mentioned: m.lastMentionSeq > m.lastReadSeq,
+    lastMessage: lastMessageOf(chat),
     othersReadSeq: chat.members.reduce(
       (far, x) => (x.userId === meId ? far : Math.max(far, x.lastReadSeq)),
       0,
