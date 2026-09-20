@@ -46,6 +46,16 @@ export async function registerRoutes(instance: FastifyInstance) {
     return service.viewClient(request.params.id, request.currentUser!.id);
   });
 
+  /**
+   * **One client, named for a link to it** (chat.md §5.6). `shared()` like the card above it, and
+   * for the same reason: a client's name is what Billing, the Calendar and Mail-outs already show
+   * to everyone. It records nothing — a card drawn by scrolling past a message is not somebody
+   * opening a client (audit, 2026-09-20).
+   */
+  app.get("/:id/card", { config: shared(), schema: { params: idParams } }, async (request) =>
+    service.cardOf(request.params.id),
+  );
+
   app.post(
     "/",
     { config: clients, schema: { body: createClientInput } },

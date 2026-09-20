@@ -16,6 +16,7 @@ import {
   ZONE_LABEL,
   type AttachmentGroup,
   type ClientFilesDetail,
+  type FileCard,
   type ClientFilesNode,
   type EnsuredFolder,
   type FileRow,
@@ -1476,4 +1477,55 @@ export async function fileCompanyAttachment(
     changes: { to: done.to, task: done.task },
   });
   return { id: file.id, name: done.name };
+}
+
+// ── one file, named for a link to it (chat.md §5.6) ──────────────────────────
+
+/**
+ * **What a link to a file says about it**, for the card a chat draws when somebody sends one
+ * (chat.md §5.6). Its own place decides who may ask: a personal file is its owner's, a Company file
+ * belongs to whoever has Files, a client's to whoever has Clients, a task's attachment to whoever
+ * has Tasks. Anybody else is told it does not exist, and the card then says so rather than a name —
+ * a file's NAME is exactly what those gates protect ("Petrenko audit letter.pdf").
+ *
+ * It also carries the two doors, because where a file's bytes come from depends on its place and
+ * the caller should not have to know that to open it.
+ */
+export async function cardOf(user: User, fileId: string): Promise<FileCard> {
+  const file = await repo.findFile(fileId);
+  if (!file || file.deletedAt) throw new NotFoundError("File not found");
+  const reader = await readerOf(user);
+  const scope = file.scope;
+
+  const mine = scope === `personal:${user.id}`;
+  const company = scope === "company";
+  // an archived client's files go dark with the client (decision 8), and so does their NAME: every
+  // other read of a client's file goes through `liveClient`, and the card must not be the one door
+  // that names a document of a client nobody can see any more (audit, 2026-09-20)
+  const ofClient =
+    file.clientId !== null && (await repo.findLiveClient(file.clientId)) !== null;
+  const onTask = file.taskId !== null && file.clientId === null;
+  const may =
+    (mine && opens(reader, "files")) ||
+    (company && opens(reader, "files")) ||
+    (ofClient && opens(reader, "clients")) ||
+    (onTask && opens(reader, "tasks"));
+  if (!may) throw new NotFoundError("File not found");
+
+  const base = mine
+    ? `/api/files/my/files/${file.id}`
+    : company
+      ? `/api/files/company/files/${file.id}`
+      : ofClient
+        ? `/api/clients/${file.clientId}/files/${file.id}`
+        : `/api/tasks/${file.taskId}/files/${file.id}`;
+  return {
+    id: file.id,
+    name: file.name,
+    size: file.size,
+    view: viewOf(file.detectedMime),
+    where: mine ? MY_FILES : company ? "Company" : ofClient ? "A client's files" : "On a task",
+    viewUrl: `${base}/view`,
+    downloadUrl: base,
+  };
 }

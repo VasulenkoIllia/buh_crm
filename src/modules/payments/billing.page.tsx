@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { useRecordParam } from "@/shared/lib/use-record-param";
 import { CircleDollarSign } from "lucide-react";
 import type { Invoice, InvoiceListQuery } from "@shared/schema/payment";
 import { useClient } from "@/modules/clients";
@@ -53,21 +54,17 @@ export function BillingPage() {
   const settledSearch = useDebounced(search);
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<string[]>([]);
-  const [openId, setOpenId] = useState<string | null>(null);
+  // the open invoice lives in the address, so the link to it is the page's own URL (shared hook)
+  const [openId, openInvoice, closeInvoice] = useRecordParam("invoice");
   const [newOpen, setNewOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<{ text: string; hint?: string; skipped: boolean } | null>(
     null,
   );
 
-  // deep links: ?invoice=<id> opens that invoice (from a task card), ?client=<id> narrows the
-  // list to one client (drill-through from the client card's Invoices tab)
+  // ?client=<id> narrows the list to one client (drill-through from the client card's Invoices tab)
   const [searchParams, setSearchParams] = useSearchParams();
-  const invoiceParam = searchParams.get("invoice");
   const clientParam = searchParams.get("client");
-  useEffect(() => {
-    if (invoiceParam) setOpenId(invoiceParam);
-  }, [invoiceParam]);
 
   const {
     data,
@@ -241,7 +238,7 @@ export function BillingPage() {
                   invoice={invoice}
                   checked={selected.includes(invoice.id)}
                   onToggle={() => toggle(invoice.id)}
-                  onOpen={() => setOpenId(invoice.id)}
+                  onOpen={() => openInvoice(invoice.id)}
                   onError={setError}
                 />
               ))}
@@ -384,23 +381,12 @@ export function BillingPage() {
         </>
       )}
 
-      {openId && (
-        <InvoiceModal
-          invoiceId={openId}
-          onClose={() => {
-            setOpenId(null);
-            // drop the deep-link param so a reload doesn't re-open the modal
-            if (invoiceParam) {
-              setSearchParams(clientParam ? { client: clientParam } : {}, { replace: true });
-            }
-          }}
-        />
-      )}
+      {openId && <InvoiceModal invoiceId={openId} onClose={closeInvoice} />}
       {newOpen && (
         <NewInvoiceModal
           presetClientId={clientParam ?? undefined}
           onClose={() => setNewOpen(false)}
-          onCreated={(inv) => setOpenId(inv.id)}
+          onCreated={(inv) => openInvoice(inv.id)}
         />
       )}
     </div>

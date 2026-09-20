@@ -183,6 +183,21 @@ export async function countClientsByTab(
   return { regular, one_time: total - regular };
 }
 
+/** Just the columns that name a client: the card behind a `/clients/<id>` link (chat.md §5.6). */
+export function findClientBrief(id: string) {
+  return prisma.client.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      companyName: true,
+      code: true,
+      archivedAt: true,
+    },
+  });
+}
+
 export function findClient(id: string) {
   return prisma.client.findUnique({ where: { id }, include: clientInclude });
 }

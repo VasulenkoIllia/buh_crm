@@ -14,6 +14,7 @@ import { ClientLeadSearch, useAssignees, type Target } from "@/modules/tasks";
 import { cn } from "@/shared/lib/cn";
 import { firmWallClockToInstant, firmZoneAbbr, instantToFirmWallClock } from "@/shared/lib/tz";
 import { useDebounced } from "@/shared/lib/use-debounced";
+import { CopyLink } from "@/shared/ui/copy-link";
 import { userLabel } from "@/shared/ui/avatar";
 import { Button } from "@/shared/ui/button";
 import { AssigneePicker } from "@/shared/ui/assignee-picker";
@@ -344,6 +345,7 @@ export function MeetingModal({
       size="lg"
       footer={
         <>
+          {editing && existing && <CopyLink href={`/calendar?meeting=${existing.id}`} />}
           {editing && existing?.taskId && (
             <Button
               variant="text"

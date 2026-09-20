@@ -135,6 +135,21 @@ export interface FileRow {
   updatedAt: string | null;
 }
 
+/**
+ * **One file, named for a link to it** (chat.md §5.6): what a card shows, and the two doors its
+ * bytes come out of, which depend on where the file lives.
+ */
+export interface FileCard {
+  id: string;
+  name: string;
+  size: number;
+  view: FileView;
+  /** where it lives, in words: "My files", "Company", "A client's files", "On a task" */
+  where: string;
+  viewUrl: string;
+  downloadUrl: string;
+}
+
 export interface FolderListing {
   folder: { id: string; name: string } | null;
   /** from the fixed level down, the open folder last */

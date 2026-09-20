@@ -11,11 +11,13 @@ import {
   type Modifier,
 } from "@dnd-kit/core";
 import { getEventCoordinates } from "@dnd-kit/utilities";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { FilePlus, FileUp, FolderPlus, FolderUp, Upload } from "lucide-react";
-import type { FolderNode } from "@shared/schema/files";
+import type { FileCard, FolderNode } from "@shared/schema/files";
 import { plural } from "@shared/text";
 import { useAuth, useCanEdit, useCanOpen } from "@/app/auth";
+import { api as ask } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
 import { FILES_KEY } from "@/shared/lib/query-keys";
 import { Button } from "@/shared/ui/button";
@@ -155,6 +157,59 @@ export function Library({ mode }: { mode: LibraryMode }) {
   const [noDrop, setNoDrop] = useState<ReadonlySet<string>>(() => new Set<string>());
   const [epoch, setEpoch] = useState(0);
   const [viewing, setViewing] = useState<{ items: Viewable[]; index: number } | null>(null);
+  /**
+   * **`?file=<id>` opens that file**, wherever it lives: this is what a link to a file in a chat
+   * goes to (chat.md §5.6). The card route answers by the file's OWN place — a personal file is its
+   * owner's — so a link to somebody else's simply does not open, and the screen says so.
+   */
+  const [params, setParams] = useSearchParams();
+  const linked = params.get("file");
+  const linkedFile = useQuery({
+    queryKey: ["files", "card", linked],
+    queryFn: () => ask<FileCard>(`/api/files/${linked!}/card`),
+    enabled: linked !== null,
+    retry: false,
+  });
+  /**
+   * The refusal outlives the parameter. Clearing `?file=` in the same breath as setting the
+   * message unmounted the message with it — it showed for one frame and the screen looked as
+   * though the link had done nothing (audit, 2026-09-20). The parameter goes; `refused` stays
+   * until the reader dismisses it or opens something else.
+   */
+  const [refused, setRefused] = useState(false);
+  useEffect(() => {
+    if (!linked) return;
+    if (linkedFile.data) {
+      const file = linkedFile.data;
+      setRefused(false);
+      setViewing({
+        items: [
+          {
+            id: file.id,
+            name: file.name,
+            size: file.size,
+            // the card does not carry a date, and today's would be a lie about the file
+            createdAt: null,
+            view: file.view,
+            viewUrl: file.viewUrl,
+            downloadUrl: file.downloadUrl,
+          },
+        ],
+        index: 0,
+      });
+    }
+    if (linkedFile.isError) setRefused(true);
+    if (linkedFile.data || linkedFile.isError) {
+      setParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("file");
+          return next;
+        },
+        { replace: true },
+      );
+    }
+  }, [linked, linkedFile.data, linkedFile.isError, setParams]);
   // a text file made here, and the saves from the viewer's editor (§7.4)
   const createText = useCreateText();
   const saveText = useSaveText();
@@ -682,6 +737,15 @@ export function Library({ mode }: { mode: LibraryMode }) {
         }}
       />
       <UploadQueuePanel queue={queue} />
+      {refused && (
+        <button
+          type="button"
+          onClick={() => setRefused(false)}
+          className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-(--radius-panel) border border-border bg-surface px-3 py-2 text-[12.5px] shadow-(--shadow-card)"
+        >
+          That file is not open to you, or it is no longer there.
+        </button>
+      )}
       {viewing && (
         <Viewer
           items={viewing.items}

@@ -136,17 +136,22 @@ describe("route inventory", () => {
       // −2 on 2026-09-20 (stage C): a group has no roles, so nothing sets one and nothing hands a
       // group on. The owner's call — the only chat with a rule about who writes is the
       // announcements channel, and that rule is the FIRM's admin (chat.md §4.3).
-      total: 384,
-      derivedHead: 94,
-      real: 290,
-      api: 289, // everything but /health
+      // +2 and their HEADs the same day, both cards behind a pasted link (chat.md §5.6): one file
+      // (files.md §16) and one client. The file's is `shared()` because the file's own PLACE
+      // decides who may see it, which is the service's answer and not a gate's; the client's is
+      // `shared()` like the client read beside it, and exists so that scrolling a link into view
+      // does not write "viewed" rows for a screen nobody opened.
+      total: 388,
+      derivedHead: 96,
+      real: 292,
+      api: 291, // everything but /health
       anonymous: 9, // 6 credential routes, 2 unsubscribe pages, /health
       // `POST /tasks/timer/start` moved to the `tasks` gate during the 2026-09-07 audit. It takes a
       // taskId and writes against somebody else's module, so it was never really "the caller's own
       // row" — `active` and `stop` still are, and must be. The two-factor five are the caller's own
       // second factor and name nobody else.
       own: 15,
-      shared: 9,
+      shared: 11,
       gated: 257,
       adminOnly: 20,
     });

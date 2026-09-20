@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
 import { DndContext, DragOverlay } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -15,6 +14,7 @@ import { DRAG_CARD, DRAG_COLUMN, useBoardDrag } from "@/shared/lib/board-drag";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { useSettings } from "@/modules/settings";
 import { cn } from "@/shared/lib/cn";
+import { useRecordParam } from "@/shared/lib/use-record-param";
 import { Button } from "@/shared/ui/button";
 import { Chip } from "@/shared/ui/chip";
 import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
@@ -148,27 +148,15 @@ export function TasksPage() {
   ]);
   const [formOpen, setFormOpen] = useState(false);
   const [formColumnId, setFormColumnId] = useState<string | undefined>();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  // ?task=<id> (e.g. from the header timer bar) opens that task's details
-  const [searchParams, setSearchParams] = useSearchParams();
-  const taskParam = searchParams.get("task");
-  useEffect(() => {
-    if (taskParam) setSelectedId(taskParam);
-  }, [taskParam]);
   /**
    * **Opening a task puts it in the address bar** (`?task=<id>`), so the link to it is simply the
    * page's own URL — which is what a person copies to send it to a colleague in the chat. Before
    * this, a task opened by clicking left the address at `/tasks` and there was nothing to copy
-   * (owner, 2026-09-20).
+   * (owner, 2026-09-20). `useRecordParam` is the same hook Billing, Leads, the Calendar and Files
+   * use, so every module's link reads and behaves alike — and, unlike the first version here, it
+   * keeps whatever else is in the address rather than replacing the lot.
    */
-  const openDetails = (id: string) => {
-    setSelectedId(id);
-    setSearchParams({ task: id }, { replace: true });
-  };
-  const closeDetails = () => {
-    setSelectedId(null);
-    if (taskParam) setSearchParams({}, { replace: true });
-  };
+  const [selectedId, openDetails, closeDetails] = useRecordParam("task");
 
   // The loaded page answers for anything on screen; the open task is ALSO fetched by id so the
   // modal owns a copy of it. Without that, marking a task done from inside the modal made it
@@ -184,10 +172,8 @@ export function TasksPage() {
   // …and a link that resolves to nothing (deleted, archived, bad id) gets cleared, so the page is
   // never stuck on a dead parameter it can't open
   useEffect(() => {
-    if (!linked.error) return;
-    setSelectedId(null);
-    if (taskParam) setSearchParams({}, { replace: true });
-  }, [linked.error, taskParam, setSearchParams]);
+    if (linked.error) closeDetails();
+  }, [linked.error, closeDetails]);
 
   const openNewTask = (columnId?: string) => {
     setFormColumnId(columnId);

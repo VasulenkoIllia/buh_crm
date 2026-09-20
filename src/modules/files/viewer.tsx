@@ -5,6 +5,7 @@ import { extensionOf } from "@shared/library";
 import { api } from "@/shared/lib/api";
 import { fmtBytes, fmtDate } from "@/shared/lib/format";
 import { Button, IconButton } from "@/shared/ui/button";
+import { CopyLink } from "@/shared/ui/copy-link";
 import { Modal } from "@/shared/ui/modal";
 import { parseCsv } from "./csv";
 import { ExtBadge, download, errorText } from "./file-bits";
@@ -14,7 +15,8 @@ export interface Viewable {
   id: string;
   name: string;
   size: number;
-  createdAt: string;
+  /** null when whoever opened it does not know: a link to a file carries no date (§16) */
+  createdAt: string | null;
   /** who uploaded it, where the list says (the task card's does not) */
   uploadedBy?: string;
   view: FileView;
@@ -177,9 +179,15 @@ export function Viewer({
           <div className="min-w-0 flex-1">
             <b className="block truncate text-[14px] font-semibold text-ink">{file.name}</b>
             <span className="text-[12px] tabular-nums text-muted">
-              {index + 1} of {items.length} · {fmtBytes(file.size)} ·{" "}
-              {file.uploadedBy ? `${file.uploadedBy}, ` : ""}
-              {fmtDate(file.createdAt)}
+              {[
+                `${index + 1} of ${items.length}`,
+                fmtBytes(file.size),
+                [file.uploadedBy, file.createdAt ? fmtDate(file.createdAt) : null]
+                  .filter(Boolean)
+                  .join(", "),
+              ]
+                .filter(Boolean)
+                .join(" · ")}
             </span>
           </div>
           <IconButton label="Close the viewer" onClick={() => leave(onClose)}>
@@ -232,6 +240,7 @@ export function Viewer({
               </Button>
             </>
           )}
+          <CopyLink href={`/files?file=${file.id}`} />
           <Button variant="secondary" size="sm" onClick={() => download([file.downloadUrl])}>
             <Download size={14} />
             Download

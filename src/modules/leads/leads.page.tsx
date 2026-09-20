@@ -7,7 +7,8 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link } from "react-router-dom";
+import { useRecordParam } from "@/shared/lib/use-record-param";
 import type { Lead, LeadStageOption } from "@shared/schema/lead";
 import { ArrowRight, Check, GripVertical, Mail, Pencil, Phone, X } from "lucide-react";
 import { useAccess, useAuth } from "@/app/auth";
@@ -47,19 +48,12 @@ export function LeadsPage() {
   const isAdmin = user?.role === "admin";
   const { data: stages = [] } = useLeadStages();
   const [formOpen, setFormOpen] = useState(false);
+  // ?lead=<id> is the lead's own address: opening one writes it, so the link to it is the page's
+  // URL, and arriving with one opens that lead. Fetched by id rather than looked up in the board
+  // list, so a won or lost lead opens too.
+  const [openId, openLead, closeDetails] = useRecordParam("lead");
   const [selected, setSelected] = useState<Lead | null>(null);
-  // ?lead=<id> opens that lead's card — the way a task (or any other screen) links INTO a lead.
-  // Fetched by id rather than looked up in the board list, so a won or lost lead opens too.
-  const [searchParams, setSearchParams] = useSearchParams();
-  const leadParam = searchParams.get("lead");
-  const linked = useLead(leadParam);
-  useEffect(() => {
-    if (linked.data) setSelected(linked.data);
-  }, [linked.data]);
-  const closeDetails = () => {
-    setSelected(null);
-    if (leadParam) setSearchParams({}, { replace: true });
-  };
+  const linked = useLead(openId);
   // won/lost leads leave the board automatically — they live in the Closed view.
   // "Closed", not "Archive": this tab was never `archivedAt`, it is an OUTCOME, and calling it
   // Archive was what made the real Archive screen impossible to reason about (2026-08-03).
@@ -73,8 +67,23 @@ export function LeadsPage() {
   const { isLoading, error } = view === "board" ? board : closedList;
 
   const active = useMemo(() => board.data?.items ?? [], [board.data]);
-  const closed = closedList.data?.items ?? [];
+  const closed = useMemo(() => closedList.data?.items ?? [], [closedList.data]);
   const leads = view === "board" ? board.data : closedList.data;
+
+  /**
+   * **The card a list already holds opens at once**, and the copy fetched by id replaces it when
+   * it arrives. Clicking a lead used to wait for a round trip with nothing on screen to show for
+   * it, so on a slow connection people clicked again (audit, 2026-09-20). The read by id stays,
+   * because a won or lost lead is on no list the board loaded.
+   */
+  useEffect(() => {
+    if (!openId) {
+      setSelected(null);
+      return;
+    }
+    const known = [...active, ...closed].find((l) => l.id === openId);
+    setSelected(linked.data ?? known ?? null);
+  }, [openId, linked.data, active, closed]);
 
   const byStage = useMemo(() => {
     const map = new Map<string, Lead[]>(stages.map((s) => [s.id, []]));
@@ -153,14 +162,10 @@ export function LeadsPage() {
       {error && <p className="p-6 text-[13px] text-danger-text">Failed to load leads.</p>}
       {/* a ?lead= that resolves to nothing (deleted / archived / bad id) must say so, and it
           belongs up here with the page's other status lines, not pinned under the board */}
-      {leadParam && linked.error && !selected && (
+      {openId && linked.error && !selected && (
         <p className="flex-none px-6 pb-2 text-[13px] text-danger-text">
           That lead no longer exists.{" "}
-          <button
-            type="button"
-            className="underline"
-            onClick={() => setSearchParams({}, { replace: true })}
-          >
+          <button type="button" className="underline" onClick={closeDetails}>
             Back to the pipeline
           </button>
         </p>
@@ -183,7 +188,7 @@ export function LeadsPage() {
                   key={stage.id}
                   stage={stage}
                   leads={drag.shownIn(stage.id)}
-                  onOpen={setSelected}
+                  onOpen={(lead) => openLead(lead.id)}
                 />
               ))}
             </SortableContext>
@@ -197,7 +202,9 @@ export function LeadsPage() {
         </DndContext>
       )}
 
-      {leads && view === "closed" && <ClosedLeads leads={closed} onOpen={setSelected} />}
+      {leads && view === "closed" && (
+        <ClosedLeads leads={closed} onOpen={(lead) => openLead(lead.id)} />
+      )}
 
       {formOpen && <LeadFormModal open={formOpen} onClose={() => setFormOpen(false)} />}
       {selected && <LeadDetails lead={selected} onClose={closeDetails} />}

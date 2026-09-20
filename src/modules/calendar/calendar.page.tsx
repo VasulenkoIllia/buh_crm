@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+import { useRecordParam } from "@/shared/lib/use-record-param";
 import { Bell, CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import type { DeadlineItem, Meeting } from "@shared/schema/calendar";
 import { useAssignees } from "@/modules/tasks";
@@ -70,7 +71,6 @@ export function CalendarPage() {
   const [justSaved, setJustSaved] = useState<string | null>(null);
 
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
   const { data: team } = useAssignees();
 
   /**
@@ -83,21 +83,24 @@ export function CalendarPage() {
    *
    * `replace` so the back button goes where the person came from rather than to the same link.
    */
-  const meetingParam = searchParams.get("meeting");
-  const { data: linkedMeeting } = useMeeting(meetingParam ?? undefined);
+  const [openMeetingId, openMeeting, closeMeeting] = useRecordParam("meeting");
+  const { data: linkedMeeting } = useMeeting(openMeetingId ?? undefined);
+  /**
+   * The view moves to the meeting only when the meeting was ARRIVED at, not when it was clicked.
+   * Every click now goes through the parameter, so moving the view unconditionally meant that
+   * clicking a meeting shown in the month grid's trailing cell — 2 October, in September's view —
+   * flipped the grid to October behind the modal, and left it there (audit, 2026-09-20).
+   */
+  const arrivedAt = useRef(openMeetingId);
   useEffect(() => {
-    if (!meetingParam || !linkedMeeting) return;
-    setFormOpen({ id: meetingParam });
-    setAnchor(new Date(linkedMeeting.startAt));
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.delete("meeting");
-        return next;
-      },
-      { replace: true },
-    );
-  }, [meetingParam, linkedMeeting, setSearchParams]);
+    if (!openMeetingId) return;
+    setFormOpen({ id: openMeetingId });
+    // the week the meeting is in, so somebody following a link lands looking at it
+    if (linkedMeeting && arrivedAt.current === openMeetingId) {
+      setAnchor(new Date(linkedMeeting.startAt));
+      arrivedAt.current = null;
+    }
+  }, [openMeetingId, linkedMeeting]);
 
   const { from, to, days } = windowFor(mode, anchor);
   const { data, isLoading, error } = useCalendar({ from, to, userId, ...lanes });
@@ -205,7 +208,7 @@ export function CalendarPage() {
             setAnchor(d);
             setMode("day");
           }}
-          onOpenMeeting={(id) => setFormOpen({ id })}
+          onOpenMeeting={openMeeting}
           onOpenTask={(taskId) => navigate(`/tasks?task=${taskId}`)}
         />
       )}
@@ -215,7 +218,7 @@ export function CalendarPage() {
           days={days}
           meetingsByDay={meetingsByDay}
           deadlinesByDay={deadlinesByDay}
-          onOpenMeeting={(id) => setFormOpen({ id })}
+          onOpenMeeting={openMeeting}
           onOpenTask={(taskId) => navigate(`/tasks?task=${taskId}`)}
           onPickSlot={(startAt) => setFormOpen({ startAt })}
           onOpenDay={
@@ -237,7 +240,10 @@ export function CalendarPage() {
         <MeetingModal
           meetingId={formOpen.id}
           defaultStartAt={formOpen.startAt}
-          onClose={() => setFormOpen(null)}
+          onClose={() => {
+            setFormOpen(null);
+            if (openMeetingId) closeMeeting();
+          }}
           onSaved={(m) => {
             // Take the person to what they just saved. A meeting booked for 23:57 lands in a row
             // far below the fold — the calendar looked unchanged and it read as "nothing was
