@@ -19,6 +19,7 @@ import {
   useMarkRead,
   useMessages,
   useCreateGroup,
+  useForward,
   useOpenDirect,
   useOpenSaved,
   useReact,
@@ -28,6 +29,7 @@ import {
 import { viewableOf } from "./attachments";
 import { ChatList, chatTitle } from "./chat-list";
 import { ChatPanel } from "./chat-panel";
+import { ForwardModal } from "./forward-modal";
 import { Composer } from "./composer";
 import { Conversation } from "./conversation";
 import { PinnedBar } from "./pinned-bar";
@@ -57,6 +59,7 @@ export function ChatPage() {
   const edit = useEditMessage(chatId ?? "none");
   const remove = useDeleteMessage(chatId ?? "none");
   const react = useReact(chatId ?? "none");
+  const forward = useForward();
   const openDirect = useOpenDirect();
   const openSaved = useOpenSaved();
   const createGroup = useCreateGroup();
@@ -71,6 +74,7 @@ export function ChatPage() {
   const [panel, setPanel] = useState(false);
   const [asking, setAsking] = useState(false);
   const [readBy, setReadBy] = useState<string | null>(null);
+  const [forwarding, setForwarding] = useState<ChatMessage | null>(null);
   const [goTo, setGoTo] = useState<string | null>(null);
   /** the CRM's own viewer, over the chat's files (§6.2) */
   const [viewing, setViewing] = useState<{ items: Viewable[]; index: number } | null>(null);
@@ -196,6 +200,12 @@ export function ChatPage() {
               onReadBy={(message) => setReadBy(message.id)}
               onVote={(message, options) => vote.mutate({ id: message.id, options })}
               onClosePoll={(message) => closePoll.mutate(message.id)}
+              onForward={(message) => setForwarding(message)}
+              firstUnread={
+                chat.data.unread > 0 && chat.data.lastReadSeq < chat.data.lastSeq
+                  ? chat.data.lastReadSeq + 1
+                  : 0
+              }
               onOpenFile={openFiles}
               goTo={goTo}
               onWent={() => setGoTo(null)}
@@ -266,6 +276,22 @@ export function ChatPage() {
       )}
 
       {readBy && <ReadBy messageId={readBy} onClose={() => setReadBy(null)} />}
+
+      {forwarding && (
+        <ForwardModal
+          chats={(chats.data ?? []).filter(
+            (c) => c.kind !== "announcements" || user?.role === "admin",
+          )}
+          onClose={() => setForwarding(null)}
+          onSend={(toChatIds) => {
+            forward.mutate(
+              { messageIds: [forwarding.id], toChatIds },
+              { onSuccess: () => toChatIds.length === 1 && navigate(`/chat/${toChatIds[0]}`) },
+            );
+            setForwarding(null);
+          }}
+        />
+      )}
 
       {viewing && (
         <Suspense

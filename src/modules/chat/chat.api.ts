@@ -313,6 +313,18 @@ export function useDeleteMessage(chatId: string) {
   });
 }
 
+/** **Sending a message on** (§5.2): the same words, and the same files, into other chats. */
+export function useForward() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { messageIds: string[]; toChatIds: string[] }) =>
+      api<{ ok: true }>("/api/chat/forward", { method: "POST", body: input }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: chatKeys.chats });
+    },
+  });
+}
+
 export function useReact(chatId: string) {
   const client = useQueryClient();
   return useMutation({

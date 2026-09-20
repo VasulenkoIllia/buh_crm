@@ -78,8 +78,13 @@ export function findPerson(id: string) {
   return prisma.user.findUnique({ where: { id }, select: PERSON });
 }
 
-/** The newest message, for the one line the chat list shows (§4.2). */
+/**
+ * The newest message the chat still has, for the one line the list shows (§4.2). A deleted one is
+ * not drawn in the conversation either (owner, 2026-09-20), so a list reading "Message deleted"
+ * would be the only place left showing a message that is gone.
+ */
 const LAST_MESSAGE = {
+  where: { deletedAt: null },
   orderBy: { seq: "desc" },
   take: 1,
   select: {

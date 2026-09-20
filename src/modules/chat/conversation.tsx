@@ -3,7 +3,9 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Check,
   CheckCheck,
+  ChevronDown,
   CornerUpLeft,
+  CornerUpRight,
   Eye,
   Pencil,
   Pin,
@@ -16,6 +18,7 @@ import { cn } from "@/shared/lib/cn";
 import { fmtDate, fmtTime } from "@/shared/lib/format";
 import { UserAvatar } from "@/shared/ui/avatar";
 import { MessageFiles } from "./attachments";
+import { EmojiPicker } from "./emoji-picker";
 import { PollCard } from "./poll";
 import { RichText } from "./rich-text";
 
@@ -62,6 +65,8 @@ export function Conversation({
   onReadBy,
   onVote,
   onClosePoll,
+  onForward,
+  firstUnread,
   onOpenFile,
   goTo,
   onWent,
@@ -82,6 +87,9 @@ export function Conversation({
   onReadBy: (message: ChatMessage) => void;
   onVote: (message: ChatMessage, options: number[]) => void;
   onClosePoll: (message: ChatMessage) => void;
+  onForward: (message: ChatMessage) => void;
+  /** the first place the reader has not read: the line is drawn above it */
+  firstUnread: number;
   /** opens the CRM's viewer on a file a message carries (§6.2) */
   onOpenFile: (files: ChatFile[], index: number, at: string) => void;
   /** a message to scroll to, from the pinned bar or a reply's quote */
@@ -110,20 +118,39 @@ export function Conversation({
     [chat.members, people],
   );
 
+  /**
+   * The rows the conversation draws.
+   *
+   * **A deleted message is not one of them** (owner, 2026-09-20). Its row stays in the database so
+   * the chat's places have no hole, and the log keeps that it was deleted — but a line reading
+   * "Message deleted" for ever is not what a chat looks like anywhere else.
+   *
+   * **Where the reader stopped gets a line of its own**: the first message they have not read,
+   * which is what everybody expects on opening a chat with something waiting in it.
+   */
   const rows = useMemo(() => {
-    const out: ({ kind: "day"; day: string } | { kind: "message"; message: ChatMessage })[] =
-      [];
+    const out: (
+      | { kind: "day"; day: string }
+      | { kind: "unread" }
+      | { kind: "message"; message: ChatMessage }
+    )[] = [];
     let day = "";
+    let markedUnread = false;
     for (const message of messages) {
+      if (message.deletedAt) continue;
       const its = dayOf(message.createdAt);
       if (its !== day) {
         out.push({ kind: "day", day: its });
         day = its;
       }
+      if (!markedUnread && firstUnread > 0 && message.seq >= firstUnread) {
+        out.push({ kind: "unread" });
+        markedUnread = true;
+      }
       out.push({ kind: "message", message });
     }
     return out;
-  }, [messages]);
+  }, [messages, firstUnread]);
 
   const virtual = useVirtualizer({
     count: rows.length,
@@ -132,7 +159,8 @@ export function Conversation({
     overscan: 8,
     getItemKey: (i) => {
       const row = rows[i];
-      return row.kind === "day" ? `day-${row.day}` : row.message.id;
+      if (row.kind === "day") return `day-${row.day}`;
+      return row.kind === "unread" ? "unread" : row.message.id;
     },
   });
 
@@ -209,6 +237,8 @@ export function Conversation({
 
   // what is on screen at the bottom has been read, while this window is the one in front
   const newest = messages.at(-1)?.seq ?? 0;
+  /** how many are below the reader while they are up in the history */
+  const waiting = firstUnread > 0 ? Math.max(0, newest - firstUnread + 1) : 0;
   useEffect(() => {
     if (atBottom && newest > 0 && document.hasFocus()) onRead(newest);
   }, [atBottom, newest, onRead]);
@@ -240,6 +270,12 @@ export function Conversation({
                 <p className="my-2 text-center text-[11px] font-semibold text-muted uppercase">
                   {row.day}
                 </p>
+              ) : row.kind === "unread" ? (
+                <p className="my-2 flex items-center gap-2 text-[11px] font-semibold text-primary uppercase">
+                  <span className="h-px flex-1 bg-primary/40" />
+                  New messages
+                  <span className="h-px flex-1 bg-primary/40" />
+                </p>
               ) : (
                 <Row
                   chat={chat}
@@ -255,6 +291,7 @@ export function Conversation({
                   onVote={onVote}
                   onClosePoll={onClosePoll}
                   onGoTo={onGoToMessage}
+                  onForward={onForward}
                   onOpenFile={onOpenFile}
                   mentionNames={mentionNames}
                 />
@@ -263,11 +300,87 @@ export function Conversation({
           );
         })}
       </div>
+      {!atBottom && (
+        <button
+          type="button"
+          onClick={() => {
+            setAtBottom(true);
+            virtual.scrollToIndex(rows.length - 1, { align: "end" });
+          }}
+          aria-label="Go to the newest"
+          className={cn(
+            "sticky bottom-2 left-full z-10 flex size-9 items-center justify-center rounded-full",
+            "border border-border bg-surface shadow-(--shadow-card) hover:bg-divider",
+          )}
+        >
+          <ChevronDown className="size-4" />
+          {waiting > 0 && (
+            <span className="absolute -top-1 -right-1 rounded-full bg-primary px-1.5 text-[10px] font-semibold text-white">
+              {waiting}
+            </span>
+          )}
+        </button>
+      )}
       {typing.length > 0 && (
         <p className="pt-1 text-[12px] text-muted">
           {typing.map((id) => nameOf(people, id).split(" ")[0]).join(", ")}{" "}
           {typing.length === 1 ? "is" : "are"} typing…
         </p>
+      )}
+    </div>
+  );
+}
+
+/** What a tap on the smiley offers (§5.2): the six everybody uses, and every other one behind +. */
+const QUICK = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
+
+function ReactionPicker({
+  onPick,
+  onClose,
+}: {
+  onPick: (emoji: string) => void;
+  onClose: () => void;
+}) {
+  const [all, setAll] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const away = (event: MouseEvent) => {
+      if (!box.current?.contains(event.target as Node)) onClose();
+    };
+    const escape = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    window.addEventListener("mousedown", away);
+    window.addEventListener("keydown", escape);
+    return () => {
+      window.removeEventListener("mousedown", away);
+      window.removeEventListener("keydown", escape);
+    };
+  }, [onClose]);
+
+  return (
+    <div ref={box} className="relative">
+      {all ? (
+        <EmojiPicker onPick={onPick} onClose={onClose} />
+      ) : (
+        <div className="absolute top-5 right-0 z-20 flex gap-0.5 rounded-full border border-border bg-surface px-1.5 py-1 shadow-(--shadow-card)">
+          {QUICK.map((emoji) => (
+            <button
+              key={emoji}
+              type="button"
+              onClick={() => onPick(emoji)}
+              className="rounded-full px-1 text-[16px] hover:bg-divider"
+            >
+              {emoji}
+            </button>
+          ))}
+          <button
+            type="button"
+            aria-label="More emoji"
+            onClick={() => setAll(true)}
+            className="rounded-full px-1 text-[13px] text-muted hover:bg-divider hover:text-ink"
+          >
+            +
+          </button>
+        </div>
       )}
     </div>
   );
@@ -287,6 +400,7 @@ function Row({
   onVote,
   onClosePoll,
   onGoTo,
+  onForward,
   onOpenFile,
   mentionNames,
 }: {
@@ -303,11 +417,14 @@ function Row({
   onVote: (message: ChatMessage, options: number[]) => void;
   onClosePoll: (message: ChatMessage) => void;
   onGoTo: (messageId: string) => void;
+  onForward: (message: ChatMessage) => void;
   /** opens the CRM's viewer on a file this message carries (§6.2) */
   onOpenFile: (files: ChatFile[], index: number, at: string) => void;
   /** the names `@` may be marking in this chat */
   mentionNames: string[];
 }) {
+  const [reacting, setReacting] = useState(false);
+
   if (message.kind === "notice") {
     const names = (message.notice?.userIds ?? []).map((id) => nameOf(people, id)).join(", ");
     const who = nameOf(people, message.authorId);
@@ -359,18 +476,12 @@ function Row({
               {message.replyTo.deleted ? "Message deleted" : message.replyTo.preview}
             </button>
           )}
-          {message.deletedAt ? (
-            <p>{message.deletedByOther ? "Deleted by an admin" : "Message deleted"}</p>
-          ) : (
-            <>
-              {message.text && <RichText text={message.text} mentions={mentionNames} />}
-              <MessageFiles
-                files={message.files}
-                mine={mine}
-                onOpen={(files, index) => onOpenFile(files, index, message.createdAt)}
-              />
-            </>
-          )}
+          {message.text && <RichText text={message.text} mentions={mentionNames} mine={mine} />}
+          <MessageFiles
+            files={message.files}
+            mine={mine}
+            onOpen={(files, index) => onOpenFile(files, index, message.createdAt)}
+          />
           {message.poll && !message.deletedAt && (
             <PollCard
               message={message}
@@ -417,14 +528,25 @@ function Row({
       </div>
       {!message.deletedAt && (
         <div className="mt-1 flex items-start gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-          <button
-            type="button"
-            aria-label="React"
-            onClick={() => onReact(message, "👍")}
-            className="text-muted hover:text-ink"
-          >
-            <SmilePlus className="size-3.5" />
-          </button>
+          <div className="relative">
+            <button
+              type="button"
+              aria-label="React"
+              onClick={() => setReacting((open) => !open)}
+              className="text-muted hover:text-ink"
+            >
+              <SmilePlus className="size-3.5" />
+            </button>
+            {reacting && (
+              <ReactionPicker
+                onPick={(emoji) => {
+                  onReact(message, emoji);
+                  setReacting(false);
+                }}
+                onClose={() => setReacting(false)}
+              />
+            )}
+          </div>
           <button
             type="button"
             aria-label="Reply"
@@ -432,6 +554,14 @@ function Row({
             className="text-muted hover:text-ink"
           >
             <CornerUpLeft className="size-3.5" />
+          </button>
+          <button
+            type="button"
+            aria-label="Forward"
+            onClick={() => onForward(message)}
+            className="text-muted hover:text-ink"
+          >
+            <CornerUpRight className="size-3.5" />
           </button>
           {(chat.kind === "direct" || chat.myRole !== "member") && (
             <button

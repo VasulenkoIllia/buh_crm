@@ -10,7 +10,14 @@ import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { AttachmentStrip, useAttachments } from "./attachments";
 import { EmojiPicker } from "./emoji-picker";
-import { MentionPicker, mentionQuery, putMention, type Mentionable } from "./mentions";
+import {
+  MentionPicker,
+  mentionOptions,
+  mentionQuery,
+  putMention,
+  type MentionOption,
+  type Mentionable,
+} from "./mentions";
 import { wrapSelection } from "./rich-text";
 
 /**
@@ -89,6 +96,10 @@ export function Composer({
   const caret = field.current?.selectionStart ?? text.length;
   const [mentionsOff, setMentionsOff] = useState(false);
   const mentioning = mentionsOff ? null : mentionQuery(text, caret);
+  const naming = mentioning ? mentionOptions(members, mentioning.query) : [];
+  /** which one the arrows are standing on; the first, until they move (found in use, 2026-09-20) */
+  const [onName, setOnName] = useState(0);
+  const standing = Math.min(onName, Math.max(0, naming.length - 1));
 
   useEffect(() => {
     setText(editing?.text ?? drafts()[chatId] ?? "");
@@ -158,6 +169,16 @@ export function Composer({
     setText(next.text);
   };
 
+  /** The name goes in where the `@` was, and the person goes with the send (§5.2). */
+  const takeName = (person: MentionOption) => {
+    if (!mentioning) return;
+    const next = putMention(text, mentioning, person.name);
+    caretAfter.current = { start: next.caret, end: next.caret };
+    setText(next.text);
+    setOnName(0);
+    if (person.id) setNamed((was) => [...was, { id: person.id as string, name: person.name }]);
+  };
+
   const insert = (emoji: string) => {
     const el = field.current;
     const at = el?.selectionStart ?? text.length;
@@ -215,6 +236,7 @@ export function Composer({
           onChange={(e) => {
             setText(e.target.value);
             setMentionsOff(false);
+            setOnName(0);
             onTyping();
           }}
           onPaste={(e) => {
@@ -231,6 +253,20 @@ export function Composer({
             take([...e.dataTransfer.files]);
           }}
           onKeyDown={(e) => {
+            // while the `@` picker is open the arrows walk it, and Enter or Tab takes the name
+            if (naming.length > 0) {
+              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                e.preventDefault();
+                const step = e.key === "ArrowDown" ? 1 : naming.length - 1;
+                setOnName((was) => (Math.min(was, naming.length - 1) + step) % naming.length);
+                return;
+              }
+              if (e.key === "Enter" || e.key === "Tab") {
+                e.preventDefault();
+                takeName(naming[standing]);
+                return;
+              }
+            }
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               submit();
@@ -282,17 +318,8 @@ export function Composer({
           <Smile className="size-[18px]" />
         </button>
         {picking && <EmojiPicker onPick={insert} onClose={() => setPicking(false)} />}
-        {mentioning !== null && (
-          <MentionPicker
-            members={members}
-            query={mentioning.query}
-            onPick={(person) => {
-              const next = putMention(text, mentioning, person.name);
-              caretAfter.current = { start: next.caret, end: next.caret };
-              setText(next.text);
-              if (person.id) setNamed((was) => [...was, { id: person.id!, name: person.name }]);
-            }}
-          />
+        {naming.length > 0 && (
+          <MentionPicker options={naming} active={standing} onPick={takeName} />
         )}
         {canPoll && !editing && (
           <button
