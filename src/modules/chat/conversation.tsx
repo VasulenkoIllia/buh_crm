@@ -22,6 +22,7 @@ import { cn } from "@/shared/lib/cn";
 import { fmtDate, fmtTime } from "@/shared/lib/format";
 import { UserAvatar } from "@/shared/ui/avatar";
 import { MessageFiles } from "./attachments";
+import { CrmLinkCard, crmLinksIn } from "./crm-card";
 import { EmojiPicker } from "./emoji-picker";
 import { PollCard } from "./poll";
 import { RichText } from "./rich-text";
@@ -631,6 +632,10 @@ function Row({
             </button>
           )}
           {message.text && <RichText text={message.text} mentions={mentionNames} mine={mine} />}
+          {message.text &&
+            crmLinksIn(message.text).map((link) => (
+              <CrmLinkCard key={link.id} link={link} mine={mine} />
+            ))}
           <MessageFiles
             files={message.files}
             mine={mine}
@@ -712,7 +717,12 @@ function Row({
           <button
             type="button"
             aria-label="More"
-            onClick={() => setMenuAt({ x: -1, y: -1 })}
+            // under the ⋯ itself, and the menu then fits itself into the window. A sentinel used
+            // to stand here and put the menu in the top-left corner (found in use, 2026-09-20)
+            onClick={(e) => {
+              const box = e.currentTarget.getBoundingClientRect();
+              setMenuAt({ x: box.right - 200, y: box.bottom + 6 });
+            }}
             className="text-muted hover:text-ink"
           >
             <MoreHorizontal className="size-3.5" />
