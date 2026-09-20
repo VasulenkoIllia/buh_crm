@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import type {
   ChatMessage,
   ChatMessagePage,
@@ -44,9 +44,12 @@ type MessageRow = repo.MessageRow;
 
 type Membership = Awaited<ReturnType<typeof requireMember>>;
 
-function manages(m: Membership): boolean {
-  return m.role === "owner" || m.role === "admin";
-}
+/**
+ * **A group has no roles** (owner, 2026-09-20), so the only brake left on acting over somebody
+ * else's message is the FIRM's admin — and it is left exactly where something is destroyed or
+ * broadcast: deleting another person's message, and the announcements channel.
+ */
+const firmAdmin = (user: User) => user.role === "admin";
 
 // ── what a message looks like ──────────────────────────────────────────────────
 
@@ -63,7 +66,15 @@ function previewOf(row: {
   return line.length > PREVIEW ? `${line.slice(0, PREVIEW)}…` : line;
 }
 
+/**
+ * **A deleted message is a tombstone and nothing else** (§5.3): the row stays so the chat's places
+ * have no hole, but what it carried is not part of it any more. The files, the poll and the
+ * reactions are left out here rather than at every reader — the conversation used to draw the photo
+ * of a message that said "Message deleted" above it (audit, 2026-09-20), and a page cached before
+ * the delete would do it again if this were the screen's job.
+ */
 function toMessage(row: MessageRow): ChatMessage {
+  const gone = row.deletedAt !== null;
   const reactions = new Map<string, string[]>();
   for (const r of row.reactions) {
     reactions.set(r.emoji, [...(reactions.get(r.emoji) ?? []), r.userId]);
@@ -90,17 +101,18 @@ function toMessage(row: MessageRow): ChatMessage {
       : null,
     forwardedFromId: row.forwardedFromId,
     mentions: row.mentions,
-    reactions: [...reactions].map(([emoji, userIds]) => ({ emoji, userIds })),
-    files: attachments.filesOf(row.files),
-    poll: row.poll
-      ? {
-          multiple: row.poll.multiple,
-          options: openOptions(row.poll),
-          closedAt: row.poll.closedAt?.toISOString() ?? null,
-          votes: [...votes].map(([option, userIds]) => ({ option, userIds })),
-        }
-      : null,
-    pinned: row.pin !== null,
+    reactions: gone ? [] : [...reactions].map(([emoji, userIds]) => ({ emoji, userIds })),
+    files: gone ? [] : attachments.filesOf(row.files),
+    poll:
+      row.poll && !gone
+        ? {
+            multiple: row.poll.multiple,
+            options: openOptions(row.poll),
+            closedAt: row.poll.closedAt?.toISOString() ?? null,
+            votes: [...votes].map(([option, userIds]) => ({ option, userIds })),
+          }
+        : null,
+    pinned: row.pin !== null && !gone,
     editedAt: row.editedAt?.toISOString() ?? null,
     deletedAt: row.deletedAt?.toISOString() ?? null,
     deletedByOther: row.deletedAt !== null && row.deletedById !== row.authorId,
@@ -199,39 +211,51 @@ export async function send(
   const carried = await attachments.forSend(chatId, user, input.files ?? []);
   const at = new Date();
 
-  const messageId = await repo.transaction(async (tx) => {
-    const seq = await repo.nextSeq(tx, chatId, at);
-    const { id } = await repo.insertMessageTx(tx, {
-      chatId,
-      seq,
-      authorId: user.id,
-      clientMessageId: input.clientMessageId,
-      sealed: text ? sealText(text) : null,
-      replyToId: input.replyToId,
-      mentions,
-      kind: input.poll ? "poll" : "text",
-      at,
-    });
-    if (input.poll) {
-      await repo.insertPollTx(tx, id, input.poll.multiple, sealOptions(input.poll.options));
-    }
-    if (carried.length > 0) {
-      // the same question `forSend` asked, asked again under a lock: two sends naming one upload in
-      // the same instant both passed it outside the transaction (review, 2026-09-20)
-      const ids = carried.flatMap((f) => [
-        f.fileId,
-        ...(f.previewFileId ? [f.previewFileId] : []),
-      ]);
-      if (!(await repo.claimUploadsTx(tx, chatId, user.id, ids))) {
-        throw new ValidationError("That file is not ready to send");
+  let messageId: string;
+  try {
+    messageId = await repo.transaction(async (tx) => {
+      const seq = await repo.nextSeq(tx, chatId, at);
+      const { id } = await repo.insertMessageTx(tx, {
+        chatId,
+        seq,
+        authorId: user.id,
+        clientMessageId: input.clientMessageId,
+        sealed: text ? sealText(text) : null,
+        replyToId: input.replyToId,
+        mentions,
+        kind: input.poll ? "poll" : "text",
+        at,
+      });
+      if (input.poll) {
+        await repo.insertPollTx(tx, id, input.poll.multiple, sealOptions(input.poll.options));
       }
-      await repo.linkFilesTx(tx, id, carried);
-    }
-    // the words it can be found by, written with it rather than after it (§8)
-    await search.indexTx(tx, chatId, id, [text, ...(input.poll?.options ?? [])]);
-    await repo.markSentTx(tx, chatId, user.id, seq, mentions);
-    return id;
-  });
+      if (carried.length > 0) {
+        // the same question `forSend` asked, asked again under a lock: two sends naming one upload in
+        // the same instant both passed it outside the transaction (review, 2026-09-20)
+        const ids = carried.flatMap((f) => [
+          f.fileId,
+          ...(f.previewFileId ? [f.previewFileId] : []),
+        ]);
+        if (!(await repo.claimUploadsTx(tx, chatId, user.id, ids))) {
+          throw new ValidationError("That file is not ready to send");
+        }
+        await repo.linkFilesTx(tx, id, carried);
+      }
+      // the words it can be found by, written with it rather than after it (§8)
+      await search.indexTx(tx, chatId, id, [text, ...(input.poll?.options ?? [])]);
+      await repo.markSentTx(tx, chatId, user.id, seq, mentions);
+      return id;
+    });
+  } catch (err) {
+    // the retry `sentAlready` is for, arriving while the FIRST one is still in flight: it misses
+    // the read above, waits on the chat's lock, and then hits the unique key. That is the send
+    // succeeding, not failing, and telling the composer 409 would lose the message it holds
+    // (audit, 2026-09-20)
+    if ((err as { code?: string }).code !== "P2002") throw err;
+    const first = await repo.sentAlready(chatId, user.id, input.clientMessageId);
+    if (!first) throw err;
+    return toMessage(first);
+  }
 
   const saved = await repo.messageById(messageId);
   await tell(m.chat, m.chat.members, "chat_message", saved!.seq);
@@ -261,18 +285,16 @@ export async function edit(
 }
 
 /**
- * **A delete for everyone** (§5.3): its author any time, a group's admins in their group, a firm
- * admin in the channel. The text is destroyed at once; the row stays so the chat's places have no
+ * **A delete for everyone** (§5.3): its author any time, and the FIRM's admin anywhere they are a
+ * member — a group has no admins of its own since stage C (§4.3). The text is destroyed at once; the row stays so the chat's places have no
  * hole, and the log keeps who deleted whose message, in which chat, and no word of it (§12.1).
  */
 export async function remove(user: User, messageId: string): Promise<ChatMessage> {
   const { row, m } = await messageFor(user, messageId);
   const mine = row.authorId === user.id;
-  const asAdmin =
-    (m.chat.kind === "group" && manages(m)) ||
-    (m.chat.kind === "announcements" && user.role === "admin");
+  const asAdmin = firmAdmin(user);
   if (!mine && !asAdmin)
-    throw new ForbiddenError("Only its author or an admin deletes a message");
+    throw new ForbiddenError("Only its author or a firm admin deletes a message");
   if (row.kind === "notice")
     throw new ValidationError("This line was written by the chat itself");
   if (row.deletedAt) return toMessage(row);
@@ -280,27 +302,39 @@ export async function remove(user: User, messageId: string): Promise<ChatMessage
   const at = new Date();
   // the count, not a void: two clicks on one message describe the act once (audit, 2026-09-20)
   const deleted = await repo.deleteMessage(messageId, user.id, at);
+  // **Said as soon as it is done**, before the two awaits below, either of which can throw — a
+  // lock that waited too long, a bucket that would not answer. The text is already destroyed for
+  // good at this point, so a throw that took the row with it would leave the log saying the
+  // delete FAILED, about the one act `shared/activity.ts` says the log must hold
+  // (audit, 2026-09-20).
+  if (deleted) {
+    const author = row.authorId ? await repo.findPerson(row.authorId) : null;
+    record("chat_message.deleted", {
+      subjectId: messageId,
+      subjectLabel: whichChat(m),
+      changes: { author: mine ? "their own" : personName(author) },
+    });
+  }
   // the text is gone, and so are the words it could be found by (§8)
   await search.forget(messageId);
   // its files go with it unless another live message still carries them; what that removed is
-  // written to the log below, with the delete itself
+  // written to the log by the thunk, which runs whatever happened
   const sayWhatWentWithIt = await attachments.onMessageDeleted(messageId);
-  try {
-    if (deleted) {
-      const author = row.authorId ? await repo.findPerson(row.authorId) : null;
-      record("chat_message.deleted", {
-        subjectId: messageId,
-        subjectLabel: whichChat(m),
-        changes: { author: mine ? "their own" : personName(author) },
-      });
-    }
-  } finally {
-    // whatever happened above, an act that has already committed is said: the row is all that is
-    // left of a file, and a read that threw must not swallow it (audit, 2026-09-20)
-    sayWhatWentWithIt();
-  }
+  sayWhatWentWithIt();
   await tell(m.chat, m.chat.members, "chat_message_changed", row.seq);
   return toMessage((await repo.messageById(messageId))!);
+}
+
+/**
+ * The name a forwarded copy is filed under, so the same forward retried lands once: a uuid derived
+ * from the source and the chat it is going into (`clientMessageId` is a uuid column).
+ */
+function forwardId(sourceId: string, chatId: string): string {
+  const hash = createHash("sha256").update(`forward:${sourceId}:${chatId}`).digest("hex");
+  const v = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-${
+    "89ab"[parseInt(hash[16], 16) % 4]
+  }${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+  return v;
 }
 
 /** What the log calls the chat: a group by its title, everything else by what it is (§12.1). */
@@ -345,6 +379,13 @@ export async function forward(user: User, input: ForwardInput): Promise<void> {
       // a table
       const fresh = await attachments.sourceForForward(source.id);
       if (!fresh) continue;
+      // **the same forward twice is one copy.** A forward is one request into many chats, each in
+      // its own transaction, so a connection lost halfway leaves some of them done; a retry with a
+      // fresh id per copy duplicated every one that had already landed. Naming the copy after the
+      // source and its destination makes the retry find its own row and stop, the way `send` does
+      // with the composer's id (audit, 2026-09-20)
+      const copyId = forwardId(source.id, chatId);
+      if (await repo.sentAlready(chatId, user.id, copyId)) continue;
       const text = openText(fresh);
       const carried = fresh.files;
       if (text === null && carried.length === 0) continue;
@@ -355,7 +396,7 @@ export async function forward(user: User, input: ForwardInput): Promise<void> {
           chatId,
           seq,
           authorId: user.id,
-          clientMessageId: randomUUID(),
+          clientMessageId: copyId,
           sealed: text === null ? null : sealText(text),
           // a message forwarded on keeps the first author, as Telegram does
           forwardedFromId: source.forwardedFromId ?? source.authorId,
@@ -385,11 +426,8 @@ export async function react(
   return toMessage((await repo.messageById(messageId))!);
 }
 
-/** Pinned by either person in a direct chat, by a group's admins, by a firm admin in the channel. */
+/** Pinned by anybody in a direct chat or a group; in the channel, by a firm admin (§5.2). */
 function requirePinner(m: Membership, user: User) {
-  if (m.chat.kind === "group" && !manages(m)) {
-    throw new ForbiddenError("Only the group's admins pin a message");
-  }
   if (m.chat.kind === "announcements" && user.role !== "admin") {
     throw new ForbiddenError("Only an admin pins in the announcements channel");
   }
@@ -431,8 +469,8 @@ export async function vote(
 export async function closePoll(user: User, messageId: string): Promise<ChatMessage> {
   const { row, m } = await messageFor(user, messageId);
   if (!row.poll) throw new ValidationError("This message is not a poll");
-  if (row.authorId !== user.id && !(m.chat.kind === "group" && manages(m))) {
-    throw new ForbiddenError("Only its author or the group's admins close a poll");
+  if (row.authorId !== user.id && !firmAdmin(user)) {
+    throw new ForbiddenError("Only its author or a firm admin closes a poll");
   }
   if (!row.poll.closedAt) await repo.closePoll(messageId, user.id, new Date());
   await tell(m.chat, m.chat.members, "chat_message_changed", row.seq);

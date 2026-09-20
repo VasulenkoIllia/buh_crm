@@ -278,11 +278,6 @@
     "access": "gate:chat"
   },
   {
-    "method": "PUT",
-    "url": "/api/chat/chats/:id/members/:userId/role",
-    "access": "gate:chat"
-  },
-  {
     "method": "GET",
     "url": "/api/chat/chats/:id/messages",
     "access": "gate:chat"
@@ -296,11 +291,6 @@
   {
     "method": "POST",
     "url": "/api/chat/chats/:id/messages",
-    "access": "gate:chat"
-  },
-  {
-    "method": "POST",
-    "url": "/api/chat/chats/:id/owner",
     "access": "gate:chat"
   },
   {
@@ -501,6 +491,17 @@
     "access": "gate:clients"
   },
   {
+    "method": "GET",
+    "url": "/api/clients/:id/card",
+    "access": "shared"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/clients/:id/card",
+    "access": "shared",
+    "derived": true
+  },
+  {
     "method": "DELETE",
     "url": "/api/clients/:id/files/:fileId",
     "access": "gate:clients"
@@ -554,6 +555,17 @@
     "method": "POST",
     "url": "/api/clients/:id/subscriptions/:subId/resume",
     "access": "gate:clients"
+  },
+  {
+    "method": "GET",
+    "url": "/api/files/:fileId/card",
+    "access": "shared"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/files/:fileId/card",
+    "access": "shared",
+    "derived": true
   },
   {
     "method": "GET",

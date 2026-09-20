@@ -15,6 +15,7 @@ import { Button, IconButton } from "@/shared/ui/button";
 import { Chip } from "@/shared/ui/chip";
 import { FormField, Input, Textarea } from "@/shared/ui/field";
 import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
+import { CopyLink } from "@/shared/ui/copy-link";
 import { Modal } from "@/shared/ui/modal";
 import { SearchSelect } from "@/shared/ui/search-select";
 import { Segmented } from "@/shared/ui/segmented";
@@ -108,6 +109,7 @@ export function InvoiceModal({
       size="lg"
       footer={
         <>
+          <CopyLink href={`/billing?invoice=${invoiceId}`} />
           {invoice && (invoice.balance === 0 || invoice.cancelledAt) && (
             <Button
               variant="text"

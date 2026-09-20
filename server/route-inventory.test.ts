@@ -133,8 +133,16 @@ describe("route inventory", () => {
       // +1 and its HEAD for a chat's own Files tab (step B.2), a read of what the chat carries.
       // +1 and its HEAD for the word search (step B.3), one route for both boxes: the one above
       // the chat list and the one inside a chat, which differ only by naming a chat.
-      total: 386,
-      derivedHead: 94,
+      // −2 on 2026-09-20 (stage C): a group has no roles, so nothing sets one and nothing hands a
+      // group on. The owner's call — the only chat with a rule about who writes is the
+      // announcements channel, and that rule is the FIRM's admin (chat.md §4.3).
+      // +2 and their HEADs the same day, both cards behind a pasted link (chat.md §5.6): one file
+      // (files.md §16) and one client. The file's is `shared()` because the file's own PLACE
+      // decides who may see it, which is the service's answer and not a gate's; the client's is
+      // `shared()` like the client read beside it, and exists so that scrolling a link into view
+      // does not write "viewed" rows for a screen nobody opened.
+      total: 388,
+      derivedHead: 96,
       real: 292,
       api: 291, // everything but /health
       anonymous: 9, // 6 credential routes, 2 unsubscribe pages, /health
@@ -143,8 +151,8 @@ describe("route inventory", () => {
       // row" — `active` and `stop` still are, and must be. The two-factor five are the caller's own
       // second factor and name nobody else.
       own: 15,
-      shared: 9,
-      gated: 259,
+      shared: 11,
+      gated: 257,
       adminOnly: 20,
     });
   });

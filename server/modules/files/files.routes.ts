@@ -15,7 +15,7 @@ import {
   trashInput,
   trashQuery,
 } from "@shared/schema/files.js";
-import { gate } from "../../core/access.js";
+import { gate, shared } from "../../core/access.js";
 import { ValidationError } from "../../core/errors.js";
 import { sendDownload, sendView } from "./files.serve.js";
 import * as service from "./files.service.js";
@@ -68,6 +68,21 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   app.get("/overview", { config: files }, async (request) =>
     service.overview(request.currentUser!),
+  );
+
+  /**
+   * **One file, named for a link to it** (chat.md §5.6): what a card shows when somebody sends a
+   * link to a file in the chat, and the two doors its bytes come out of.
+   *
+   * `shared()` and not `files`: a link can be to a client's document or a task's attachment, which
+   * belong to those gates and not to this one. WHO may ask is the file's own place, decided in the
+   * service — anybody else is told it does not exist, so a name behind a closed gate stays behind
+   * it, and the card in the chat says "no access" rather than showing one.
+   */
+  app.get(
+    "/:fileId/card",
+    { config: shared(), schema: { params: fileParams } },
+    async (request) => service.cardOf(request.currentUser!, request.params.fileId),
   );
 
   // ── My files and Company: the same routes over two places ──────────────────

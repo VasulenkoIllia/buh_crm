@@ -22,7 +22,7 @@ import type {
   UpdateGroupInput,
 } from "@shared/schema/chat";
 import { api } from "@/shared/lib/api";
-import { CHAT_KEY, CHAT_PRESENCE_KEY } from "@/shared/lib/query-keys";
+import { CHAT_KEY, CHAT_LIST_KEY } from "@/shared/lib/query-keys";
 import { realtime } from "@/shared/lib/realtime";
 
 /**
@@ -35,14 +35,13 @@ import { realtime } from "@/shared/lib/realtime";
  */
 
 export const chatKeys = {
-  chats: [...CHAT_KEY, "chats"] as const,
+  chats: CHAT_LIST_KEY,
   chat: (id: string) => [...CHAT_KEY, "chats", id] as const,
   messages: (id: string) => [...CHAT_KEY, "messages", id] as const,
   pins: (id: string) => [...CHAT_KEY, "pins", id] as const,
   files: (id: string) => [...CHAT_KEY, "files", id] as const,
   search: [...CHAT_KEY, "search"] as const,
   people: [...CHAT_KEY, "people"] as const,
-  presence: CHAT_PRESENCE_KEY,
 };
 
 export function useChats() {
@@ -237,6 +236,9 @@ export function useChatLive(chatId: string | null) {
         // …and a delete or an edit may have taken both away
         void client.invalidateQueries({ queryKey: chatKeys.files(chatId) });
         void client.invalidateQueries({ queryKey: chatKeys.search });
+        // a colleague's pin: the bar above the conversation is a query of its own, and it sat
+        // empty until the reader switched chats (audit, 2026-09-20)
+        void client.invalidateQueries({ queryKey: chatKeys.pins(chatId) });
       }),
       connection.on("chat_read", (e) => {
         if (e.chatId !== chatId) return;
@@ -313,6 +315,18 @@ export function useDeleteMessage(chatId: string) {
   });
 }
 
+/** **Sending a message on** (§5.2): the same words, and the same files, into other chats. */
+export function useForward() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { messageIds: string[]; toChatIds: string[] }) =>
+      api<{ ok: true }>("/api/chat/forward", { method: "POST", body: input }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: chatKeys.chats });
+    },
+  });
+}
+
 export function useReact(chatId: string) {
   const client = useQueryClient();
   return useMutation({
@@ -360,12 +374,20 @@ export function useMarkRead(chatId: string | null) {
     });
   }, [chatId, client]);
 
+  const latest = useRef(flush);
+  latest.current = flush;
   useEffect(() => {
     pending.current = 0;
     sent.current = 0;
     return () => {
-      if (timer.current !== null) window.clearTimeout(timer.current);
+      if (timer.current === null) return;
+      window.clearTimeout(timer.current);
       timer.current = null;
+      // **and send what was waiting.** Clearing the timer alone lost a read taken within two
+      // seconds of leaving the chat, so a glance at three unread left them unread (audit,
+      // 2026-09-20). `flush` is read through a ref: this runs on the way out, with the chat id it
+      // was set up with
+      latest.current();
     };
   }, [chatId]);
 
@@ -444,27 +466,6 @@ export function useRemoveMember(chatId: string) {
   });
 }
 
-export function useSetMemberRole(chatId: string) {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: ({ userId, role }: { userId: string; role: "admin" | "member" }) =>
-      api<ChatDetail>(`/api/chat/chats/${chatId}/members/${userId}/role`, {
-        method: "PUT",
-        body: { role },
-      }),
-    onSuccess: () => afterChatChange(client, chatId),
-  });
-}
-
-export function useTransferOwner(chatId: string) {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (userId: string) =>
-      api<ChatDetail>(`/api/chat/chats/${chatId}/owner`, { method: "POST", body: { userId } }),
-    onSuccess: () => afterChatChange(client, chatId),
-  });
-}
-
 export function useLeaveChat(chatId: string) {
   const client = useQueryClient();
   return useMutation({
@@ -486,6 +487,41 @@ export function useChatSettings(chatId: string) {
       void client.invalidateQueries({ queryKey: chatKeys.chat(chatId) });
     },
   });
+}
+
+/**
+ * **What the chat list's own menu does** (§4.2): the same three routes as the panel, but taking the
+ * chat as an argument, because the list acts on whichever row is under the pointer.
+ *
+ * "Delete for me" is hiding it AND moving the reader's marker to the end: the chat leaves their
+ * list with nothing left unread in it, and comes back only when somebody writes again — which is
+ * what a person means by deleting a conversation they are still in (owner, 2026-09-20).
+ */
+export function useChatListActions() {
+  const client = useQueryClient();
+  const refresh = (chatId: string) => {
+    void client.invalidateQueries({ queryKey: chatKeys.chats });
+    void client.invalidateQueries({ queryKey: chatKeys.chat(chatId) });
+  };
+  const settings = useMutation({
+    mutationFn: ({ chatId, ...input }: ChatSettingsInput & { chatId: string }) =>
+      api<ChatSummary>(`/api/chat/chats/${chatId}/settings`, { method: "PUT", body: input }),
+    onSuccess: (_, { chatId }) => refresh(chatId),
+  });
+  const markRead = useMutation({
+    mutationFn: ({ chatId, seq }: { chatId: string; seq: number }) =>
+      api<{ ok: true }>(`/api/chat/chats/${chatId}/read`, { method: "POST", body: { seq } }),
+    onSuccess: (_, { chatId }) => refresh(chatId),
+  });
+  const leave = useMutation({
+    mutationFn: (chatId: string) =>
+      api<{ ok: true }>(`/api/chat/chats/${chatId}/leave`, { method: "POST" }),
+    onSuccess: (_, chatId) => {
+      client.removeQueries({ queryKey: chatKeys.chat(chatId) });
+      void client.invalidateQueries({ queryKey: chatKeys.chats });
+    },
+  });
+  return { settings, markRead, leave };
 }
 
 // ── pinned, polls and who has read (chat.md §5.2, §5.4, §5.5) ─────────────────

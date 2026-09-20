@@ -20,6 +20,7 @@ import {
   todayPlus,
 } from "@/shared/lib/format";
 import { fmtMoney } from "@/shared/lib/money";
+import { CopyLink } from "@/shared/ui/copy-link";
 import { AssigneePicker } from "@/shared/ui/assignee-picker";
 import { userLabel } from "@/shared/ui/avatar";
 import { Button, IconButton } from "@/shared/ui/button";
@@ -888,6 +889,7 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
               📦 Archive
             </Button>
           )}
+          <CopyLink href={`/tasks?task=${task.id}`} />
           <Button variant="secondary" onClick={onClose}>
             Close
           </Button>

@@ -1,4 +1,5 @@
-import type { ChatMemberRole, ChatNotice, Prisma } from "../../generated/prisma/client.js";
+import type { ChatMessageKind, ChatNotice, Prisma } from "../../generated/prisma/client.js";
+import { NotFoundError } from "../../core/errors.js";
 import { prisma } from "../../core/db.js";
 
 /**
@@ -31,9 +32,16 @@ export async function activeUserIds(): Promise<string[]> {
  * (back in it, after an unblock), and every other membership ended.
  */
 export async function matchChannelMembers(chatId: string, userIds: string[], now: Date) {
+  // from NOW, like `joinChannel` (chat.service.ts): somebody activated just before a restart used
+  // to be put in by this path instead, at seq 0, and met every announcement the firm ever posted
+  // as unread (audit, 2026-09-20)
+  const { lastSeq } = await prisma.chat.findUniqueOrThrow({
+    where: { id: chatId },
+    select: { lastSeq: true },
+  });
   await prisma.$transaction([
     prisma.chatMember.createMany({
-      data: userIds.map((userId) => ({ chatId, userId })),
+      data: userIds.map((userId) => ({ chatId, userId, lastReadSeq: lastSeq })),
       skipDuplicates: true,
     }),
     prisma.chatMember.updateMany({
@@ -78,34 +86,62 @@ export function findPerson(id: string) {
   return prisma.user.findUnique({ where: { id }, select: PERSON });
 }
 
-/** The newest message, for the one line the chat list shows (§4.2). */
-const LAST_MESSAGE = {
-  orderBy: { seq: "desc" },
-  take: 1,
-  select: {
-    seq: true,
-    authorId: true,
-    kind: true,
-    notice: true,
-    deletedAt: true,
-    createdAt: true,
-    ciphertext: true,
-    iv: true,
-    authTag: true,
-    keyVersion: true,
-    /** so a photo sent with no words is "Photo" in the list rather than an empty line (§4.2) */
-    _count: { select: { files: true } },
-  },
-} as const satisfies Prisma.Chat$messagesArgs;
+/**
+ * **The newest message each chat still has**, for the one line the list shows (§4.2). A deleted
+ * one is not drawn in the conversation either (owner, 2026-09-20), so a list reading "Message
+ * deleted" would be the only place left showing a message that is gone.
+ *
+ * **Raw SQL, and not a nested `include`,** which is what this was until 2026-09-20. Prisma does
+ * not compile a nested `take: 1` into a `LIMIT`: it selected EVERY live message of every chat —
+ * with its ciphertext — and kept the first in JS, and its `_count` became an unfiltered
+ * `GROUP BY` over the whole `ChatMessageFile` table. `membershipIn` carried it too, so a typing
+ * ping every three seconds read a chat's entire history (audit, 2026-09-20). `DISTINCT ON` walks
+ * the `(chatId, seq)` index once per chat instead.
+ */
+export interface LastMessageRow {
+  chatId: string;
+  seq: number;
+  authorId: string | null;
+  kind: ChatMessageKind;
+  notice: ChatNotice | null;
+  createdAt: Date;
+  ciphertext: Uint8Array | null;
+  iv: Uint8Array | null;
+  authTag: Uint8Array | null;
+  keyVersion: number;
+  /** so a photo sent with no words is "Photo" in the list rather than an empty line (§4.2) */
+  fileCount: number;
+}
+
+export async function lastMessagesOf(chatIds: readonly string[]): Promise<LastMessageRow[]> {
+  if (chatIds.length === 0) return [];
+  return prisma.$queryRaw<LastMessageRow[]>`
+    SELECT DISTINCT ON (m."chatId")
+           m."chatId", m.seq, m."authorId", m.kind, m.notice, m."createdAt",
+           m.ciphertext, m.iv, m."authTag", m."keyVersion",
+           (SELECT count(*)::int FROM "ChatMessageFile" f WHERE f."messageId" = m.id)
+             AS "fileCount"
+    FROM "ChatMessage" m
+    WHERE m."chatId" = ANY(${[...chatIds]}::uuid[]) AND m."deletedAt" IS NULL
+    ORDER BY m."chatId", m.seq DESC
+  `;
+}
+
+export async function lastMessageOf(chatId: string): Promise<LastMessageRow | null> {
+  const [row] = await lastMessagesOf([chatId]);
+  return row ?? null;
+}
 
 const CHAT_WITH_MEMBERS = {
-  messages: LAST_MESSAGE,
   members: {
     where: { leftAt: null },
-    orderBy: { joinedAt: "asc" },
+    // `userId` after `joinedAt`, because a group's people are all created in one statement and
+    // share an instant: without a tiebreaker the order came out of whatever plan the database
+    // chose, so the panel's list could shuffle between two reads (found by a suite that passed
+    // alone and failed in a full run, 2026-09-20)
+    orderBy: [{ joinedAt: "asc" }, { userId: "asc" }],
     select: {
       userId: true,
-      role: true,
       joinedAt: true,
       lastReadSeq: true,
       lastReadAt: true,
@@ -201,6 +237,8 @@ export async function nextSeq(tx: Tx, chatId: string, at: Date): Promise<number>
     UPDATE "Chat" SET "lastSeq" = "lastSeq" + 1, "lastActivityAt" = ${at}
     WHERE "id" = ${chatId}::uuid
     RETURNING "lastSeq"`;
+  // a chat deleted while this send was in flight: "no such chat", not a TypeError read as a 500
+  if (!row) throw new NotFoundError("Chat not found");
   return row.lastSeq;
 }
 
@@ -248,7 +286,7 @@ export function createGroupTx(
       lastActivityAt: at,
       members: {
         create: [
-          { userId: ownerId, role: "owner", joinedAt: at },
+          { userId: ownerId, joinedAt: at },
           ...memberIds.map((userId) => ({ userId, joinedAt: at })),
         ],
       },
@@ -279,7 +317,7 @@ export function activeMembersTx(tx: Tx, chatId: string) {
   return tx.chatMember.findMany({
     where: { chatId, leftAt: null },
     orderBy: { joinedAt: "asc" },
-    select: { userId: true, role: true, joinedAt: true },
+    select: { userId: true, joinedAt: true },
   });
 }
 
@@ -293,7 +331,6 @@ export function joinTx(tx: Tx, chatId: string, userId: string, readUpTo: number,
     create: { chatId, userId, joinedAt: at, lastReadSeq: readUpTo },
     update: {
       leftAt: null,
-      role: "member",
       joinedAt: at,
       lastReadSeq: readUpTo,
       hiddenAt: null,
@@ -305,12 +342,8 @@ export function joinTx(tx: Tx, chatId: string, userId: string, readUpTo: number,
 export function leaveTx(tx: Tx, chatId: string, userId: string, at: Date) {
   return tx.chatMember.update({
     where: { chatId_userId: { chatId, userId } },
-    data: { leftAt: at, role: "member" },
+    data: { leftAt: at },
   });
-}
-
-export function setRoleTx(tx: Tx, chatId: string, userId: string, role: ChatMemberRole) {
-  return tx.chatMember.update({ where: { chatId_userId: { chatId, userId } }, data: { role } });
 }
 
 export function lastSeqTx(tx: Tx, chatId: string) {
@@ -318,14 +351,18 @@ export function lastSeqTx(tx: Tx, chatId: string) {
 }
 
 /** Every group a person is in now, for a block (chat.md §11). */
+/**
+ * The groups somebody is in, for the block that takes them out of all of them — **in id order**,
+ * because the caller locks each one in turn inside one transaction. Two blocks running at once
+ * over two shared groups took them in opposite orders and deadlocked, which rolled back a whole
+ * block, its file and secret moves included (audit, 2026-09-20). The same rule as
+ * `carriedElsewhereTx` and `claimUploadsTx`.
+ */
 export function activeGroupsOfTx(tx: Tx, userId: string) {
   return tx.chatMember.findMany({
     where: { userId, leftAt: null, chat: { kind: "group" } },
-    select: {
-      chatId: true,
-      role: true,
-      chat: { select: { ciphertext: true, iv: true, authTag: true, keyVersion: true } },
-    },
+    select: { chatId: true },
+    orderBy: { chatId: "asc" },
   });
 }
 
@@ -425,7 +462,9 @@ export async function messagePage(
 
 export function pinnedMessages(chatId: string) {
   return prisma.chatMessage.findMany({
-    where: { chatId, pin: { isNot: null } },
+    // `deletedAt: null` as well as the pin, so a row deleted before this fix cannot show as a
+    // blank line in the bar either (audit, 2026-09-20)
+    where: { chatId, deletedAt: null, pin: { isNot: null } },
     include: MESSAGE_PARTS,
     orderBy: { seq: "asc" },
   });
@@ -499,7 +538,9 @@ export async function markSentTx(
 ) {
   await tx.chatMember.updateMany({
     where: { chatId, userId: authorId, lastReadSeq: { lt: seq } },
-    data: { lastReadSeq: seq },
+    // `lastReadAt` too: writing is reading, and "Read by" showed the author with no time at all
+    // because only the place moved (audit, 2026-09-20)
+    data: { lastReadSeq: seq, lastReadAt: new Date() },
   });
   if (mentioned.length > 0) {
     await tx.chatMember.updateMany({
@@ -540,18 +581,23 @@ export async function deleteMessage(
   byUserId: string,
   at: Date,
 ): Promise<boolean> {
-  const { count } = await prisma.chatMessage.updateMany({
-    where: { id: messageId, deletedAt: null },
-    data: {
-      ciphertext: null,
-      iv: null,
-      authTag: null,
-      deletedAt: at,
-      deletedById: byUserId,
-      mentions: [],
-    },
+  return prisma.$transaction(async (tx) => {
+    const { count } = await tx.chatMessage.updateMany({
+      where: { id: messageId, deletedAt: null },
+      data: {
+        ciphertext: null,
+        iv: null,
+        authTag: null,
+        deletedAt: at,
+        deletedById: byUserId,
+        mentions: [],
+      },
+    });
+    // a deleted message cannot stay pinned: the bar above the chat would hold a blank line that
+    // nobody could unpin without opening it (audit, 2026-09-20)
+    if (count === 1) await tx.chatPin.deleteMany({ where: { messageId } });
+    return count === 1;
   });
-  return count === 1;
 }
 
 /**
@@ -606,17 +652,22 @@ export function deleteFileRowsTx(tx: Tx, ids: readonly string[]) {
   return tx.file.deleteMany({ where: { id: { in: [...ids] } } });
 }
 
+/**
+ * One of each emoji per person: the same one again takes it back. Two clicks in the same instant
+ * both used to find nothing and both insert, which is a 409 on a double click rather than a
+ * reaction (audit, 2026-09-20) — so the delete decides, and a create that loses the race is the
+ * other click's rather than an error.
+ */
 export async function toggleReaction(messageId: string, userId: string, emoji: string) {
-  const existing = await prisma.chatReaction.findUnique({
-    where: { messageId_userId_emoji: { messageId, userId, emoji } },
+  const { count } = await prisma.chatReaction.deleteMany({
+    where: { messageId, userId, emoji },
   });
-  if (existing) {
-    await prisma.chatReaction.delete({
-      where: { messageId_userId_emoji: { messageId, userId, emoji } },
-    });
-    return false;
+  if (count > 0) return false;
+  try {
+    await prisma.chatReaction.create({ data: { messageId, userId, emoji } });
+  } catch (err) {
+    if ((err as { code?: string }).code !== "P2002") throw err;
   }
-  await prisma.chatReaction.create({ data: { messageId, userId, emoji } });
   return true;
 }
 
@@ -632,18 +683,30 @@ export function unpinMessage(messageId: string) {
   return prisma.chatPin.deleteMany({ where: { messageId } });
 }
 
+/**
+ * **One person's answer, replaced under the poll's own lock.**
+ *
+ * The lock is the point. Tapping A and then B inside one round trip used to run two
+ * delete-then-insert pairs at once: under READ COMMITTED each `DELETE` takes its snapshot before
+ * the other's insert commits, so both survived and a single-answer poll held two answers — a state
+ * nothing validates and nothing repairs (audit, 2026-09-20). Locking the poll row first makes the
+ * second wait for the first, and the last tap wins, which is what the person meant.
+ */
 export async function replaceVotes(
   messageId: string,
   userId: string,
   options: readonly number[],
 ) {
-  await prisma.$transaction([
-    prisma.chatPollVote.deleteMany({ where: { messageId, userId } }),
-    prisma.chatPollVote.createMany({
-      data: options.map((option) => ({ messageId, userId, option })),
-      skipDuplicates: true,
-    }),
-  ]);
+  await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT 1 FROM "ChatPoll" WHERE "messageId" = ${messageId}::uuid FOR UPDATE`;
+    await tx.chatPollVote.deleteMany({ where: { messageId, userId } });
+    if (options.length > 0) {
+      await tx.chatPollVote.createMany({
+        data: options.map((option) => ({ messageId, userId, option })),
+        skipDuplicates: true,
+      });
+    }
+  });
 }
 
 export function closePoll(messageId: string, byUserId: string, at: Date) {
@@ -822,14 +885,15 @@ export async function deleteIfStillUnsent(fileId: string): Promise<boolean> {
 }
 
 /**
- * **Files a message once carried that no LIVE message carries any more, and that nobody put in the
- * Trash.** The disposal happens inside the delete's transaction, so this should always be empty —
- * but if that transaction fails after the message's own delete has committed (a lock timeout, a
- * restart between the two statements), the file is left live, reachable by nobody, in no Trash and
- * taken by no sweep: kept for ever with nothing able to show it. The nightly job is the net.
+ * **Files a message once carried that no LIVE message carries any more.** The disposal happens
+ * inside the delete's transaction, so this should always be empty — but if that transaction fails
+ * after the message's own delete has committed (a lock timeout, a restart between the two
+ * statements), the file is left live, reachable by nobody and taken by no sweep: kept for ever
+ * with nothing able to show it. The nightly job is the net.
  *
- * Which is which is said by the caller: a file that is somebody's preview goes, the rest go to the
- * Trash, exactly as a delete would have done.
+ * It goes for good, as a delete would have done: **a chat's file has no Trash** (owner,
+ * 2026-09-20, chat.md §6.3) — it belongs to the message that carried it, and a message that is
+ * gone is gone.
  */
 export function strandedChatFiles(limit: number) {
   return prisma.file.findMany({
@@ -920,61 +984,9 @@ export async function claimUploadsTx(
   return still.length === ids.length;
 }
 
-/** One message's files, for a delete deciding what to put in the Trash and for a forward. */
-export function linksOfMessage(messageId: string) {
-  return prisma.chatMessageFile.findMany({
-    where: { messageId },
-    select: { fileId: true, previewFileId: true, position: true },
-    orderBy: { position: "asc" },
-  });
-}
-
-/**
- * Of these files, the ones a LIVE message other than this one still carries — as the file itself
- * or as a photo's preview. What is left is what a delete disposes of (§6.3).
- */
-export async function stillCarried(
-  fileIds: readonly string[],
-  exceptMessageId: string,
-): Promise<Set<string>> {
-  if (fileIds.length === 0) return new Set();
-  const rows = await prisma.chatMessageFile.findMany({
-    where: {
-      messageId: { not: exceptMessageId },
-      message: { deletedAt: null },
-      OR: [{ fileId: { in: [...fileIds] } }, { previewFileId: { in: [...fileIds] } }],
-    },
-    select: { fileId: true, previewFileId: true },
-  });
-  const held = new Set<string>();
-  for (const row of rows) {
-    held.add(row.fileId);
-    if (row.previewFileId) held.add(row.previewFileId);
-  }
-  return held;
-}
-
 export async function deleteFileRowIfLive(fileId: string): Promise<boolean> {
   const { count } = await prisma.file.deleteMany({ where: { id: fileId, deletedAt: null } });
   return count === 1;
-}
-
-export async function trashFileIfLiveTx(
-  tx: Tx,
-  fileId: string,
-  byUserId: string | null,
-  at: Date,
-  batchId: string,
-): Promise<boolean> {
-  const { count } = await tx.file.updateMany({
-    where: { id: fileId, deletedAt: null },
-    data: { deletedAt: at, deletedById: byUserId, trashBatchId: batchId },
-  });
-  return count === 1;
-}
-
-export function filesByIds(ids: readonly string[]) {
-  return prisma.file.findMany({ where: { id: { in: [...ids] } }, select: CHAT_FILE });
 }
 
 /** A file's own row, whatever chat it came from: what a forward copies without moving bytes. */
@@ -1101,13 +1113,21 @@ export function searchMessages(
     iv: Uint8Array | null;
     authTag: Uint8Array | null;
     keyVersion: number;
+    /** a poll's options, sealed: searched beside the question, which is the message's own text */
+    pollCiphertext: Uint8Array | null;
+    pollIv: Uint8Array | null;
+    pollAuthTag: Uint8Array | null;
+    pollKeyVersion: number | null;
   }[]
 > {
   return prisma.$queryRaw`
     SELECT m.id, m."chatId", m.seq, m."authorId", m."createdAt",
-           m.ciphertext, m.iv, m."authTag", m."keyVersion"
+           m.ciphertext, m.iv, m."authTag", m."keyVersion",
+           p.ciphertext AS "pollCiphertext", p.iv AS "pollIv",
+           p."authTag" AS "pollAuthTag", p."keyVersion" AS "pollKeyVersion"
     FROM "ChatMessage" m
     JOIN "ChatSearchToken" t ON t."messageId" = m.id
+    LEFT JOIN "ChatPoll" p ON p."messageId" = m.id
     JOIN "ChatMember" cm ON cm."chatId" = m."chatId"
       AND cm."userId" = ${userId}::uuid AND cm."leftAt" IS NULL
     WHERE t.token = ANY(${tokens.map((t) => Buffer.from(t))}::bytea[])
@@ -1118,12 +1138,14 @@ export function searchMessages(
       AND (${f.chatId ?? null}::uuid IS NULL OR t."chatId" = ${f.chatId ?? null}::uuid)
       AND (${f.senderId ?? null}::uuid IS NULL OR m."authorId" = ${f.senderId ?? null}::uuid)
       AND (${f.from ?? null}::timestamptz IS NULL OR m."createdAt" >= ${f.from ?? null}::timestamptz)
-      AND (${f.to ?? null}::timestamptz IS NULL OR m."createdAt" <= ${f.to ?? null}::timestamptz)
+      -- strictly before, because "to" is the START of the day after (the firm's own zone decides
+      -- which instant that is): everything said on the last day counts, and nothing after it
+      AND (${f.to ?? null}::timestamptz IS NULL OR m."createdAt" < ${f.to ?? null}::timestamptz)
       AND (
         ${f.hasFiles ?? false} = false
         OR EXISTS (SELECT 1 FROM "ChatMessageFile" mf WHERE mf."messageId" = m.id)
       )
-    GROUP BY m.id
+    GROUP BY m.id, p."messageId"
     HAVING count(DISTINCT t.token) = ${tokens.length}
     -- the id as well: two messages written in the same millisecond have no order of their own, and
     -- a page boundary inside such a pair would repeat one and skip the other (review, 2026-09-20)

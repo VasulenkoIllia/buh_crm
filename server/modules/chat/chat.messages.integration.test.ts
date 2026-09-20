@@ -343,12 +343,15 @@ describe("replying, editing and deleting", () => {
     expect(event.changes).toEqual({ author: "their own" });
   });
 
-  it("lets a group's admins delete anybody's message, and a plain member nobody's", async () => {
-    const chatId = await group(olena, "Admin deletes", [petro, iryna]);
+  it("lets a FIRM admin delete anybody's message, and a colleague nobody's", async () => {
+    // a group has no roles (owner, 2026-09-20). Deleting somebody else's message destroys
+    // something, so that one brake stays — and it is the firm's admin, not the group's
+    const chatId = await group(olena, "Admin deletes", [petro, iryna, admin]);
     const petros = await say(petro, chatId, "oops, wrong chat");
     expect((await call(iryna, "DELETE", `/messages/${petros.id}`)).status).toBe(403);
+    expect((await call(olena, "DELETE", `/messages/${petros.id}`)).status).toBe(403);
 
-    const gone = (await call(olena, "DELETE", `/messages/${petros.id}`)).body as ChatMessage;
+    const gone = (await call(admin, "DELETE", `/messages/${petros.id}`)).body as ChatMessage;
     expect(gone.deletedByOther).toBe(true);
     expect((await logged("chat_message.deleted", petros.id)).changes).toEqual({
       author: "Petro Tester",
@@ -397,12 +400,13 @@ describe("forwarding, reactions and pins", () => {
     expect(back.reactions[0].userIds).toEqual([petro.id]);
   });
 
-  it("pins in a group by its admins alone, and lists what is pinned", async () => {
+  it("is pinned by anybody in the group, and lists what is pinned", async () => {
     const chatId = await group(olena, "Pins", [petro]);
     const message = await say(olena, chatId, "read this first");
+    // anybody in it, since a group has no roles (owner, 2026-09-20)
     expect(
       (await call(petro, "PUT", `/messages/${message.id}/pin`, { pinned: true })).status,
-    ).toBe(403);
+    ).toBe(200);
     expect(
       (await call(olena, "PUT", `/messages/${message.id}/pin`, { pinned: true })).status,
     ).toBe(200);

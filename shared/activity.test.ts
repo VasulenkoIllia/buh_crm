@@ -126,10 +126,11 @@ describe("the activity registry", () => {
     // 2026-09-18); and the chat's six for groups and their people (chat.md §12.1, 2026-09-18):
     // created, changed, and a person added, taken out, leaving, or given another role
     // and one for a message deleted for everyone, whose text is gone at once (§5.3, step A.3)
+    // −1 on 2026-09-20: a group has no roles any more, so nothing changes one (chat.md §4.3)
     // and three for files in chats (chat.md §6, stage B, 2026-09-20): uploaded, opened or
     // downloaded, and deleted with the last message carrying it — all three labelled "a chat file",
     // with no name and no chat. A chat file never reaches the Trash, so it has no purge of its own
-    expect(ACTIVITY_KEYS.length).toBe(215);
+    expect(ACTIVITY_KEYS.length).toBe(214);
     // the checklist is empty because the pass is finished — not because it was abandoned
     expect(PLANNED_EVENT_KEYS).toEqual([]);
   });

@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { Info } from "lucide-react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { ChatFile, ChatFileItem, ChatMessage } from "@shared/schema/chat";
 import { useAuth } from "@/app/auth";
 import { FileViewer, type Viewable } from "@/modules/files";
@@ -19,6 +19,7 @@ import {
   useMarkRead,
   useMessages,
   useCreateGroup,
+  useForward,
   useOpenDirect,
   useOpenSaved,
   useReact,
@@ -28,6 +29,7 @@ import {
 import { viewableOf } from "./attachments";
 import { ChatList, chatTitle } from "./chat-list";
 import { ChatPanel } from "./chat-panel";
+import { ForwardModal } from "./forward-modal";
 import { Composer } from "./composer";
 import { Conversation } from "./conversation";
 import { PinnedBar } from "./pinned-bar";
@@ -57,6 +59,7 @@ export function ChatPage() {
   const edit = useEditMessage(chatId ?? "none");
   const remove = useDeleteMessage(chatId ?? "none");
   const react = useReact(chatId ?? "none");
+  const forward = useForward();
   const openDirect = useOpenDirect();
   const openSaved = useOpenSaved();
   const createGroup = useCreateGroup();
@@ -71,7 +74,14 @@ export function ChatPage() {
   const [panel, setPanel] = useState(false);
   const [asking, setAsking] = useState(false);
   const [readBy, setReadBy] = useState<string | null>(null);
+  const [forwarding, setForwarding] = useState<ChatMessage | null>(null);
   const [goTo, setGoTo] = useState<string | null>(null);
+  /**
+   * `?m=<place>` — a link to one message, which is what "Copy link" puts on the clipboard. The
+   * conversation loads older pages until it has that place and scrolls to it.
+   */
+  const [params, setParams] = useSearchParams();
+  const linkedSeq = Number(params.get("m")) || null;
   /** the CRM's own viewer, over the chat's files (§6.2) */
   const [viewing, setViewing] = useState<{ items: Viewable[]; index: number } | null>(null);
 
@@ -123,10 +133,14 @@ export function ChatPage() {
             onSuccess: (summary) => navigate(`/chat/${summary.id}`),
           })
         }
+        onLeft={(id) => {
+          // the chat that is open is the one they just took off their list: come off it
+          if (id === chatId) navigate("/chat");
+        }}
         onOpenHit={(hit) => {
           // the conversation loads older pages until it has it, then scrolls (§8)
-          if (hit.chatId !== chatId) navigate(`/chat/${hit.chatId}`);
-          setGoTo(hit.messageId);
+          if (hit.chatId !== chatId) navigate(`/chat/${hit.chatId}?m=${hit.seq}`);
+          else setGoTo(hit.messageId);
         }}
         onNewGroup={(title, memberIds) =>
           createGroup.mutate(
@@ -169,7 +183,7 @@ export function ChatPage() {
 
             <PinnedBar
               pinned={pins.data?.messages ?? []}
-              canPin={chat.data.kind === "direct" || chat.data.myRole !== "member"}
+              canPin={chat.data.kind !== "announcements" || user?.role === "admin"}
               onGo={(message) => setGoTo(message.id)}
               onUnpin={(message) => setPinned.mutate({ id: message.id, pinned: false })}
             />
@@ -196,9 +210,19 @@ export function ChatPage() {
               onReadBy={(message) => setReadBy(message.id)}
               onVote={(message, options) => vote.mutate({ id: message.id, options })}
               onClosePoll={(message) => closePoll.mutate(message.id)}
+              onForward={(message) => setForwarding(message)}
+              firstUnread={
+                chat.data.unread > 0 && chat.data.lastReadSeq < chat.data.lastSeq
+                  ? chat.data.lastReadSeq + 1
+                  : 0
+              }
               onOpenFile={openFiles}
               goTo={goTo}
-              onWent={() => setGoTo(null)}
+              goToSeq={linkedSeq}
+              onWent={() => {
+                setGoTo(null);
+                if (linkedSeq) setParams({}, { replace: true });
+              }}
               typing={typing}
             />
 
@@ -215,12 +239,15 @@ export function ChatPage() {
                 setReplyTo(null);
                 setEditing(null);
               }}
-              onEdit={(text) => {
-                if (editing) edit.mutate({ id: editing.id, text });
+              // `mutateAsync`, so the composer knows whether it worked: it keeps the words when
+              // it did not, rather than emptying into a failure nobody sees (audit, 2026-09-20)
+              onEdit={async (text) => {
+                if (!editing) return;
+                await edit.mutateAsync({ id: editing.id, text });
                 setEditing(null);
               }}
-              onSend={(text, mentions, files) => {
-                send.mutate({
+              onSend={async (text, mentions, files) => {
+                await send.mutateAsync({
                   clientMessageId: crypto.randomUUID(),
                   ...(text ? { text } : {}),
                   ...(mentions.length ? { mentions } : {}),
@@ -266,6 +293,22 @@ export function ChatPage() {
       )}
 
       {readBy && <ReadBy messageId={readBy} onClose={() => setReadBy(null)} />}
+
+      {forwarding && (
+        <ForwardModal
+          chats={(chats.data ?? []).filter(
+            (c) => c.kind !== "announcements" || user?.role === "admin",
+          )}
+          onClose={() => setForwarding(null)}
+          onSend={(toChatIds) => {
+            forward.mutate(
+              { messageIds: [forwarding.id], toChatIds },
+              { onSuccess: () => toChatIds.length === 1 && navigate(`/chat/${toChatIds[0]}`) },
+            );
+            setForwarding(null);
+          }}
+        />
+      )}
 
       {viewing && (
         <Suspense

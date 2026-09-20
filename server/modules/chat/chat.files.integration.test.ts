@@ -481,11 +481,11 @@ describe("a file goes with its message (§6.3)", () => {
   }
 
   it("removes it for good, and says so in the log without naming it", async () => {
-    const chatId = await group(olena, "Gone with it", [petro, iryna]);
+    const chatId = await group(olena, "Gone with it", [petro, iryna, admin]);
     const file = await sent(petro, chatId, "petros-scan.png");
     const message = await say(petro, chatId, { files: [file] });
-    // an admin of the group deletes somebody else's message
-    expect((await call(olena, "DELETE", `/messages/${message.id}`)).status).toBe(200);
+    // a firm admin deletes somebody else's message: the one brake a group still has
+    expect((await call(admin, "DELETE", `/messages/${message.id}`)).status).toBe(200);
 
     const deleted = await logged("chat_file.deleted", file.fileId);
     expect(deleted.subjectLabel).toBe("a chat file");

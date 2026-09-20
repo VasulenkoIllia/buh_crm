@@ -22,11 +22,16 @@ describe("what publish() refuses", () => {
     );
   });
 
-  it("refuses a payload over what a notification may carry", async () => {
+  /**
+   * This asked the opposite until 2026-09-20, and the opposite was a bug: a crowd made the payload
+   * too long and the WHOLE event was dropped with one line in the log. The announcements channel
+   * holds every person in the firm, so past ~200 colleagues no announcement reached any open tab
+   * (audit). The recipients go in bites now; what is still refused is an event whose own DATA is
+   * too large, which no producer can reach and which would mean a rule was broken elsewhere.
+   */
+  it("sends to a crowd larger than one notification can name", async () => {
     const crowd = Array.from({ length: 250 }, () => randomUUID());
-    await expect(publish(crowd, "pong", { pingId: randomUUID() })).rejects.toThrow(
-      /over the 7900/,
-    );
+    await expect(publish(crowd, "pong", { pingId: randomUUID() })).resolves.toBeUndefined();
   });
 
   it("checks the payload even when nobody is named, and then sends nothing", async () => {

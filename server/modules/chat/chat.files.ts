@@ -48,8 +48,13 @@ export interface Incoming {
   mimetype: string;
 }
 
-/** A preview the browser drew: 320 px on its longest side, so this is room to spare (§6.2). */
-const PREVIEW_MAX_BYTES = 512 * 1024;
+/**
+ * A preview the browser drew: 960 px on its longest side since 2026-09-20, because a 320 px one
+ * was a blur on a retina screen (§6.2). The sender aims at 400 KB and steps its quality down until
+ * it fits; this is twice that, so an unusual picture still gets through and a pathological one
+ * does not.
+ */
+const PREVIEW_MAX_BYTES = 800 * 1024;
 const PREVIEW_TYPES: ReadonlySet<string> = new Set(["image/jpeg", "image/png", "image/webp"]);
 /** What a preview can be drawn FROM; the rest show as cards. */
 const PHOTO_TYPES: ReadonlySet<string> = new Set([

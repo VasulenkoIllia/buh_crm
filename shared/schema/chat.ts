@@ -34,9 +34,6 @@ export type ChatPingResult = z.infer<typeof chatPingResultSchema>;
 export const chatKind = z.enum(["direct", "group", "saved", "announcements"]);
 export type ChatKind = z.infer<typeof chatKind>;
 
-export const chatMemberRole = z.enum(["owner", "admin", "member"]);
-export type ChatMemberRole = z.infer<typeof chatMemberRole>;
-
 /** A colleague as the chat shows them: enough for a name, an avatar and "blocked". */
 export const chatPersonSchema = z.object({
   id: uuid,
@@ -76,7 +73,6 @@ export const chatSummarySchema = z.object({
   kind: chatKind,
   title: z.string().nullable(),
   peer: chatPersonSchema.nullable(),
-  myRole: chatMemberRole,
   memberCount: z.number().int(),
   lastSeq: z.number().int(),
   lastReadSeq: z.number().int(),
@@ -93,7 +89,6 @@ export const chatSummarySchema = z.object({
 export type ChatSummary = z.infer<typeof chatSummarySchema>;
 
 export const chatMemberSchema = chatPersonSchema.extend({
-  role: chatMemberRole,
   joinedAt: z.iso.datetime(),
   /** how far this person has read, and when their marker last moved */
   readSeq: z.number().int(),
@@ -124,14 +119,13 @@ export const updateGroupInput = z
   .refine((v) => v.title !== undefined || v.description !== undefined, "Nothing to change");
 export type UpdateGroupInput = z.infer<typeof updateGroupInput>;
 
+/**
+ * **A group has no roles** (owner, 2026-09-20): everybody in one may rename it, add and remove
+ * people, pin and leave. The one chat with a rule about who writes is the announcements channel,
+ * and that rule reads the FIRM's admin role, not a role of the chat's own.
+ */
 export const addMembersInput = z.object({ userIds: z.array(uuid).min(1).max(200) });
 export type AddMembersInput = z.infer<typeof addMembersInput>;
-
-export const setMemberRoleInput = z.object({ role: z.enum(["admin", "member"]) });
-export type SetMemberRoleInput = z.infer<typeof setMemberRoleInput>;
-
-export const transferOwnerInput = z.object({ userId: uuid });
-export type TransferOwnerInput = z.infer<typeof transferOwnerInput>;
 
 export const openDirectInput = z.object({ userId: uuid });
 export type OpenDirectInput = z.infer<typeof openDirectInput>;
@@ -211,6 +205,10 @@ export type ChatFilesQuery = z.infer<typeof chatFilesQuery>;
 export const chatMessageKind = z.enum(["text", "poll", "notice"]);
 export type ChatMessageKind = z.infer<typeof chatMessageKind>;
 
+/**
+ * The lines a chat writes about itself. `role_changed` and `owner_changed` are only ever READ now:
+ * they belong to lines written before a group lost its roles (owner, 2026-09-20).
+ */
 export const chatNotice = z.enum([
   "created",
   "renamed",
@@ -376,6 +374,13 @@ export const chatSearchPageSchema = z.object({
   hits: z.array(chatSearchHitSchema),
   people: z.array(chatPersonSchema),
   more: z.boolean(),
+  /**
+   * The search read as many candidates as it takes at a time and stopped there, so older messages
+   * that also hold the words are not in this answer. The box says so and asks for a narrower
+   * search; it is not another page, and offering one gave a "more" that answered with nothing
+   * (audit, 2026-09-20).
+   */
+  narrowed: z.boolean(),
 });
 export type ChatSearchPage = z.infer<typeof chatSearchPageSchema>;
 

@@ -439,6 +439,26 @@ export async function viewClient(id: string, userId: string) {
   return client;
 }
 
+/**
+ * **What a link to a client says about it** (chat.md §5.6), for the card a chat draws when somebody
+ * pastes one. Deliberately NOT `viewClient`: a card is drawn by scrolling past a message, and a
+ * scroll is not somebody opening a client's file — logging it would answer "who looked at Petrenko"
+ * with people who only read a chat (audit, 2026-09-20). It is also not `getClient`: that runs six
+ * aggregates for a screen, and a card needs a name.
+ *
+ * An archived client has no card, the same way it has no screen.
+ */
+export async function cardOf(id: string) {
+  const client = await repo.findClientBrief(id);
+  if (!client || client.archivedAt) throw new NotFoundError("Client not found");
+  return {
+    id: client.id,
+    name: clientLabel(client),
+    companyName: client.companyName,
+    code: client.code,
+  };
+}
+
 export async function createClient(input: CreateClientInput) {
   await assertPeopleServicesClientFacing(input.people);
   // check before writing anything: a refused save must not leave a half-created client behind

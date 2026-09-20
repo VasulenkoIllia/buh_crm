@@ -225,7 +225,6 @@ export function useAttachments(chatId: string) {
     retry,
     clear,
     /** everything is stored, so the message may go */
-    ready: items.length > 0 && items.every((i) => i.state === "done"),
     busy: items.some(
       (i) => i.state === "drawing" || i.state === "waiting" || i.state === "sending",
     ),
@@ -350,12 +349,22 @@ export function MessageFiles({
               type="button"
               onClick={() => onOpen(files, files.indexOf(file))}
               title={`${file.name} · ${fmtBytes(file.size)}`}
+              className={photos.length > 1 ? "min-w-0" : "flex min-w-0 justify-start"}
             >
               <img
                 src={chatFileUrl(file.previewFileId!, "preview")}
                 alt={file.name}
                 loading="lazy"
-                className="max-h-[220px] w-full rounded-(--radius-field) object-cover"
+                decoding="async"
+                // one photo keeps its own shape and is never stretched past the preview's own size
+                // (owner, 2026-09-20: a stretched 320 px preview was the blur); several share a
+                // grid, where a square cell reads better than four different shapes
+                className={cn(
+                  "rounded-(--radius-field)",
+                  photos.length > 1
+                    ? "aspect-square w-full object-cover"
+                    : "max-h-[320px] w-auto max-w-full object-contain",
+                )}
               />
             </button>
           ))}

@@ -62,7 +62,11 @@ const MARKS: { pattern: RegExp; wrap: (inner: ReactNode, key: string) => ReactNo
   { pattern: /_([^_\n]+)_/g, wrap: (inner, key) => <em key={key}>{inner}</em> },
 ];
 
-function linkify(text: string, key: string): ReactNode[] {
+/**
+ * A link's colour depends on what it is standing on: the reader's own bubble is the primary colour,
+ * and a primary link on it is very nearly invisible (found in use, 2026-09-20).
+ */
+function linkify(text: string, key: string, mine = false): ReactNode[] {
   const out: ReactNode[] = [];
   let at = 0;
   for (const match of text.matchAll(LINK)) {
@@ -74,7 +78,11 @@ function linkify(text: string, key: string): ReactNode[] {
         href={match[0]}
         target="_blank"
         rel="noreferrer noopener"
-        className="text-primary-link hover:underline"
+        className={
+          mine
+            ? "underline decoration-white/60 hover:decoration-white"
+            : "text-primary-link hover:underline"
+        }
       >
         {match[0]}
       </a>,
@@ -85,20 +93,23 @@ function linkify(text: string, key: string): ReactNode[] {
   return out;
 }
 
-function inline(text: string, key: string, depth = 0): ReactNode[] {
-  if (depth >= MARKS.length) return linkify(text, key);
+function inline(text: string, key: string, depth = 0, mine = false): ReactNode[] {
+  if (depth >= MARKS.length) return linkify(text, key, mine);
   const { pattern, wrap } = MARKS[depth];
   const out: ReactNode[] = [];
   let at = 0;
   for (const match of text.matchAll(new RegExp(pattern))) {
     const start = match.index;
-    if (start > at) out.push(...inline(text.slice(at, start), `${key}-${at}`, depth + 1));
+    if (start > at) {
+      out.push(...inline(text.slice(at, start), `${key}-${at}`, depth + 1, mine));
+    }
     // code holds no other marks: what is inside it is what was typed
-    const inner = depth === 0 ? match[1] : inline(match[1], `${key}-${start}i`, depth + 1);
+    const inner =
+      depth === 0 ? match[1] : inline(match[1], `${key}-${start}i`, depth + 1, mine);
     out.push(wrap(inner, `${key}-${start}`));
     at = start + match[0].length;
   }
-  if (at < text.length) out.push(...inline(text.slice(at), `${key}-${at}`, depth + 1));
+  if (at < text.length) out.push(...inline(text.slice(at), `${key}-${at}`, depth + 1, mine));
   return out;
 }
 
@@ -144,9 +155,12 @@ const escape = (word: string) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 export function RichText({
   text,
   mentions = [],
+  mine = false,
 }: {
   text: string;
   mentions?: readonly string[];
+  /** drawn on the reader's own bubble, which is the primary colour */
+  mine?: boolean;
 }) {
   return (
     <>
@@ -164,7 +178,7 @@ export function RichText({
         const body = block.lines.map((line, j) => (
           <Fragment key={j}>
             {j > 0 && <br />}
-            {withMentions(inline(line, `${i}-${j}`), mentions, `${i}-${j}`)}
+            {withMentions(inline(line, `${i}-${j}`, 0, mine), mentions, `${i}-${j}`)}
           </Fragment>
         ));
         return block.kind === "quote" ? (

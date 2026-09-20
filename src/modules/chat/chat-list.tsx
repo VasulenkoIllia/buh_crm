@@ -1,12 +1,18 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AtSign,
   BellOff,
+  Bell,
   Bookmark,
+  Check,
+  LogOut,
   Megaphone,
+  MoreHorizontal,
   Pin,
+  PinOff,
   Plus,
   Settings2,
+  Trash2,
   Users,
   UsersRound,
 } from "lucide-react";
@@ -16,6 +22,7 @@ import { fmtTime, isoDay } from "@/shared/lib/format";
 import { UserAvatar } from "@/shared/ui/avatar";
 import { Button } from "@/shared/ui/button";
 import { Modal } from "@/shared/ui/modal";
+import { useChatListActions } from "./chat.api";
 import { ChatSearchBox } from "./chat-search";
 import { NotifySettings } from "./notify-modal";
 
@@ -84,6 +91,110 @@ function lastLine(chat: ChatSummary): string {
   return words;
 }
 
+/**
+ * **What a person does to a chat without opening it** (§4.2): pin it, mute it, mark it read, leave
+ * a group, or take it off their list. Right-click on the row, or the ⋯ that appears on it.
+ *
+ * "Delete for me" hides the chat AND marks it read, so it leaves the list clean and comes back only
+ * when somebody writes again. Nothing is deleted for anybody else, and nothing of what was said is
+ * lost: a chat is a conversation between people, and one of them cannot end it for the others
+ * (owner, 2026-09-20).
+ */
+function ChatRowMenu({
+  chat,
+  onClose,
+  onLeft,
+}: {
+  chat: ChatSummary;
+  onClose: () => void;
+  onLeft: (chatId: string) => void;
+}) {
+  const { settings, markRead, leave } = useChatListActions();
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const away = (event: MouseEvent) => {
+      if (!box.current?.contains(event.target as Node)) onClose();
+    };
+    const escape = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    window.addEventListener("mousedown", away);
+    window.addEventListener("keydown", escape);
+    return () => {
+      window.removeEventListener("mousedown", away);
+      window.removeEventListener("keydown", escape);
+    };
+  }, [onClose]);
+
+  const item =
+    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12.5px] hover:bg-divider";
+  const act = (run: () => void) => () => {
+    run();
+    onClose();
+  };
+
+  return (
+    <div
+      ref={box}
+      className="absolute top-8 right-2 z-30 w-[190px] overflow-hidden rounded-(--radius-panel) border border-border bg-surface py-1 shadow-(--shadow-card)"
+    >
+      <button
+        type="button"
+        className={item}
+        onClick={act(() => settings.mutate({ chatId: chat.id, pinned: !chat.pinnedAt }))}
+      >
+        {chat.pinnedAt ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
+        {chat.pinnedAt ? "Unpin" : "Pin to the top"}
+      </button>
+      <button
+        type="button"
+        className={item}
+        onClick={act(() =>
+          settings.mutate({ chatId: chat.id, mute: chat.mutedUntil ? "off" : "forever" }),
+        )}
+      >
+        {chat.mutedUntil ? <Bell className="size-3.5" /> : <BellOff className="size-3.5" />}
+        {chat.mutedUntil ? "Unmute" : "Mute"}
+      </button>
+      {chat.unread > 0 && (
+        <button
+          type="button"
+          className={item}
+          onClick={act(() => markRead.mutate({ chatId: chat.id, seq: chat.lastSeq }))}
+        >
+          <Check className="size-3.5" />
+          Mark as read
+        </button>
+      )}
+      {chat.kind !== "announcements" && (
+        <button
+          type="button"
+          className={item}
+          onClick={act(() => {
+            markRead.mutate({ chatId: chat.id, seq: chat.lastSeq });
+            settings.mutate({ chatId: chat.id, hidden: true });
+            onLeft(chat.id);
+          })}
+        >
+          <Trash2 className="size-3.5" />
+          Delete for me
+        </button>
+      )}
+      {chat.kind === "group" && (
+        <button
+          type="button"
+          className={cn(item, "text-danger-text")}
+          onClick={act(() => {
+            leave.mutate(chat.id);
+            onLeft(chat.id);
+          })}
+        >
+          <LogOut className="size-3.5" />
+          Leave the group
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function ChatList({
   chats,
   people,
@@ -94,6 +205,7 @@ export function ChatList({
   onOpenSaved,
   onNewGroup,
   onOpenHit,
+  onLeft,
   narrow,
 }: {
   chats: ChatSummary[];
@@ -106,12 +218,15 @@ export function ChatList({
   onNewGroup: (title: string, memberIds: string[]) => void;
   /** a message the search found, in whichever chat it is in (§8) */
   onOpenHit: (hit: ChatSearchHit) => void;
+  /** a chat this person has just left or taken off their list, so the screen can move off it */
+  onLeft: (chatId: string) => void;
   /** the details panel is open: on a narrow screen the conversation needs the room more */
   narrow?: boolean;
 }) {
   const [starting, setStarting] = useState(false);
   const [settings, setSettings] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [menuFor, setMenuFor] = useState<string | null>(null);
 
   return (
     <div
@@ -135,7 +250,14 @@ export function ChatList({
           New
         </Button>
       </div>
-      <div className="border-b border-divider">
+      {/* while it is searching the box takes the sidebar's height and its results scroll inside
+          it; empty it is just the input, and the chat list has the room (audit, 2026-09-20) */}
+      <div
+        className={cn(
+          "flex flex-col border-b border-divider",
+          searching && "min-h-0 flex-1 overflow-hidden",
+        )}
+      >
         <ChatSearchBox people={people} onOpen={onOpenHit} onActive={setSearching} />
       </div>
 
@@ -146,38 +268,57 @@ export function ChatList({
           </p>
         )}
         {chats.map((chat) => (
-          <button
-            key={chat.id}
-            type="button"
-            onClick={() => onOpen(chat.id)}
-            className={cn(
-              "flex w-full items-center gap-2.5 border-b border-divider px-3 py-2 text-left",
-              chat.id === openId ? "bg-divider" : "hover:bg-[#fafbfc]",
-            )}
-          >
-            <Face chat={chat} online={online} />
-            <span className="min-w-0 flex-1">
-              <span className="flex items-center gap-1.5">
-                <span className="truncate text-[13px] font-medium text-ink">
-                  {chatTitle(chat)}
-                </span>
-                {chat.pinnedAt && <Pin className="size-3 shrink-0 text-muted" />}
-                {chat.mutedUntil && <BellOff className="size-3 shrink-0 text-muted" />}
-                <span className="ml-auto shrink-0 text-[11px] text-muted">
-                  {chat.lastMessage ? when(chat.lastMessage.at) : ""}
-                </span>
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="truncate text-[12px] text-muted">{lastLine(chat)}</span>
-                {chat.mentioned && <AtSign className="size-3 shrink-0 text-primary" />}
-                {chat.unread > 0 && (
-                  <span className="ml-auto shrink-0 rounded-full bg-primary px-1.5 text-[11px] font-semibold text-white">
-                    {chat.unread}
+          <div key={chat.id} className="group relative">
+            <button
+              type="button"
+              onClick={() => onOpen(chat.id)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setMenuFor(chat.id);
+              }}
+              className={cn(
+                "flex w-full items-center gap-2.5 border-b border-divider px-3 py-2 text-left",
+                chat.id === openId ? "bg-divider" : "hover:bg-[#fafbfc]",
+              )}
+            >
+              <Face chat={chat} online={online} />
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-1.5">
+                  <span className="truncate text-[13px] font-medium text-ink">
+                    {chatTitle(chat)}
                   </span>
-                )}
+                  {chat.pinnedAt && <Pin className="size-3 shrink-0 text-muted" />}
+                  {chat.mutedUntil && <BellOff className="size-3 shrink-0 text-muted" />}
+                  <span className="ml-auto shrink-0 text-[11px] text-muted">
+                    {chat.lastMessage ? when(chat.lastMessage.at) : ""}
+                  </span>
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="truncate text-[12px] text-muted">{lastLine(chat)}</span>
+                  {chat.mentioned && <AtSign className="size-3 shrink-0 text-primary" />}
+                  {chat.unread > 0 && (
+                    <span className="ml-auto shrink-0 rounded-full bg-primary px-1.5 text-[11px] font-semibold text-white">
+                      {chat.unread}
+                    </span>
+                  )}
+                </span>
               </span>
-            </span>
-          </button>
+            </button>
+            <button
+              type="button"
+              aria-label="More"
+              onClick={() => setMenuFor(chat.id)}
+              className={cn(
+                "absolute top-2 right-1.5 rounded p-0.5 text-muted opacity-0 hover:bg-divider",
+                "hover:text-ink group-hover:opacity-100",
+              )}
+            >
+              <MoreHorizontal className="size-3.5" />
+            </button>
+            {menuFor === chat.id && (
+              <ChatRowMenu chat={chat} onClose={() => setMenuFor(null)} onLeft={onLeft} />
+            )}
+          </div>
         ))}
       </div>
 

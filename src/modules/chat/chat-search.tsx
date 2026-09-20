@@ -16,9 +16,9 @@ import { useChatSearch } from "./chat.api";
  * **The two search boxes** (chat.md §8): the same component above the chat list, where it searches
  * every chat the reader is in, and inside a chat, where `chatId` holds it to that one.
  *
- * The words are sealed, so the server matches keyed hashes of them and opens only the page it
- * shows (`server/modules/chat/chat.search.ts`). Here that is invisible: a word, from three letters,
- * matches the words that start with it, and every word must be somewhere.
+ * The words are sealed, so the server matches keyed hashes of them and opens only what it is about
+ * to show (`server/modules/chat/chat.search.ts`). Here that is invisible: three letters or more,
+ * anywhere inside a word, and every word of the query must be somewhere in the message.
  */
 
 export function ChatSearchBox({
@@ -134,7 +134,7 @@ export function ChatSearchBox({
 
       {typed.trim().length > 0 && !enough && (
         <p className="px-3 pb-2 text-[11.5px] text-muted">
-          At least {SEARCH_MIN_WORD} letters.
+          At least {SEARCH_MIN_WORD} letters, anywhere in a word.
         </p>
       )}
 
@@ -175,7 +175,7 @@ export function ChatSearchBox({
               </span>
             </button>
           ))}
-          {found.data?.more && (
+          {(found.data?.more || found.data?.narrowed) && (
             <p className="px-3 py-2 text-[11.5px] text-muted">
               The newest 30 are shown. Add a word to narrow it down.
             </p>
