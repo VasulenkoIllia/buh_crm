@@ -102,7 +102,17 @@ export function Composer({
    * start: typing after picking a mention landed before the name (found in the browser, A.6).
    */
   const caretAfter = useRef<{ start: number; end: number } | null>(null);
-  const caret = field.current?.selectionStart ?? text.length;
+  /**
+   * **Where the caret is, as STATE.** It used to be read off the DOM while rendering
+   * (`field.current?.selectionStart`), which is one render behind the text: after picking a name,
+   * the field held "@Iryna Shevchuk " while this still said 2. Everything downstream is computed
+   * from it, so the picker stayed open on the old query, a second Enter ran the insertion again,
+   * and the field read "@Iryna Shevchuk ryna Shevchuk" (owner, 2026-09-20).
+   *
+   * It is set by whatever moves the caret: typing, clicking, the arrows (`onSelect` covers all
+   * three), and the three places that write text themselves.
+   */
+  const [caret, setCaret] = useState(0);
   const [mentionsOff, setMentionsOff] = useState(false);
   const mentioning = mentionsOff ? null : mentionQuery(text, caret);
   const naming = mentioning ? mentionOptions(members, mentioning.query) : [];
@@ -111,7 +121,9 @@ export function Composer({
   const standing = Math.min(onName, Math.max(0, naming.length - 1));
 
   useEffect(() => {
-    setText(editing?.text ?? drafts()[chatId] ?? "");
+    const now = editing?.text ?? drafts()[chatId] ?? "";
+    setText(now);
+    setCaret(now.length);
     field.current?.focus();
   }, [chatId, editing]);
 
@@ -166,6 +178,7 @@ export function Composer({
       setSending(false);
     }
     setText("");
+    setCaret(0);
     setNamed([]);
     attached.clear();
     setRefused(null);
@@ -190,6 +203,7 @@ export function Composer({
     const next = wrapSelection(text, el.selectionStart, el.selectionEnd, marks);
     caretAfter.current = { start: next.start, end: next.end };
     setText(next.text);
+    setCaret(next.end);
   };
 
   /** The name goes in where the `@` was, and the person goes with the send (§5.2). */
@@ -198,7 +212,11 @@ export function Composer({
     const next = putMention(text, mentioning, person.name);
     caretAfter.current = { start: next.caret, end: next.caret };
     setText(next.text);
+    setCaret(next.caret);
     setOnName(0);
+    // the name is in: this `@` is finished, and the picker does not reopen on the words just
+    // written. The next thing typed clears it (`onChange`), and a new `@` opens a new picker
+    setMentionsOff(true);
     if (person.id) setNamed((was) => [...was, { id: person.id as string, name: person.name }]);
   };
 
@@ -207,6 +225,7 @@ export function Composer({
     const at = el?.selectionStart ?? text.length;
     caretAfter.current = { start: at + emoji.length, end: at + emoji.length };
     setText(`${text.slice(0, at)}${emoji}${text.slice(at)}`);
+    setCaret(at + emoji.length);
     setPicking(false);
   };
 
@@ -253,10 +272,13 @@ export function Composer({
           placeholder="Write a message"
           onChange={(e) => {
             setText(e.target.value);
+            setCaret(e.target.selectionStart);
             setMentionsOff(false);
             setOnName(0);
             onTyping();
           }}
+          // every other way the caret moves: a click, the arrows, a drag over the words
+          onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
           onPaste={(e) => {
             // a screenshot pasted into the field is a photo to send, not text (§6.1)
             const pasted = [...e.clipboardData.files];

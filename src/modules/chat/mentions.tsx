@@ -34,7 +34,10 @@ export function mentionQuery(text: string, caret: number): Mentioning | null {
 /** Puts the name in place of what has been typed since the `@`. */
 export function putMention(text: string, where: Mentioning, name: string) {
   const head = `${text.slice(0, where.at)}@${name} `;
-  return { text: head + text.slice(where.at + 1 + where.query.length), caret: head.length };
+  // the name is followed by one space, so a space already standing there is not a second one:
+  // naming somebody in the middle of a written sentence used to leave "@Iryna Shevchuk  and"
+  const tail = text.slice(where.at + 1 + where.query.length).replace(/^ /, "");
+  return { text: head + tail, caret: head.length };
 }
 
 /** Who the `@` so far could mean, `@all` first: the list the picker draws and the keys walk. */
