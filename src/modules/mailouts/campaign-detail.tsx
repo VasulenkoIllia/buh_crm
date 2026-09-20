@@ -2,6 +2,7 @@ import { BellOff, CalendarClock, Repeat } from "lucide-react";
 import { Link } from "react-router-dom";
 import { RHYTHM_LABELS } from "@shared/campaigns";
 import { fmtBizDate, fmtDateTime } from "@/shared/lib/format";
+import { CopyLink } from "@/shared/ui/copy-link";
 import { Modal } from "@/shared/ui/modal";
 import { CampaignStatus } from "./campaigns";
 import { useCampaign } from "./mailouts.api";
@@ -29,6 +30,9 @@ export function CampaignDetailModal({
       ) : (
         <>
           <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted">
+            <span className="order-last ml-auto">
+              <CopyLink href={`/mailouts?tab=campaigns&campaign=${data.id}`} />
+            </span>
             <CampaignStatus campaign={data} />
             <span className="flex items-center gap-1">
               {data.rhythm !== "once" && data.rhythm !== "dates" && <Repeat size={11} />}

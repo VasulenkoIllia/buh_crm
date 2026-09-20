@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Building2, Pencil, Power, Star, Trash2, Users } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -10,6 +10,8 @@ import { useAssignees } from "@/modules/tasks";
 import { ApiError } from "@/shared/lib/api";
 import { CATEGORY_PALETTE } from "@/shared/lib/colors";
 import { cn } from "@/shared/lib/cn";
+import { useRecordParam } from "@/shared/lib/use-record-param";
+import { CopyLink } from "@/shared/ui/copy-link";
 import { AssigneePicker } from "@/shared/ui/assignee-picker";
 import { Button, IconButton } from "@/shared/ui/button";
 import { Chip } from "@/shared/ui/chip";
@@ -92,6 +94,22 @@ export function ServicesPage() {
   const deleteService = useDeleteService();
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<Service | undefined>();
+  /**
+   * `?service=<id>` is a service's own address (chat.md §5.6): opening one for editing writes it,
+   * and arriving with one opens that service. The catalog is one list the screen already holds, so
+   * the link resolves without a read of its own.
+   */
+  const [openId, openService, closeService] = useRecordParam("service");
+  useEffect(() => {
+    if (!openId || !services) return;
+    const found = services.find((x) => x.id === openId);
+    if (!found) {
+      closeService();
+      return;
+    }
+    setEditing(found);
+    setEditorOpen(true);
+  }, [openId, services, closeService]);
   const [taskModal, setTaskModal] = useState<
     { service: Service; template?: TaskTemplate } | undefined
   >();
@@ -297,10 +315,7 @@ export function ServicesPage() {
                         <>
                           <IconButton
                             label="Edit service"
-                            onClick={() => {
-                              setEditing(service);
-                              setEditorOpen(true);
-                            }}
+                            onClick={() => openService(service.id)}
                           >
                             <Pencil size={15} />
                           </IconButton>
@@ -405,7 +420,10 @@ export function ServicesPage() {
           open={editorOpen}
           service={editing}
           presetType={tab === "internal" ? "internal" : undefined}
-          onClose={() => setEditorOpen(false)}
+          onClose={() => {
+            setEditorOpen(false);
+            closeService();
+          }}
         />
       )}
       {taskModal && (
@@ -639,6 +657,7 @@ function ServiceEditorModal({
       onClose={onClose}
       footer={
         <>
+          {service && <CopyLink href={`/services?service=${service.id}`} />}
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>

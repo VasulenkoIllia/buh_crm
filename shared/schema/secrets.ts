@@ -375,3 +375,28 @@ export const revealedSecretSchema = z.object({
   expiresAt: z.iso.datetime(),
 });
 export type RevealedSecret = z.infer<typeof revealedSecretSchema>;
+
+/**
+ * **What a link to a secret says about it** (chat.md §5.6; owner, 2026-09-20, who asked for links
+ * on everything and accepted this one's limit).
+ *
+ * The NAME is deliberately not here. A secret's label is the reconnaissance half of it — "Petrenko
+ * — IRS EFTPS" says which credentials exist for whom — and a card is drawn by scrolling a message
+ * into view, by anybody with the vault's gate, with no unlock and for ever after in that chat's
+ * history. So the card says WHERE the secret lives and WHAT KIND it is, which is enough for
+ * "look at this one", and the label is read on the vault's own screen by somebody who went there.
+ */
+export const secretCardSchema = z.object({
+  id: uuid,
+  /** "My secrets", "Company", or a client's name: where to go and look */
+  where: z.string(),
+  /** the template's own name: "Login", "Bank", "Tax account" */
+  kind: z.string(),
+  /** the same place for the screen to open, which `where` says in words */
+  place: z.discriminatedUnion("space", [
+    z.object({ space: z.literal("personal") }),
+    z.object({ space: z.literal("company") }),
+    z.object({ space: z.literal("client"), clientId: uuid }),
+  ]),
+});
+export type SecretCard = z.infer<typeof secretCardSchema>;

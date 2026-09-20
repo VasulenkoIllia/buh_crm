@@ -3,6 +3,7 @@ import { CalendarClock, CalendarDays, Pause, Pencil, Play, Repeat } from "lucide
 import type { Campaign } from "@shared/schema/campaigns";
 import { RHYTHM_LABELS } from "@shared/campaigns";
 import { cn } from "@/shared/lib/cn";
+import { useRecordParam } from "@/shared/lib/use-record-param";
 import { fmtBizDate, fmtDate, fmtDateTime } from "@/shared/lib/format";
 import { IconButton } from "@/shared/ui/button";
 import { CampaignModal } from "./campaign-modal";
@@ -32,7 +33,8 @@ export function Campaigns({ newSignal }: { newSignal: number }) {
   const { data, isLoading } = useCampaigns();
   const [editing, setEditing] = useState<Campaign | null>(null);
   const [creating, setCreating] = useState(false);
-  const [open, setOpen] = useState<string | null>(null);
+  /** `?campaign=<id>` is a campaign's own address (chat.md §5.6), so a link to one opens it here */
+  const [open, openCampaign, closeCampaign] = useRecordParam("campaign");
   const [error, setError] = useState<string | null>(null);
   const setActive = useSetCampaignActive();
 
@@ -92,7 +94,7 @@ export function Campaigns({ newSignal }: { newSignal: number }) {
           {items.map((c) => (
             <div
               key={c.id}
-              onClick={() => setOpen(c.id)}
+              onClick={() => openCampaign(c.id)}
               className={cn(
                 "grid cursor-pointer items-center gap-x-3 border-b border-border px-4 py-2.5 text-[13px] last:border-0 hover:bg-[#fafbfc]",
                 MIN,
@@ -171,7 +173,7 @@ export function Campaigns({ newSignal }: { newSignal: number }) {
 
       <CampaignModal open={creating} campaign={null} onClose={() => setCreating(false)} />
       <CampaignModal open={!!editing} campaign={editing} onClose={() => setEditing(null)} />
-      <CampaignDetailModal id={open} onClose={() => setOpen(null)} />
+      <CampaignDetailModal id={open} onClose={closeCampaign} />
     </>
   );
 }

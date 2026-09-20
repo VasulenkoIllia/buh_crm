@@ -5,6 +5,7 @@ import { ApiError } from "@/shared/lib/api";
 import { fmtDateTime } from "@/shared/lib/format";
 import { Button } from "@/shared/ui/button";
 import { Chip } from "@/shared/ui/chip";
+import { CopyLink } from "@/shared/ui/copy-link";
 import { Modal } from "@/shared/ui/modal";
 import { useToast } from "@/shared/ui/toast";
 import type { UiPlace } from "./places";
@@ -113,7 +114,7 @@ export function SecretWindow({
         <div className="space-y-4">
           <div className="flex items-center gap-3">
             <TemplateIcon template={secret.template} big />
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="text-[13px] text-muted">{sub}</p>
               {/* a reference only when nothing at all is kept here, files included (§21) */}
               {!secret.hasValue && secret.files.length === 0 && (
@@ -122,6 +123,13 @@ export function SecretWindow({
                 </Chip>
               )}
             </div>
+            {/* the link names no secret: the card it draws in a chat says only where it lives and
+                what kind it is (secrets.md §22) */}
+            <CopyLink
+              icon
+              href={`/secrets?secret=${secret.id}`}
+              label="Copy link to this entry"
+            />
           </div>
 
           {secret.description && (

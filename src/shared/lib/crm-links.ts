@@ -22,7 +22,18 @@ import { api } from "./api";
  *    something inside it.
  */
 
-export type CrmKind = "task" | "client" | "lead" | "invoice" | "meeting" | "file";
+export type CrmKind =
+  | "task"
+  | "client"
+  | "lead"
+  | "invoice"
+  | "meeting"
+  | "file"
+  | "secret"
+  | "chat"
+  | "mailout"
+  | "campaign"
+  | "service";
 
 /** What a card shows once the record has answered. */
 export interface RecordName {
@@ -169,6 +180,110 @@ export const CRM_LINKS: CrmLinkKind[] = [
         `/api/files/${id}/card`,
       );
       return { name: file.name, note: `${file.where} · ${Math.ceil(file.size / 1024)} KB` };
+    },
+  },
+  {
+    kind: "secret",
+    label: "Secret",
+    href: (id) => `/secrets?secret=${id}`,
+    idIn: byParam("/secrets", "secret"),
+    /**
+     * **The one card that does not name its record** (secrets.md §22). A secret's label is the
+     * reconnaissance half of it — "Petrenko — IRS EFTPS" says which credentials exist for whom —
+     * and a card is drawn by scrolling a message into view, with no unlock, for ever after in that
+     * chat. So the card says where it lives and what kind it is, which is enough for "look at this
+     * one", and the label is read on the vault's own screen by somebody who went there.
+     */
+    ask: async (id) => {
+      const secret = await api<{ where: string; kind: string }>(`/api/secrets/${id}/card`);
+      return { name: `${secret.kind} in ${secret.where}`, note: "Open the vault to see it" };
+    },
+  },
+  {
+    kind: "chat",
+    label: "Chat",
+    href: (id) => `/chat/${id}`,
+    idIn: byPath("/chat"),
+    ask: async (id) => {
+      const chat = await api<{
+        kind: string;
+        title: string | null;
+        peer: { firstName: string; lastName: string } | null;
+        memberCount: number;
+      }>(`/api/chat/chats/${id}`);
+      const name =
+        chat.kind === "group"
+          ? (chat.title ?? "Group")
+          : chat.kind === "saved"
+            ? "Saved messages"
+            : chat.kind === "announcements"
+              ? "Firm announcements"
+              : chat.peer
+                ? `${chat.peer.firstName} ${chat.peer.lastName}`.trim()
+                : "Direct chat";
+      return { name, note: chat.kind === "group" ? `${chat.memberCount} people` : null };
+    },
+  },
+  {
+    kind: "mailout",
+    label: "Mail-out",
+    href: (id) => `/mailouts?tab=log&mailout=${id}`,
+    idIn: byParam("/mailouts", "mailout"),
+    /** the subject and the tally, never the recipients: who was written to is the screen's (§D) */
+    ask: async (id) => {
+      const sent = await api<{
+        subject: string;
+        counts: { sent: number; delivered: number; notDelivered: number };
+      }>(`/api/mailouts/${id}`);
+      const { sent: out, delivered, notDelivered } = sent.counts;
+      return {
+        name: sent.subject,
+        note: `${out} sent · ${delivered} delivered${notDelivered ? ` · ${notDelivered} not` : ""}`,
+        settled: true,
+      };
+    },
+  },
+  {
+    kind: "campaign",
+    label: "Campaign",
+    href: (id) => `/mailouts?tab=campaigns&campaign=${id}`,
+    idIn: byParam("/mailouts", "campaign"),
+    ask: async (id) => {
+      const campaign = await api<{
+        name: string;
+        status: string;
+        recipientCount: number;
+        nextRunOn: string | null;
+      }>(`/api/mailouts/campaigns/${id}`);
+      return {
+        name: campaign.name,
+        note: `${campaign.status} · ${campaign.recipientCount} people${
+          campaign.nextRunOn ? ` · next ${campaign.nextRunOn}` : ""
+        }`,
+        settled: campaign.status !== "active",
+      };
+    },
+  },
+  {
+    kind: "service",
+    label: "Service",
+    href: (id) => `/services?service=${id}`,
+    idIn: byParam("/services", "service"),
+    /**
+     * The catalog is one small `shared()` read the whole app already holds, so a service's card
+     * costs no route of its own: it is found in the list.
+     */
+    ask: async (id) => {
+      const catalog = await api<{
+        services: { id: string; name: string; type: string; archivedAt?: string | null }[];
+      }>("/api/catalog");
+      const service = catalog.services.find((s) => s.id === id);
+      if (!service) throw new Error("No such service");
+      return {
+        name: service.name,
+        note: service.type,
+        settled: !!service.archivedAt,
+      };
     },
   },
 ];

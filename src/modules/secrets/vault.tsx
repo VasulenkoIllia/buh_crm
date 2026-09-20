@@ -1,6 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { Building2, ChevronRight, Plus, Trash2, User, Users } from "lucide-react";
-import type { SecretTemplate } from "@shared/schema/secrets";
+import type { SecretCard, SecretTemplate } from "@shared/schema/secrets";
+import { api } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { ClientCode } from "@/shared/ui/client-code";
@@ -80,6 +83,48 @@ function TreeNode({
 
 export function Vault() {
   const [view, setView] = useState<View>({ type: "place", place: COMPANY });
+  /**
+   * **`?secret=<id>` opens the place it lives in, with that entry marked** (chat.md §5.6). The
+   * card route answers with the place and nothing secret, so a link is navigation: it takes a
+   * colleague to the right list, and the entry is opened by them, on the screen, as always.
+   */
+  const [params, setParams] = useSearchParams();
+  const linked = params.get("secret");
+  const linkedSecret = useQuery({
+    queryKey: ["secrets", "card", linked],
+    queryFn: () => api<SecretCard>(`/api/secrets/${linked!}/card`),
+    enabled: linked !== null,
+    retry: false,
+  });
+  const [refused, setRefused] = useState(false);
+  useEffect(() => {
+    if (!linked) return;
+    const card = linkedSecret.data;
+    if (card) {
+      setRefused(false);
+      setView({
+        type: "place",
+        place:
+          card.place.space === "personal"
+            ? MY
+            : card.place.space === "company"
+              ? COMPANY
+              : { kind: "client", clientId: card.place.clientId },
+        focus: card.id,
+      });
+    }
+    if (linkedSecret.isError) setRefused(true);
+    if (card || linkedSecret.isError) {
+      setParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("secret");
+          return next;
+        },
+        { replace: true },
+      );
+    }
+  }, [linked, linkedSecret.data, linkedSecret.isError, setParams]);
   const [q, setQ] = useState("");
   const [template, setTemplate] = useState<SecretTemplate | "all">("all");
   const [searchPlace, setSearchPlace] = useState<"all" | "my" | "company" | "clients">("all");
@@ -182,6 +227,15 @@ export function Vault() {
 
   return (
     <>
+      {refused && (
+        <button
+          type="button"
+          onClick={() => setRefused(false)}
+          className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-(--radius-panel) border border-border bg-surface px-3 py-2 text-[12.5px] shadow-(--shadow-card)"
+        >
+          That entry is not open to you, or it is no longer there.
+        </button>
+      )}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-[20px] font-semibold">Secrets</h1>

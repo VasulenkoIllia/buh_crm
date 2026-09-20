@@ -3,8 +3,13 @@ import {
   CalendarDays,
   CircleSlash,
   FileText,
-  Lock,
+  KeyRound,
+  Layers,
   ListTodo,
+  Lock,
+  Mail,
+  Megaphone,
+  MessageSquare,
   Receipt,
   Sparkles,
   UserRound,
@@ -36,6 +41,11 @@ const ICONS: Record<CrmKind, typeof ListTodo> = {
   invoice: Receipt,
   meeting: CalendarDays,
   file: FileText,
+  secret: KeyRound,
+  chat: MessageSquare,
+  mailout: Mail,
+  campaign: Megaphone,
+  service: Layers,
 };
 
 /**

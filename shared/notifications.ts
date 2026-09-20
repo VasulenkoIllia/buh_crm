@@ -620,9 +620,9 @@ export function notificationPath(
     case "invoice":
       return linkId ? `/billing?invoice=${linkId}` : "/billing";
     case "mailout":
-      // the list, not a detail route: `/mailouts/:id` does not exist, and a link that 404s is
-      // worse than one that lands on the screen the run is on
-      return "/mailouts";
+      // the letter itself since 2026-09-20, when a sent letter got an address of its own
+      // (`?mailout=`, chat.md §5.6); without an id, the log it is on
+      return linkId ? `/mailouts?tab=log&mailout=${linkId}` : "/mailouts?tab=log";
     case "system":
       // Settings → System, where every background job says in plain words what it does, when it
       // last ran and what breaks while it does not. The alternative this replaced was the sentence

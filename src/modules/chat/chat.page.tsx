@@ -30,6 +30,7 @@ import {
 import { viewableOf } from "./attachments";
 import { ChatList, chatTitle } from "./chat-list";
 import { ChatPanel } from "./chat-panel";
+import { CopyLink } from "@/shared/ui/copy-link";
 import { ChatSearchBar } from "./chat-search";
 import { ForwardModal } from "./forward-modal";
 import { Composer } from "./composer";
@@ -191,6 +192,7 @@ export function ChatPage() {
               </span>
               {/* the magnifier belongs beside the chat and opens a box to type in at once, the
                   way it does in Telegram (owner, 2026-09-20) */}
+              <CopyLink icon href={`/chat/${chat.data.id}`} label="Copy link to this chat" />
               <button
                 type="button"
                 aria-label="Search this chat"

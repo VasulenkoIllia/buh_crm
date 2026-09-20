@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { useRecordParam } from "@/shared/lib/use-record-param";
 import { Pencil, Plus, Power, Send, Trash2 } from "lucide-react";
 import type { EmailTemplate } from "@shared/schema/mailouts";
 import { cn } from "@/shared/lib/cn";
@@ -84,7 +85,11 @@ export function MailoutsPage() {
       { replace: true }, // tab clicks are not history
     );
   const [composing, setComposing] = useState(false);
-  const [openMailout, setOpenMailout] = useState<string | null>(null);
+  /**
+   * `?mailout=<id>` is a sent letter's own address (chat.md §5.6): opening one writes it, so the
+   * link to it is the page's URL, and arriving with one opens that letter on the Sent log.
+   */
+  const [openMailout, openLetter, closeLetter] = useRecordParam("mailout");
   // the tab-level "new" buttons live in the header now, so the tabs own a signal rather than a button
   const [newCampaign, setNewCampaign] = useState(0);
   const [newTemplate, setNewTemplate] = useState(0);
@@ -112,7 +117,7 @@ export function MailoutsPage() {
 
       <Tabs className="mb-4" value={tab} onChange={setTab} options={tabs} />
 
-      {tab === "log" && <SentLog onOpen={setOpenMailout} />}
+      {tab === "log" && <SentLog onOpen={openLetter} />}
       {tab === "campaigns" && <Campaigns newSignal={newCampaign} />}
       {tab === "templates" && <TemplateList newSignal={newTemplate} />}
       {tab === "sender" && <SenderSettings />}
@@ -120,9 +125,9 @@ export function MailoutsPage() {
       <ComposeModal
         open={composing}
         onClose={() => setComposing(false)}
-        onSent={(id) => setOpenMailout(id)}
+        onSent={(id) => openLetter(id)}
       />
-      <MailoutDetailModal id={openMailout} onClose={() => setOpenMailout(null)} />
+      <MailoutDetailModal id={openMailout} onClose={closeLetter} />
     </div>
   );
 }

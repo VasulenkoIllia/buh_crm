@@ -141,6 +141,18 @@ export function listSecrets(place: Place) {
   });
 }
 
+/**
+ * One secret by id, wherever it lives, with nothing sealed: the card behind a `/secrets?secret=…`
+ * link (chat.md §5.6). Its PLACE is what it comes back with, and the service decides from that
+ * who may be told anything at all.
+ */
+export function findSecretAnywhere(id: string) {
+  return prisma.secret.findFirst({
+    where: { id, deletedAt: null },
+    select: { id: true, template: true, ownerId: true, clientId: true },
+  });
+}
+
 export function findSecret(place: Place, id: string) {
   return prisma.secret.findFirst({ where: { id, ...placeWhere(place), deletedAt: null } });
 }

@@ -1381,6 +1381,17 @@
   },
   {
     "method": "GET",
+    "url": "/api/secrets/:secretId/card",
+    "access": "gate:secrets"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/secrets/:secretId/card",
+    "access": "gate:secrets",
+    "derived": true
+  },
+  {
+    "method": "GET",
     "url": "/api/secrets/clients",
     "access": "gate:secrets"
   },

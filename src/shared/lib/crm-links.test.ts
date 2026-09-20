@@ -1,5 +1,12 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { CRM_LINKS, cardsIn, crmLinksIn, isOnlyCrmLinks, kindOf } from "./crm-links";
+import {
+  CRM_LINKS,
+  cardsIn,
+  crmLinksIn,
+  isOnlyCrmLinks,
+  kindOf,
+  type CrmKind,
+} from "./crm-links";
 
 /**
  * **What counts as a link into this CRM** (chat.md §5.6). The card is drawn by a component and the
@@ -116,6 +123,26 @@ describe("the registry itself", () => {
       // module added with a link its own pattern does not match would draw no card at all
       expect(spec.idIn(new URL(spec.href(ID), HERE)), spec.kind).toBe(ID);
       expect(spec.label.length, spec.kind).toBeGreaterThan(0);
+    }
+  });
+});
+
+/**
+ * **The CRM has a second place that builds these addresses**: `notificationPath`
+ * (`shared/notifications.ts`), which the tray's Open button and the emails use. Nothing made the
+ * two agree until this test: a kind whose address changed here and not there would send somebody
+ * from their inbox to a screen with no record open (inventory, 2026-09-20).
+ */
+describe("the notification tray's addresses", () => {
+  it("agree with the registry, kind by kind", async () => {
+    const { notificationPath } = await import("@shared/notifications");
+    const same: { subject: string; kind: CrmKind }[] = [
+      { subject: "task", kind: "task" },
+      { subject: "meeting", kind: "meeting" },
+      { subject: "invoice", kind: "invoice" },
+    ];
+    for (const { subject, kind } of same) {
+      expect(notificationPath(subject, ID), subject).toBe(kindOf(kind).href(ID));
     }
   });
 });

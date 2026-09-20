@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { fmtDateTime } from "@/shared/lib/format";
+import { CopyLink } from "@/shared/ui/copy-link";
 import { Modal } from "@/shared/ui/modal";
 import { cn } from "@/shared/lib/cn";
 import type { DeliveryState } from "@shared/delivery";
@@ -34,6 +35,9 @@ export function MailoutDetailModal({
             <span>{data.kind === "commercial" ? "Commercial" : "Transactional"}</span>
             <span>Sent by {data.createdByName ?? "—"}</span>
             <span>{fmtDateTime(data.createdAt)}</span>
+            <span className="ml-auto">
+              <CopyLink href={`/mailouts?tab=log&mailout=${data.id}`} />
+            </span>
           </div>
 
           <DeliveryCounts counts={data.counts} className="mb-4" />

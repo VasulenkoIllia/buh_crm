@@ -141,10 +141,13 @@ describe("route inventory", () => {
       // decides who may see it, which is the service's answer and not a gate's; the client's is
       // `shared()` like the client read beside it, and exists so that scrolling a link into view
       // does not write "viewed" rows for a screen nobody opened.
-      total: 388,
-      derivedHead: 96,
-      real: 292,
-      api: 291, // everything but /health
+      // +1 and its HEAD on 2026-09-20: a card for one secret (secrets.md §22), the read behind a
+      // `/secrets?secret=…` link. Behind the vault's gate, and it answers with the PLACE and the
+      // template, never the label.
+      total: 390,
+      derivedHead: 97,
+      real: 293,
+      api: 292, // everything but /health
       anonymous: 9, // 6 credential routes, 2 unsubscribe pages, /health
       // `POST /tasks/timer/start` moved to the `tasks` gate during the 2026-09-07 audit. It takes a
       // taskId and writes against somebody else's module, so it was never really "the caller's own
@@ -152,7 +155,7 @@ describe("route inventory", () => {
       // second factor and name nobody else.
       own: 15,
       shared: 11,
-      gated: 257,
+      gated: 258,
       adminOnly: 20,
     });
   });

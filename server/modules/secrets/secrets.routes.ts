@@ -86,6 +86,18 @@ export async function registerRoutes(instance: FastifyInstance) {
     async (request) => searching.search(request.currentUser!, request.query),
   );
 
+  /**
+   * **One secret, named for a link to it** (chat.md §5.6): WHERE it lives and WHAT KIND it is, and
+   * never its label — a card is drawn by scrolling a message into view, and "Petrenko — IRS
+   * EFTPS" in a chat's history for ever is the reconnaissance half of a credential. The vault's
+   * gate is the door; the secret's own place decides the rest, in the service.
+   */
+  app.get(
+    "/:secretId/card",
+    { config: vault, schema: { params: secretIdParams } },
+    async (request) => service.cardOf(request.currentUser!, request.params.secretId),
+  );
+
   /** One secret's own journal (§11), shown to whoever may see the secret. */
   app.get(
     "/history/:secretId",

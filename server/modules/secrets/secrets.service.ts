@@ -22,8 +22,10 @@ import argon2 from "argon2";
 import {
   brandOfCard,
   lastFourOfCard,
+  TEMPLATE_COPY,
   type DeleteSecretsInput,
   type MoveSecretsInput,
+  type SecretCard,
   type SecretInput,
   type SecretTemplate,
   type UnlockVaultInput,
@@ -517,6 +519,47 @@ export async function deleteSecrets(
     });
   }
   return { deleted: rows.length, batchId };
+}
+
+/**
+ * **What a link to a secret says about it** (chat.md §5.6), and deliberately not its label.
+ *
+ * WHO may ask is the secret's own place, the way the library's file card does it: a personal
+ * secret is its owner's, Company's belongs to whoever has the vault, a client's to whoever has the
+ * vault AND that client. Anybody else is told it does not exist.
+ *
+ * It reveals nothing and unlocks nothing: no value is read, no five-minute grant is touched, and
+ * no `secret.revealed` row is written. A card is drawn by scrolling a message into view, and that
+ * is not somebody opening a credential.
+ */
+export async function cardOf(user: User, secretId: string): Promise<SecretCard> {
+  const row = await repo.findSecretAnywhere(secretId);
+  if (!row) throw new NotFoundError("Secret not found");
+  const reader = await readerOf(user);
+  requireReadable(reader, "secrets");
+
+  const place: Place = row.ownerId
+    ? { space: "personal", ownerId: row.ownerId }
+    : row.clientId
+      ? { space: "client", clientId: row.clientId }
+      : { space: "company" };
+  // a personal secret is one person's, and a client's needs that client's gate as well
+  if (place.space === "personal" && place.ownerId !== user.id) {
+    throw new NotFoundError("Secret not found");
+  }
+  if (place.space === "client") {
+    requireReadable(reader, "clients");
+    if (!(await repo.clientExists(place.clientId))) throw new NotFoundError("Secret not found");
+  }
+  return {
+    id: row.id,
+    where: await placeWords(place),
+    kind: TEMPLATE_COPY[row.template].label,
+    place:
+      place.space === "client"
+        ? { space: "client", clientId: place.clientId }
+        : { space: place.space },
+  };
 }
 
 /** A place in the words a person reads in the log (§7, §11). */
