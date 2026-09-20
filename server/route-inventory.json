@@ -247,6 +247,17 @@
     "access": "gate:chat"
   },
   {
+    "method": "GET",
+    "url": "/api/chat/chats/:id/files",
+    "access": "gate:chat"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/chat/chats/:id/files",
+    "access": "gate:chat",
+    "derived": true
+  },
+  {
     "method": "POST",
     "url": "/api/chat/chats/:id/files",
     "access": "gate:chat"

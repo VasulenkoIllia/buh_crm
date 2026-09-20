@@ -1,8 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import type { ChatMessage, ChatMessagePage, ChatSummary } from "@shared/schema/chat.js";
+import type {
+  ChatFilesPage,
+  ChatMessage,
+  ChatMessagePage,
+  ChatSummary,
+} from "@shared/schema/chat.js";
 import { buildApp } from "../../app.js";
 import { prisma } from "../../core/db.js";
+import { purgeTrash } from "../files/index.js";
 import { createPeople, removePeople, type Person } from "../../test/people.js";
 import { sweepUnsentChatUploads } from "./index.js";
 
@@ -19,6 +25,7 @@ let app: Awaited<ReturnType<typeof buildApp>>;
 let admin: Person;
 let olena: Person;
 let petro: Person;
+let iryna: Person;
 let outsider: Person;
 let since = new Date();
 
@@ -151,7 +158,12 @@ beforeAll(async () => {
   await removeChatsOf(DOMAIN);
   await removePeople(DOMAIN);
   [admin] = await createPeople(app, DOMAIN, ["Admin"], "admin");
-  [olena, petro, outsider] = await createPeople(app, DOMAIN, ["Olena", "Petro", "Outsider"]);
+  [olena, petro, iryna, outsider] = await createPeople(app, DOMAIN, [
+    "Olena",
+    "Petro",
+    "Iryna",
+    "Outsider",
+  ]);
 });
 
 afterAll(async () => {
@@ -341,5 +353,168 @@ describe("the nightly sweep", () => {
     expect(await prisma.file.count({ where: { id: kept.fileId } })).toBe(1);
     // the sent one still opens for the chat
     expect((await call(petro, "GET", `/files/${kept.fileId}/view`)).status).toBe(200);
+  });
+});
+
+describe("a chat's Files tab (§6.4)", () => {
+  it("lists what the chat still carries, newest first, by name and by sender", async () => {
+    const chatId = await group(olena, "The tab", [petro]);
+    const one = await sent(olena, chatId, "balance-sheet.png");
+    await say(olena, chatId, { files: [one] });
+    const two = (await upload(petro, chatId, "payroll-june.pdf", PDF)).body as {
+      fileId: string;
+    };
+    await say(petro, chatId, { text: "the payroll", files: [two] });
+
+    const all = (await call(olena, "GET", `/chats/${chatId}/files`)).body as ChatFilesPage;
+    expect(all.files.map((f) => f.name)).toEqual(["payroll-june.pdf", "balance-sheet.png"]);
+    expect(all.files[0]).toMatchObject({ senderId: petro.id, view: "pdf" });
+    expect(all.more).toBe(false);
+
+    const byName = (await call(olena, "GET", `/chats/${chatId}/files?q=PAYROLL`))
+      .body as ChatFilesPage;
+    expect(byName.files.map((f) => f.name)).toEqual(["payroll-june.pdf"]);
+
+    const bySender = (await call(olena, "GET", `/chats/${chatId}/files?senderId=${olena.id}`))
+      .body as ChatFilesPage;
+    expect(bySender.files.map((f) => f.name)).toEqual(["balance-sheet.png"]);
+
+    // and it is the chat's own: somebody outside is told the chat does not exist
+    expect((await call(outsider, "GET", `/chats/${chatId}/files`)).status).toBe(404);
+  });
+
+  it("drops a file from the tab when the message carrying it is deleted", async () => {
+    const chatId = await group(olena, "Tab after a delete", [petro]);
+    const file = await sent(olena, chatId, "mistake.png");
+    const message = await say(olena, chatId, { files: [file] });
+    expect(
+      ((await call(petro, "GET", `/chats/${chatId}/files`)).body as ChatFilesPage).files,
+    ).toHaveLength(1);
+
+    await call(olena, "DELETE", `/messages/${message.id}`);
+    expect(
+      ((await call(petro, "GET", `/chats/${chatId}/files`)).body as ChatFilesPage).files,
+    ).toHaveLength(0);
+  });
+});
+
+describe("forwarding a file (§6.3)", () => {
+  it("sends the same file on, without copying it, and keeps it while a live message carries it", async () => {
+    const first = await group(olena, "From", [petro]);
+    const second = await group(olena, "To", [petro]);
+    const file = await sent(olena, first, "shared.png");
+    const message = await say(olena, first, { files: [file] });
+
+    const forwarded = await call(olena, "POST", "/forward", {
+      messageIds: [message.id],
+      toChatIds: [second],
+    });
+    expect(forwarded.status).toBe(200);
+
+    // one file, two messages: the bucket holds one object, and the link table says both
+    const there = (await call(petro, "GET", `/chats/${second}/files`)).body as ChatFilesPage;
+    expect(there.files.map((f) => f.fileId)).toEqual([file.fileId]);
+    expect(await prisma.file.count({ where: { id: file.fileId } })).toBe(1);
+
+    // deleting the first message leaves it alone: the forward still carries it
+    await call(olena, "DELETE", `/messages/${message.id}`);
+    expect((await call(petro, "GET", `/files/${file.fileId}/view`)).status).toBe(200);
+    expect(
+      (await prisma.file.findUniqueOrThrow({ where: { id: file.fileId } })).deletedAt,
+    ).toBeNull();
+
+    // and deleting the last one puts it in the Trash
+    const copy = (await call(petro, "GET", `/chats/${second}/files`)).body as ChatFilesPage;
+    await call(olena, "DELETE", `/messages/${copy.files[0].messageId}`);
+    expect(
+      (await prisma.file.findUniqueOrThrow({ where: { id: file.fileId } })).deletedAt,
+    ).not.toBeNull();
+  });
+});
+
+describe("the Trash, and coming back (§6.3)", () => {
+  async function trashList(who: Person) {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/files/trash",
+      headers: { cookie: who.cookie },
+    });
+    expect(res.statusCode).toBe(200);
+    return res.json() as {
+      batches: { items: { id: string; name: string; from: string }[] }[];
+    };
+  }
+
+  it("shows a deleted message's file to its uploader and to whoever deleted it, and to nobody else", async () => {
+    const chatId = await group(olena, "Trash", [petro, iryna]);
+    const file = await sent(petro, chatId, "petros-scan.png");
+    const message = await say(petro, chatId, { files: [file] });
+    // an admin of the group deletes somebody else's message
+    expect((await call(olena, "DELETE", `/messages/${message.id}`)).status).toBe(200);
+
+    const deleted = await logged("chat_file.deleted", file.fileId);
+    expect(deleted.subjectLabel).toBe("a chat file");
+
+    const items = (who: Awaited<ReturnType<typeof trashList>>) =>
+      who.batches.flatMap((b) => b.items);
+    expect(items(await trashList(petro)).map((i) => i.name)).toContain("petros-scan.png");
+    const olenas = items(await trashList(olena)).find((i) => i.id === file.fileId);
+    expect(olenas?.from).toBe("A chat");
+    // never which chat, and never to a colleague who was only in the group
+    expect(items(await trashList(iryna)).map((i) => i.id)).not.toContain(file.fileId);
+
+    // the photo's preview is not in the Trash beside it: it went with the message
+    expect(await prisma.file.count({ where: { id: file.previewFileId! } })).toBe(0);
+  });
+
+  it("brings it back into the restorer's own My files", async () => {
+    const chatId = await group(olena, "Restoring", [petro]);
+    const file = await sent(petro, chatId, "return-2025.png");
+    const message = await say(petro, chatId, { files: [file] });
+    await call(petro, "DELETE", `/messages/${message.id}`);
+
+    const restored = await app.inject({
+      method: "POST",
+      url: `/api/files/trash/files/${file.fileId}/restore`,
+      headers: { cookie: petro.cookie },
+    });
+    expect(restored.statusCode, restored.body).toBe(200);
+
+    const row = await prisma.file.findUniqueOrThrow({ where: { id: file.fileId } });
+    expect(row).toMatchObject({
+      scope: `personal:${petro.id}`,
+      space: "personal",
+      ownerId: petro.id,
+      chatId: null,
+      deletedAt: null,
+      folderId: null,
+    });
+    // it is an ordinary file of theirs now, and the chat's own door no longer opens it
+    expect((await call(petro, "GET", `/files/${file.fileId}/view`)).status).toBe(404);
+    const mine = await app.inject({
+      method: "GET",
+      url: "/api/files/my/list",
+      headers: { cookie: petro.cookie },
+    });
+    expect((mine.json().files as { name: string }[]).map((f) => f.name)).toContain(
+      "return-2025.png",
+    );
+    await prisma.file.delete({ where: { id: file.fileId } });
+  });
+
+  it("is emptied by the nightly purge, which says so without naming the file", async () => {
+    const chatId = await group(olena, "Purge", [petro]);
+    const file = await sent(olena, chatId, "old.png");
+    const message = await say(olena, chatId, { files: [file] });
+    await call(olena, "DELETE", `/messages/${message.id}`);
+
+    await prisma.file.update({
+      where: { id: file.fileId },
+      data: { deletedAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000) },
+    });
+    await purgeTrash();
+    expect(await prisma.file.count({ where: { id: file.fileId } })).toBe(0);
+    const purged = await logged("chat_file.purged", file.fileId);
+    expect(purged.subjectLabel).toBe("a chat file");
   });
 });

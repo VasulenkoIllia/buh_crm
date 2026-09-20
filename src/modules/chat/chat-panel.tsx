@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { BellOff, LogOut, Pin, UserPlus, X } from "lucide-react";
-import type { ChatDetail, ChatPeople, MuteFor } from "@shared/schema/chat";
+import type { ChatDetail, ChatFileItem, ChatPeople, MuteFor } from "@shared/schema/chat";
 import { useAuth } from "@/app/auth";
 import { cn } from "@/shared/lib/cn";
 import { UserAvatar } from "@/shared/ui/avatar";
 import { Button } from "@/shared/ui/button";
 import { Modal } from "@/shared/ui/modal";
+import { ChatFilesTab } from "./chat-files-tab";
 import {
   useAddMembers,
   useChatSettings,
@@ -33,17 +34,21 @@ export function ChatPanel({
   chat,
   people,
   online,
+  onOpenFile,
   onClose,
   onLeft,
 }: {
   chat: ChatDetail;
   people: ChatPeople;
   online: Set<string>;
+  /** opens the CRM's viewer on a file from the Files tab (§6.4) */
+  onOpenFile: (files: ChatFileItem[], index: number) => void;
   onClose: () => void;
   onLeft: () => void;
 }) {
   const { user } = useAuth();
   const manages = chat.kind === "group" && chat.myRole !== "member";
+  const [tab, setTab] = useState<"details" | "files">("details");
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState(chat.title ?? "");
   const [description, setDescription] = useState(chat.description ?? "");
@@ -73,7 +78,23 @@ export function ChatPanel({
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 py-3">
+      <div className="flex gap-1 border-b border-divider px-3 py-1.5">
+        {(["details", "files"] as const).map((which) => (
+          <button
+            key={which}
+            type="button"
+            onClick={() => setTab(which)}
+            className={cn(
+              "rounded-(--radius-btn-sm) px-2 py-1 text-[12.5px] capitalize",
+              tab === which ? "bg-divider font-semibold text-ink" : "text-muted hover:text-ink",
+            )}
+          >
+            {which}
+          </button>
+        ))}
+      </div>
+
+      <div className={cn("flex-1 overflow-y-auto px-3 py-3", tab === "files" && "hidden")}>
         {chat.kind === "group" && (
           <section className="mb-4">
             <label className="mb-1 block text-[11px] font-semibold text-muted uppercase">
@@ -232,6 +253,17 @@ export function ChatPanel({
             <LogOut className="size-3.5" />
             Leave the group
           </Button>
+        </div>
+      )}
+
+      {tab === "files" && (
+        <div className="flex-1 overflow-y-auto px-3 py-3">
+          <ChatFilesTab
+            chatId={chat.id}
+            members={chat.members}
+            open={tab === "files"}
+            onOpen={onOpenFile}
+          />
         </div>
       )}
 

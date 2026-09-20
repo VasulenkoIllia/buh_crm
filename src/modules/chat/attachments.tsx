@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, FileText, RotateCcw, X } from "lucide-react";
 import { CHAT_FILES_MAX, type ChatFile } from "@shared/schema/chat";
+import type { Viewable } from "@/modules/files";
 import { MAX_UPLOAD_BYTES, isRefusedFile } from "@shared/library";
 import { cn } from "@/shared/lib/cn";
 import { fmtBytes } from "@/shared/lib/format";
@@ -272,11 +273,42 @@ export const chatFileUrl = (fileId: string, door: "view" | "download" | "preview
   `/api/chat/files/${fileId}/${door}`;
 
 /**
+ * A chat file as the CRM's own viewer takes it (files.md §12): the same window that opens a
+ * document in Files, over the chat's own two doors. Only what the CRM can show is passed to it;
+ * everything else downloads.
+ */
+export const viewableOf = (file: ChatFile, at: string): Viewable => ({
+  id: file.fileId,
+  name: file.name,
+  size: file.size,
+  createdAt: at,
+  view: file.view,
+  viewUrl: chatFileUrl(file.fileId, "view"),
+  downloadUrl: chatFileUrl(file.fileId, "download"),
+});
+
+/** A file card, in a bubble that is the reader's own or somebody else's. */
+const card = (mine: boolean) =>
+  cn(
+    "flex w-full items-center gap-2 rounded-(--radius-field) border px-2 py-1.5 text-[12.5px]",
+    mine ? "border-white/40 hover:bg-white/10" : "border-border hover:bg-divider",
+  );
+
+/**
  * The files under a message: photos as pictures, everything else as a card with its name and size.
  * A photo with no preview — one this sender's browser could not draw — is a card too, which is
  * what §6.2 says a HEIC outside Safari becomes.
  */
-export function MessageFiles({ files, mine }: { files: ChatFile[]; mine: boolean }) {
+export function MessageFiles({
+  files,
+  mine,
+  onOpen,
+}: {
+  files: ChatFile[];
+  mine: boolean;
+  /** opens the CRM's viewer on this message's files; what it cannot show is a download */
+  onOpen: (files: ChatFile[], index: number) => void;
+}) {
   if (files.length === 0) return null;
   const photos = files.filter((f) => f.previewFileId !== null);
   const rest = files.filter((f) => f.previewFileId === null);
@@ -285,11 +317,10 @@ export function MessageFiles({ files, mine }: { files: ChatFile[]; mine: boolean
       {photos.length > 0 && (
         <div className={cn("grid gap-1", photos.length > 1 ? "grid-cols-2" : "grid-cols-1")}>
           {photos.map((file) => (
-            <a
+            <button
               key={file.fileId}
-              href={chatFileUrl(file.fileId, "view")}
-              target="_blank"
-              rel="noreferrer"
+              type="button"
+              onClick={() => onOpen(files, files.indexOf(file))}
               title={`${file.name} · ${fmtBytes(file.size)}`}
             >
               <img
@@ -298,29 +329,41 @@ export function MessageFiles({ files, mine }: { files: ChatFile[]; mine: boolean
                 loading="lazy"
                 className="max-h-[220px] w-full rounded-(--radius-field) object-cover"
               />
-            </a>
+            </button>
           ))}
         </div>
       )}
-      {rest.map((file) => (
-        <a
-          key={file.fileId}
-          href={chatFileUrl(file.fileId, file.view ? "view" : "download")}
-          target="_blank"
-          rel="noreferrer"
-          className={cn(
-            "flex items-center gap-2 rounded-(--radius-field) border px-2 py-1.5 text-[12.5px]",
-            mine ? "border-white/40 hover:bg-white/10" : "border-border hover:bg-divider",
-          )}
-        >
-          <FileText className="size-4 shrink-0" />
-          <span className="min-w-0 flex-1 truncate">{file.name}</span>
-          <span className={cn("text-[11px]", mine ? "text-white/80" : "text-muted")}>
-            {fmtBytes(file.size)}
-          </span>
-          <Download className="size-3.5 shrink-0" />
-        </a>
-      ))}
+      {rest.map((file) =>
+        file.view ? (
+          <button
+            key={file.fileId}
+            type="button"
+            onClick={() => onOpen(files, files.indexOf(file))}
+            className={card(mine)}
+          >
+            <FileText className="size-4 shrink-0" />
+            <span className="min-w-0 flex-1 truncate text-left">{file.name}</span>
+            <span className={cn("text-[11px]", mine ? "text-white/80" : "text-muted")}>
+              {fmtBytes(file.size)}
+            </span>
+          </button>
+        ) : (
+          <a
+            key={file.fileId}
+            href={chatFileUrl(file.fileId, "download")}
+            target="_blank"
+            rel="noreferrer"
+            className={card(mine)}
+          >
+            <FileText className="size-4 shrink-0" />
+            <span className="min-w-0 flex-1 truncate">{file.name}</span>
+            <span className={cn("text-[11px]", mine ? "text-white/80" : "text-muted")}>
+              {fmtBytes(file.size)}
+            </span>
+            <Download className="size-3.5 shrink-0" />
+          </a>
+        ),
+      )}
     </div>
   );
 }

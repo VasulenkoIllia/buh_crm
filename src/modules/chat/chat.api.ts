@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 import type {
   ChatDetail,
+  ChatFilesPage,
   ChatMessage,
   ChatMessagePage,
   ChatPeople,
@@ -36,6 +37,7 @@ export const chatKeys = {
   chat: (id: string) => [...CHAT_KEY, "chats", id] as const,
   messages: (id: string) => [...CHAT_KEY, "messages", id] as const,
   pins: (id: string) => [...CHAT_KEY, "pins", id] as const,
+  files: (id: string) => [...CHAT_KEY, "files", id] as const,
   people: [...CHAT_KEY, "people"] as const,
   presence: CHAT_PRESENCE_KEY,
 };
@@ -59,6 +61,27 @@ export function useChatPeople() {
   return useQuery({
     queryKey: chatKeys.people,
     queryFn: () => api<ChatPeople>("/api/chat/people"),
+  });
+}
+
+/**
+ * **A chat's Files tab** (§6.4): what it still carries, filtered by a word in the name and by who
+ * sent it. Asked for only while the tab is open, and refetched when a message arrives or goes.
+ */
+export function useChatFiles(
+  chatId: string | null,
+  query: { q?: string; senderId?: string },
+  enabled: boolean,
+) {
+  const params = new URLSearchParams();
+  if (query.q) params.set("q", query.q);
+  if (query.senderId) params.set("senderId", query.senderId);
+  const search = params.toString();
+  return useQuery({
+    queryKey: [...chatKeys.files(chatId ?? "none"), search],
+    queryFn: () =>
+      api<ChatFilesPage>(`/api/chat/chats/${chatId!}/files${search ? `?${search}` : ""}`),
+    enabled: enabled && chatId !== null,
   });
 }
 
@@ -180,11 +203,17 @@ export function useChatLive(chatId: string | null) {
     const offs = [
       connection.on("chat_message", (e) => {
         void client.invalidateQueries({ queryKey: chatKeys.chats });
-        if (e.chatId === chatId) void catchUp(client, chatId);
+        if (e.chatId !== chatId) return;
+        void catchUp(client, chatId);
+        // a message may have brought files with it (§6.4)
+        void client.invalidateQueries({ queryKey: chatKeys.files(chatId) });
       }),
       connection.on("chat_message_changed", (e) => {
         void client.invalidateQueries({ queryKey: chatKeys.chats });
-        if (e.chatId === chatId) void refetchAt(client, chatId, e.seq);
+        if (e.chatId !== chatId) return;
+        void refetchAt(client, chatId, e.seq);
+        // …and a delete may have taken them away
+        void client.invalidateQueries({ queryKey: chatKeys.files(chatId) });
       }),
       connection.on("chat_read", (e) => {
         if (e.chatId !== chatId) return;

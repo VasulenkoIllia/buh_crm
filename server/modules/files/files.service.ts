@@ -472,7 +472,7 @@ export async function overview(user: User): Promise<FilesOverview> {
         ],
       }),
       // the Trash's own total, by the same rule as its list; it counts in no folder's (§4.4)
-      repo.totals(repo.trashedFilesSeen(user.id, clients, tasks)),
+      repo.totals(repo.trashedFilesSeen(user.id, clients, tasks, opens(reader, "chat"))),
     ]);
   return {
     all,

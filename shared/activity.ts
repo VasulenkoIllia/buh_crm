@@ -165,6 +165,14 @@ export const SUBJECT_GATE: Record<ActivitySubject, string> = {
   system: "settings",
 };
 
+/**
+ * **What the log calls a file sent in a chat** (chat.md §12.1): never its name and never its chat,
+ * the way My files are "a personal file". Here rather than in either module, because the chat
+ * writes it when a file is sent, opened or deleted and the library's nightly purge writes it when
+ * the file is finally removed — and two spellings of it would read as two different things.
+ */
+export const A_CHAT_FILE = "a chat file";
+
 /** Mirrors the Prisma enum. Declared rather than imported — see the no-imports rule above. */
 export type ActorKind = "user" | "client" | "system";
 export type ActivityOutcome = "ok" | "refused" | "failed";
@@ -1071,6 +1079,31 @@ const EVENTS = {
     actorKinds: ["user"],
     retention: "ordinary",
     changeKeys: ["size"],
+    enabledByDefault: true,
+  },
+  /**
+   * **A chat file's disposal, from its first day to its last.** Deleting the message that carried
+   * it puts it in the Trash — but only when no other live message carries it, since a forward
+   * reuses the file rather than copying it — and thirty days later the nightly purge removes it for
+   * good, like every other file the firm disposes of (files.md §9). Both are `long` for the reason
+   * `file.deleted` is: a disposal is the one thing an audit asks about years later.
+   */
+  "chat_file.deleted": {
+    subject: "chat_file",
+    title: "{actor} deleted {subject}",
+    when: "the last live message carrying a chat file is deleted, putting it in the Trash",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    enabledByDefault: true,
+  },
+  "chat_file.purged": {
+    subject: "chat_file",
+    title: "{subject} was removed for good",
+    when: "the nightly purge empties the Trash of a chat file that has waited 30 days",
+    granularity: "item",
+    actorKinds: ["system"],
+    retention: "long",
     enabledByDefault: true,
   },
   "chat_file.downloaded": {

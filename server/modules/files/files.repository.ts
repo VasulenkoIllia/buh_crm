@@ -281,6 +281,7 @@ const fileSelect = {
   folderId: true,
   clientId: true,
   taskId: true,
+  chatId: true,
   deletedAt: true,
   uploadedBy: { select: { firstName: true, lastName: true } },
   task: { select: { id: true, title: true, clientId: true, leadId: true, archivedAt: true } },
@@ -703,11 +704,16 @@ export type TrashedFolderRecord = Prisma.FolderGetPayload<{ select: typeof trash
  * **Who sees what in the Trash: each item by its place's rule** (§9, §4.3). Their own My files and
  * Company; a client's items and its tasks' files while Clients is open and the client is not
  * archived; a lead's task files, and an internal task's that are not filed, while Tasks is open.
+ *
+ * A file deleted with a chat message has no place at all (chat.md §6.3): it is shown to the person
+ * who deleted the message and to whoever uploaded it, and only while Chat is open to them — a
+ * gate closed since then must not be walked around through the Trash.
  */
 export function trashedFilesSeen(
   ownerId: string,
   clients: boolean,
   tasks: boolean,
+  chat: boolean,
 ): Prisma.FileWhereInput {
   const places: Prisma.FileWhereInput[] = [
     { scope: `personal:${ownerId}` },
@@ -724,6 +730,13 @@ export function trashedFilesSeen(
       { scope: null, clientId: null, task: { is: { leadId: { not: null } } } },
       { scope: null, clientId: null, task: { is: { clientId: null, leadId: null } } },
     );
+  }
+  if (chat) {
+    places.push({
+      scope: null,
+      chatId: { not: null },
+      OR: [{ uploadedById: ownerId }, { deletedById: ownerId }],
+    });
   }
   return { deletedAt: { not: null }, OR: places };
 }
@@ -874,7 +887,12 @@ export function batchFolders(batchId: string) {
 
 export interface RestorePlan {
   folders: { id: string; parentId: string | null; name: string }[];
-  files: { id: string; folderId: string | null; name: string }[];
+  /**
+   * `scope` only for a file that comes back somewhere else than where it was: a chat file, whose
+   * message is gone, lands in the restorer's My files (chat.md §6.3). The trigger fills `space` and
+   * `ownerId` from it, and the chat it came from is cleared, so it is an ordinary file from then on.
+   */
+  files: { id: string; folderId: string | null; name: string; scope?: string }[];
   /** below the restored folders, from the same gesture */
   mates: { folders: string[]; files: string[] };
   ownerId: string | null;
@@ -898,7 +916,12 @@ export function applyRestore(plan: RestorePlan) {
       for (const f of plan.files) {
         await tx.file.update({
           where: { id: f.id },
-          data: { ...clear, folderId: f.folderId, name: f.name },
+          data: {
+            ...clear,
+            folderId: f.folderId,
+            name: f.name,
+            ...(f.scope ? { scope: f.scope, chatId: null } : {}),
+          },
         });
       }
       if (plan.mates.files.length > 0) {

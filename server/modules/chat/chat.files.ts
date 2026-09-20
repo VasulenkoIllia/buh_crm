@@ -1,5 +1,12 @@
-import type { ChatFile, ChatUpload } from "@shared/schema/chat.js";
+import { randomUUID } from "node:crypto";
+import type {
+  ChatFile,
+  ChatFilesPage,
+  ChatFilesQuery,
+  ChatUpload,
+} from "@shared/schema/chat.js";
 import { CHAT_FILES_MAX } from "@shared/schema/chat.js";
+import { A_CHAT_FILE } from "@shared/activity.js";
 import type { User } from "../../generated/prisma/client.js";
 import { record } from "../../core/activity.js";
 import { NotFoundError, ValidationError } from "../../core/errors.js";
@@ -54,6 +61,9 @@ const PHOTO_TYPES: ReadonlySet<string> = new Set([
   "image/heic",
   "image/heif",
 ]);
+
+/** A page of the Files tab (§6.4). */
+const TAB_PAGE = 60;
 
 /** How long an upload nobody sent is kept before the sweep takes it (§6.1). */
 const UNSENT_HOURS = 24;
@@ -153,9 +163,6 @@ export async function upload(
   return uploadOf(row, previewRow?.id ?? null);
 }
 
-/** What the log calls a file sent in a chat — as My files does, with no name at all (§12.1). */
-const A_CHAT_FILE = "a chat file";
-
 /**
  * **The files a send names** (§6.1), in the order they were given: each one an upload of this
  * sender, into this chat, that no message carries yet. Anything else — somebody else's upload, one
@@ -239,6 +246,88 @@ export async function openPreview(user: User, fileId: string) {
   if (!PREVIEW_TYPES.has(file.detectedMime ?? "")) throw new NotFoundError("File not found");
   return file;
 }
+
+// ── the chat's own Files tab (§6.4) ────────────────────────────────────────────
+
+/**
+ * **What this chat still carries**, newest first, filtered by a word in the name and by who sent
+ * it. Names are plain text in `File.name`, as everywhere else in the CRM (§9), so this is Prisma's
+ * `contains` and nothing cleverer: a name is less than a message.
+ *
+ * A deleted message's files are not here, and neither is one already in the Trash.
+ */
+export async function listFiles(
+  user: User,
+  chatId: string,
+  query: ChatFilesQuery,
+): Promise<ChatFilesPage> {
+  await requireMember(chatId, user.id);
+  const { rows, more } = await repo.filesOfChat(chatId, { ...query, limit: TAB_PAGE });
+  return {
+    files: rows.map((row) => ({
+      fileId: row.fileId,
+      name: row.file.name,
+      size: row.file.size,
+      detectedMime: row.file.detectedMime,
+      view: viewOf(row.file.detectedMime),
+      previewFileId: row.previewFileId,
+      position: row.position,
+      messageId: row.message.id,
+      seq: row.message.seq,
+      senderId: row.message.authorId,
+      at: row.message.createdAt.toISOString(),
+    })),
+    more,
+  };
+}
+
+// ── what a delete and a forward do to files (§6.3) ─────────────────────────────
+
+/**
+ * **A message deleted takes its files with it — unless somebody else's message still carries
+ * them** (§6.3). Forwarding reuses a file rather than copying it, so the same photo can hang off
+ * three messages in three chats, and the one being deleted is not the file's last home.
+ *
+ * What is let go goes into the Files Trash, as one gesture, and is seen there by the person who
+ * deleted the message and by whoever uploaded it (`files.trash.ts`). Thirty days later the nightly
+ * purge removes it for good, like every other file the firm disposes of.
+ *
+ * **A photo's preview does not go to the Trash**: it is a thumbnail the browser drew, worth
+ * nothing without its photo, and a Trash listing it beside the photo would read like two files.
+ * It is simply removed, bytes and row.
+ */
+export async function onMessageDeleted(user: User, messageId: string): Promise<void> {
+  const links = await repo.linksOfMessage(messageId);
+  if (links.length === 0) return;
+  const previews = new Set(links.flatMap((l) => (l.previewFileId ? [l.previewFileId] : [])));
+  const ids = [...new Set([...links.map((l) => l.fileId), ...previews])];
+  const held = await repo.stillCarried(ids, messageId);
+  const letGo = ids.filter((id) => !held.has(id));
+  if (letGo.length === 0) return;
+
+  const rows = await repo.filesByIds(letGo);
+  const toTrash = rows.filter((r) => !previews.has(r.id));
+  if (toTrash.length > 0) {
+    await repo.trashFiles(
+      toTrash.map((r) => r.id),
+      user.id,
+      new Date(),
+      randomUUID(),
+    );
+    for (const file of toTrash) {
+      record("chat_file.deleted", { subjectId: file.id, subjectLabel: A_CHAT_FILE });
+    }
+  }
+  for (const preview of rows.filter((r) => previews.has(r.id))) {
+    await takeBack(preview);
+    await repo.deleteFileRow(preview.id).catch((e) => {
+      console.error("chat: could not remove a preview whose photo was deleted", e);
+    });
+  }
+}
+
+/** What a forward carries: the same files, in the same order, without copying a byte (§6.3). */
+export const linksToForward = (messageId: string) => repo.linksOfMessage(messageId);
 
 // ── the sweep (§6.1) ───────────────────────────────────────────────────────────
 

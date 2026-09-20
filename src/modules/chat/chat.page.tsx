@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { Info } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
-import type { ChatMessage } from "@shared/schema/chat";
+import type { ChatFile, ChatFileItem, ChatMessage } from "@shared/schema/chat";
 import { useAuth } from "@/app/auth";
+import { FileViewer, type Viewable } from "@/modules/files";
 import { useChatPresence, useRealtime } from "./use-realtime";
 import {
   useChat,
@@ -24,6 +25,7 @@ import {
   useSendMessage,
   useTyping,
 } from "./chat.api";
+import { viewableOf } from "./attachments";
 import { ChatList, chatTitle } from "./chat-list";
 import { ChatPanel } from "./chat-panel";
 import { Composer } from "./composer";
@@ -70,6 +72,16 @@ export function ChatPage() {
   const [asking, setAsking] = useState(false);
   const [readBy, setReadBy] = useState<string | null>(null);
   const [goTo, setGoTo] = useState<string | null>(null);
+  /** the CRM's own viewer, over the chat's files (§6.2) */
+  const [viewing, setViewing] = useState<{ items: Viewable[]; index: number } | null>(null);
+
+  const openFiles = (files: ChatFile[], index: number, at: string) => {
+    // it steps through what the CRM can show; a file it cannot is a download, never a blank window
+    const shown = files.filter((f) => f.view !== null);
+    const items = shown.map((f) => viewableOf(f, at));
+    const from = shown.indexOf(files[index]);
+    if (items.length > 0) setViewing({ items, index: Math.max(0, from) });
+  };
 
   useEffect(() => {
     setReplyTo(null);
@@ -179,6 +191,7 @@ export function ChatPage() {
               onReadBy={(message) => setReadBy(message.id)}
               onVote={(message, options) => vote.mutate({ id: message.id, options })}
               onClosePoll={(message) => closePoll.mutate(message.id)}
+              onOpenFile={openFiles}
               goTo={goTo}
               onWent={() => setGoTo(null)}
               typing={typing}
@@ -221,6 +234,9 @@ export function ChatPage() {
           chat={chat.data}
           people={people_}
           online={online}
+          onOpenFile={(files: ChatFileItem[], index: number) =>
+            openFiles(files, index, files[index]?.at ?? new Date().toISOString())
+          }
           onClose={() => setPanel(false)}
           onLeft={() => {
             setPanel(false);
@@ -244,6 +260,26 @@ export function ChatPage() {
       )}
 
       {readBy && <ReadBy messageId={readBy} onClose={() => setReadBy(null)} />}
+
+      {viewing && (
+        <Suspense
+          // the frame stands while the viewer loads, rather than the conversation showing through
+          fallback={
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+              <div className="flex h-[92vh] w-full max-w-[1100px] items-center justify-center rounded-(--radius-panel) bg-surface text-[13px] text-muted shadow-(--shadow-modal)">
+                Opening…
+              </div>
+            </div>
+          }
+        >
+          <FileViewer
+            items={viewing.items}
+            index={viewing.index}
+            onIndex={(index) => setViewing((was) => (was ? { ...was, index } : was))}
+            onClose={() => setViewing(null)}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

@@ -181,6 +181,31 @@ export type ChatFile = z.infer<typeof chatFileSchema>;
 export const chatUploadSchema = chatFileSchema.omit({ position: true });
 export type ChatUpload = z.infer<typeof chatUploadSchema>;
 
+/** One row of a chat's Files tab (§6.4): the file, and the message it came in. */
+export const chatFileItemSchema = chatFileSchema.extend({
+  messageId: uuid,
+  seq: z.number().int(),
+  senderId: uuid.nullable(),
+  at: z.iso.datetime(),
+});
+export type ChatFileItem = z.infer<typeof chatFileItemSchema>;
+
+export const chatFilesPageSchema = z.object({
+  files: z.array(chatFileItemSchema),
+  /** there are older ones below this page */
+  more: z.boolean(),
+});
+export type ChatFilesPage = z.infer<typeof chatFilesPageSchema>;
+
+/** The tab's box over names, and its "from" filter (§6.4). */
+export const chatFilesQuery = z.object({
+  q: z.string().trim().max(100).optional(),
+  senderId: uuid.optional(),
+  /** the page ends below this place in the conversation */
+  before: z.coerce.number().int().positive().optional(),
+});
+export type ChatFilesQuery = z.infer<typeof chatFilesQuery>;
+
 // ── messages (chat.md §5) ──────────────────────────────────────────────────────
 
 export const chatMessageKind = z.enum(["text", "poll", "notice"]);

@@ -6,6 +6,7 @@ import { z } from "zod";
 import { uuid } from "@shared/schema/common.js";
 import {
   addMembersInput,
+  chatFilesQuery,
   chatPingInput,
   chatSettingsInput,
   createGroupInput,
@@ -295,6 +296,17 @@ export async function registerRoutes(instance: FastifyInstance) {
   // Three doors, all of them a member's: one in, and two out. Who may open a file is the messages
   // that carry it (§6.3), so the routes that serve one name the FILE and not a chat — a forwarded
   // file is one file in several chats.
+
+  /**
+   * **The chat's own Files tab** (§6.4): what it still carries, newest first, with a box over the
+   * names and a filter for who sent it. A read, so it writes no row of its own.
+   */
+  app.get(
+    "/chats/:id/files",
+    { config: chat, schema: { params: idParams, querystring: chatFilesQuery } },
+    async (request) =>
+      attachments.listFiles(request.currentUser!, request.params.id, request.query),
+  );
 
   /**
    * **A file into a chat**, before the message that carries it is sent (§6.1), with the small JPEG

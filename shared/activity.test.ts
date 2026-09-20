@@ -127,8 +127,9 @@ describe("the activity registry", () => {
     // created, changed, and a person added, taken out, leaving, or given another role
     // and one for a message deleted for everyone, whose text is gone at once (§5.3, step A.3)
     // and two for files in chats (chat.md §6, step B.1, 2026-09-20): one sent, and one opened or
-    // downloaded — both labelled "a chat file", with no name and no chat
-    expect(ACTIVITY_KEYS.length).toBe(214);
+    // downloaded — both labelled "a chat file", with no name and no chat; and two more for its
+    // disposal (step B.2): into the Trash with the last message carrying it, and out for good
+    expect(ACTIVITY_KEYS.length).toBe(216);
     // the checklist is empty because the pass is finished — not because it was abandoned
     expect(PLANNED_EVENT_KEYS).toEqual([]);
   });

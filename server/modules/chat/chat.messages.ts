@@ -260,6 +260,8 @@ export async function remove(user: User, messageId: string): Promise<ChatMessage
   if (row.deletedAt) return toMessage(row);
 
   await repo.deleteMessage(messageId, user.id, new Date());
+  // the text is gone; its files go to the Trash unless another live message still carries them
+  await attachments.onMessageDeleted(user, messageId);
   const author = row.authorId ? await repo.findPerson(row.authorId) : null;
   record("chat_message.deleted", {
     subjectId: messageId,
@@ -306,20 +308,24 @@ export async function forward(user: User, input: ForwardInput): Promise<void> {
     requireWriter(m, user);
     for (const source of sources) {
       const text = openText(source);
-      if (text === null) continue;
+      // the FILES travel with it, and reuse the same objects in the bucket (§6.3): a photo sent on
+      // to three chats is one file, which is why the link is a table
+      const carried = await attachments.linksToForward(source.id);
+      if (text === null && carried.length === 0) continue;
       const at = new Date();
       const seq = await repo.transaction(async (tx) => {
         const seq = await repo.nextSeq(tx, chatId, at);
-        await repo.insertMessageTx(tx, {
+        const { id } = await repo.insertMessageTx(tx, {
           chatId,
           seq,
           authorId: user.id,
           clientMessageId: randomUUID(),
-          sealed: sealText(text),
+          sealed: text === null ? null : sealText(text),
           // a message forwarded on keeps the first author, as Telegram does
           forwardedFromId: source.forwardedFromId ?? source.authorId,
           at,
         });
+        if (carried.length > 0) await repo.copyLinksTx(tx, id, carried);
         await repo.markSentTx(tx, chatId, user.id, seq, []);
         return seq;
       });

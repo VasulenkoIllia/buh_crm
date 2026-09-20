@@ -733,3 +733,97 @@ export function staleUploads(before: Date, limit: number) {
     take: limit,
   });
 }
+
+/** One message's files, for a delete deciding what to put in the Trash and for a forward. */
+export function linksOfMessage(messageId: string) {
+  return prisma.chatMessageFile.findMany({
+    where: { messageId },
+    select: { fileId: true, previewFileId: true, position: true },
+    orderBy: { position: "asc" },
+  });
+}
+
+/**
+ * Of these files, the ones a LIVE message other than this one still carries — as the file itself
+ * or as a photo's preview. What is left is what a delete disposes of (§6.3).
+ */
+export async function stillCarried(
+  fileIds: readonly string[],
+  exceptMessageId: string,
+): Promise<Set<string>> {
+  if (fileIds.length === 0) return new Set();
+  const rows = await prisma.chatMessageFile.findMany({
+    where: {
+      messageId: { not: exceptMessageId },
+      message: { deletedAt: null },
+      OR: [{ fileId: { in: [...fileIds] } }, { previewFileId: { in: [...fileIds] } }],
+    },
+    select: { fileId: true, previewFileId: true },
+  });
+  const held = new Set<string>();
+  for (const row of rows) {
+    held.add(row.fileId);
+    if (row.previewFileId) held.add(row.previewFileId);
+  }
+  return held;
+}
+
+/** Into the Trash, as one gesture, with the rest of the library's Trash (files.md §9). */
+export function trashFiles(
+  ids: readonly string[],
+  byUserId: string,
+  at: Date,
+  batchId: string,
+) {
+  return prisma.file.updateMany({
+    where: { id: { in: [...ids] }, deletedAt: null },
+    data: { deletedAt: at, deletedById: byUserId, trashBatchId: batchId },
+  });
+}
+
+export function filesByIds(ids: readonly string[]) {
+  return prisma.file.findMany({ where: { id: { in: [...ids] } }, select: CHAT_FILE });
+}
+
+/** A file's own row, whatever chat it came from: what a forward copies without moving bytes. */
+export function copyLinksTx(
+  tx: Tx,
+  messageId: string,
+  links: readonly { fileId: string; previewFileId: string | null; position: number }[],
+) {
+  return linkFilesTx(tx, messageId, links);
+}
+
+/**
+ * **A chat's own files** (§6.4), newest first: what the Files tab lists. A deleted message's files
+ * are not here, and neither is one in the Trash — the tab shows what the chat still carries.
+ */
+export async function filesOfChat(
+  chatId: string,
+  opts: { q?: string; senderId?: string; before?: number; limit: number },
+) {
+  const rows = await prisma.chatMessageFile.findMany({
+    where: {
+      message: {
+        chatId,
+        deletedAt: null,
+        ...(opts.senderId ? { authorId: opts.senderId } : {}),
+        ...(opts.before ? { seq: { lt: opts.before } } : {}),
+      },
+      file: {
+        deletedAt: null,
+        ...(opts.q ? { name: { contains: opts.q, mode: "insensitive" as const } } : {}),
+      },
+    },
+    select: {
+      fileId: true,
+      previewFileId: true,
+      position: true,
+      file: { select: { name: true, size: true, detectedMime: true } },
+      message: { select: { id: true, seq: true, authorId: true, createdAt: true } },
+    },
+    orderBy: [{ message: { seq: "desc" } }, { position: "desc" }],
+    take: opts.limit + 1,
+  });
+  return { rows: rows.slice(0, opts.limit), more: rows.length > opts.limit };
+}

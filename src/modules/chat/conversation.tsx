@@ -10,7 +10,7 @@ import {
   SmilePlus,
   Trash2,
 } from "lucide-react";
-import type { ChatDetail, ChatMessage, ChatPerson } from "@shared/schema/chat";
+import type { ChatDetail, ChatFile, ChatMessage, ChatPerson } from "@shared/schema/chat";
 import { useAuth } from "@/app/auth";
 import { cn } from "@/shared/lib/cn";
 import { fmtDate, fmtTime } from "@/shared/lib/format";
@@ -62,6 +62,7 @@ export function Conversation({
   onReadBy,
   onVote,
   onClosePoll,
+  onOpenFile,
   goTo,
   onWent,
   typing,
@@ -81,6 +82,8 @@ export function Conversation({
   onReadBy: (message: ChatMessage) => void;
   onVote: (message: ChatMessage, options: number[]) => void;
   onClosePoll: (message: ChatMessage) => void;
+  /** opens the CRM's viewer on a file a message carries (§6.2) */
+  onOpenFile: (files: ChatFile[], index: number, at: string) => void;
   /** a message to scroll to, from the pinned bar or a reply's quote */
   goTo: string | null;
   /** told once the view has gone there, so the ask can be forgotten */
@@ -229,6 +232,7 @@ export function Conversation({
                   onVote={onVote}
                   onClosePoll={onClosePoll}
                   onGoTo={onGoToMessage}
+                  onOpenFile={onOpenFile}
                   mentionNames={mentionNames}
                 />
               )}
@@ -260,6 +264,7 @@ function Row({
   onVote,
   onClosePoll,
   onGoTo,
+  onOpenFile,
   mentionNames,
 }: {
   chat: ChatDetail;
@@ -275,6 +280,8 @@ function Row({
   onVote: (message: ChatMessage, options: number[]) => void;
   onClosePoll: (message: ChatMessage) => void;
   onGoTo: (messageId: string) => void;
+  /** opens the CRM's viewer on a file this message carries (§6.2) */
+  onOpenFile: (files: ChatFile[], index: number, at: string) => void;
   /** the names `@` may be marking in this chat */
   mentionNames: string[];
 }) {
@@ -334,7 +341,11 @@ function Row({
           ) : (
             <>
               {message.text && <RichText text={message.text} mentions={mentionNames} />}
-              <MessageFiles files={message.files} mine={mine} />
+              <MessageFiles
+                files={message.files}
+                mine={mine}
+                onOpen={(files, index) => onOpenFile(files, index, message.createdAt)}
+              />
             </>
           )}
           {message.poll && !message.deletedAt && (
