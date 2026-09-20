@@ -1,5 +1,14 @@
 import { useMemo, useState } from "react";
-import { AtSign, BellOff, Bookmark, Megaphone, Pin, Plus, Users } from "lucide-react";
+import {
+  AtSign,
+  BellOff,
+  Bookmark,
+  Megaphone,
+  Pin,
+  Plus,
+  Users,
+  UsersRound,
+} from "lucide-react";
 import type { ChatPeople, ChatSummary } from "@shared/schema/chat";
 import { cn } from "@/shared/lib/cn";
 import { fmtTime, isoDay } from "@/shared/lib/format";
@@ -48,6 +57,8 @@ export function ChatList({
   onOpen,
   onStartWith,
   onOpenSaved,
+  onNewGroup,
+  narrow,
 }: {
   chats: ChatSummary[];
   people: ChatPeople;
@@ -56,11 +67,19 @@ export function ChatList({
   onOpen: (chatId: string) => void;
   onStartWith: (userId: string) => void;
   onOpenSaved: () => void;
+  onNewGroup: (title: string, memberIds: string[]) => void;
+  /** the details panel is open: on a narrow screen the conversation needs the room more */
+  narrow?: boolean;
 }) {
   const [starting, setStarting] = useState(false);
 
   return (
-    <div className="flex w-[300px] shrink-0 flex-col border-r border-divider bg-surface">
+    <div
+      className={cn(
+        "flex w-[300px] shrink-0 flex-col border-r border-divider bg-surface",
+        narrow && "max-[1200px]:hidden",
+      )}
+    >
       <div className="flex items-center gap-2 border-b border-divider px-3 py-2">
         <h2 className="text-[13px] font-semibold">Chats</h2>
         <Button
@@ -127,6 +146,10 @@ export function ChatList({
             setStarting(false);
             onOpenSaved();
           }}
+          onGroup={(title, ids) => {
+            setStarting(false);
+            onNewGroup(title, ids);
+          }}
           onClose={() => setStarting(false)}
         />
       )}
@@ -159,19 +182,77 @@ function StartChat({
   online,
   onPick,
   onSaved,
+  onGroup,
   onClose,
 }: {
   people: ChatPeople;
   online: Set<string>;
   onPick: (userId: string) => void;
   onSaved: () => void;
+  onGroup: (title: string, memberIds: string[]) => void;
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
+  const [group, setGroup] = useState<{ title: string; picked: string[] } | null>(null);
   const found = useMemo(() => {
     const words = query.trim().toLowerCase();
     return people.filter((p) => `${p.firstName} ${p.lastName}`.toLowerCase().includes(words));
   }, [people, query]);
+
+  if (group) {
+    return (
+      <Modal
+        open
+        onClose={onClose}
+        title="New group"
+        footer={
+          <Button
+            disabled={group.title.trim() === "" || group.picked.length === 0}
+            onClick={() => onGroup(group.title.trim(), group.picked)}
+          >
+            Create
+          </Button>
+        }
+      >
+        <input
+          autoFocus
+          value={group.title}
+          onChange={(e) => setGroup({ ...group, title: e.target.value })}
+          placeholder="What is it about?"
+          className="mb-2 w-full rounded-(--radius-field) border border-border px-3 py-2 text-[13px] outline-none focus:border-primary"
+        />
+        <div className="max-h-[300px] overflow-y-auto">
+          {people.map((person) => (
+            <button
+              key={person.id}
+              type="button"
+              onClick={() =>
+                setGroup((was) =>
+                  was
+                    ? {
+                        ...was,
+                        picked: was.picked.includes(person.id)
+                          ? was.picked.filter((id) => id !== person.id)
+                          : [...was.picked, person.id],
+                      }
+                    : was,
+                )
+              }
+              className={cn(
+                "flex w-full items-center gap-2 rounded-(--radius-field) px-2 py-2 text-left",
+                group.picked.includes(person.id) ? "bg-divider" : "hover:bg-divider",
+              )}
+            >
+              <UserAvatar user={person} size="sm" />
+              <span className="text-[13px]">
+                {person.firstName} {person.lastName}
+              </span>
+            </button>
+          ))}
+        </div>
+      </Modal>
+    );
+  }
 
   return (
     <Modal open onClose={onClose} title="New chat">
@@ -182,6 +263,16 @@ function StartChat({
         placeholder="Search colleagues"
         className="mb-2 w-full rounded-(--radius-field) border border-border px-3 py-2 text-[13px] outline-none focus:border-primary"
       />
+      <button
+        type="button"
+        onClick={() => setGroup({ title: "", picked: [] })}
+        className="mb-1 flex w-full items-center gap-2 rounded-(--radius-field) px-2 py-2 text-left hover:bg-divider"
+      >
+        <span className="flex size-8 items-center justify-center rounded-full bg-divider">
+          <UsersRound className="size-4 text-ink-700" />
+        </span>
+        <span className="text-[13px]">New group</span>
+      </button>
       <button
         type="button"
         onClick={onSaved}

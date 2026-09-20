@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Info } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { ChatMessage } from "@shared/schema/chat";
 import { useAuth } from "@/app/auth";
@@ -6,12 +7,17 @@ import { useChatPresence, useRealtime } from "./use-realtime";
 import {
   useChat,
   useChatLive,
+  useClosePoll,
+  usePins,
+  useSetPinned,
+  useVote,
   useChatPeople,
   useChats,
   useDeleteMessage,
   useEditMessage,
   useMarkRead,
   useMessages,
+  useCreateGroup,
   useOpenDirect,
   useOpenSaved,
   useReact,
@@ -19,8 +25,12 @@ import {
   useTyping,
 } from "./chat.api";
 import { ChatList, chatTitle } from "./chat-list";
+import { ChatPanel } from "./chat-panel";
 import { Composer } from "./composer";
 import { Conversation } from "./conversation";
+import { PinnedBar } from "./pinned-bar";
+import { NewPoll } from "./poll";
+import { ReadBy } from "./read-by";
 
 /**
  * **The Chat screen** (chat.md §17): the list on the left, the open chat on the right. One live
@@ -47,9 +57,19 @@ export function ChatPage() {
   const react = useReact(chatId ?? "none");
   const openDirect = useOpenDirect();
   const openSaved = useOpenSaved();
+  const createGroup = useCreateGroup();
+
+  const pins = usePins(chatId);
+  const setPinned = useSetPinned(chatId ?? "none");
+  const vote = useVote(chatId ?? "none");
+  const closePoll = useClosePoll(chatId ?? "none");
 
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [editing, setEditing] = useState<ChatMessage | null>(null);
+  const [panel, setPanel] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [readBy, setReadBy] = useState<string | null>(null);
+  const [goTo, setGoTo] = useState<string | null>(null);
 
   useEffect(() => {
     setReplyTo(null);
@@ -77,6 +97,7 @@ export function ChatPage() {
        leads pipeline do: a conversation is a screen of its own, not a card on a page */
     <div className="-m-6 flex h-[calc(100vh-3.5rem)] overflow-hidden border-t border-divider bg-surface">
       <ChatList
+        narrow={panel}
         chats={chats.data ?? []}
         people={people_}
         online={online}
@@ -89,6 +110,12 @@ export function ChatPage() {
           openSaved.mutate(undefined, {
             onSuccess: (summary) => navigate(`/chat/${summary.id}`),
           })
+        }
+        onNewGroup={(title, memberIds) =>
+          createGroup.mutate(
+            { title, memberIds },
+            { onSuccess: (detail) => navigate(`/chat/${detail.id}`) },
+          )
         }
       />
 
@@ -113,7 +140,22 @@ export function ChatPage() {
               <span className="ml-auto text-[11.5px] text-muted">
                 {live.status === "open" ? "" : "Connecting…"}
               </span>
+              <button
+                type="button"
+                aria-label="Details"
+                onClick={() => setPanel((open) => !open)}
+                className="text-muted hover:text-ink"
+              >
+                <Info className="size-4" />
+              </button>
             </header>
+
+            <PinnedBar
+              pinned={pins.data?.messages ?? []}
+              canPin={chat.data.kind === "direct" || chat.data.myRole !== "member"}
+              onGo={(message) => setGoTo(message.id)}
+              onUnpin={(message) => setPinned.mutate({ id: message.id, pinned: false })}
+            />
 
             <Conversation
               chat={chat.data}
@@ -133,11 +175,19 @@ export function ChatPage() {
               }}
               onDelete={(message) => remove.mutate(message.id)}
               onReact={(message, emoji) => react.mutate({ id: message.id, emoji })}
+              onPin={(message, pinned) => setPinned.mutate({ id: message.id, pinned })}
+              onReadBy={(message) => setReadBy(message.id)}
+              onVote={(message, options) => vote.mutate({ id: message.id, options })}
+              onClosePoll={(message) => closePoll.mutate(message.id)}
+              goTo={goTo}
               typing={typing}
             />
 
             <Composer
               chatId={chat.data.id}
+              members={chat.data.members}
+              canPoll={chat.data.kind !== "saved"}
+              onPoll={() => setAsking(true)}
               replyTo={replyTo}
               editing={editing}
               disabled={cannotWrite}
@@ -150,10 +200,11 @@ export function ChatPage() {
                 if (editing) edit.mutate({ id: editing.id, text });
                 setEditing(null);
               }}
-              onSend={(text) => {
+              onSend={(text, mentions) => {
                 send.mutate({
                   clientMessageId: crypto.randomUUID(),
                   text,
+                  ...(mentions.length ? { mentions } : {}),
                   ...(replyTo ? { replyToId: replyTo.id } : {}),
                 });
                 setReplyTo(null);
@@ -162,6 +213,35 @@ export function ChatPage() {
           </>
         )}
       </div>
+
+      {panel && chat.data && (
+        <ChatPanel
+          chat={chat.data}
+          people={people_}
+          online={online}
+          onClose={() => setPanel(false)}
+          onLeft={() => {
+            setPanel(false);
+            navigate("/chat");
+          }}
+        />
+      )}
+
+      {asking && chatId && (
+        <NewPoll
+          onClose={() => setAsking(false)}
+          onCreate={({ question, options, multiple }) => {
+            setAsking(false);
+            send.mutate({
+              clientMessageId: crypto.randomUUID(),
+              text: question,
+              poll: { options, multiple },
+            });
+          }}
+        />
+      )}
+
+      {readBy && <ReadBy messageId={readBy} onClose={() => setReadBy(null)} />}
     </div>
   );
 }

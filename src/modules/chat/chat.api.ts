@@ -11,8 +11,12 @@ import type {
   ChatMessage,
   ChatMessagePage,
   ChatPeople,
+  ChatSettingsInput,
   ChatSummary,
+  CreateGroupInput,
+  ReadBy,
   SendMessageInput,
+  UpdateGroupInput,
 } from "@shared/schema/chat";
 import { api } from "@/shared/lib/api";
 import { CHAT_KEY, CHAT_PRESENCE_KEY } from "@/shared/lib/query-keys";
@@ -309,4 +313,143 @@ export function useTyping(chatId: string | null) {
       // a chat one cannot write in says so when the message is sent; a ping stays quiet
     });
   }, [chatId]);
+}
+
+// ── a group, its people, and the reader's own settings (chat.md §4.3, §4.2) ────
+
+function afterChatChange(client: QueryClient, chatId: string) {
+  void client.invalidateQueries({ queryKey: chatKeys.chat(chatId) });
+  void client.invalidateQueries({ queryKey: chatKeys.chats });
+  void client.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
+}
+
+export function useCreateGroup() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateGroupInput) =>
+      api<ChatDetail>("/api/chat/groups", { method: "POST", body: input }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: chatKeys.chats }),
+  });
+}
+
+export function useUpdateGroup(chatId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateGroupInput) =>
+      api<ChatDetail>(`/api/chat/chats/${chatId}`, { method: "PATCH", body: input }),
+    onSuccess: () => afterChatChange(client, chatId),
+  });
+}
+
+export function useAddMembers(chatId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (userIds: string[]) =>
+      api<ChatDetail>(`/api/chat/chats/${chatId}/members`, {
+        method: "POST",
+        body: { userIds },
+      }),
+    onSuccess: () => afterChatChange(client, chatId),
+  });
+}
+
+export function useRemoveMember(chatId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) =>
+      api<ChatDetail>(`/api/chat/chats/${chatId}/members/${userId}`, { method: "DELETE" }),
+    onSuccess: () => afterChatChange(client, chatId),
+  });
+}
+
+export function useSetMemberRole(chatId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, role }: { userId: string; role: "admin" | "member" }) =>
+      api<ChatDetail>(`/api/chat/chats/${chatId}/members/${userId}/role`, {
+        method: "PUT",
+        body: { role },
+      }),
+    onSuccess: () => afterChatChange(client, chatId),
+  });
+}
+
+export function useTransferOwner(chatId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) =>
+      api<ChatDetail>(`/api/chat/chats/${chatId}/owner`, { method: "POST", body: { userId } }),
+    onSuccess: () => afterChatChange(client, chatId),
+  });
+}
+
+export function useLeaveChat(chatId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<{ ok: true }>(`/api/chat/chats/${chatId}/leave`, { method: "POST" }),
+    onSuccess: () => {
+      client.removeQueries({ queryKey: chatKeys.chat(chatId) });
+      void client.invalidateQueries({ queryKey: chatKeys.chats });
+    },
+  });
+}
+
+export function useChatSettings(chatId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ChatSettingsInput) =>
+      api<ChatSummary>(`/api/chat/chats/${chatId}/settings`, { method: "PUT", body: input }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: chatKeys.chats });
+      void client.invalidateQueries({ queryKey: chatKeys.chat(chatId) });
+    },
+  });
+}
+
+// ── pinned, polls and who has read (chat.md §5.2, §5.4, §5.5) ─────────────────
+
+export function usePins(chatId: string | null) {
+  return useQuery({
+    queryKey: chatKeys.pins(chatId ?? "none"),
+    queryFn: () => api<ChatMessagePage>(`/api/chat/chats/${chatId!}/pins`),
+    enabled: chatId !== null,
+  });
+}
+
+export function useSetPinned(chatId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, pinned }: { id: string; pinned: boolean }) =>
+      api<ChatMessage>(`/api/chat/messages/${id}/pin`, { method: "PUT", body: { pinned } }),
+    onSuccess: (message) => {
+      merge(client, chatId, [message]);
+      void client.invalidateQueries({ queryKey: chatKeys.pins(chatId) });
+    },
+  });
+}
+
+export function useVote(chatId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, options }: { id: string; options: number[] }) =>
+      api<ChatMessage>(`/api/chat/messages/${id}/vote`, { method: "PUT", body: { options } }),
+    onSuccess: (message) => merge(client, chatId, [message]),
+  });
+}
+
+export function useClosePoll(chatId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api<ChatMessage>(`/api/chat/messages/${id}/poll/close`, { method: "POST" }),
+    onSuccess: (message) => merge(client, chatId, [message]),
+  });
+}
+
+export function useReadBy(messageId: string | null) {
+  return useQuery({
+    queryKey: [...CHAT_KEY, "read-by", messageId ?? "none"] as const,
+    queryFn: () => api<ReadBy>(`/api/chat/messages/${messageId!}/read-by`),
+    enabled: messageId !== null,
+  });
 }

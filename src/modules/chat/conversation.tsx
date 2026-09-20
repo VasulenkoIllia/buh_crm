@@ -1,11 +1,21 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Check, CheckCheck, CornerUpLeft, Pencil, SmilePlus, Trash2 } from "lucide-react";
+import {
+  Check,
+  CheckCheck,
+  CornerUpLeft,
+  Eye,
+  Pencil,
+  Pin,
+  SmilePlus,
+  Trash2,
+} from "lucide-react";
 import type { ChatDetail, ChatMessage, ChatPerson } from "@shared/schema/chat";
 import { useAuth } from "@/app/auth";
 import { cn } from "@/shared/lib/cn";
 import { fmtDate, fmtTime } from "@/shared/lib/format";
 import { UserAvatar } from "@/shared/ui/avatar";
+import { PollCard } from "./poll";
 import { RichText } from "./rich-text";
 
 /**
@@ -47,6 +57,11 @@ export function Conversation({
   onEdit,
   onDelete,
   onReact,
+  onPin,
+  onReadBy,
+  onVote,
+  onClosePoll,
+  goTo,
   typing,
 }: {
   chat: ChatDetail;
@@ -60,6 +75,12 @@ export function Conversation({
   onEdit: (message: ChatMessage) => void;
   onDelete: (message: ChatMessage) => void;
   onReact: (message: ChatMessage, emoji: string) => void;
+  onPin: (message: ChatMessage, pinned: boolean) => void;
+  onReadBy: (message: ChatMessage) => void;
+  onVote: (message: ChatMessage, options: number[]) => void;
+  onClosePoll: (message: ChatMessage) => void;
+  /** a message to scroll to, from the pinned bar or a reply's quote */
+  goTo: string | null;
   typing: string[];
 }) {
   const { user } = useAuth();
@@ -97,6 +118,13 @@ export function Conversation({
   useLayoutEffect(() => {
     if (atBottom && rows.length > 0) virtual.scrollToIndex(rows.length - 1, { align: "end" });
   }, [rows.length, atBottom, virtual]);
+
+  // the pinned bar and a reply's quote both ask for a message by id
+  useEffect(() => {
+    if (!goTo) return;
+    const at = rows.findIndex((r) => r.kind === "message" && r.message.id === goTo);
+    if (at >= 0) virtual.scrollToIndex(at, { align: "center" });
+  }, [goTo, rows, virtual]);
 
   const onScroll = useCallback(() => {
     const el = box.current;
@@ -148,6 +176,10 @@ export function Conversation({
                   onEdit={onEdit}
                   onDelete={onDelete}
                   onReact={onReact}
+                  onPin={onPin}
+                  onReadBy={onReadBy}
+                  onVote={onVote}
+                  onClosePoll={onClosePoll}
                 />
               )}
             </div>
@@ -173,6 +205,10 @@ function Row({
   onEdit,
   onDelete,
   onReact,
+  onPin,
+  onReadBy,
+  onVote,
+  onClosePoll,
 }: {
   chat: ChatDetail;
   message: ChatMessage;
@@ -182,6 +218,10 @@ function Row({
   onEdit: (message: ChatMessage) => void;
   onDelete: (message: ChatMessage) => void;
   onReact: (message: ChatMessage, emoji: string) => void;
+  onPin: (message: ChatMessage, pinned: boolean) => void;
+  onReadBy: (message: ChatMessage) => void;
+  onVote: (message: ChatMessage, options: number[]) => void;
+  onClosePoll: (message: ChatMessage) => void;
 }) {
   if (message.kind === "notice") {
     const names = (message.notice?.userIds ?? []).map((id) => nameOf(people, id)).join(", ");
@@ -237,6 +277,16 @@ function Row({
           ) : (
             <RichText text={message.text ?? ""} />
           )}
+          {message.poll && !message.deletedAt && (
+            <PollCard
+              message={message}
+              me={me}
+              people={people}
+              canClose={mine || chat.myRole !== "member"}
+              onVote={(options) => onVote(message, options)}
+              onClose={() => onClosePoll(message)}
+            />
+          )}
           <p
             className={cn(
               "mt-0.5 flex items-center justify-end gap-1 text-[11px]",
@@ -289,7 +339,27 @@ function Row({
           >
             <CornerUpLeft className="size-3.5" />
           </button>
-          {mine && (
+          {(chat.kind === "direct" || chat.myRole !== "member") && (
+            <button
+              type="button"
+              aria-label={message.pinned ? "Unpin" : "Pin"}
+              onClick={() => onPin(message, !message.pinned)}
+              className={cn("hover:text-ink", message.pinned ? "text-ink" : "text-muted")}
+            >
+              <Pin className="size-3.5" />
+            </button>
+          )}
+          {mine && inGroup && (
+            <button
+              type="button"
+              aria-label="Read by"
+              onClick={() => onReadBy(message)}
+              className="text-muted hover:text-ink"
+            >
+              <Eye className="size-3.5" />
+            </button>
+          )}
+          {mine && message.kind !== "poll" && (
             <button
               type="button"
               aria-label="Edit"

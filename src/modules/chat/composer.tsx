@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Send, Smile, X } from "lucide-react";
-import { MESSAGE_LIMIT, type ChatMessage } from "@shared/schema/chat";
+import { BarChart3, Send, Smile, X } from "lucide-react";
+import { MESSAGE_LIMIT, type ChatMember, type ChatMessage } from "@shared/schema/chat";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { EmojiPicker } from "./emoji-picker";
+import { MentionPicker, mentionQuery, putMention, type Mentionable } from "./mentions";
 import { wrapSelection } from "./rich-text";
 
 /**
@@ -37,26 +38,43 @@ function keepDraft(chatId: string, text: string) {
 
 export function Composer({
   chatId,
+  members,
   replyTo,
   editing,
   disabled,
+  canPoll,
   onSend,
   onEdit,
   onCancel,
   onTyping,
+  onPoll,
 }: {
   chatId: string;
+  /** who can be named with `@` in this chat (§5.2) */
+  members: ChatMember[];
   replyTo: ChatMessage | null;
   editing: ChatMessage | null;
   disabled?: string | null;
-  onSend: (text: string) => void;
+  canPoll: boolean;
+  onSend: (text: string, mentions: string[]) => void;
   onEdit: (text: string) => void;
   onCancel: () => void;
   onTyping: () => void;
+  onPoll: () => void;
 }) {
   const [text, setText] = useState("");
   const [picking, setPicking] = useState(false);
+  /** whom the person has named so far, so the server marks exactly them (§5.2) */
+  const [named, setNamed] = useState<Mentionable[]>([]);
   const field = useRef<HTMLTextAreaElement>(null);
+  /**
+   * Where the caret belongs once React has drawn the new text. Setting it straight after
+   * `setText` puts it on the value the field still holds, and the browser then drops it to the
+   * start: typing after picking a mention landed before the name (found in the browser, A.6).
+   */
+  const caretAfter = useRef<{ start: number; end: number } | null>(null);
+  const caret = field.current?.selectionStart ?? text.length;
+  const mentioning = mentionQuery(text, caret);
 
   useEffect(() => {
     setText(editing?.text ?? drafts()[chatId] ?? "");
@@ -67,20 +85,34 @@ export function Composer({
     if (!editing) keepDraft(chatId, text);
   }, [chatId, text, editing]);
 
-  // the field grows with the text, up to about eight lines
+  // the field grows with the text, up to about eight lines, and the caret goes where it was put
   useEffect(() => {
     const el = field.current;
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 180)}px`;
+    const want = caretAfter.current;
+    if (!want) return;
+    caretAfter.current = null;
+    el.focus();
+    el.setSelectionRange(want.start, want.end);
   }, [text]);
 
   const submit = () => {
     const body = text.trim();
     if (!body) return;
-    if (editing) onEdit(body);
-    else onSend(body);
+    if (editing) {
+      onEdit(body);
+    } else {
+      // everybody whose name is still in the text, and everybody when the text says `@all`
+      const all = /(^|\s)@all\b/.test(body);
+      const ids = all
+        ? members.map((m) => m.id)
+        : named.filter((p) => body.includes(`@${p.name}`)).map((p) => p.id);
+      onSend(body, [...new Set(ids)]);
+    }
     setText("");
+    setNamed([]);
     keepDraft(chatId, "");
   };
 
@@ -88,22 +120,16 @@ export function Composer({
     const el = field.current;
     if (!el) return;
     const next = wrapSelection(text, el.selectionStart, el.selectionEnd, marks);
+    caretAfter.current = { start: next.start, end: next.end };
     setText(next.text);
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(next.start, next.end);
-    });
   };
 
   const insert = (emoji: string) => {
     const el = field.current;
     const at = el?.selectionStart ?? text.length;
+    caretAfter.current = { start: at + emoji.length, end: at + emoji.length };
     setText(`${text.slice(0, at)}${emoji}${text.slice(at)}`);
     setPicking(false);
-    requestAnimationFrame(() => {
-      el?.focus();
-      el?.setSelectionRange(at + emoji.length, at + emoji.length);
-    });
   };
 
   if (disabled) {
@@ -172,6 +198,28 @@ export function Composer({
           <Smile className="size-[18px]" />
         </button>
         {picking && <EmojiPicker onPick={insert} onClose={() => setPicking(false)} />}
+        {mentioning !== null && (
+          <MentionPicker
+            members={members}
+            query={mentioning.query}
+            onPick={(person) => {
+              const next = putMention(text, mentioning, person.name);
+              caretAfter.current = { start: next.caret, end: next.caret };
+              setText(next.text);
+              if (person.id) setNamed((was) => [...was, { id: person.id!, name: person.name }]);
+            }}
+          />
+        )}
+        {canPoll && !editing && (
+          <button
+            type="button"
+            aria-label="Poll"
+            onClick={onPoll}
+            className="mb-1 text-muted hover:text-ink"
+          >
+            <BarChart3 className="size-[18px]" />
+          </button>
+        )}
         <Button size="sm" className="mb-0.5" disabled={!text.trim()} onClick={submit}>
           <Send className="size-3.5" />
           {editing ? "Save" : "Send"}
