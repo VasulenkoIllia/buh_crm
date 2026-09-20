@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Paperclip, Search, SlidersHorizontal, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown, ChevronUp, Paperclip, Search, SlidersHorizontal, X } from "lucide-react";
 import {
   SEARCH_MIN_WORD,
   type ChatPerson,
@@ -13,13 +13,13 @@ import { UserAvatar } from "@/shared/ui/avatar";
 import { useChatSearch } from "./chat.api";
 
 /**
- * **The two search boxes** (chat.md §8): the same component above the chat list, where it searches
- * every chat the reader is in, and inside a chat, where `chatId` holds it to that one.
+ * **The box above the chat list** (chat.md §8), which searches every chat the reader is in.
+ * Searching ONE chat is `ChatSearchBar` at the foot of this file, under that chat's own header.
  *
- * Above the list it answers in two parts, the way Telegram does (owner, 2026-09-20): the CHATS
- * whose name matches, from the first letter, and then the MESSAGES. The chats are matched here, in
- * the list the screen already holds, so they appear as fast as the typing; the messages are the
- * server's answer and need three letters.
+ * It answers in two parts, the way Telegram does (owner, 2026-09-20): the CHATS whose name
+ * matches, from the first letter, and then the MESSAGES. The chats are matched here, in the list
+ * the screen already holds, so they appear as fast as the typing; the messages are the server's
+ * answer and need three letters.
  *
  * The words are sealed, so the server matches keyed hashes of them and opens only what it is about
  * to show (`server/modules/chat/chat.search.ts`). Here that is invisible: three letters or more,
@@ -34,7 +34,6 @@ const loose = (text: string) =>
     .replace(/[\u0300-\u036f]/g, "");
 
 export function ChatSearchBox({
-  chatId,
   people,
   onOpen,
   placeholder = "Search messages",
@@ -42,9 +41,7 @@ export function ChatSearchBox({
   chats,
   onOpenChat,
 }: {
-  /** set inside a chat, left out above the list */
-  chatId?: string;
-  /** whom the "from" filter offers: the chat's members, or every colleague */
+  /** whom the "from" filter offers: every colleague */
   people: { id: string; firstName: string; lastName: string }[];
   onOpen: (hit: ChatSearchHit) => void;
   placeholder?: string;
@@ -72,7 +69,6 @@ export function ChatSearchBox({
   const showing = typing.length > 0 && (enough || named.length > 0);
   const query: ChatSearchQuery = {
     q,
-    ...(chatId ? { chatId } : {}),
     ...(senderId ? { senderId } : {}),
     ...(from ? { from } : {}),
     ...(to ? { to } : {}),
@@ -213,16 +209,14 @@ export function ChatSearchBox({
               )}
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5">
-                  <span className="truncate text-[12.5px] font-semibold">
-                    {chatId ? nameOf(who, hit.authorId) : hit.chatLabel}
-                  </span>
+                  <span className="truncate text-[12.5px] font-semibold">{hit.chatLabel}</span>
                   {hit.files > 0 && <Paperclip className="size-3 shrink-0 text-muted" />}
                   <span className="ml-auto shrink-0 text-[11px] text-muted">
                     {fmtDate(hit.at)}
                   </span>
                 </span>
                 <span className="mt-0.5 line-clamp-2 block text-[12px] text-muted">
-                  {chatId ? hit.snippet : `${nameOf(who, hit.authorId)}: ${hit.snippet}`}
+                  {`${nameOf(who, hit.authorId)}: ${hit.snippet}`}
                 </span>
               </span>
             </button>
@@ -241,4 +235,176 @@ export function ChatSearchBox({
 function nameOf(people: Map<string, ChatPerson>, id: string | null): string {
   const person = id ? people.get(id) : null;
   return person ? `${person.firstName} ${person.lastName}`.trim() : "Somebody";
+}
+
+/**
+ * **Searching inside one chat, from the chat's own header** (owner, 2026-09-20: "лупа в рамках
+ * чату відразу має давати можливість введення… так як в телеграмі").
+ *
+ * A bar under the header rather than a tab in the side panel: the magnifier opens it with the
+ * caret already in it, the hits are listed under it, and ↑ ↓ step through them without touching
+ * the list — which is what the arrows do in Telegram. Escape closes it.
+ *
+ * It shares the server's search with the box above the chat list; what is its own is the stepping
+ * and the counter, because in one chat a person reads the hits in order.
+ */
+export function ChatSearchBar({
+  chatId,
+  people,
+  onGo,
+  onClose,
+}: {
+  chatId: string;
+  people: { id: string; firstName: string; lastName: string }[];
+  /** jumps the conversation to that message */
+  onGo: (messageId: string) => void;
+  onClose: () => void;
+}) {
+  const [typed, setTyped] = useState("");
+  const [senderId, setSenderId] = useState("");
+  const [at, setAt] = useState(0);
+  const field = useRef<HTMLInputElement>(null);
+
+  const q = useDebounced(typed.trim(), 350);
+  const enough = q.length >= SEARCH_MIN_WORD;
+  const found = useChatSearch({ q, chatId, ...(senderId ? { senderId } : {}) }, enough);
+  const hits = found.data?.hits ?? [];
+  const who = new Map((found.data?.people ?? []).map((p) => [p.id, p]));
+
+  // a new answer starts at its first hit, and goes to it
+  useEffect(() => {
+    if (hits.length === 0) return;
+    setAt(0);
+    onGo(hits[0].messageId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- on a new answer, not on every render
+  }, [found.dataUpdatedAt]);
+
+  const step = (by: 1 | -1) => {
+    if (hits.length === 0) return;
+    const next = (at + by + hits.length) % hits.length;
+    setAt(next);
+    onGo(hits[next].messageId);
+  };
+
+  return (
+    <div className="border-b border-divider bg-surface">
+      <div className="flex items-center gap-1.5 px-4 py-2">
+        <div className="relative flex-1">
+          <Search className="absolute top-2 left-2 size-3.5 text-muted" />
+          <input
+            ref={field}
+            autoFocus
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") onClose();
+              if (e.key === "Enter") step(e.shiftKey ? -1 : 1);
+            }}
+            placeholder="Search this chat"
+            className="w-full rounded-(--radius-field) border border-border py-1.5 pr-7 pl-7 text-[13px] outline-none focus:border-primary"
+          />
+          {typed && (
+            <button
+              type="button"
+              aria-label="Clear"
+              onClick={() => {
+                setTyped("");
+                field.current?.focus();
+              }}
+              className="absolute top-2 right-2 text-muted hover:text-ink"
+            >
+              <X className="size-3.5" />
+            </button>
+          )}
+        </div>
+        {people.length > 2 && (
+          <select
+            value={senderId}
+            onChange={(e) => setSenderId(e.target.value)}
+            className="rounded-(--radius-field) border border-border px-2 py-1.5 text-[12.5px] outline-none focus:border-primary"
+          >
+            <option value="">Anybody</option>
+            {people.map((p) => (
+              <option key={p.id} value={p.id}>
+                {`${p.firstName} ${p.lastName}`.trim()}
+              </option>
+            ))}
+          </select>
+        )}
+        <span className="min-w-[56px] shrink-0 text-right text-[11.5px] tabular-nums text-muted">
+          {enough && found.data ? (hits.length ? `${at + 1} of ${hits.length}` : "none") : ""}
+        </span>
+        <button
+          type="button"
+          aria-label="Previous"
+          disabled={hits.length === 0}
+          onClick={() => step(-1)}
+          className="text-muted hover:text-ink disabled:opacity-40"
+        >
+          <ChevronUp className="size-4" />
+        </button>
+        <button
+          type="button"
+          aria-label="Next"
+          disabled={hits.length === 0}
+          onClick={() => step(1)}
+          className="text-muted hover:text-ink disabled:opacity-40"
+        >
+          <ChevronDown className="size-4" />
+        </button>
+        <button
+          type="button"
+          aria-label="Close the search"
+          onClick={onClose}
+          className="text-muted hover:text-ink"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+
+      {typed.trim().length > 0 && !enough && (
+        <p className="px-4 pb-2 text-[11.5px] text-muted">
+          At least {SEARCH_MIN_WORD} letters, anywhere in a word.
+        </p>
+      )}
+
+      {enough && hits.length > 0 && (
+        <div className="max-h-[35vh] overflow-y-auto border-t border-divider">
+          {hits.map((hit, i) => (
+            <button
+              key={hit.messageId}
+              type="button"
+              onClick={() => {
+                setAt(i);
+                onGo(hit.messageId);
+              }}
+              className={cn(
+                "flex w-full gap-2 border-b border-divider px-4 py-1.5 text-left",
+                i === at ? "bg-divider" : "hover:bg-divider/60",
+              )}
+            >
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-1.5">
+                  <span className="truncate text-[12px] font-semibold">
+                    {nameOf(who, hit.authorId)}
+                  </span>
+                  {hit.files > 0 && <Paperclip className="size-3 shrink-0 text-muted" />}
+                  <span className="ml-auto shrink-0 text-[11px] text-muted">
+                    {fmtDate(hit.at)}
+                  </span>
+                </span>
+                <span className="mt-0.5 line-clamp-1 block text-[12px] text-muted">
+                  {hit.snippet}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {enough && found.data && hits.length === 0 && (
+        <p className="px-4 pb-2 text-[12px] text-muted">Nothing found in this chat.</p>
+      )}
+    </div>
+  );
 }

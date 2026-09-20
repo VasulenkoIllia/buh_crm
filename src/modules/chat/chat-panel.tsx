@@ -7,7 +7,6 @@ import { UserAvatar } from "@/shared/ui/avatar";
 import { Button } from "@/shared/ui/button";
 import { Modal } from "@/shared/ui/modal";
 import { ChatFilesTab } from "./chat-files-tab";
-import { ChatSearchBox } from "./chat-search";
 import {
   useAddMembers,
   useChatSettings,
@@ -39,14 +38,14 @@ const MUTES: { value: MuteFor; label: string }[] = [
   { value: "forever", label: "Off until I turn it on" },
 ];
 
-export type PanelTab = "details" | "files" | "search";
+/** Searching one chat is the bar under its header, not a tab in here (owner, 2026-09-20). */
+export type PanelTab = "details" | "files";
 
 export function ChatPanel({
   chat,
   people,
   online,
   onOpenFile,
-  onOpenHit,
   onClose,
   onLeft,
   openOn = "details",
@@ -57,8 +56,6 @@ export function ChatPanel({
   online: Set<string>;
   /** opens the CRM's viewer on a file from the Files tab (§6.4) */
   onOpenFile: (files: ChatFileItem[], index: number) => void;
-  /** goes to a message this chat's own search found (§8) */
-  onOpenHit: (messageId: string) => void;
   /** which tab to stand on when it opens; the header's two buttons choose */
   openOn?: PanelTab;
   /** bumped by the caller to say "open on that tab again", even if it is the same tab */
@@ -70,8 +67,6 @@ export function ChatPanel({
   // a group has no roles: everybody in it may rename it, add, remove and leave (owner, 2026-09-20)
   const inGroup = chat.kind === "group";
   const [tab, setTab] = useState<PanelTab>(openOn);
-  // the header's magnifier opens this panel straight on Search, and asking for it again while it
-  // is open moves to that tab rather than doing nothing (owner, 2026-09-20)
   useEffect(() => setTab(openOn), [openOn, openedAt]);
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState(chat.title ?? "");
@@ -115,7 +110,7 @@ export function ChatPanel({
       </div>
 
       <div className="flex gap-1 border-b border-divider px-3 py-1.5">
-        {(["details", "files", "search"] as const).map((which) => (
+        {(["details", "files"] as const).map((which) => (
           <button
             key={which}
             type="button"
@@ -273,17 +268,6 @@ export function ChatPanel({
             <LogOut className="size-3.5" />
             Leave the group
           </Button>
-        </div>
-      )}
-
-      {tab === "search" && (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <ChatSearchBox
-            chatId={chat.id}
-            people={chat.members}
-            placeholder="Search this chat"
-            onOpen={(hit) => onOpenHit(hit.messageId)}
-          />
         </div>
       )}
 

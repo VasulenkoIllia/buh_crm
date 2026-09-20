@@ -3,6 +3,7 @@ import { Info, Search } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { ChatFile, ChatFileItem, ChatMessage } from "@shared/schema/chat";
 import { useAuth } from "@/app/auth";
+import { cn } from "@/shared/lib/cn";
 import { FileViewer, type Viewable } from "@/modules/files";
 import { useChatPresence, useRealtime } from "./use-realtime";
 import {
@@ -28,7 +29,8 @@ import {
 } from "./chat.api";
 import { viewableOf } from "./attachments";
 import { ChatList, chatTitle } from "./chat-list";
-import { ChatPanel, type PanelTab } from "./chat-panel";
+import { ChatPanel } from "./chat-panel";
+import { ChatSearchBar } from "./chat-search";
 import { ForwardModal } from "./forward-modal";
 import { Composer } from "./composer";
 import { Conversation } from "./conversation";
@@ -72,14 +74,8 @@ export function ChatPage() {
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [editing, setEditing] = useState<ChatMessage | null>(null);
   const [panel, setPanel] = useState(false);
-  /** which tab the panel opens on, and a counter so asking twice moves it there twice */
-  const [panelOn, setPanelOn] = useState<PanelTab>("details");
-  const [panelAsk, setPanelAsk] = useState(0);
-  const openPanel = (tab: PanelTab) => {
-    setPanel((open) => !(open && panelOn === tab));
-    setPanelOn(tab);
-    setPanelAsk((n) => n + 1);
-  };
+  /** the bar under the header, which is where searching one chat lives (§8) */
+  const [searchHere, setSearchHere] = useState(false);
   const [asking, setAsking] = useState(false);
   const [readBy, setReadBy] = useState<string | null>(null);
   const [forwarding, setForwarding] = useState<ChatMessage | null>(null);
@@ -179,14 +175,14 @@ export function ChatPage() {
               <span className="ml-auto text-[11.5px] text-muted">
                 {live.status === "open" ? "" : "Connecting…"}
               </span>
-              {/* the magnifier belongs beside the chat, not three clicks inside Details
-                  (owner, 2026-09-20) */}
+              {/* the magnifier belongs beside the chat and opens a box to type in at once, the
+                  way it does in Telegram (owner, 2026-09-20) */}
               <button
                 type="button"
                 aria-label="Search this chat"
                 title="Search this chat"
-                onClick={() => openPanel("search")}
-                className="text-muted hover:text-ink"
+                onClick={() => setSearchHere((open) => !open)}
+                className={cn("text-muted hover:text-ink", searchHere && "text-ink")}
               >
                 <Search className="size-4" />
               </button>
@@ -194,12 +190,21 @@ export function ChatPage() {
                 type="button"
                 aria-label="Details"
                 title="Details"
-                onClick={() => openPanel("details")}
+                onClick={() => setPanel((open) => !open)}
                 className="text-muted hover:text-ink"
               >
                 <Info className="size-4" />
               </button>
             </header>
+
+            {searchHere && (
+              <ChatSearchBar
+                chatId={chat.data.id}
+                people={chat.data.members}
+                onGo={(messageId) => setGoTo(messageId)}
+                onClose={() => setSearchHere(false)}
+              />
+            )}
 
             <PinnedBar
               pinned={pins.data?.messages ?? []}
@@ -289,9 +294,6 @@ export function ChatPage() {
           onOpenFile={(files: ChatFileItem[], index: number) =>
             openFiles(files, index, files[index]?.at ?? new Date().toISOString())
           }
-          onOpenHit={(messageId) => setGoTo(messageId)}
-          openOn={panelOn}
-          openedAt={panelAsk}
           onClose={() => setPanel(false)}
           onLeft={() => {
             setPanel(false);
