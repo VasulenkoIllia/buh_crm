@@ -44,7 +44,9 @@ async function main() {
     ...(only ? { chatId: only } : {}),
   };
   const total = await prisma.chatMessage.count({ where });
-  console.log(`${total} message${total === 1 ? "" : "s"} to index${only ? ` in ${only}` : ""}.`);
+  console.log(
+    `${total} message${total === 1 ? "" : "s"} to index${only ? ` in ${only}` : ""}.`,
+  );
 
   let done = 0;
   let withWords = 0;
@@ -79,7 +81,9 @@ async function main() {
     console.log(`  ${done}/${total}`);
   }
 
-  const rows = await prisma.chatSearchToken.count(only ? { where: { chatId: only } } : undefined);
+  const rows = await prisma.chatSearchToken.count(
+    only ? { where: { chatId: only } } : undefined,
+  );
   // a message of files alone, a poll whose question is two letters, a notice: all of them are
   // meant to have no tokens, so "fewer indexed than read" is not a fault
   console.log(
