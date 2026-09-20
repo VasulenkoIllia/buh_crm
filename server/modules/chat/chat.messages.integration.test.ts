@@ -144,6 +144,26 @@ describe("sending", () => {
     expect(await prisma.chatMessage.count({ where: { chatId, kind: "text" } })).toBe(1);
   });
 
+  it("keeps the same name for a send in two chats apart, one message in each", async () => {
+    const here = await group(olena, "Key here", [petro]);
+    const there = await group(olena, "Key there", [petro]);
+    const clientMessageId = randomUUID();
+    const body = { clientMessageId, text: "the same words" };
+
+    const first = await call(olena, "POST", `/chats/${here}/messages`, body);
+    const second = await call(olena, "POST", `/chats/${there}/messages`, body);
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    // a retry is answered per chat: two messages, each where it was sent
+    expect(second.body.id).not.toBe(first.body.id);
+    expect((await history(petro, here)).messages.filter((m) => m.kind === "text")).toHaveLength(
+      1,
+    );
+    expect(
+      (await history(petro, there)).messages.filter((m) => m.kind === "text"),
+    ).toHaveLength(1);
+  });
+
   it("gives concurrent sends places with no gaps and no duplicates", async () => {
     const chatId = await group(olena, "At once", [petro, iryna]);
     const senders = [olena, petro, iryna, olena, petro];
@@ -318,7 +338,8 @@ describe("replying, editing and deleting", () => {
     expect(row.ciphertext).toBeNull();
     expect(row.iv).toBeNull();
     const event = await logged("chat_message.deleted", mine.id);
-    expect(event.subjectLabel).toBe("Deletes");
+    // the chat is named by what it is, never by its title (chat.md §12.1)
+    expect(event.subjectLabel).toBe("a group");
     expect(event.changes).toEqual({ author: "their own" });
   });
 

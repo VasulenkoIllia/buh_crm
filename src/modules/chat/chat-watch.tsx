@@ -37,8 +37,10 @@ function useIsTellingTab(): boolean {
       for (const [id, at] of seen) if (now - at > FORGET_MS) seen.delete(id);
       setLeader([...seen.keys(), me].sort()[0] === me);
     };
-    channel.onmessage = (event: MessageEvent<{ id: string }>) => {
-      seen.set(event.data.id, Date.now());
+    channel.onmessage = (event: MessageEvent<{ id: string; gone?: true }>) => {
+      // a tab that closes says so, so the others do not wait out its last hello (review 2026-09-20)
+      if (event.data.gone) seen.delete(event.data.id);
+      else seen.set(event.data.id, Date.now());
       decide();
     };
     const hello = window.setInterval(() => {
@@ -46,7 +48,11 @@ function useIsTellingTab(): boolean {
       decide();
     }, HELLO_MS);
     channel.postMessage({ id: me });
+    const goodbye = () => channel.postMessage({ id: me, gone: true });
+    window.addEventListener("pagehide", goodbye);
     return () => {
+      window.removeEventListener("pagehide", goodbye);
+      goodbye();
       window.clearInterval(hello);
       channel.close();
     };

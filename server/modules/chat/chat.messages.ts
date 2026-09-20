@@ -15,7 +15,7 @@ import { ForbiddenError, NotFoundError, ValidationError } from "../../core/error
 import { personName } from "../../core/names.js";
 import { publish } from "../../core/realtime.js";
 import * as repo from "./chat.repository.js";
-import { openGroup, openOptions, openText, sealOptions, sealText } from "./chat.sealing.js";
+import { openOptions, openText, sealOptions, sealText } from "./chat.sealing.js";
 import { requireMember } from "./chat.service.js";
 
 /**
@@ -193,8 +193,9 @@ export async function send(
   const m = await requireMember(chatId, user.id);
   requireWriter(m, user);
 
-  const already = await repo.sentAlready(user.id, input.clientMessageId);
-  // the same send, retried after a lost connection: the first one is the answer
+  // the same send, retried after a lost connection: the first one is the answer. Keyed by the chat
+  // as well, so a retry that reached another chat is a message there rather than this one's twin
+  const already = await repo.sentAlready(chatId, user.id, input.clientMessageId);
   if (already) return toMessage(already);
 
   if (input.replyToId) {
@@ -283,7 +284,8 @@ export async function remove(user: User, messageId: string): Promise<ChatMessage
 function whichChat(m: Membership): string {
   switch (m.chat.kind) {
     case "group":
-      return openGroup(m.chat)?.title ?? "a group";
+      // never the title: the log is read by people who are not in the group (chat.service.ts)
+      return "a group";
     case "announcements":
       return "the announcements channel";
     case "saved":

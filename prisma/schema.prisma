@@ -2243,7 +2243,10 @@ model ChatMessage {
   poll          ChatPoll?
 
   @@unique([chatId, seq])
-  @@unique([authorId, clientMessageId])
+  /// **The same send, retried, posts once** (chat.md §5.1). Keyed by the CHAT as well as the
+  /// author: "this person's Nth attempt to say this HERE". Without the chat in it, a retry that
+  /// reached another chat would be answered with the first chat's message (review, 2026-09-20).
+  @@unique([chatId, authorId, clientMessageId])
 }
 
 /// One emoji from one person on one message; the emoji itself is plain, like every reaction count.

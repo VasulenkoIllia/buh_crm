@@ -201,6 +201,18 @@ function requireGroup(chat: Pick<ChatRow, "kind">) {
   if (chat.kind !== "group") throw new ValidationError("Only a group can be changed");
 }
 
+/**
+ * **What the log calls a group, which is never its name** (chat.md §12.1, review 2026-09-20).
+ *
+ * The activity screen is read by whoever the firm opens the `activity` gate to, and that is not the
+ * same set of people as a group's members. A group's title at an accounting firm can name a client
+ * ("Petrenko restructuring"), so putting it in a row would hand the title of a private conversation
+ * to somebody who was never in it, which is exactly what decision 2 forbids. The row's `subjectId`
+ * still holds the chat's id, so an investigation can find it, the way a personal file's row does
+ * (files.md §10.3).
+ */
+const A_GROUP = "a group";
+
 const MANAGES: readonly ChatMemberRole[] = ["owner", "admin"];
 
 function requireManager(role: ChatMemberRole | undefined) {
@@ -251,7 +263,7 @@ export async function createGroup(user: User, input: CreateGroupInput): Promise<
     });
     return id;
   });
-  record("chat.created", { subjectId: chatId, subjectLabel: title });
+  record("chat.created", { subjectId: chatId, subjectLabel: A_GROUP });
   await announce(chatId, [user.id, ...others.map((p) => p.id)]);
   return getChat(user, chatId);
 }
@@ -276,14 +288,18 @@ export async function updateGroup(
 
   const at = new Date();
   await repo.transaction(async (tx) => {
+    // the role again, under the chat's lock: an admin demoted a moment ago must not still rename it
+    await repo.lockChat(tx, chatId);
+    const current = await repo.activeMembersTx(tx, chatId);
+    requireManager(current.find((x) => x.userId === user.id)?.role);
     await repo.setGroupWords(tx, chatId, sealGroup(after));
     if (titleMoved) await repo.writeNotice(tx, chatId, "renamed", [], user.id, at);
   });
   const changes: Record<string, unknown> = {};
-  if (titleMoved) changes.title = { from: before.title, to: after.title };
-  // the words of a description are the group's own, like a message; the log says it changed
+  // the words of a group are the group's own, like a message: the log says WHAT moved, not to what
+  if (titleMoved) changes.title = "changed";
   if (descriptionMoved) changes.description = "changed";
-  record("chat.renamed", { subjectId: chatId, subjectLabel: after.title, changes });
+  record("chat.renamed", { subjectId: chatId, subjectLabel: A_GROUP, changes });
   await announce(
     chatId,
     m.chat.members.map((x) => x.userId),
@@ -299,7 +315,6 @@ export async function addMembers(
   const m = await requireMember(chatId, user.id);
   requireGroup(m.chat);
   const people = await activePeople(input.userIds);
-  const title = titleOf(m.chat);
   const at = new Date();
 
   const { added, members } = await repo.transaction(async (tx) => {
@@ -327,7 +342,7 @@ export async function addMembers(
     record("chat_member.added", {
       subjectId: p.id,
       subjectLabel: personName(p),
-      changes: { group: title },
+      changes: { group: A_GROUP },
     });
   }
   if (added.length > 0) await announce(chatId, [...members, ...added.map((p) => p.id)]);
@@ -342,7 +357,6 @@ export async function removeMember(
   if (targetId === user.id) throw new ValidationError("Leave the group instead");
   const m = await requireMember(chatId, user.id);
   requireGroup(m.chat);
-  const title = titleOf(m.chat);
   const at = new Date();
 
   const members = await repo.transaction(async (tx) => {
@@ -366,7 +380,7 @@ export async function removeMember(
   record("chat_member.removed", {
     subjectId: targetId,
     subjectLabel: personName(target),
-    changes: { group: title },
+    changes: { group: A_GROUP },
   });
   await announce(chatId, members);
   return getChat(user, chatId);
@@ -381,7 +395,6 @@ export async function setMemberRole(
   if (targetId === user.id) throw new ValidationError("Ask another admin to change your role");
   const m = await requireMember(chatId, user.id);
   requireGroup(m.chat);
-  const title = titleOf(m.chat);
   const at = new Date();
 
   const outcome = await repo.transaction(async (tx) => {
@@ -404,7 +417,7 @@ export async function setMemberRole(
   record("chat_member.role_changed", {
     subjectId: targetId,
     subjectLabel: personName(target),
-    changes: { group: title, role: { from: outcome.from, to: input.role } },
+    changes: { group: A_GROUP, role: { from: outcome.from, to: input.role } },
   });
   await announce(chatId, outcome.members);
   return getChat(user, chatId);
@@ -419,7 +432,6 @@ export async function transferOwner(
   if (targetId === user.id) throw new ValidationError("You already own this group");
   const m = await requireMember(chatId, user.id);
   requireGroup(m.chat);
-  const title = titleOf(m.chat);
   const at = new Date();
 
   const outcome = await repo.transaction(async (tx) => {
@@ -440,7 +452,7 @@ export async function transferOwner(
   record("chat_member.role_changed", {
     subjectId: targetId,
     subjectLabel: personName(target),
-    changes: { group: title, role: { from: outcome.from, to: "owner" } },
+    changes: { group: A_GROUP, role: { from: outcome.from, to: "owner" } },
   });
   await announce(chatId, outcome.members);
   return getChat(user, chatId);
@@ -457,7 +469,6 @@ export async function leave(user: User, chatId: string): Promise<void> {
     throw new ValidationError("Nobody leaves the announcements channel; mute it instead");
   }
   if (m.chat.kind !== "group") throw new ValidationError("Hide this chat instead");
-  const title = titleOf(m.chat);
   const at = new Date();
 
   const members = await repo.transaction(async (tx) => {
@@ -479,7 +490,7 @@ export async function leave(user: User, chatId: string): Promise<void> {
   record("chat_member.left", {
     subjectId: user.id,
     subjectLabel: personName(user),
-    changes: { group: title },
+    changes: { group: A_GROUP },
   });
   await announce(chatId, members);
 }

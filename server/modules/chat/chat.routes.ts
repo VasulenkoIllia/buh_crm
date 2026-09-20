@@ -205,10 +205,14 @@ export async function registerRoutes(instance: FastifyInstance) {
     async (request) => messages.remove(request.currentUser!, request.params.messageId),
   );
 
-  app.post("/forward", { config: chat, schema: { body: forwardInput } }, async (request) => {
-    await messages.forward(request.currentUser!, request.body);
-    return { ok: true };
-  });
+  app.post(
+    "/forward",
+    { config: { ...chat, ...sending }, schema: { body: forwardInput } },
+    async (request) => {
+      await messages.forward(request.currentUser!, request.body);
+      return { ok: true };
+    },
+  );
 
   /** One of each emoji per person: sending the same one again takes it back. */
   app.put(

@@ -94,9 +94,17 @@ function highestSeq(client: QueryClient, chatId: string): number {
   return top;
 }
 
-/** Puts messages into the newest page, in place, replacing any the tab already holds. */
+/**
+ * Puts messages into the pages the tab holds: one it already has is replaced where it stands, and a
+ * NEWER one is added to the newest page, in order.
+ *
+ * Only a newer one. A reaction to a message far above the loaded window arrives as the same shape,
+ * and appending it to the newest page would draw a months-old line as today's (review, 2026-09-20).
+ * It is dropped instead, and read properly when the reader scrolls that far back.
+ */
 function merge(client: QueryClient, chatId: string, arriving: ChatMessage[]) {
   if (arriving.length === 0) return;
+  const top = highestSeq(client, chatId);
   client.setQueryData<{ pages: ChatMessagePage[]; pageParams: unknown[] }>(
     chatKeys.messages(chatId),
     (old) => {
@@ -106,9 +114,10 @@ function merge(client: QueryClient, chatId: string, arriving: ChatMessage[]) {
         ...page,
         messages: page.messages.map((m) => byId.get(m.id) ?? m),
       }));
-      const fresh = arriving.filter(
-        (m) => !pages.some((p) => p.messages.some((x) => x.id === m.id)),
-      );
+      const held = new Set(pages.flatMap((p) => p.messages.map((m) => m.id)));
+      const fresh = arriving
+        .filter((m) => !held.has(m.id) && m.seq > top)
+        .sort((a, b) => a.seq - b.seq);
       if (fresh.length > 0) {
         pages[0] = { ...pages[0], messages: [...pages[0].messages, ...fresh] };
       }
@@ -136,14 +145,24 @@ async function refetchAt(client: QueryClient, chatId: string, seq: number) {
   addPeople(client, chatId, page);
 }
 
+/**
+ * The people a fetch named, ADDED to the ones the page already knows. A catch-up names only the
+ * authors of what it brought, so replacing the list left every older message's author as
+ * "Somebody" with no avatar (review, 2026-09-20).
+ */
 function addPeople(client: QueryClient, chatId: string, page: ChatMessagePage) {
   if (page.people.length === 0) return;
   client.setQueryData<{ pages: ChatMessagePage[]; pageParams: unknown[] }>(
     chatKeys.messages(chatId),
-    (old) =>
-      old
-        ? { ...old, pages: [{ ...old.pages[0], people: page.people }, ...old.pages.slice(1)] }
-        : old,
+    (old) => {
+      if (!old) return old;
+      const known = new Map(old.pages[0].people.map((p) => [p.id, p]));
+      for (const person of page.people) known.set(person.id, person);
+      return {
+        ...old,
+        pages: [{ ...old.pages[0], people: [...known.values()] }, ...old.pages.slice(1)],
+      };
+    },
   );
 }
 
@@ -184,19 +203,26 @@ export function useChatLive(chatId: string | null) {
     };
   }, [chatId, client]);
 
-  // "Olena is typing…" stands for five seconds after the last ping (§5.4)
-  const [, tick] = useState(0);
+  /**
+   * **"Olena is typing…" stands for five seconds after the last ping** (§5.4), and then goes by
+   * itself. The old version filtered the list in a memo and re-rendered on a tick the memo did not
+   * depend on, so the line stayed until somebody else typed (review, 2026-09-20). Now the tick
+   * PRUNES the list, and it only runs while somebody is typing: a quiet chat re-renders for
+   * nothing.
+   */
   useEffect(() => {
-    const id = window.setInterval(() => tick((n) => n + 1), 1_000);
+    if (Object.keys(typing).length === 0) return;
+    const id = window.setInterval(() => {
+      setTyping((was) => {
+        const fresh = Object.fromEntries(
+          Object.entries(was).filter(([, at]) => Date.now() - at < 5_000),
+        );
+        return Object.keys(fresh).length === Object.keys(was).length ? was : fresh;
+      });
+    }, 1_000);
     return () => window.clearInterval(id);
-  }, []);
-  const typingNow = useMemo(
-    () =>
-      Object.entries(typing)
-        .filter(([, at]) => Date.now() - at < 5_000)
-        .map(([id]) => id),
-    [typing],
-  );
+  }, [typing]);
+  const typingNow = useMemo(() => Object.keys(typing), [typing]);
   return { typing: typingNow };
 }
 
@@ -317,10 +343,14 @@ export function useTyping(chatId: string | null) {
 
 // ── a group, its people, and the reader's own settings (chat.md §4.3, §4.2) ────
 
+/**
+ * A group's words, people or roles changed. The conversation is NOT invalidated: an infinite query
+ * refetches every page it holds, and the notice line the change wrote arrives through the stream
+ * like any other message (review, 2026-09-20).
+ */
 function afterChatChange(client: QueryClient, chatId: string) {
   void client.invalidateQueries({ queryKey: chatKeys.chat(chatId) });
   void client.invalidateQueries({ queryKey: chatKeys.chats });
-  void client.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
 }
 
 export function useCreateGroup() {

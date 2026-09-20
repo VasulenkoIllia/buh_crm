@@ -169,7 +169,8 @@ describe("groups", () => {
 
     const row = await prisma.chat.findUniqueOrThrow({ where: { id: chatId } });
     expect(Buffer.from(row.ciphertext!).toString("utf8")).not.toContain("Tax season");
-    expect((await logged("chat.created", chatId)).subjectLabel).toBe("Tax season 2025");
+    // the log never names a group: the activity screen is read by people who are not in it
+    expect((await logged("chat.created", chatId)).subjectLabel).toBe("a group");
 
     // every tab of every member hears of it
     expect((await petroTab.next("chat_updated")).data).toEqual({ chatId });
@@ -200,7 +201,7 @@ describe("groups", () => {
     ).toBe(400);
   });
 
-  it("lets its admins change its words, and records the title but not the description", async () => {
+  it("lets its admins change its words, and records that they moved, not what they say", async () => {
     const chatId = await group(olena, "Old name", [petro]);
     expect((await call(petro, "PATCH", `/chats/${chatId}`, { title: "Petro's" })).status).toBe(
       403,
@@ -213,11 +214,9 @@ describe("groups", () => {
     expect(renamed.body.title).toBe("New name");
     expect(renamed.body.description).toBe("Returns and extensions");
     const row = await logged("chat.renamed", chatId);
-    expect(row.subjectLabel).toBe("New name");
-    expect(row.changes).toEqual({
-      title: { from: "Old name", to: "New name" },
-      description: "changed",
-    });
+    expect(row.subjectLabel).toBe("a group");
+    // what moved, never to what: neither the old title nor the new one is in the log
+    expect(row.changes).toEqual({ title: "changed", description: "changed" });
     expect((await notices(chatId)).map((n) => n.notice)).toEqual(["created", "renamed"]);
   });
 
@@ -234,7 +233,7 @@ describe("groups", () => {
     // "Olena added Iryna" is the one thing Iryna has to read
     expect((await call(iryna, "GET", `/chats/${chatId}`)).body.unread).toBe(1);
     const row = await logged("chat_member.added", iryna.id);
-    expect(row.changes).toEqual({ group: "Adding" });
+    expect(row.changes).toEqual({ group: "a group" });
     const last = (await notices(chatId)).at(-1)!;
     expect(last).toMatchObject({ notice: "member_added", noticeUserIds: [iryna.id] });
   });
@@ -256,7 +255,7 @@ describe("groups", () => {
     expect((await call(taras, "GET", `/chats/${chatId}`)).status).toBe(404);
     expect((await listOf(taras)).some((c) => c.id === chatId)).toBe(false);
     expect((await logged("chat_member.removed", taras.id)).changes).toEqual({
-      group: "Removing",
+      group: "a group",
     });
 
     expect((await call(olena, "DELETE", `/chats/${chatId}/members/${iryna.id}`)).status).toBe(
@@ -271,7 +270,7 @@ describe("groups", () => {
     });
     expect(res.body.members?.find((m) => m.id === petro.id)?.role).toBe("admin");
     expect((await logged("chat_member.role_changed", petro.id)).changes).toEqual({
-      group: "Roles",
+      group: "a group",
       role: { from: "member", to: "admin" },
     });
     // the owner's role moves only by handing the group on
@@ -304,7 +303,7 @@ describe("groups", () => {
       (await call(petro, "GET", `/chats/${chatId}`)).body.members!.map((m) => [m.id, m.role]),
     );
     expect(roles[iryna.id]).toBe("owner");
-    expect((await logged("chat_member.left", olena.id)).changes).toEqual({ group: "Leaving" });
+    expect((await logged("chat_member.left", olena.id)).changes).toEqual({ group: "a group" });
     expect((await notices(chatId)).map((n) => n.notice).slice(-2)).toEqual([
       "member_left",
       "owner_changed",

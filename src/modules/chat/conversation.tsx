@@ -62,6 +62,7 @@ export function Conversation({
   onVote,
   onClosePoll,
   goTo,
+  onWent,
   typing,
 }: {
   chat: ChatDetail;
@@ -81,6 +82,8 @@ export function Conversation({
   onClosePoll: (message: ChatMessage) => void;
   /** a message to scroll to, from the pinned bar or a reply's quote */
   goTo: string | null;
+  /** told once the view has gone there, so the ask can be forgotten */
+  onWent?: () => void;
   typing: string[];
 }) {
   const { user } = useAuth();
@@ -119,18 +122,47 @@ export function Conversation({
     if (atBottom && rows.length > 0) virtual.scrollToIndex(rows.length - 1, { align: "end" });
   }, [rows.length, atBottom, virtual]);
 
-  // the pinned bar and a reply's quote both ask for a message by id
+  /**
+   * The pinned bar and a reply's quote ask for a message by id, ONCE. Without remembering that it
+   * has been done, every live event re-ran the scroll and the conversation kept jumping back to
+   * the pinned message (review, 2026-09-20).
+   */
+  const [asked, setAsked] = useState<string | null>(null);
+  const onGoToMessage = useCallback((id: string) => setAsked(id), []);
+  const wentTo = useRef<string | null>(null);
   useEffect(() => {
-    if (!goTo) return;
-    const at = rows.findIndex((r) => r.kind === "message" && r.message.id === goTo);
-    if (at >= 0) virtual.scrollToIndex(at, { align: "center" });
-  }, [goTo, rows, virtual]);
+    const wanted = asked ?? goTo;
+    if (!wanted || wentTo.current === wanted) return;
+    const at = rows.findIndex((r) => r.kind === "message" && r.message.id === wanted);
+    if (at < 0) return;
+    wentTo.current = wanted;
+    virtual.scrollToIndex(at, { align: "center" });
+    if (!asked) onWent?.();
+  }, [asked, goTo, rows, virtual, onWent]);
+
+  /**
+   * **Older messages arrive above, and the reader stays where they were.** A prepended page grows
+   * everything below it, so without putting the scroll back by exactly that much the conversation
+   * jumps on every "scroll up for more" (review, 2026-09-20).
+   */
+  const heldHeight = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const el = box.current;
+    const was = heldHeight.current;
+    if (!el || was === null || loadingMore) return;
+    heldHeight.current = null;
+    const grew = el.scrollHeight - was;
+    if (grew > 0) el.scrollTop += grew;
+  }, [rows.length, loadingMore]);
 
   const onScroll = useCallback(() => {
     const el = box.current;
     if (!el) return;
     setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
-    if (el.scrollTop < 120 && more && !loadingMore) onLoadMore();
+    if (el.scrollTop < 120 && more && !loadingMore) {
+      heldHeight.current = el.scrollHeight;
+      onLoadMore();
+    }
   }, [more, loadingMore, onLoadMore]);
 
   // what is on screen at the bottom has been read, while this window is the one in front
@@ -180,6 +212,7 @@ export function Conversation({
                   onReadBy={onReadBy}
                   onVote={onVote}
                   onClosePoll={onClosePoll}
+                  onGoTo={onGoToMessage}
                 />
               )}
             </div>
@@ -209,6 +242,7 @@ function Row({
   onReadBy,
   onVote,
   onClosePoll,
+  onGoTo,
 }: {
   chat: ChatDetail;
   message: ChatMessage;
@@ -222,6 +256,7 @@ function Row({
   onReadBy: (message: ChatMessage) => void;
   onVote: (message: ChatMessage, options: number[]) => void;
   onClosePoll: (message: ChatMessage) => void;
+  onGoTo: (messageId: string) => void;
 }) {
   if (message.kind === "notice") {
     const names = (message.notice?.userIds ?? []).map((id) => nameOf(people, id)).join(", ");
@@ -262,15 +297,17 @@ function Row({
             </p>
           )}
           {message.replyTo && (
-            <div
+            <button
+              type="button"
+              onClick={() => onGoTo(message.replyTo!.id)}
               className={cn(
-                "mb-1 border-l-2 pl-2 text-[12px]",
+                "mb-1 block w-full border-l-2 pl-2 text-left text-[12px]",
                 mine ? "border-white/50 text-white/90" : "border-border text-muted",
               )}
             >
               <span className="font-semibold">{nameOf(people, message.replyTo.authorId)}</span>{" "}
               {message.replyTo.deleted ? "Message deleted" : message.replyTo.preview}
-            </div>
+            </button>
           )}
           {message.deletedAt ? (
             <p>{message.deletedByOther ? "Deleted by an admin" : "Message deleted"}</p>

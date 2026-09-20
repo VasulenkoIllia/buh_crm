@@ -180,6 +180,7 @@ export function ChatPage() {
               onVote={(message, options) => vote.mutate({ id: message.id, options })}
               onClosePoll={(message) => closePoll.mutate(message.id)}
               goTo={goTo}
+              onWent={() => setGoTo(null)}
               typing={typing}
             />
 

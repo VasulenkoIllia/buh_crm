@@ -417,9 +417,10 @@ export function pinnedMessages(chatId: string) {
   });
 }
 
-export function sentAlready(authorId: string, clientMessageId: string) {
+/** The same send, already posted in THIS chat: what a retry after a lost connection is answered with. */
+export function sentAlready(chatId: string, authorId: string, clientMessageId: string) {
   return prisma.chatMessage.findUnique({
-    where: { authorId_clientMessageId: { authorId, clientMessageId } },
+    where: { chatId_authorId_clientMessageId: { chatId, authorId, clientMessageId } },
     include: MESSAGE_PARTS,
   });
 }

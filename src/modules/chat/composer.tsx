@@ -74,7 +74,8 @@ export function Composer({
    */
   const caretAfter = useRef<{ start: number; end: number } | null>(null);
   const caret = field.current?.selectionStart ?? text.length;
-  const mentioning = mentionQuery(text, caret);
+  const [mentionsOff, setMentionsOff] = useState(false);
+  const mentioning = mentionsOff ? null : mentionQuery(text, caret);
 
   useEffect(() => {
     setText(editing?.text ?? drafts()[chatId] ?? "");
@@ -170,6 +171,7 @@ export function Composer({
           placeholder="Write a message"
           onChange={(e) => {
             setText(e.target.value);
+            setMentionsOff(false);
             onTyping();
           }}
           onKeyDown={(e) => {
@@ -182,7 +184,11 @@ export function Composer({
               e.preventDefault();
               mark(e.key === "b" ? "**" : "_");
             }
-            if (e.key === "Escape" && (replyTo || editing)) onCancel();
+            if (e.key === "Escape") {
+              // the @ picker first, then whatever the bar above the field is holding
+              if (mentioning !== null) setMentionsOff(true);
+              else if (replyTo || editing) onCancel();
+            }
           }}
           className={cn(
             "max-h-[180px] flex-1 resize-none rounded-(--radius-field) border border-border px-3 py-2",
