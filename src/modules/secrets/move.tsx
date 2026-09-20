@@ -47,7 +47,7 @@ export function MoveDialog({
       disabled={here(t)}
       aria-pressed={target === t}
       className={cn(
-        "flex w-full items-center gap-2 rounded-(--radius-btn) px-2.5 py-2 text-left text-[13px] text-ink-700 hover:bg-[#f7f8fa]",
+        "flex w-full items-center gap-2 rounded-(--radius-btn-sm) px-2.5 py-2 text-left text-[13px] text-ink-700 hover:bg-[#f7f8fa]",
         target === t && "bg-primary-soft font-semibold text-primary-link hover:bg-primary-soft",
         here(t) && "cursor-not-allowed text-faint hover:bg-transparent",
       )}

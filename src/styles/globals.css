@@ -8,6 +8,10 @@
   /* Semantic / brand */
   --color-primary: #3355dd;
   --color-primary-link: #2f4fd6;
+  /* The primary, quietly: a selected row in the vault, a chosen target in a move. Eight places
+     were already asking for `bg-primary-soft` and Tailwind 4 emits nothing for a token that does
+     not exist, so the vault's selected row had no highlight at all (audit, 2026-09-20). */
+  --color-primary-soft: #eef1fb;
   --color-link-hover: #233ca8;
   --color-success: #1f8f3a;
   --color-success-soft: #e6f4ea;

@@ -48,7 +48,7 @@ export function Generator({
 
   return (
     <div className="mt-1.5 space-y-2.5 rounded-(--radius-card) border border-border bg-surface p-3 shadow-[0_16px_44px_rgba(0,0,0,0.12)]">
-      <div className="break-all rounded-(--radius-btn) border border-[#e0d3b8] bg-[#fdf8ee] px-2 py-1.5 font-mono text-[12.5px]">
+      <div className="break-all rounded-(--radius-btn-sm) border border-[#e0d3b8] bg-[#fdf8ee] px-2 py-1.5 font-mono text-[12.5px]">
         {value}
       </div>
       <div className="flex flex-wrap items-center gap-3 text-[12.5px] text-ink-700">

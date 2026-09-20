@@ -40,7 +40,7 @@ function TreeNode({
   return (
     <div
       className={cn(
-        "flex items-center gap-0.5 rounded-(--radius-btn) hover:bg-[#f7f8fa]",
+        "flex items-center gap-0.5 rounded-(--radius-btn-sm) hover:bg-[#f7f8fa]",
         active && "bg-primary-soft hover:bg-primary-soft",
       )}
       style={{ paddingLeft: depth * 14 }}

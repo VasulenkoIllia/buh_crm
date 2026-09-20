@@ -406,7 +406,7 @@ function StatePicker({
     ...(orphan ? [{ value: orphan as Choice, label: `${STATE_LABEL[orphan]} (kept)` }] : []),
   ];
   return (
-    <div className="inline-flex rounded-(--radius-control) border border-border p-0.5">
+    <div className="inline-flex rounded-(--radius-field) border border-border p-0.5">
       {options.map((opt) => (
         <button
           key={opt.value ?? "follow"}
@@ -419,7 +419,7 @@ function StatePicker({
               ? opt.value === null
                 ? "bg-[#e7eaee] text-ink-700"
                 : "bg-primary text-white"
-              : "text-muted hover:bg-hover disabled:hover:bg-transparent",
+              : "text-muted hover:bg-divider disabled:hover:bg-transparent",
           )}
         >
           {opt.label}
