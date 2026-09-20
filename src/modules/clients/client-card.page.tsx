@@ -13,13 +13,14 @@ import { EntityTasks } from "@/modules/tasks";
 import { useSettings } from "@/modules/settings";
 import { fmtDate } from "@/shared/lib/format";
 import { Button } from "@/shared/ui/button";
+import { CopyLink } from "@/shared/ui/copy-link";
+import { IconArchive, IconEdit } from "@/shared/ui/icons";
 import { Tabs } from "@/shared/ui/tabs";
 import { ClientCode } from "@/shared/ui/client-code";
 import { ClientFormModal } from "./client-form";
 import { CompaniesTab } from "./client-companies";
 import { ClientPeopleModal } from "./client-people-modal";
 import { AddServiceModal, SubscriptionList } from "./client-services";
-import { CopyLink } from "@/shared/ui/copy-link";
 import { useArchiveClient, useClient } from "./clients.api";
 
 /**
@@ -144,21 +145,18 @@ export function ClientCardPage() {
         </div>
         <div className="flex items-center gap-2">
           <CopyLink href={`/clients/${client.id}`} label="Copy link to this client" />
-          <button
-            type="button"
-            onClick={() => setEditOpen(true)}
-            className="rounded-(--radius-field) border border-[#d9dde3] px-[13px] py-[7px] text-[13px] text-ink-700 hover:bg-divider"
-          >
-            ✎ Edit
-          </button>
-          <button
-            type="button"
+          <Button variant="secondary" onClick={() => setEditOpen(true)}>
+            <IconEdit />
+            Edit
+          </Button>
+          <Button
+            variant="secondary"
             disabled={archive.isPending}
             onClick={() => void onArchive()}
-            className="rounded-(--radius-field) border border-[#d9dde3] px-[13px] py-[7px] text-[13px] text-ink-700 hover:bg-divider disabled:opacity-50"
           >
+            <IconArchive />
             {archive.isPending ? "Archiving…" : "Archive"}
-          </button>
+          </Button>
         </div>
       </div>
 

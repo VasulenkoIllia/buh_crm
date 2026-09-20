@@ -23,6 +23,7 @@ import { FilterChips } from "@/shared/ui/tabs";
 import { Segmented } from "@/shared/ui/segmented";
 import { fmtBizDay, fmtDate } from "@/shared/lib/format";
 import { AssigneeAvatars, userLabel } from "@/shared/ui/avatar";
+import { ClearButton } from "@/shared/ui/clear-button";
 import { isOverdue, TaskKindChip } from "./lib";
 import { DoneToggle, TaskTimerButton } from "./task-controls";
 import { TrackedTime } from "./timer";
@@ -668,10 +669,8 @@ function BoardColumn({
             (user, 2026-08-28). */}
           <div className="ml-auto flex items-center gap-1">
             {isAdmin && !column.isFixed && tasks.length === 0 && (
-              <button
-                type="button"
-                aria-label="Delete column"
-                className="text-[15px] text-[#b6bcc5] hover:text-danger"
+              <ClearButton
+                label="Delete column"
                 // `tasks.length` is what the FILTERS left in this column, not what it holds: with a
                 // filter on, an empty-looking column can still have work in it and the server
                 // refuses the delete. Saying so beats a button that does nothing (2026-08-27 audit).
@@ -686,9 +685,7 @@ function BoardColumn({
                       ),
                   })
                 }
-              >
-                ×
-              </button>
+              />
             )}
           </div>
         </div>

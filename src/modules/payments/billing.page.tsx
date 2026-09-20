@@ -12,6 +12,7 @@ import { Button } from "@/shared/ui/button";
 import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
 import { SearchInput } from "@/shared/ui/search-input";
 import { FilterChips } from "@/shared/ui/tabs";
+import { ClearButton } from "@/shared/ui/clear-button";
 import { InvoiceModal, NewInvoiceModal } from "./invoice-modals";
 import {
   useBulkTidy,
@@ -142,16 +143,13 @@ export function BillingPage() {
         {clientParam && (
           <span className="inline-flex items-center gap-1.5 rounded-(--radius-chip) bg-[#eef1fb] px-2 py-1 text-[12px] text-primary-link">
             {client.data?.displayName ?? "client"}
-            <button
-              type="button"
+            <ClearButton
+              label="Show all clients"
               onClick={() => {
                 setSearchParams({}, { replace: true });
                 resetView();
               }}
-              aria-label="Show all clients"
-            >
-              ×
-            </button>
+            />
           </span>
         )}
         <SearchInput

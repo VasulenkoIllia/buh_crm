@@ -20,6 +20,7 @@ import { Button, IconButton } from "@/shared/ui/button";
 import { Chip } from "@/shared/ui/chip";
 import { StatusPill } from "@/shared/ui/pill";
 import { Segmented } from "@/shared/ui/segmented";
+import { ClearButton } from "@/shared/ui/clear-button";
 import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { EntityMeetings } from "@/modules/calendar";
 import { EntityTasks } from "@/modules/tasks";
@@ -300,7 +301,7 @@ function StageColumn({
           <button
             type="button"
             aria-label={`Reorder ${stage.name}`}
-            className="-ml-0.5 flex-none cursor-grab touch-none text-[#b6bcc5] hover:text-muted active:cursor-grabbing"
+            className="-ml-0.5 flex-none cursor-grab touch-none text-faint hover:text-muted active:cursor-grabbing"
             {...attributes}
             {...listeners}
           >
@@ -339,10 +340,9 @@ function StageColumn({
           {leads.length}
         </span>
         {isAdmin && leads.length === 0 && (
-          <button
-            type="button"
-            aria-label="Delete stage"
-            className="ml-auto flex-none text-[15px] text-[#b6bcc5] hover:text-danger"
+          <ClearButton
+            label="Delete stage"
+            className="ml-auto"
             // `leads.length` is what this board shows: closed and archived leads still count on
             // the server, which refuses and says so rather than leaving a button that does nothing
             onClick={() =>
@@ -356,9 +356,7 @@ function StageColumn({
                   ),
               })
             }
-          >
-            ×
-          </button>
+          />
         )}
       </div>
       <SortableContext items={leads.map((l) => l.id)} strategy={verticalListSortingStrategy}>

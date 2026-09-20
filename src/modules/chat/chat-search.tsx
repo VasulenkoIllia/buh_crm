@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, ChevronUp, Paperclip, Search, SlidersHorizontal, X } from "lucide-react";
+import { Paperclip, Search, SlidersHorizontal, X } from "lucide-react";
 import {
   SEARCH_MIN_WORD,
   type ChatPerson,
@@ -10,6 +10,8 @@ import { cn } from "@/shared/lib/cn";
 import { fmtDate } from "@/shared/lib/format";
 import { useDebounced } from "@/shared/lib/use-debounced";
 import { UserAvatar } from "@/shared/ui/avatar";
+import { IconButton } from "@/shared/ui/button";
+import { IconClose, IconCollapse, IconUp } from "@/shared/ui/icons";
 import { useChatSearch } from "./chat.api";
 import { foundSpans } from "./rich-text";
 
@@ -410,34 +412,27 @@ export function ChatSearchBar({
                 ? "none"
                 : `${at + 1} of ${hits.length}`}
         </span>
-        <button
-          type="button"
-          aria-label="Previous match"
+        <IconButton
+          label="Previous match"
           title="Previous (Shift+Enter)"
+          size="sm"
           disabled={hits.length === 0}
           onClick={() => step(-1)}
-          className="text-muted hover:text-ink disabled:opacity-40"
         >
-          <ChevronUp className="size-4" />
-        </button>
-        <button
-          type="button"
-          aria-label="Next match"
+          <IconUp />
+        </IconButton>
+        <IconButton
+          label="Next match"
           title="Next (Enter)"
+          size="sm"
           disabled={hits.length === 0}
           onClick={() => step(1)}
-          className="text-muted hover:text-ink disabled:opacity-40"
         >
-          <ChevronDown className="size-4" />
-        </button>
-        <button
-          type="button"
-          aria-label="Close the search"
-          onClick={shut}
-          className="text-muted hover:text-ink"
-        >
-          <X className="size-4" />
-        </button>
+          <IconCollapse />
+        </IconButton>
+        <IconButton label="Close the search" size="sm" onClick={shut}>
+          <IconClose />
+        </IconButton>
       </div>
 
       {typed.trim().length > 0 && !enough && (

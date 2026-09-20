@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { BellOff, LogOut, Pin, UserPlus, X } from "lucide-react";
+import { BellOff, LogOut, Pin, UserPlus } from "lucide-react";
 import type { ChatDetail, ChatFileItem, ChatPeople, MuteFor } from "@shared/schema/chat";
 import { useAuth } from "@/app/auth";
 import { cn } from "@/shared/lib/cn";
 import { UserAvatar } from "@/shared/ui/avatar";
-import { Button } from "@/shared/ui/button";
+import { Button, IconButton } from "@/shared/ui/button";
 import { Modal } from "@/shared/ui/modal";
+import { IconClose } from "@/shared/ui/icons";
 import { ChatFilesTab } from "./chat-files-tab";
 import {
   useAddMembers,
@@ -99,14 +100,9 @@ export function ChatPanel({
     <aside className="flex w-[290px] shrink-0 flex-col border-l border-divider bg-surface">
       <div className="flex items-center gap-2 border-b border-divider px-3 py-2">
         <h3 className="text-[13px] font-semibold">Details</h3>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="ml-auto text-muted hover:text-ink"
-        >
-          <X className="size-4" />
-        </button>
+        <IconButton label="Close" size="sm" className="ml-auto" onClick={onClose}>
+          <IconClose />
+        </IconButton>
       </div>
 
       <div className="flex gap-1 border-b border-divider px-3 py-1.5">
@@ -236,18 +232,14 @@ export function ChatPanel({
                   </span>
                 </span>
                 {!me && chat.kind === "group" && (
-                  <span className="flex items-center gap-1">
-                    {
-                      <button
-                        type="button"
-                        aria-label="Remove"
-                        onClick={() => remove.mutate(member.id)}
-                        className="text-muted hover:text-danger-text"
-                      >
-                        <X className="size-3.5" />
-                      </button>
-                    }
-                  </span>
+                  <IconButton
+                    label={`Take ${member.firstName} out of the group`}
+                    size="sm"
+                    danger
+                    onClick={() => remove.mutate(member.id)}
+                  >
+                    <IconClose />
+                  </IconButton>
                 )}
               </div>
             );

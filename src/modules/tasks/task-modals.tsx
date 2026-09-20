@@ -34,6 +34,7 @@ import { SearchSelect } from "@/shared/ui/search-select";
 import { Segmented } from "@/shared/ui/segmented";
 import { useToast } from "@/shared/ui/toast";
 import { ClientCode } from "@/shared/ui/client-code";
+import { ClearButton } from "@/shared/ui/clear-button";
 import { TaskKindChip } from "./lib";
 import { DoneToggle, TaskTimerButton } from "./task-controls";
 import { TrackedTime, fmtDuration } from "./timer";
@@ -717,17 +718,14 @@ export function ClientLeadSearch({
           </span>
         ) : (
           query && (
-            <button
-              type="button"
-              aria-label="Clear"
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-[13px] text-muted hover:text-danger"
+            <ClearButton
+              label="Clear"
+              className="absolute top-1/2 right-2 -translate-y-1/2"
               onClick={() => {
                 setQuery("");
                 onClear();
               }}
-            >
-              ×
-            </button>
+            />
           )
         )}
       </div>
@@ -1315,15 +1313,11 @@ function SubtasksSection({ task, disabled }: { task: Task; disabled?: boolean })
             {s.text}
           </span>
           {!disabled && (
-            <button
-              type="button"
-              aria-label={`Remove ${s.text}`}
-              className="text-[13px] text-[#b6bcc5] hover:text-danger disabled:opacity-30"
+            <ClearButton
+              label={`Remove ${s.text}`}
               disabled={setSubtasks.isPending}
               onClick={() => apply(rows.filter((_, j) => j !== i))}
-            >
-              ×
-            </button>
+            />
           )}
         </div>
       ))}
@@ -1505,21 +1499,12 @@ function FilesSection({ task, disabled }: { task: Task; disabled: boolean }) {
                   </button>
                 )}
                 {!disabled && (
-                  <button
-                    type="button"
-                    aria-label={
+                  <ClearButton
+                    label={
                       file.filed ? `Take ${file.name} off this task` : `Delete ${file.name}`
                     }
-                    title={
-                      file.filed
-                        ? "Take it off this task; it stays in its folder"
-                        : "Delete: it goes to the Trash"
-                    }
-                    className="text-[13px] text-[#b6bcc5] hover:text-danger"
                     onClick={() => removeFile(file)}
-                  >
-                    ×
-                  </button>
+                  />
                 )}
               </span>
             </li>

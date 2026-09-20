@@ -1077,7 +1077,7 @@ function SortableServiceRow({
           aria-label="Drag to reorder"
           {...attributes}
           {...listeners}
-          className="absolute left-1 top-3.5 z-10 cursor-grab text-[#c7ccd3] hover:text-muted active:cursor-grabbing"
+          className="absolute top-3.5 left-1 z-10 cursor-grab text-faint hover:text-muted active:cursor-grabbing"
         >
           <GripVertical size={14} />
         </button>

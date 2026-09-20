@@ -19,6 +19,7 @@ import { CopyLink } from "@/shared/ui/copy-link";
 import { Modal } from "@/shared/ui/modal";
 import { SearchSelect } from "@/shared/ui/search-select";
 import { Segmented } from "@/shared/ui/segmented";
+import { ClearButton } from "@/shared/ui/clear-button";
 import {
   useAddPayment,
   useCancelInvoice,
@@ -636,14 +637,11 @@ function ClientPicker({
     return (
       <div className="flex h-9 items-center gap-2 rounded-(--radius-field) border border-border px-3 text-[14px]">
         <span className="truncate">{picked.data?.displayName ?? "…"}</span>
-        <button
-          type="button"
-          className="ml-auto text-muted hover:text-ink"
+        <ClearButton
+          label="Clear the client"
+          className="ml-auto"
           onClick={() => onPick(null)}
-          aria-label="Clear client"
-        >
-          ×
-        </button>
+        />
       </div>
     );
   }

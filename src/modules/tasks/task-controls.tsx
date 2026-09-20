@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Check } from "lucide-react";
+import { Check, Play } from "lucide-react";
 import type { Task } from "@shared/schema/task";
 import { cn } from "@/shared/lib/cn";
+import { Button } from "@/shared/ui/button";
 import { useActiveTimer, useStartTimer, useUpdateTask } from "./tasks.api";
 import { TimerCommentModal, fmtDuration, useElapsed } from "./timer";
 
@@ -129,26 +130,19 @@ export function TaskTimerButton({ task, compact }: { task: Task; compact?: boole
             <span className="h-2 w-2 flex-none animate-pulse rounded-full bg-[#3355dd]" />
             <span className="tabular-nums">{fmtDuration(elapsed)}</span>
           </span>
-          <button
-            type="button"
-            onClick={onClick}
-            className="rounded-(--radius-btn-sm) border border-border bg-surface px-3 py-1 text-[13px] font-medium hover:bg-divider"
-          >
+          <Button variant="secondary" size="sm" onClick={onClick}>
             Stop
-          </button>
+          </Button>
         </>
       ) : (
         <>
           <span className="text-[13px] text-muted">
             {timer ? `Timer runs on “${timer.taskTitle}”` : "No timer running"}
           </span>
-          <button
-            type="button"
-            onClick={onClick}
-            className="rounded-(--radius-btn-sm) bg-primary px-3 py-1 text-[13px] font-medium text-white hover:opacity-90"
-          >
-            ▶ Start
-          </button>
+          <Button size="sm" onClick={onClick}>
+            <Play />
+            Start
+          </Button>
         </>
       )}
       {modal && timer && (

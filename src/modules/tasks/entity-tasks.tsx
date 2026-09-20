@@ -8,6 +8,7 @@ import { userLabel } from "@/shared/ui/avatar";
 import { Button } from "@/shared/ui/button";
 import { Chip } from "@/shared/ui/chip";
 import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
+import { RowButton } from "@/shared/ui/row-button";
 import { fmtBizDate } from "@/shared/lib/format";
 import { isOverdue, TaskKindChip } from "./lib";
 import { TaskDetailsModal, TaskFormModal, type Target } from "./task-modals";
@@ -157,14 +158,13 @@ function TaskRow({
 }) {
   const overdue = isOverdue(task);
   return (
-    <button
-      type="button"
+    <RowButton
       onClick={onOpen}
       style={
         !overdue && priorityColor ? { borderLeft: `3px solid ${priorityColor}` } : undefined
       }
       className={cn(
-        "mb-1.5 flex w-full items-center gap-2 rounded-[8px] border border-border bg-surface px-3 py-2 text-left text-[13px] hover:bg-divider/30",
+        "mb-1.5 rounded-(--radius-card) border border-border bg-surface px-3 py-2 text-[13px]",
         overdue && "border-2 border-danger",
         (task.done || task.cancelledAt) && "opacity-70",
       )}
@@ -202,6 +202,6 @@ function TaskRow({
       >
         {task.deadline ? fmtBizDate(task.deadline) : "—"}
       </span>
-    </button>
+    </RowButton>
   );
 }

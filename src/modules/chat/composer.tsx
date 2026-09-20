@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BarChart3, Paperclip, Send, Smile, X } from "lucide-react";
+import { BarChart3, Paperclip, Send, Smile } from "lucide-react";
 import {
   CHAT_FILES_MAX,
   MESSAGE_LIMIT,
@@ -7,7 +7,8 @@ import {
   type ChatMessage,
 } from "@shared/schema/chat";
 import { cn } from "@/shared/lib/cn";
-import { Button } from "@/shared/ui/button";
+import { Button, IconButton } from "@/shared/ui/button";
+import { IconClose } from "@/shared/ui/icons";
 import { AttachmentStrip, useAttachments } from "./attachments";
 import { EmojiPicker } from "./emoji-picker";
 import {
@@ -229,14 +230,9 @@ export function Composer({
           <span className="truncate text-muted">
             {(editing ?? replyTo)?.text?.split("\n")[0] ?? "Message deleted"}
           </span>
-          <button
-            type="button"
-            onClick={onCancel}
-            aria-label="Cancel"
-            className="ml-auto text-muted hover:text-ink"
-          >
-            <X className="size-3.5" />
-          </button>
+          <IconButton label="Cancel" size="sm" className="ml-auto" onClick={onCancel}>
+            <IconClose />
+          </IconButton>
         </div>
       )}
       <AttachmentStrip queue={attached} />
@@ -344,14 +340,9 @@ export function Composer({
           <MentionPicker options={naming} active={standing} onPick={takeName} />
         )}
         {canPoll && !editing && (
-          <button
-            type="button"
-            aria-label="Poll"
-            onClick={onPoll}
-            className="mb-1 text-muted hover:text-ink"
-          >
-            <BarChart3 className="size-[18px]" />
-          </button>
+          <IconButton label="Poll" className="mb-0.5" onClick={onPoll}>
+            <BarChart3 />
+          </IconButton>
         )}
         <Button
           size="sm"
