@@ -146,6 +146,8 @@ DELETE FROM "ChatPin";
 -- already empty: their files went with every other file above, and this cascades from them. Named
 -- so the table is accounted for, and so it still holds if that order ever changes.
 DELETE FROM "ChatMessageFile";
+-- the words of every message, as keyed hashes (chat.md §8); cascades from the messages below
+DELETE FROM "ChatSearchToken";
 DELETE FROM "ChatMessage";
 DELETE FROM "ChatMember";
 DELETE FROM "Chat";

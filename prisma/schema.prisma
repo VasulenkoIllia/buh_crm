@@ -2188,7 +2188,8 @@ model Chat {
   messages  ChatMessage[]
   pins      ChatPin[]
   /// the files sent here, including an upload whose message was never sent (chat.md §6.3)
-  files     File[]        @relation("ChatFiles")
+  files     File[]            @relation("ChatFiles")
+  tokens    ChatSearchToken[]
 }
 
 /// **A person's place in a chat.** The one check every read and write passes (chat.md §4.4): an
@@ -2259,6 +2260,7 @@ model ChatMessage {
   pin           ChatPin?
   poll          ChatPoll?
   files         ChatMessageFile[]
+  tokens        ChatSearchToken[]
 
   @@unique([chatId, seq])
   /// **The same send, retried, posts once** (chat.md §5.1). Keyed by the CHAT as well as the
@@ -2349,6 +2351,30 @@ model ChatMessageFile {
   /// "is this file carried by a live message of a chat I am in": the access read, for every open
   @@index([fileId])
   @@index([previewFileId])
+}
+
+/// **A word of a message, as a keyed hash** (chat.md §8).
+///
+/// The text is sealed, so it cannot be searched by reading it. Instead every word and every prefix
+/// of it from three letters is hashed with a key derived from `SECRETS_KEY`, and the search hashes
+/// the query the same way and looks for messages holding all of them. Somebody with the database
+/// and without the key sees hashes; they can tell that two messages share a word, and nothing else.
+///
+/// The token is the first 12 bytes of an HMAC-SHA256: enough that a guess is hopeless, short enough
+/// that the index stays small (a message of thirty words is about two hundred rows).
+model ChatSearchToken {
+  token     Bytes
+  chatId    String @db.Uuid
+  messageId String @db.Uuid
+
+  chat    Chat        @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  message ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@id([token, messageId])
+  /// the search's own read: this word, in the chats this person is in
+  @@index([token, chatId])
+  /// an edit replaces a message's tokens and a delete removes them
+  @@index([messageId])
 }
 
 /// **When a person was last online** (chat.md §5.4): written when their last tab closes. Who is

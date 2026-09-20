@@ -7,6 +7,7 @@ import { UserAvatar } from "@/shared/ui/avatar";
 import { Button } from "@/shared/ui/button";
 import { Modal } from "@/shared/ui/modal";
 import { ChatFilesTab } from "./chat-files-tab";
+import { ChatSearchBox } from "./chat-search";
 import {
   useAddMembers,
   useChatSettings,
@@ -35,6 +36,7 @@ export function ChatPanel({
   people,
   online,
   onOpenFile,
+  onOpenHit,
   onClose,
   onLeft,
 }: {
@@ -43,12 +45,14 @@ export function ChatPanel({
   online: Set<string>;
   /** opens the CRM's viewer on a file from the Files tab (§6.4) */
   onOpenFile: (files: ChatFileItem[], index: number) => void;
+  /** goes to a message this chat's own search found (§8) */
+  onOpenHit: (messageId: string) => void;
   onClose: () => void;
   onLeft: () => void;
 }) {
   const { user } = useAuth();
   const manages = chat.kind === "group" && chat.myRole !== "member";
-  const [tab, setTab] = useState<"details" | "files">("details");
+  const [tab, setTab] = useState<"details" | "files" | "search">("details");
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState(chat.title ?? "");
   const [description, setDescription] = useState(chat.description ?? "");
@@ -79,7 +83,7 @@ export function ChatPanel({
       </div>
 
       <div className="flex gap-1 border-b border-divider px-3 py-1.5">
-        {(["details", "files"] as const).map((which) => (
+        {(["details", "files", "search"] as const).map((which) => (
           <button
             key={which}
             type="button"
@@ -94,7 +98,7 @@ export function ChatPanel({
         ))}
       </div>
 
-      <div className={cn("flex-1 overflow-y-auto px-3 py-3", tab === "files" && "hidden")}>
+      <div className={cn("flex-1 overflow-y-auto px-3 py-3", tab !== "details" && "hidden")}>
         {chat.kind === "group" && (
           <section className="mb-4">
             <label className="mb-1 block text-[11px] font-semibold text-muted uppercase">
@@ -253,6 +257,17 @@ export function ChatPanel({
             <LogOut className="size-3.5" />
             Leave the group
           </Button>
+        </div>
+      )}
+
+      {tab === "search" && (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <ChatSearchBox
+            chatId={chat.id}
+            people={chat.members}
+            placeholder="Search this chat"
+            onOpen={(hit) => onOpenHit(hit.messageId)}
+          />
         </div>
       )}
 

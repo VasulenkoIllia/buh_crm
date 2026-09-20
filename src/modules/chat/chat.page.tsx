@@ -123,6 +123,11 @@ export function ChatPage() {
             onSuccess: (summary) => navigate(`/chat/${summary.id}`),
           })
         }
+        onOpenHit={(hit) => {
+          // the conversation loads older pages until it has it, then scrolls (§8)
+          if (hit.chatId !== chatId) navigate(`/chat/${hit.chatId}`);
+          setGoTo(hit.messageId);
+        }}
         onNewGroup={(title, memberIds) =>
           createGroup.mutate(
             { title, memberIds },
@@ -237,6 +242,7 @@ export function ChatPage() {
           onOpenFile={(files: ChatFileItem[], index: number) =>
             openFiles(files, index, files[index]?.at ?? new Date().toISOString())
           }
+          onOpenHit={(messageId) => setGoTo(messageId)}
           onClose={() => setPanel(false)}
           onLeft={() => {
             setPanel(false);

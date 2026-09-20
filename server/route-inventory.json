@@ -437,6 +437,17 @@
   },
   {
     "method": "GET",
+    "url": "/api/chat/search",
+    "access": "gate:chat"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/chat/search",
+    "access": "gate:chat",
+    "derived": true
+  },
+  {
+    "method": "GET",
     "url": "/api/chat/stream",
     "access": "gate:chat",
     "stream": true

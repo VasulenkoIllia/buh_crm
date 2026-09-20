@@ -17,6 +17,7 @@ import {
   type ChatPingResult,
   type ChatPresence,
 } from "@shared/schema/chat.js";
+import { chatSearchQuery } from "@shared/schema/chat.js";
 import {
   editMessageInput,
   forwardInput,
@@ -32,6 +33,7 @@ import { publish, realtimeListening } from "../../core/realtime.js";
 import { UPLOAD_RATE_LIMIT, sendDownload, sendPreview, sendView } from "../files/index.js";
 import * as attachments from "./chat.files.js";
 import * as messages from "./chat.messages.js";
+import * as search from "./chat.search.js";
 import * as service from "./chat.service.js";
 import { onlinePeople, openStream } from "./chat.stream.js";
 
@@ -289,6 +291,17 @@ export async function registerRoutes(instance: FastifyInstance) {
     "/messages/:messageId/read-by",
     { config: chat, schema: { params: messageParams } },
     async (request) => messages.readBy(request.currentUser!, request.params.messageId),
+  );
+
+  /**
+   * **The search** (chat.md §8): a box above the chat list searches every chat the reader is in, a
+   * box inside a chat searches that one. A read, over keyed hashes of the words; the membership
+   * rule is inside the query (`chat.search.ts`).
+   */
+  app.get(
+    "/search",
+    { config: chat, schema: { querystring: chatSearchQuery } },
+    async (request) => search.search(request.currentUser!, request.query),
   );
 
   // ── files (chat.md §6) ───────────────────────────────────────────────────────

@@ -131,10 +131,12 @@ describe("route inventory", () => {
       // the library's do, that fastify would answer a HEAD by running the handler and logging an
       // open nobody made.
       // +1 and its HEAD for a chat's own Files tab (step B.2), a read of what the chat carries.
-      total: 384,
-      derivedHead: 93,
-      real: 291,
-      api: 290, // everything but /health
+      // +1 and its HEAD for the word search (step B.3), one route for both boxes: the one above
+      // the chat list and the one inside a chat, which differ only by naming a chat.
+      total: 386,
+      derivedHead: 94,
+      real: 292,
+      api: 291, // everything but /health
       anonymous: 9, // 6 credential routes, 2 unsubscribe pages, /health
       // `POST /tasks/timer/start` moved to the `tasks` gate during the 2026-09-07 audit. It takes a
       // taskId and writes against somebody else's module, so it was never really "the caller's own
@@ -142,7 +144,7 @@ describe("route inventory", () => {
       // second factor and name nobody else.
       own: 15,
       shared: 9,
-      gated: 258,
+      gated: 259,
       adminOnly: 20,
     });
   });

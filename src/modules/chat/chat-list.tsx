@@ -10,12 +10,13 @@ import {
   Users,
   UsersRound,
 } from "lucide-react";
-import type { ChatPeople, ChatSummary } from "@shared/schema/chat";
+import type { ChatPeople, ChatSearchHit, ChatSummary } from "@shared/schema/chat";
 import { cn } from "@/shared/lib/cn";
 import { fmtTime, isoDay } from "@/shared/lib/format";
 import { UserAvatar } from "@/shared/ui/avatar";
 import { Button } from "@/shared/ui/button";
 import { Modal } from "@/shared/ui/modal";
+import { ChatSearchBox } from "./chat-search";
 import { NotifySettings } from "./notify-modal";
 
 /**
@@ -92,6 +93,7 @@ export function ChatList({
   onStartWith,
   onOpenSaved,
   onNewGroup,
+  onOpenHit,
   narrow,
 }: {
   chats: ChatSummary[];
@@ -102,11 +104,14 @@ export function ChatList({
   onStartWith: (userId: string) => void;
   onOpenSaved: () => void;
   onNewGroup: (title: string, memberIds: string[]) => void;
+  /** a message the search found, in whichever chat it is in (§8) */
+  onOpenHit: (hit: ChatSearchHit) => void;
   /** the details panel is open: on a narrow screen the conversation needs the room more */
   narrow?: boolean;
 }) {
   const [starting, setStarting] = useState(false);
   const [settings, setSettings] = useState(false);
+  const [searching, setSearching] = useState(false);
 
   return (
     <div
@@ -130,7 +135,11 @@ export function ChatList({
           New
         </Button>
       </div>
-      <div className="flex-1 overflow-y-auto">
+      <div className="border-b border-divider">
+        <ChatSearchBox people={people} onOpen={onOpenHit} onActive={setSearching} />
+      </div>
+
+      <div className={cn("flex-1 overflow-y-auto", searching && "hidden")}>
         {chats.length === 0 && (
           <p className="px-3 py-3 text-[12.5px] text-muted">
             Nothing here yet. Start with a colleague.

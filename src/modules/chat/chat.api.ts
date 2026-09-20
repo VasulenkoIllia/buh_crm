@@ -10,6 +10,8 @@ import type {
   ChatDetail,
   ChatFilesPage,
   ChatMessage,
+  ChatSearchPage,
+  ChatSearchQuery,
   ChatMessagePage,
   ChatPeople,
   ChatSettingsInput,
@@ -38,6 +40,7 @@ export const chatKeys = {
   messages: (id: string) => [...CHAT_KEY, "messages", id] as const,
   pins: (id: string) => [...CHAT_KEY, "pins", id] as const,
   files: (id: string) => [...CHAT_KEY, "files", id] as const,
+  search: [...CHAT_KEY, "search"] as const,
   people: [...CHAT_KEY, "people"] as const,
   presence: CHAT_PRESENCE_KEY,
 };
@@ -61,6 +64,24 @@ export function useChatPeople() {
   return useQuery({
     queryKey: chatKeys.people,
     queryFn: () => api<ChatPeople>("/api/chat/people"),
+  });
+}
+
+/**
+ * **The search** (§8): the box above the chat list asks with no `chatId`, the one inside a chat
+ * asks with it. Kept for a minute, so going back to a result that was just open costs nothing.
+ */
+export function useChatSearch(query: ChatSearchQuery, enabled: boolean) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== "") params.set(key, String(value));
+  }
+  const search = params.toString();
+  return useQuery({
+    queryKey: [...chatKeys.search, search],
+    queryFn: () => api<ChatSearchPage>(`/api/chat/search?${search}`),
+    enabled,
+    staleTime: 60_000,
   });
 }
 

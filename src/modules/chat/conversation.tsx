@@ -149,15 +149,32 @@ export function Conversation({
   const [asked, setAsked] = useState<string | null>(null);
   const onGoToMessage = useCallback((id: string) => setAsked(id), []);
   const wentTo = useRef<string | null>(null);
+  /**
+   * A message the search found can be a long way up. The conversation loads older pages until it
+   * has it, at most this many — twenty pages is a thousand messages, which is further than anybody
+   * scrolls and far enough that the search is not a promise the screen breaks.
+   */
+  const HUNT = 20;
+  const hunted = useRef(0);
   useEffect(() => {
     const wanted = asked ?? goTo;
-    if (!wanted || wentTo.current === wanted) return;
+    if (!wanted || wentTo.current === wanted) {
+      hunted.current = 0;
+      return;
+    }
     const at = rows.findIndex((r) => r.kind === "message" && r.message.id === wanted);
-    if (at < 0) return;
+    if (at < 0) {
+      if (more && !loadingMore && hunted.current < HUNT) {
+        hunted.current++;
+        onLoadMore();
+      }
+      return;
+    }
     wentTo.current = wanted;
+    hunted.current = 0;
     virtual.scrollToIndex(at, { align: "center" });
     if (!asked) onWent?.();
-  }, [asked, goTo, rows, virtual, onWent]);
+  }, [asked, goTo, rows, virtual, onWent, more, loadingMore, onLoadMore]);
 
   /**
    * **Older messages arrive above, and the reader stays where they were.** A prepended page grows

@@ -337,6 +337,48 @@ export const historyQuery = z.object({
 });
 export type HistoryQuery = z.infer<typeof historyQuery>;
 
+// ── the word search (chat.md §8) ───────────────────────────────────────────────
+
+/** The shortest word the search knows: a prefix is stored from three letters (§8). */
+export const SEARCH_MIN_WORD = 3;
+
+/**
+ * **Two boxes, one query** (§8): without `chatId` it searches every chat the reader is in, with it
+ * that one. A word matches the words that start with it, and every word must be found somewhere.
+ */
+export const chatSearchQuery = z.object({
+  q: z.string().trim().min(1).max(200),
+  chatId: uuid.optional(),
+  senderId: uuid.optional(),
+  /** a day, inclusive, as the browser's date field gives it */
+  from: z.iso.date().optional(),
+  to: z.iso.date().optional(),
+  hasFiles: z.stringbool().optional(),
+  page: z.coerce.number().int().min(0).max(100).optional(),
+});
+export type ChatSearchQuery = z.infer<typeof chatSearchQuery>;
+
+export const chatSearchHitSchema = z.object({
+  messageId: uuid,
+  chatId: uuid,
+  /** what to call the chat to the person searching, who is in it */
+  chatLabel: z.string(),
+  seq: z.number().int(),
+  authorId: uuid.nullable(),
+  at: z.iso.datetime(),
+  /** the words around the first one that matched, on one line */
+  snippet: z.string(),
+  files: z.number().int(),
+});
+export type ChatSearchHit = z.infer<typeof chatSearchHitSchema>;
+
+export const chatSearchPageSchema = z.object({
+  hits: z.array(chatSearchHitSchema),
+  people: z.array(chatPersonSchema),
+  more: z.boolean(),
+});
+export type ChatSearchPage = z.infer<typeof chatSearchPageSchema>;
+
 /** Who has read a message, and when they last read in that chat (§5.4). */
 export const readBySchema = z.object({
   people: z.array(chatPersonSchema.extend({ at: z.iso.datetime().nullable() })),

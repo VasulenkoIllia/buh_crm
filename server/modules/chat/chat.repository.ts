@@ -827,3 +827,110 @@ export async function filesOfChat(
   });
   return { rows: rows.slice(0, opts.limit), more: rows.length > opts.limit };
 }
+
+// ── the word search (chat.md §8) ───────────────────────────────────────────────
+
+export type { Tx };
+
+export function insertTokensTx(
+  tx: Tx,
+  chatId: string,
+  messageId: string,
+  tokens: readonly Uint8Array<ArrayBuffer>[],
+) {
+  return tx.chatSearchToken.createMany({
+    data: tokens.map((token) => ({ token, chatId, messageId })),
+    skipDuplicates: true,
+  });
+}
+
+export function insertTokens(
+  chatId: string,
+  messageId: string,
+  tokens: readonly Uint8Array<ArrayBuffer>[],
+) {
+  return insertTokensTx(prisma, chatId, messageId, tokens);
+}
+
+export function clearTokens(messageId: string) {
+  return prisma.chatSearchToken.deleteMany({ where: { messageId } });
+}
+
+/** What a hit says about the chat it is in: enough to name it to a member (§8). */
+const CHAT_FOR_LABEL = {
+  id: true,
+  kind: true,
+  ciphertext: true,
+  iv: true,
+  authTag: true,
+  keyVersion: true,
+  members: { where: { leftAt: null }, select: { userId: true, user: { select: PERSON } } },
+} as const satisfies Prisma.ChatSelect;
+
+export type ChatForLabel = Prisma.ChatGetPayload<{ select: typeof CHAT_FOR_LABEL }>;
+
+export async function chatsByIds(ids: readonly string[]): Promise<Map<string, ChatForLabel>> {
+  const rows = await prisma.chat.findMany({
+    where: { id: { in: [...ids] } },
+    select: CHAT_FOR_LABEL,
+  });
+  return new Map(rows.map((row) => [row.id, row]));
+}
+
+export interface SearchFilters {
+  chatId?: string;
+  senderId?: string;
+  from?: Date;
+  to?: Date;
+  hasFiles?: boolean;
+  skip: number;
+  take: number;
+}
+
+/**
+ * **The messages holding every one of these words**, newest first, in the chats this person is in
+ * NOW (§8). Raw SQL because the shape is a grouped intersection — one row per message, counted
+ * over the tokens it matched — which Prisma cannot express, and because the membership join
+ * belongs inside the query rather than around it: a filter applied afterwards would make the page
+ * sizes and "there is more" wrong.
+ */
+export function searchMessages(
+  userId: string,
+  tokens: readonly Uint8Array<ArrayBuffer>[],
+  f: SearchFilters,
+): Promise<
+  {
+    id: string;
+    chatId: string;
+    seq: number;
+    authorId: string | null;
+    createdAt: Date;
+    ciphertext: Uint8Array | null;
+    iv: Uint8Array | null;
+    authTag: Uint8Array | null;
+    keyVersion: number;
+  }[]
+> {
+  return prisma.$queryRaw`
+    SELECT m.id, m."chatId", m.seq, m."authorId", m."createdAt",
+           m.ciphertext, m.iv, m."authTag", m."keyVersion"
+    FROM "ChatMessage" m
+    JOIN "ChatSearchToken" t ON t."messageId" = m.id
+    JOIN "ChatMember" cm ON cm."chatId" = m."chatId"
+      AND cm."userId" = ${userId}::uuid AND cm."leftAt" IS NULL
+    WHERE t.token = ANY(${tokens.map((t) => Buffer.from(t))}::bytea[])
+      AND m."deletedAt" IS NULL
+      AND (${f.chatId ?? null}::uuid IS NULL OR m."chatId" = ${f.chatId ?? null}::uuid)
+      AND (${f.senderId ?? null}::uuid IS NULL OR m."authorId" = ${f.senderId ?? null}::uuid)
+      AND (${f.from ?? null}::timestamptz IS NULL OR m."createdAt" >= ${f.from ?? null}::timestamptz)
+      AND (${f.to ?? null}::timestamptz IS NULL OR m."createdAt" <= ${f.to ?? null}::timestamptz)
+      AND (
+        ${f.hasFiles ?? false} = false
+        OR EXISTS (SELECT 1 FROM "ChatMessageFile" mf WHERE mf."messageId" = m.id)
+      )
+    GROUP BY m.id
+    HAVING count(DISTINCT t.token) = ${tokens.length}
+    ORDER BY m."createdAt" DESC
+    LIMIT ${f.take} OFFSET ${f.skip}
+  `;
+}

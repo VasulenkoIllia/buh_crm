@@ -13,7 +13,13 @@
  * decrypt instead of returning plausible garbage. A fresh 12-byte IV per encryption — reusing one
  * with the same key is the single mistake that breaks GCM completely.
  */
-import { createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from "node:crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  hkdfSync,
+  randomBytes,
+  timingSafeEqual,
+} from "node:crypto";
 import { config } from "./config.js";
 
 /** Bumped only if the key is ever rotated; stored per row so old rows stay readable. */
@@ -52,6 +58,26 @@ function key(): Buffer | null {
 
 /** Is the vault usable at all? The API answers 503 rather than pretending when this is false. */
 export const secretsConfigured = (): boolean => key() !== null;
+
+/**
+ * **A key for something that is not encryption** (chat.md §8): the chat's search hashes its words
+ * with one of these rather than with `SECRETS_KEY` itself. One key, one job — a hash key that
+ * leaked would give away which messages share a word, and nothing that opens a single sealed row.
+ *
+ * HKDF-SHA256, with the purpose as its info, so two purposes can never derive the same key.
+ */
+const derived = new Map<string, Buffer>();
+export function keyFor(purpose: string): Buffer {
+  const held = derived.get(purpose);
+  if (held) return held;
+  const master = key();
+  if (!master) throw new Error("SECRETS_KEY is not set");
+  const out = Buffer.from(
+    hkdfSync("sha256", master, Buffer.from("buh_crm derived key"), purpose, KEY_BYTES),
+  );
+  derived.set(purpose, out);
+  return out;
+}
 
 export function seal(plaintext: string): SealedSecret {
   return sealBytes(Buffer.from(plaintext, "utf8"));

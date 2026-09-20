@@ -16,6 +16,7 @@ import { personName } from "../../core/names.js";
 import { publish } from "../../core/realtime.js";
 import * as attachments from "./chat.files.js";
 import * as repo from "./chat.repository.js";
+import * as search from "./chat.search.js";
 import { openOptions, openText, sealOptions, sealText } from "./chat.sealing.js";
 import { requireMember, requireWriter } from "./chat.service.js";
 
@@ -215,6 +216,8 @@ export async function send(
       await repo.insertPollTx(tx, id, input.poll.multiple, sealOptions(input.poll.options));
     }
     if (carried.length > 0) await repo.linkFilesTx(tx, id, carried);
+    // the words it can be found by, written with it rather than after it (§8)
+    await search.indexTx(tx, chatId, id, [text, ...(input.poll?.options ?? [])]);
     await repo.markSentTx(tx, chatId, user.id, seq, mentions);
     return id;
   });
@@ -238,6 +241,10 @@ export async function edit(
     throw new ValidationError("A poll cannot be changed once somebody has voted");
   }
   await repo.editMessage(messageId, sealText(input.text), new Date());
+  await search.reindex(row.chatId, messageId, [
+    input.text,
+    ...(row.poll ? openOptions(row.poll) : []),
+  ]);
   await tell(m.chat, m.chat.members, "chat_message_changed", row.seq);
   return toMessage((await repo.messageById(messageId))!);
 }
@@ -260,7 +267,9 @@ export async function remove(user: User, messageId: string): Promise<ChatMessage
   if (row.deletedAt) return toMessage(row);
 
   await repo.deleteMessage(messageId, user.id, new Date());
-  // the text is gone; its files go to the Trash unless another live message still carries them
+  // the text is gone, and so are the words it could be found by (§8)
+  await search.forget(messageId);
+  // its files go to the Trash unless another live message still carries them
   await attachments.onMessageDeleted(user, messageId);
   const author = row.authorId ? await repo.findPerson(row.authorId) : null;
   record("chat_message.deleted", {
@@ -326,6 +335,7 @@ export async function forward(user: User, input: ForwardInput): Promise<void> {
           at,
         });
         if (carried.length > 0) await repo.copyLinksTx(tx, id, carried);
+        if (text !== null) await search.indexTx(tx, chatId, id, [text]);
         await repo.markSentTx(tx, chatId, user.id, seq, []);
         return seq;
       });
