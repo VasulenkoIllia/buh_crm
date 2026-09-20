@@ -1099,13 +1099,21 @@ export function searchMessages(
     iv: Uint8Array | null;
     authTag: Uint8Array | null;
     keyVersion: number;
+    /** a poll's options, sealed: searched beside the question, which is the message's own text */
+    pollCiphertext: Uint8Array | null;
+    pollIv: Uint8Array | null;
+    pollAuthTag: Uint8Array | null;
+    pollKeyVersion: number | null;
   }[]
 > {
   return prisma.$queryRaw`
     SELECT m.id, m."chatId", m.seq, m."authorId", m."createdAt",
-           m.ciphertext, m.iv, m."authTag", m."keyVersion"
+           m.ciphertext, m.iv, m."authTag", m."keyVersion",
+           p.ciphertext AS "pollCiphertext", p.iv AS "pollIv",
+           p."authTag" AS "pollAuthTag", p."keyVersion" AS "pollKeyVersion"
     FROM "ChatMessage" m
     JOIN "ChatSearchToken" t ON t."messageId" = m.id
+    LEFT JOIN "ChatPoll" p ON p."messageId" = m.id
     JOIN "ChatMember" cm ON cm."chatId" = m."chatId"
       AND cm."userId" = ${userId}::uuid AND cm."leftAt" IS NULL
     WHERE t.token = ANY(${tokens.map((t) => Buffer.from(t))}::bytea[])
@@ -1121,7 +1129,7 @@ export function searchMessages(
         ${f.hasFiles ?? false} = false
         OR EXISTS (SELECT 1 FROM "ChatMessageFile" mf WHERE mf."messageId" = m.id)
       )
-    GROUP BY m.id
+    GROUP BY m.id, p."messageId"
     HAVING count(DISTINCT t.token) = ${tokens.length}
     -- the id as well: two messages written in the same millisecond have no order of their own, and
     -- a page boundary inside such a pair would repeat one and skip the other (review, 2026-09-20)

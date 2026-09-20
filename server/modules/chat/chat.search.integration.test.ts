@@ -4,7 +4,7 @@ import type { ChatMessage, ChatSearchPage } from "@shared/schema/chat.js";
 import { buildApp } from "../../app.js";
 import { prisma } from "../../core/db.js";
 import { createPeople, removePeople, type Person } from "../../test/people.js";
-import { queryTokens, tokensOf, wordsIn } from "./chat.search.js";
+import { gramsOf, queryTokens, tokensOf, wordsIn } from "./chat.search.js";
 
 /**
  * **The word search over sealed text** (chat.md §8, §19): what is stored, what is found, and what
@@ -106,13 +106,19 @@ describe("what is stored", () => {
     ]);
     // shorter than three letters is not a word the search knows (§8)
     expect(wordsIn("a to of 1040")).toEqual(["1040"]);
-    // the same word typed either way hashes to the same token
+    // the same word typed either way hashes to the same tokens
     expect(tokensOf(["Ірина"])).toEqual(tokensOf(["ІРИНА"]));
-    expect(queryTokens("ready").map((t) => Buffer.from(t).toString("hex"))).toEqual(
-      tokensOf(["ready"])
-        .filter((_, i, all) => i === all.length - 1)
-        .map((t) => Buffer.from(t).toString("hex")),
+  });
+
+  it("cuts a word into every three letters of it, so any part of one can be searched", () => {
+    expect(gramsOf("invoice")).toEqual(["inv", "nvo", "voi", "oic", "ice"]);
+    expect(gramsOf("та")).toEqual([]);
+    // a query's triples are a subset of the message's, which is what the index matches on
+    const message = new Set(
+      tokensOf(["the invoice"]).map((t) => Buffer.from(t).toString("hex")),
     );
+    const asked = queryTokens("voic").map((t) => Buffer.from(t).toString("hex"));
+    expect(asked.every((t) => message.has(t))).toBe(true);
   });
 });
 
@@ -138,6 +144,24 @@ describe("finding", () => {
     expect((await find(petro, "q=invoice%20elephant")).hits).toEqual([]);
     // two letters are not a word (§8)
     expect((await find(petro, "q=is")).hits).toEqual([]);
+  });
+
+  it("finds a message by the MIDDLE of a word, which is what people expect of a chat", async () => {
+    const chatId = await group(olena, "Parts of words", [petro]);
+    const message = await say(olena, chatId, "воїнська звітність і amortisation");
+
+    // the owner's ask, 2026-09-20: "по частинах слів"
+    for (const part of ["оїнськ", "звітн", "ortis", "amortisation"]) {
+      const found = await find(petro, `q=${encodeURIComponent(part)}&chatId=${chatId}`);
+      expect(
+        found.hits.map((h) => h.messageId),
+        part,
+      ).toEqual([message.id]);
+    }
+    // …and a triple that IS in the message, in a word that is not what was asked for, does not
+    // make a hit: the index narrows, the text decides
+    expect((await find(petro, `q=ortisz&chatId=${chatId}`)).hits).toEqual([]);
+    expect((await find(petro, `q=нська%20amort&chatId=${chatId}`)).hits).toHaveLength(1);
   });
 
   it("searches one chat when asked, and every chat when not", async () => {
@@ -196,12 +220,12 @@ describe("what it must not find", () => {
   it("forgets the words of a message that was edited or deleted", async () => {
     const chatId = await group(olena, "Edits", [petro]);
     const message = await say(olena, chatId, "the amortisation table is wrong");
-    expect((await find(petro, "q=amortisation")).hits).toHaveLength(1);
+    expect((await find(petro, `q=amortisation&chatId=${chatId}`)).hits).toHaveLength(1);
 
     await call(olena, "PATCH", `/messages/${message.id}`, {
       text: "the reconciliation table is right",
     });
-    expect((await find(petro, "q=amortisation")).hits).toEqual([]);
+    expect((await find(petro, `q=amortisation&chatId=${chatId}`)).hits).toEqual([]);
     expect(
       (await find(petro, `q=reconciliation&chatId=${chatId}`)).hits.map((h) => h.messageId),
     ).toEqual([message.id]);

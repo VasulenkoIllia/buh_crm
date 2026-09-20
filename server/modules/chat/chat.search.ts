@@ -7,32 +7,42 @@ import { openGroup, openOptions, openText } from "./chat.sealing.js";
 import { requireMember } from "./chat.service.js";
 
 /**
- * **Searching text nobody can read** (chat.md §8).
+ * **Searching text nobody can read** (chat.md §8), by any PART of a word (owner, 2026-09-20).
  *
  * A message's words are sealed with everything else, so the search cannot look at them. What it
- * looks at instead is a keyed hash of each word and of every prefix of it from three letters:
- * "invoice" is stored as `inv`, `invo`, `invoi`, `invoic`, `invoice`, each hashed with a key
- * derived from `SECRETS_KEY` (`keyFor("chat.search")`). A search hashes the query's words the same
- * way and asks for the messages holding ALL of them, in any order — the rule the library and the
- * vault already answer names by.
+ * looks at instead is a keyed hash of every three letters of them, sliding along: "invoice" is
+ * `inv`, `nvo`, `voi`, `oic`, `ice`. A query is cut the same way, and a message that holds ALL of
+ * the query's triples is a candidate — then, and only then, the page being shown is decrypted and
+ * the real text is checked for the query itself. So "оїн" finds "воїнська", the way people expect
+ * of a chat, and the false candidates a triple-match can throw up never reach the screen.
+ *
+ * Whole words and their prefixes are a special case of this, which is why the prefix index it
+ * replaces is gone: three letters anywhere is strictly more than three letters at the start.
  *
  * **What this gives away, said plainly** (§8): somebody with the database and without the key sees
- * hashes. They cannot turn one back into a word, but they can see that two messages share one, and
- * a word they GUESS can be confirmed if they also hold the key. That is the price of searching
- * encrypted text without decrypting all of it, and it is why the key is derived rather than
- * `SECRETS_KEY` itself.
+ * hashes. They cannot turn one back into letters, but they can see that two messages share a triple,
+ * and a triple they GUESS can be confirmed if they also hold the key — a little more than the
+ * prefix index gave away, because three letters of a long word are now indexed wherever they stand.
+ * That is the price of searching encrypted text by part of a word, and it is why the key is derived
+ * rather than `SECRETS_KEY` itself.
  *
- * Only the page being shown is decrypted, for its snippet.
+ * Only the page being shown is decrypted, for its snippet and for that last check.
  */
 
-/** Three letters is where a prefix starts being worth a row (§8), twelve is where it stops. */
-const MIN = 3;
-const MAX = 12;
+/** Three letters: the shortest a person may search for, and the size of every stored piece. */
+const GRAM = 3;
+const MIN = GRAM;
 /** 96 bits of an HMAC-SHA256: a guess is hopeless, and the index stays small. */
 const TOKEN_BYTES = 12;
 /** A pasted paragraph is not a query; the library's own limit (`core/client-search.ts`). */
 const MAX_WORDS = 8;
 const PAGE = 30;
+/**
+ * How many the index may hand over for checking. A message is a short string and opening one is
+ * microseconds, so this is cheap; it is a bound rather than a budget, and a search that hits it
+ * says "there is more" and asks for another word.
+ */
+const CANDIDATES = 500;
 /** How much of a message a hit shows. */
 const SNIPPET = 180;
 
@@ -49,35 +59,58 @@ const hash = (word: string): Uint8Array<ArrayBuffer> =>
  * else dropped. The folding is what makes `Olena` and `ОЛЕНА` the same word as typed either way.
  */
 export function wordsIn(text: string): string[] {
-  return text
-    .normalize("NFKD")
-    .replace(/\p{M}+/gu, "")
-    .toLowerCase()
+  return folded(text)
     .split(/[^\p{L}\p{N}]+/u)
     .filter((word) => word.length >= MIN);
 }
 
-/** Every word of a message, and every prefix of it worth a row: what is stored (§8). */
+/** The same folding, over a whole text: what the last check compares against. */
+export function folded(text: string): string {
+  return text
+    .normalize("NFKD")
+    .replace(/\p{M}+/gu, "")
+    .toLowerCase();
+}
+
+/**
+ * **The check the index cannot do.** A message holding every triple of the query may still not
+ * contain it — so the page that is about to be shown is opened and asked plainly: does each of the
+ * query's words appear in it, anywhere inside a word? That is what makes "оїн" find "воїнська" and
+ * nothing else.
+ */
+export function reallyHolds(text: string, words: readonly string[]): boolean {
+  const hay = folded(text);
+  return words.every((word) => hay.includes(word));
+}
+
+/** Every three letters of a word, sliding along: what is stored, and what a query is cut into. */
+export function gramsOf(word: string): string[] {
+  if (word.length < GRAM) return [];
+  const out: string[] = [];
+  for (let at = 0; at + GRAM <= word.length; at++) out.push(word.slice(at, at + GRAM));
+  return out;
+}
+
+/** What a message is findable by (§8): every triple of every word in it, each hashed once. */
 export function tokensOf(
   texts: readonly (string | null | undefined)[],
 ): Uint8Array<ArrayBuffer>[] {
   const seen = new Set<string>();
   for (const text of texts) {
-    for (const word of wordsIn(text ?? "")) {
-      for (let n = MIN; n <= Math.min(word.length, MAX); n++) seen.add(word.slice(0, n));
-    }
+    for (const word of wordsIn(text ?? "")) for (const gram of gramsOf(word)) seen.add(gram);
   }
   return [...seen].map(hash);
 }
 
 /**
- * The query's words, hashed. A word longer than the longest prefix stored is cut to it, so
- * searching for a long word finds the messages whose words START with those twelve letters — a
- * little wider than asked for, never narrower.
+ * The query, cut the same way. Every triple of every word must be in the message — which is a
+ * NARROWING filter, not the answer: `inv` + `nvo` can both be in a message that never says
+ * "invoice", so what comes back is checked against the real text before anybody sees it.
  */
 export function queryTokens(q: string): Uint8Array<ArrayBuffer>[] {
-  const words = [...new Set(wordsIn(q).map((word) => word.slice(0, MAX)))].slice(0, MAX_WORDS);
-  return words.map(hash);
+  const seen = new Set<string>();
+  for (const word of wordsIn(q).slice(0, MAX_WORDS)) for (const g of gramsOf(word)) seen.add(g);
+  return [...seen].map(hash);
 }
 
 // ── keeping the index true (§8) ────────────────────────────────────────────────
@@ -148,45 +181,61 @@ export async function search(user: User, query: ChatSearchQuery): Promise<ChatSe
   if (tokens.length === 0) return { hits: [], people: [], more: false };
 
   const page = query.page ?? 0;
-  const found = await repo.searchMessages(user.id, tokens, {
+  const words = [...new Set(wordsIn(query.q))].slice(0, MAX_WORDS);
+  // the index NARROWS; the text decides. Candidates are taken in one bite and checked, because a
+  // page of survivors cannot be counted in SQL without opening the messages (§8.1)
+  const candidates = await repo.searchMessages(user.id, tokens, {
     chatId: query.chatId,
     senderId: query.senderId,
     from: query.from ? new Date(query.from) : undefined,
     to: query.to ? new Date(`${query.to}T23:59:59.999Z`) : undefined,
     hasFiles: query.hasFiles,
-    skip: page * PAGE,
-    take: PAGE + 1,
+    skip: 0,
+    take: CANDIDATES,
   });
-  const rows = found.slice(0, PAGE);
+
+  /** A message's searchable words: what it says, and a poll's options beside its question. */
+  const wordsOf = (row: (typeof candidates)[number]) => {
+    const said = openText(row) ?? "";
+    const options =
+      row.pollCiphertext && row.pollIv && row.pollAuthTag
+        ? openOptions({
+            ciphertext: row.pollCiphertext,
+            iv: row.pollIv,
+            authTag: row.pollAuthTag,
+            keyVersion: row.pollKeyVersion ?? 1,
+          }).join(" · ")
+        : "";
+    return [said, options].filter(Boolean).join(" — ");
+  };
+
+  const survivors = candidates
+    .map((row) => ({ row, text: wordsOf(row) }))
+    .filter(({ text }) => reallyHolds(text, words));
+  const rows = survivors.slice(page * PAGE, page * PAGE + PAGE);
   if (rows.length === 0) return { hits: [], people: [], more: false };
 
-  // only the page being shown is opened, which is the whole point of the token table
-  const full = await repo.messagesById(rows.map((r) => r.id));
+  const full = await repo.messagesById(rows.map(({ row }) => row.id));
   const byId = new Map(full.map((m) => [m.id, m]));
-  const chats = await repo.chatsByIds([...new Set(rows.map((r) => r.chatId))]);
-  const words = [...new Set(wordsIn(query.q).map((w) => w.slice(0, MAX)))];
+  const chats = await repo.chatsByIds([...new Set(rows.map(({ row }) => row.chatId))]);
 
-  const hits: ChatSearchHit[] = rows.map((row) => {
-    const message = byId.get(row.id);
-    const poll = message?.poll ? openOptions(message.poll).join(" · ") : "";
-    const text = [openText(message ?? row) ?? "", poll].filter(Boolean).join(" — ");
-    return {
-      messageId: row.id,
-      chatId: row.chatId,
-      chatLabel: labelOfChat(chats.get(row.chatId), user.id),
-      seq: row.seq,
-      authorId: row.authorId,
-      at: row.createdAt.toISOString(),
-      snippet: snippetOf(text, words),
-      files: message?.files.length ?? 0,
-    };
-  });
+  const hits: ChatSearchHit[] = rows.map(({ row, text }) => ({
+    messageId: row.id,
+    chatId: row.chatId,
+    chatLabel: labelOfChat(chats.get(row.chatId), user.id),
+    seq: row.seq,
+    authorId: row.authorId,
+    at: row.createdAt.toISOString(),
+    snippet: snippetOf(text, words),
+    files: byId.get(row.id)?.files.length ?? 0,
+  }));
 
   const ids = new Set(hits.flatMap((h) => (h.authorId ? [h.authorId] : [])));
   return {
     hits,
     people: ids.size > 0 ? await repo.peopleByIds([...ids]) : [],
-    more: found.length > PAGE,
+    // one more page of survivors, or a bite that filled up and may be hiding more behind it
+    more: survivors.length > (page + 1) * PAGE || candidates.length === CANDIDATES,
   };
 }
 
