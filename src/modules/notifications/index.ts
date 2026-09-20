@@ -24,3 +24,7 @@ export const NotificationPreferences = lazy(() =>
 export const NotificationPolicySection = lazy(() =>
   import("./notification-policy").then((m) => ({ default: m.NotificationPolicySection })),
 );
+
+// the chat sounds the same short chime when a message arrives (chat.md §10.1); it is a few lines
+// of Web Audio and nothing is loaded until the first one is asked for
+export { playChime, chimeStatus, type ChimeResult } from "./chime";

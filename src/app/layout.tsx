@@ -26,6 +26,7 @@ import { UserAvatar } from "@/shared/ui/avatar";
 import { ToastProvider } from "@/shared/ui/toast";
 import { SETTINGS_GATES, useSettings } from "@/modules/settings";
 import { NotificationTray } from "@/modules/notifications";
+import { ChatWatch, useChatUnread } from "@/modules/chat";
 import { TimerBar } from "@/modules/tasks";
 import { FirmClock } from "./firm-clock";
 
@@ -68,6 +69,7 @@ const NAV: {
 
 export function AppLayout() {
   const access = useAccess();
+  const chatUnread = useChatUnread();
   const queryClient = useQueryClient();
   /**
    * One place, at the shell, because it is a fact about the SESSION rather than about any screen:
@@ -112,6 +114,11 @@ export function AppLayout() {
               >
                 <Icon size={16} />
                 {label}
+                {to === "/chat" && chatUnread > 0 && (
+                  <span className="ml-auto rounded-full bg-primary px-1.5 text-[11px] font-semibold text-white">
+                    {chatUnread}
+                  </span>
+                )}
               </NavLink>
             ))}
           </nav>
@@ -125,6 +132,8 @@ export function AppLayout() {
               <WhenCleared>
                 <TimerBar />
               </WhenCleared>
+              {/* the live connection and what it means for a person not looking at Chat */}
+              {access("chat") !== "closed" && <ChatWatch />}
               <HeaderActions />
             </div>
           </header>

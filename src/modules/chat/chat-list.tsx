@@ -6,6 +6,7 @@ import {
   Megaphone,
   Pin,
   Plus,
+  Settings2,
   Users,
   UsersRound,
 } from "lucide-react";
@@ -15,6 +16,7 @@ import { fmtTime, isoDay } from "@/shared/lib/format";
 import { UserAvatar } from "@/shared/ui/avatar";
 import { Button } from "@/shared/ui/button";
 import { Modal } from "@/shared/ui/modal";
+import { NotifySettings } from "./notify-modal";
 
 /**
  * **The chat list** (chat.md §4.2): newest first with the pinned on top, each row with the last
@@ -72,6 +74,7 @@ export function ChatList({
   narrow?: boolean;
 }) {
   const [starting, setStarting] = useState(false);
+  const [settings, setSettings] = useState(false);
 
   return (
     <div
@@ -82,12 +85,15 @@ export function ChatList({
     >
       <div className="flex items-center gap-2 border-b border-divider px-3 py-2">
         <h2 className="text-[13px] font-semibold">Chats</h2>
-        <Button
-          size="sm"
-          variant="secondary"
-          className="ml-auto"
-          onClick={() => setStarting(true)}
+        <button
+          type="button"
+          aria-label="Chat settings"
+          onClick={() => setSettings(true)}
+          className="ml-auto text-muted hover:text-ink"
         >
+          <Settings2 className="size-4" />
+        </button>
+        <Button size="sm" variant="secondary" onClick={() => setStarting(true)}>
           <Plus className="size-3.5" />
           New
         </Button>
@@ -133,6 +139,8 @@ export function ChatList({
           </button>
         ))}
       </div>
+
+      {settings && <NotifySettings onClose={() => setSettings(false)} />}
 
       {starting && (
         <StartChat
