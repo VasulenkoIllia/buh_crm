@@ -35,8 +35,11 @@ import { SETTINGS_GATES, SETTINGS_TABS } from "@/modules/settings";
  * somebody out of their own password. And the old `/unpaid` path, which is a redirect to
  * `/billing` and inherits that screen's gate on arrival; gating the redirect as well would bounce
  * people to the dashboard instead of showing them why.
+ *
+ * And `/ui`, the control catalogue (2026-09-20): it renders buttons and icons and reads nothing at
+ * all — no query, no record, no name. There is nothing on it to gate.
  */
-const EXEMPT = ["(index)", "profile", "unpaid"];
+const EXEMPT = ["(index)", "profile", "unpaid", "ui"];
 
 /** The `{ … }` starting at `from`, with its own braces balanced. Strings are skipped. */
 function objectAt(source: string, from: number): { text: string; end: number } {
@@ -124,11 +127,11 @@ describe("every screen is behind a gate, or says why not", () => {
   });
 
   /**
-   * Asserted whole so the exemption list cannot grow quietly. Three screens, each argued in the
-   * comment on `EXEMPT`; a fourth is a decision, not a fix.
+   * Asserted whole so the exemption list cannot grow quietly. Four screens, each argued in the
+   * comment on `EXEMPT`; a fifth is a decision, not a fix.
    */
-  it("keeps the ungated list to the three screens that are argued for", () => {
-    expect(EXEMPT).toEqual(["(index)", "profile", "unpaid"]);
+  it("keeps the ungated list to the four screens that are argued for", () => {
+    expect(EXEMPT).toEqual(["(index)", "profile", "unpaid", "ui"]);
   });
 
   /**

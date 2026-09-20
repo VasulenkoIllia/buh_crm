@@ -87,6 +87,12 @@ const SecretsPage = lazy(() =>
 const ChatPage = lazy(() =>
   import("@/modules/chat/chat.page").then((m) => ({ default: m.ChatPage })),
 );
+/** `/ui`: every control the CRM has, on one page. Not in the sidebar; typed by whoever needs it. */
+const UiCataloguePage = lazy(() =>
+  import("@/modules/ui-catalogue/ui-catalogue.page").then((m) => ({
+    default: m.UiCataloguePage,
+  })),
+);
 
 /** Old /unpaid path → /billing, preserving ?invoice= / ?client= deep links. */
 function RedirectToBilling() {
@@ -146,6 +152,8 @@ export const router = createBrowserRouter([
               // the screen was called "Unpaid" until 2026-07-25 — keep old links (and any
               // bookmarks) working, query string and all
               { path: "unpaid", element: <RedirectToBilling /> },
+              // the control catalogue: it shows no data of any kind, so there is nothing to gate
+              { path: "ui", element: <UiCataloguePage /> },
               /**
                * Every other screen sits behind its gate. A closed one bounces to the dashboard
                * rather than mounting and firing requests the server will refuse — see

@@ -2,8 +2,32 @@ import { forwardRef, type ButtonHTMLAttributes } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/shared/lib/cn";
 
+/**
+ * **The one focus ring.** Until 2026-09-20 `focus-visible` appeared three times in the whole of
+ * `src/`, and neither of these two components had it: somebody moving through the CRM with a
+ * keyboard could not see where they were. It is here, once, so every control that goes through
+ * these gets it and nothing has to remember.
+ */
+const FOCUS =
+  "outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-1";
+
+/**
+ * **An icon inside a control is sized by the control**, not by the call site. There were twenty
+ * different icon sizes in the modules and two ways of writing them (a `size` prop and a class), so
+ * the same action was 13, 14, 15 or 16 pixels depending on who wrote it. CSS wins over the SVG's
+ * own width attribute, so this settles it without touching the two hundred call sites that pass a
+ * size — and new code passes none.
+ */
+const ICON = "[&_svg]:shrink-0";
+
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-1.5 rounded-(--radius-field) text-[13px] font-medium transition-colors disabled:pointer-events-none disabled:opacity-50",
+  cn(
+    "inline-flex items-center justify-center gap-1.5 rounded-(--radius-field) text-[13px]",
+    "font-medium transition-colors disabled:pointer-events-none disabled:opacity-50",
+    FOCUS,
+    ICON,
+    "[&_svg]:size-[14px]",
+  ),
   {
     variants: {
       variant: {
@@ -41,6 +65,14 @@ Button.displayName = "Button";
 export interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   /** what the icon means — becomes the tooltip AND the accessible name */
   label: string;
+  /**
+   * A destructive action: red on HOVER, never at rest. A row of red icons makes a list look like a
+   * list of problems. Written as a prop rather than as `className="hover:text-danger"` at each
+   * site, because four different spellings of that class were in use (audit, 2026-09-20).
+   */
+  danger?: boolean;
+  /** `md` (28px) is a row action; `sm` (24px) is for a dense bar, a chip, a search field */
+  size?: "sm" | "md";
 }
 
 /**
@@ -56,20 +88,23 @@ export interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>
  * the click DOES in the current state ("Default for new clients — click to clear"), not what it is.
  *
  * No `disabled:pointer-events-none` on purpose: a disabled action must still show its tooltip,
- * which is where the "why not" lives (e.g. "clear the default first"). Destructive actions pass
- * `className="hover:text-danger"` — red on hover only, never at rest. A toggle shows its state in
+ * which is where the "why not" lives (e.g. "clear the default first"). A toggle shows its state in
  * the icon itself (filled + brand blue when on). Full rules: docs/design-system.md.
  */
 export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
-  ({ label, title, className, type, ...props }, ref) => (
+  ({ label, title, className, type, danger, size = "md", ...props }, ref) => (
     <button
       ref={ref}
       type={type ?? "button"}
       title={title ?? label}
       aria-label={label}
       className={cn(
-        "inline-flex h-7 w-7 flex-none items-center justify-center rounded-(--radius-btn-sm)",
-        "text-muted transition-colors hover:bg-divider hover:text-ink disabled:opacity-40",
+        "inline-flex flex-none items-center justify-center rounded-(--radius-btn-sm)",
+        "text-muted transition-colors hover:bg-divider disabled:opacity-50",
+        size === "sm" ? "h-6 w-6 [&_svg]:size-[14px]" : "h-7 w-7 [&_svg]:size-[15px]",
+        danger ? "hover:text-danger" : "hover:text-ink",
+        FOCUS,
+        ICON,
         className,
       )}
       {...props}
