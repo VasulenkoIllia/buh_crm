@@ -374,6 +374,13 @@ export const chatSearchPageSchema = z.object({
   hits: z.array(chatSearchHitSchema),
   people: z.array(chatPersonSchema),
   more: z.boolean(),
+  /**
+   * The search read as many candidates as it takes at a time and stopped there, so older messages
+   * that also hold the words are not in this answer. The box says so and asks for a narrower
+   * search; it is not another page, and offering one gave a "more" that answered with nothing
+   * (audit, 2026-09-20).
+   */
+  narrowed: z.boolean(),
 });
 export type ChatSearchPage = z.infer<typeof chatSearchPageSchema>;
 

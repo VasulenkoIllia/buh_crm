@@ -41,19 +41,37 @@ export function sealText(text: string): Sealed {
   };
 }
 
-/** The text, or `null` when there is none: a deleted message, a notice, a message of files only. */
+/**
+ * The text, or `null` when there is none: a deleted message, a notice, a message of files only.
+ *
+ * **A row that will not open is one row, not the screen.** `open()` throws when the tag does not
+ * verify — which is the point of GCM — and every caller here is in a loop over somebody's whole
+ * chat list, a page of history or a search. Unguarded, a single damaged row (a partial restore, a
+ * key rotated without its `keyVersion`, a truncated write) took away ALL of a person's chats, not
+ * the one that was hurt (audit, 2026-09-20). It is logged, loudly and without the ciphertext, and
+ * the reader sees an unreadable line beside the rest of their conversation.
+ */
 export function openText(row: SealedColumns): string | null {
   if (!row.ciphertext || !row.iv || !row.authTag) return null;
-  return open({
-    ciphertext: row.ciphertext,
-    iv: row.iv,
-    authTag: row.authTag,
-    keyVersion: row.keyVersion,
-  });
+  try {
+    return open({
+      ciphertext: row.ciphertext,
+      iv: row.iv,
+      authTag: row.authTag,
+      keyVersion: row.keyVersion,
+    });
+  } catch (err) {
+    console.error(
+      `chat: a sealed value (key version ${row.keyVersion}) would not open: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+    return UNREADABLE;
+  }
 }
 
-/** What a delete for everyone writes: the sealed text gone for good, the row kept for its `seq`. */
-export const NO_TEXT = { ciphertext: null, iv: null, authTag: null } as const;
+/** What a reader is shown in place of a row that would not open. */
+export const UNREADABLE = "⚠︎";
 
 export function sealGroup(info: GroupInfo): Sealed {
   return sealText(JSON.stringify(info));
@@ -61,7 +79,13 @@ export function sealGroup(info: GroupInfo): Sealed {
 
 export function openGroup(row: SealedColumns): GroupInfo | null {
   const raw = openText(row);
-  return raw === null ? null : (JSON.parse(raw) as GroupInfo);
+  if (raw === null) return null;
+  try {
+    return JSON.parse(raw) as GroupInfo;
+  } catch {
+    // an unreadable or malformed group keeps its screen: the list names it by what it is
+    return { title: UNREADABLE, description: null };
+  }
 }
 
 export function sealOptions(options: readonly string[]): Sealed {
@@ -70,5 +94,10 @@ export function sealOptions(options: readonly string[]): Sealed {
 
 export function openOptions(row: SealedColumns): string[] {
   const raw = openText(row);
-  return raw === null ? [] : (JSON.parse(raw) as string[]);
+  if (raw === null) return [];
+  try {
+    return JSON.parse(raw) as string[];
+  } catch {
+    return [];
+  }
 }

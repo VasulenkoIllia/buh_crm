@@ -53,8 +53,7 @@ function titleOf(chat: Pick<ChatRow, "kind" | "ciphertext" | "iv" | "authTag" | 
 /** The first line of the newest message, as the list shows it. */
 const PREVIEW = 120;
 
-function lastMessageOf(chat: ChatRow): ChatSummary["lastMessage"] {
-  const last = chat.messages[0];
+function lastMessageOf(last: repo.LastMessageRow | null): ChatSummary["lastMessage"] {
   if (!last) return null;
   const text = openText(last);
   const line = text?.split("\n")[0].trim() ?? null;
@@ -64,13 +63,24 @@ function lastMessageOf(chat: ChatRow): ChatSummary["lastMessage"] {
     kind: last.kind,
     notice: last.notice,
     preview: line && line.length > PREVIEW ? `${line.slice(0, PREVIEW)}…` : line,
-    files: last._count.files,
-    deleted: last.deletedAt !== null,
+    files: last.fileCount,
+    // a deleted message is not the chat's last line at all (the read leaves it out), so this is
+    // here for the contract's sake and is always false
+    deleted: false,
     at: last.createdAt.toISOString(),
   };
 }
 
-function summaryOf(m: Membership, meId: string, now = Date.now()): ChatSummary {
+/**
+ * The last message is fetched BESIDE the membership rather than included in it: `membershipIn` is
+ * on the path of every single request into the chat, and it does not need one (audit, 2026-09-20).
+ */
+function summaryOf(
+  m: Membership,
+  meId: string,
+  last: repo.LastMessageRow | null = null,
+  now = Date.now(),
+): ChatSummary {
   const { chat } = m;
   const peer =
     chat.kind === "direct" ? (chat.members.find((x) => x.userId !== meId)?.user ?? null) : null;
@@ -84,7 +94,7 @@ function summaryOf(m: Membership, meId: string, now = Date.now()): ChatSummary {
     lastReadSeq: m.lastReadSeq,
     unread: Math.max(0, chat.lastSeq - m.lastReadSeq),
     mentioned: m.lastMentionSeq > m.lastReadSeq,
-    lastMessage: lastMessageOf(chat),
+    lastMessage: lastMessageOf(last),
     othersReadSeq: chat.members.reduce(
       (far, x) => (x.userId === meId ? far : Math.max(far, x.lastReadSeq)),
       0,
@@ -96,9 +106,9 @@ function summaryOf(m: Membership, meId: string, now = Date.now()): ChatSummary {
   };
 }
 
-function detailOf(m: Membership, meId: string): ChatDetail {
+function detailOf(m: Membership, meId: string, last: repo.LastMessageRow | null): ChatDetail {
   return {
-    ...summaryOf(m, meId),
+    ...summaryOf(m, meId, last),
     description: m.chat.kind === "group" ? (openGroup(m.chat)?.description ?? null) : null,
     members: m.chat.members.map((x) => ({
       ...x.user,
@@ -135,9 +145,14 @@ export async function listChats(user: User): Promise<ChatSummary[]> {
     rows = await repo.membershipsOf(user.id);
   }
   const now = Date.now();
-  return rows
-    .filter(listed)
-    .map((m) => summaryOf(m, user.id, now))
+  const shown = rows.filter(listed);
+  // one query for every chat's last line, rather than one per chat or — as it was — the whole of
+  // every chat's history (audit, 2026-09-20)
+  const last = new Map(
+    (await repo.lastMessagesOf(shown.map((m) => m.chatId))).map((row) => [row.chatId, row]),
+  );
+  return shown
+    .map((m) => summaryOf(m, user.id, last.get(m.chatId) ?? null, now))
     .sort(byListOrder);
 }
 
@@ -166,7 +181,8 @@ export function requireWriter(m: Membership, user: User) {
 }
 
 export async function getChat(user: User, chatId: string): Promise<ChatDetail> {
-  return detailOf(await requireMember(chatId, user.id), user.id);
+  const m = await requireMember(chatId, user.id);
+  return detailOf(m, user.id, await repo.lastMessageOf(chatId));
 }
 
 export async function people(): Promise<ChatPeople> {
@@ -188,12 +204,20 @@ export async function openDirect(user: User, otherId: string): Promise<ChatSumma
   if (!other) throw new NotFoundError("Colleague not found");
   const key = `direct:${[user.id, other.id].sort().join(":")}`;
   const chatId = await repo.findOrCreatePlace("direct", key, [user.id, other.id], user.id);
-  return summaryOf(await requireMember(chatId, user.id), user.id);
+  return summaryOf(
+    await requireMember(chatId, user.id),
+    user.id,
+    await repo.lastMessageOf(chatId),
+  );
 }
 
 export async function openSaved(user: User): Promise<ChatSummary> {
   const chatId = await repo.findOrCreatePlace("saved", `saved:${user.id}`, [user.id], user.id);
-  return summaryOf(await requireMember(chatId, user.id), user.id);
+  return summaryOf(
+    await requireMember(chatId, user.id),
+    user.id,
+    await repo.lastMessageOf(chatId),
+  );
 }
 
 /** Into the channel, or back into it after an unblock; reading from now, not from its first post. */
@@ -297,7 +321,9 @@ export async function updateGroup(
   };
   const titleMoved = after.title !== before.title;
   const descriptionMoved = after.description !== before.description;
-  if (!titleMoved && !descriptionMoved) return detailOf(m, user.id);
+  if (!titleMoved && !descriptionMoved) {
+    return detailOf(m, user.id, await repo.lastMessageOf(chatId));
+  }
 
   const at = new Date();
   await repo.transaction(async (tx) => {
@@ -447,14 +473,20 @@ export async function updateSettings(
   if (input.pinned !== undefined) data.pinnedAt = input.pinned ? (m.pinnedAt ?? now) : null;
   if (input.hidden !== undefined) data.hiddenAt = input.hidden ? now : null;
   await repo.updateOwnSettings(chatId, user.id, data);
-  return summaryOf(await requireMember(chatId, user.id), user.id);
+  // the reader's OWN other tabs: pinning, muting or hiding a chat is theirs, and the list in the
+  // next window over was showing the old order until something else moved (audit, 2026-09-20)
+  await publish([user.id], "chat_updated", { chatId });
+  return summaryOf(
+    await requireMember(chatId, user.id),
+    user.id,
+    await repo.lastMessageOf(chatId),
+  );
 }
 
 // ── a block (chat.md §11) ──────────────────────────────────────────────────────
 
 export interface LeftOnBlock {
   chatId: string;
-  title: string | null;
   /** everybody who was in it, the blocked person included: whom to tell */
   members: string[];
 }
@@ -477,11 +509,7 @@ export async function leaveChatsOnBlock(
     const current = await repo.activeMembersTx(tx, g.chatId);
     await repo.leaveTx(tx, g.chatId, userId, at);
     await repo.writeNotice(tx, g.chatId, "member_blocked", [userId], null, at);
-    left.push({
-      chatId: g.chatId,
-      title: openGroup(g.chat)?.title ?? null,
-      members: current.map((x) => x.userId),
-    });
+    left.push({ chatId: g.chatId, members: current.map((x) => x.userId) });
   }
   await repo.leaveChannelTx(tx, userId, at);
   return left;
@@ -493,7 +521,9 @@ export async function announceBlock(person: { id: string; name: string }, left: 
     record("chat_member.removed", {
       subjectId: person.id,
       subjectLabel: person.name,
-      changes: { group: g.title },
+      // `A_GROUP`, never the real title: a row anybody with Activity open can read must not name
+      // a private conversation they were never in (decision 2; audit, 2026-09-20)
+      changes: { group: A_GROUP },
     });
     await announce(g.chatId, g.members);
   }

@@ -276,8 +276,8 @@ describe("groups", () => {
     expect((await call(olena, "POST", `/chats/${chatId}/leave`)).status).toBe(200);
     expect((await call(olena, "GET", `/chats/${chatId}`)).status).toBe(404);
     expect(
-      (await call(petro, "GET", `/chats/${chatId}`)).body.members?.map((m) => m.id),
-    ).toEqual([petro.id, iryna.id]);
+      (await call(petro, "GET", `/chats/${chatId}`)).body.members?.map((m) => m.id).sort(),
+    ).toEqual([petro.id, iryna.id].sort());
     expect((await logged("chat_member.left", olena.id)).changes).toEqual({ group: "a group" });
     expect((await notices(chatId)).map((n) => n.notice).at(-1)).toBe("member_left");
   });
@@ -359,9 +359,13 @@ describe("a block (chat.md §11)", () => {
       authorId: null,
     });
     expect(
-      (await call(petro, "GET", `/chats/${owned}`)).body.members?.map((m) => m.id),
-    ).toEqual([petro.id, iryna.id]);
-    expect((await logged("chat_member.removed", kyrylo.id)).subjectLabel).toBe("Kyrylo Tester");
+      (await call(petro, "GET", `/chats/${owned}`)).body.members?.map((m) => m.id).sort(),
+    ).toEqual([petro.id, iryna.id].sort());
+    const row = await logged("chat_member.removed", kyrylo.id);
+    expect(row.subjectLabel).toBe("Kyrylo Tester");
+    // "a group", never "Kyrylo's": a row anybody with Activity open can read must not name a
+    // private conversation they were never in (decision 2; audit, 2026-09-20)
+    expect(row.changes).toEqual({ group: "a group" });
 
     await app.inject({
       method: "PATCH",

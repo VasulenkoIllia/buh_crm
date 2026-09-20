@@ -1,6 +1,8 @@
 import { createHmac } from "node:crypto";
 import type { ChatSearchHit, ChatSearchPage, ChatSearchQuery } from "@shared/schema/chat.js";
 import type { User } from "../../generated/prisma/client.js";
+import { config } from "../../core/config.js";
+import { zonedDayStart } from "../../core/dates.js";
 import { keyFor } from "../../core/secrets-crypto.js";
 import * as repo from "./chat.repository.js";
 import { openGroup, openOptions, openText } from "./chat.sealing.js";
@@ -178,7 +180,7 @@ function snippetOf(text: string, words: readonly string[]): string {
 export async function search(user: User, query: ChatSearchQuery): Promise<ChatSearchPage> {
   if (query.chatId) await requireMember(query.chatId, user.id);
   const tokens = queryTokens(query.q);
-  if (tokens.length === 0) return { hits: [], people: [], more: false };
+  if (tokens.length === 0) return { hits: [], people: [], more: false, narrowed: false };
 
   const page = query.page ?? 0;
   const words = [...new Set(wordsIn(query.q))].slice(0, MAX_WORDS);
@@ -187,12 +189,22 @@ export async function search(user: User, query: ChatSearchQuery): Promise<ChatSe
   const candidates = await repo.searchMessages(user.id, tokens, {
     chatId: query.chatId,
     senderId: query.senderId,
-    from: query.from ? new Date(query.from) : undefined,
-    to: query.to ? new Date(`${query.to}T23:59:59.999Z`) : undefined,
+    // the FIRM's day, not UTC's: at Europe/Kyiv "from the 20th" used to hide everything sent
+    // between midnight and three in the morning, and "to the 20th" quietly included the early
+    // hours of the 21st (audit, 2026-09-20). Every other day filter in the CRM goes through this
+    from: query.from ? zonedDayStart(query.from, config.TZ) : undefined,
+    to: query.to ? zonedDayStart(nextDay(query.to), config.TZ) : undefined,
     hasFiles: query.hasFiles,
     skip: 0,
     take: CANDIDATES,
   });
+
+  /** The day after this one, so "to the 20th" means the end of the 20th in the firm's own zone. */
+  function nextDay(dayIso: string): string {
+    const day = new Date(`${dayIso}T00:00:00.000Z`);
+    day.setUTCDate(day.getUTCDate() + 1);
+    return day.toISOString().slice(0, 10);
+  }
 
   /** A message's searchable words: what it says, and a poll's options beside its question. */
   const wordsOf = (row: (typeof candidates)[number]) => {
@@ -213,7 +225,9 @@ export async function search(user: User, query: ChatSearchQuery): Promise<ChatSe
     .map((row) => ({ row, text: wordsOf(row) }))
     .filter(({ text }) => reallyHolds(text, words));
   const rows = survivors.slice(page * PAGE, page * PAGE + PAGE);
-  if (rows.length === 0) return { hits: [], people: [], more: false };
+  if (rows.length === 0) {
+    return { hits: [], people: [], more: false, narrowed: candidates.length === CANDIDATES };
+  }
 
   const full = await repo.messagesById(rows.map(({ row }) => row.id));
   const byId = new Map(full.map((m) => [m.id, m]));
@@ -234,8 +248,11 @@ export async function search(user: User, query: ChatSearchQuery): Promise<ChatSe
   return {
     hits,
     people: ids.size > 0 ? await repo.peopleByIds([...ids]) : [],
-    // one more page of survivors, or a bite that filled up and may be hiding more behind it
-    more: survivors.length > (page + 1) * PAGE || candidates.length === CANDIDATES,
+    // one more page of survivors. A bite that filled up may be hiding more behind it, but saying
+    // so gave a "more" that answers with nothing (audit, 2026-09-20): `narrowed` is the honest
+    // way to say it, and the box shows it as a line rather than as another page
+    more: survivors.length > (page + 1) * PAGE,
+    narrowed: candidates.length === CANDIDATES,
   };
 }
 

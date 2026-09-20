@@ -115,13 +115,13 @@ export async function publish<K extends PublishedEventName | keyof ControlEvents
   event: K,
   data: EventMap[K],
 ): Promise<void> {
-  const payload = JSON.stringify({ to, event, data });
-  const bytes = Buffer.byteLength(payload);
+  const alone = Buffer.byteLength(JSON.stringify({ to: [], event, data }));
   const problem =
     !contentFree(data) || (to !== "everyone" && !to.every((id) => UUID.test(id)))
       ? "carries something other than ids, numbers and short tokens"
-      : bytes > NOTIFY_LIMIT_BYTES
-        ? `is ${bytes} bytes, over the ${NOTIFY_LIMIT_BYTES} a notification may carry`
+      : alone > NOTIFY_LIMIT_BYTES
+        ? `is ${alone} bytes before its recipients, over the ${NOTIFY_LIMIT_BYTES} a ` +
+          `notification may carry`
         : null;
   if (problem) {
     const message = `realtime: the "${event}" event ${problem}; nothing was sent`;
@@ -132,11 +132,33 @@ export async function publish<K extends PublishedEventName | keyof ControlEvents
   }
   // only after the check, so a producer that would leak text fails its test even when it names nobody
   if (to !== "everyone" && to.length === 0) return;
-  try {
-    await prisma.$executeRaw`SELECT pg_notify(${REALTIME_CHANNEL}, ${payload})`;
-  } catch (err) {
-    logger?.error({ err, event }, "realtime: could not publish");
+
+  /**
+   * **The recipients are sent in as many notifications as they need** (audit, 2026-09-20).
+   *
+   * `pg_notify` takes just under 8 kB, and a list of ids is most of a chat event: at 201 people —
+   * one over what a group's own schema allows, and far under what the announcements channel holds
+   * in a firm of any size — the payload crossed the line and the WHOLE event was dropped with one
+   * line in the log. Nobody's tab heard anything. Every recipient gets the same event, so the list
+   * simply goes in bites that fit.
+   */
+  for (const slice of to === "everyone" ? [to] : bites(to, NOTIFY_LIMIT_BYTES - alone)) {
+    const payload = JSON.stringify({ to: slice, event, data });
+    try {
+      await prisma.$executeRaw`SELECT pg_notify(${REALTIME_CHANNEL}, ${payload})`;
+    } catch (err) {
+      logger?.error({ err, event }, "realtime: could not publish");
+    }
   }
+}
+
+/** Ids in groups whose JSON stays inside `room`; a uuid costs its 36 characters, quotes and comma. */
+function bites(ids: readonly string[], room: number): string[][] {
+  const per = 39;
+  const most = Math.max(1, Math.floor(room / per));
+  const out: string[][] = [];
+  for (let at = 0; at < ids.length; at += most) out.push(ids.slice(at, at + most));
+  return out;
 }
 
 // ── listening ─────────────────────────────────────────────────────────────────

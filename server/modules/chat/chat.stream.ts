@@ -8,6 +8,7 @@ import { stateFor } from "../../core/access.js";
 import { liveSessionUsers, sessionIdOf } from "../../core/auth.js";
 import { isTest } from "../../core/config.js";
 import { publish, type RealtimeDelivery, type Recipients } from "../../core/realtime.js";
+import * as repo from "./chat.repository.js";
 import { mustEnrol } from "../../core/two-factor-policy.js";
 
 /**
@@ -135,7 +136,11 @@ function leave(userId: string) {
   if (leaving.has(userId)) return;
   const timer = setTimeout(() => {
     leaving.delete(userId);
-    if (streamsOf(userId) === 0) announce(userId, false);
+    if (streamsOf(userId) !== 0) return;
+    announce(userId, false);
+    // **when they were last online** (§5.4), which nothing wrote until 2026-09-20: the column, the
+    // read and the field in the contract all existed and the answer was always null (audit)
+    void repo.lastSeen(userId, new Date()).catch(() => {});
   }, OFFLINE_GRACE_MS);
   timer.unref();
   leaving.set(userId, timer);
