@@ -239,12 +239,15 @@ export function ChatPage() {
                 setReplyTo(null);
                 setEditing(null);
               }}
-              onEdit={(text) => {
-                if (editing) edit.mutate({ id: editing.id, text });
+              // `mutateAsync`, so the composer knows whether it worked: it keeps the words when
+              // it did not, rather than emptying into a failure nobody sees (audit, 2026-09-20)
+              onEdit={async (text) => {
+                if (!editing) return;
+                await edit.mutateAsync({ id: editing.id, text });
                 setEditing(null);
               }}
-              onSend={(text, mentions, files) => {
-                send.mutate({
+              onSend={async (text, mentions, files) => {
+                await send.mutateAsync({
                   clientMessageId: crypto.randomUUID(),
                   ...(text ? { text } : {}),
                   ...(mentions.length ? { mentions } : {}),

@@ -69,12 +69,18 @@ export function Composer({
   editing: ChatMessage | null;
   disabled?: string | null;
   canPoll: boolean;
+  /**
+   * **Resolves when the message is posted, and rejects when it is not.** The composer waits for it
+   * before emptying: it used to clear the field, the attachments and the stored draft the moment
+   * Send was pressed, so a refused send — offline, too long, a rate limit — destroyed what the
+   * person had written with nothing on screen to say so (audit, 2026-09-20).
+   */
   onSend: (
     text: string,
     mentions: string[],
     files: { fileId: string; previewFileId: string | null }[],
-  ) => void;
-  onEdit: (text: string) => void;
+  ) => Promise<unknown>;
+  onEdit: (text: string) => Promise<unknown>;
   onCancel: () => void;
   onTyping: () => void;
   onPoll: () => void;
@@ -83,6 +89,8 @@ export function Composer({
   const [picking, setPicking] = useState(false);
   const attached = useAttachments(chatId);
   const [refused, setRefused] = useState<string | null>(null);
+  /** a send in flight: pressing Enter twice must not post the same words twice */
+  const [sending, setSending] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
   /** whom the person has named so far, so the server marks exactly them (§5.2) */
   const [named, setNamed] = useState<Mentionable[]>([]);
@@ -123,7 +131,8 @@ export function Composer({
     el.setSelectionRange(want.start, want.end);
   }, [text]);
 
-  const submit = () => {
+  const submit = async () => {
+    if (sending) return;
     const body = text.trim();
     const files = attached.forSend();
     // a message needs words or files, and a file still going up is not one yet (§6.1)
@@ -131,16 +140,29 @@ export function Composer({
     // …and one that did not go up at all must be dealt with rather than dropped from the send in
     // silence, which is what happened before (review, 2026-09-20)
     if (attached.busy || attached.failed > 0) return;
-    if (editing) {
-      if (!body) return;
-      onEdit(body);
-    } else {
-      // everybody whose name is still in the text, and everybody when the text says `@all`
-      const all = /(^|\s)@all\b/.test(body);
-      const ids = all
-        ? members.map((m) => m.id)
-        : named.filter((p) => body.includes(`@${p.name}`)).map((p) => p.id);
-      onSend(body, [...new Set(ids)], files);
+    // over the limit the server refuses it, and the field would empty into nothing: the counter
+    // said so in red and the Send button took it anyway (audit, 2026-09-20)
+    if (body.length > MESSAGE_LIMIT) return;
+    setSending(true);
+    try {
+      if (editing) {
+        if (!body) return;
+        await onEdit(body);
+      } else {
+        // everybody whose name is still in the text, and everybody when the text says `@all`
+        const all = /(^|\s)@all\b/.test(body);
+        const ids = all
+          ? members.map((m) => m.id)
+          : named.filter((p) => body.includes(`@${p.name}`)).map((p) => p.id);
+        await onSend(body, [...new Set(ids)], files);
+      }
+    } catch {
+      // nothing is cleared: the words, the names and the files stay exactly where they were, and
+      // pressing Send again sends the same message (audit, 2026-09-20)
+      setRefused("Not sent. Check your connection and try again.");
+      return;
+    } finally {
+      setSending(false);
     }
     setText("");
     setNamed([]);
@@ -269,7 +291,7 @@ export function Composer({
             }
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
-              submit();
+              void submit();
               return;
             }
             if ((e.metaKey || e.ctrlKey) && (e.key === "b" || e.key === "i")) {
@@ -335,14 +357,16 @@ export function Composer({
           size="sm"
           className="mb-0.5"
           disabled={
+            sending ||
             attached.busy ||
             attached.failed > 0 ||
+            left < 0 ||
             (!text.trim() && (editing !== null || attached.items.length === 0))
           }
-          onClick={submit}
+          onClick={() => void submit()}
         >
           <Send className="size-3.5" />
-          {editing ? "Save" : attached.busy ? "Uploading…" : "Send"}
+          {editing ? "Save" : attached.busy ? "Uploading…" : sending ? "Sending…" : "Send"}
         </Button>
       </div>
       {left < 200 && (

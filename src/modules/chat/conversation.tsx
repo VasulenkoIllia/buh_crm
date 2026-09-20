@@ -1,31 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import {
-  Check,
-  CheckCheck,
-  ChevronDown,
-  Copy,
-  CornerUpLeft,
-  CornerUpRight,
-  Eye,
-  Link2,
-  MoreHorizontal,
-  Pencil,
-  Pin,
-  SmilePlus,
-  Trash2,
-} from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import type { ChatDetail, ChatFile, ChatMessage, ChatPerson } from "@shared/schema/chat";
 import { useAuth } from "@/app/auth";
 import { cn } from "@/shared/lib/cn";
-import { fmtDate, fmtTime } from "@/shared/lib/format";
-import { UserAvatar } from "@/shared/ui/avatar";
-import { MessageFiles } from "./attachments";
-import { CrmLinkCard, crmLinksIn, isOnlyCrmLinks } from "./crm-card";
-import { EmojiPicker } from "./emoji-picker";
-import { PollCard } from "./poll";
-import { RichText } from "./rich-text";
+import { fmtDate } from "@/shared/lib/format";
+import { MessageRow, nameOf } from "./message-row";
 
 /**
  * **The conversation** (chat.md §7.2, §17): only what is on screen is drawn, however long the chat
@@ -33,23 +13,6 @@ import { RichText } from "./rich-text";
  * the reader is already there.
  */
 
-const NOTICE: Record<string, (names: string) => string> = {
-  created: () => "created the group",
-  renamed: () => "changed the group",
-  member_added: (names) => `added ${names}`,
-  member_removed: (names) => `removed ${names}`,
-  member_left: () => "left the group",
-  member_blocked: (names) => `${names} was blocked`,
-  role_changed: (names) => `changed ${names}'s role`,
-  owner_changed: (names) => `${names} owns the group now`,
-};
-
-function nameOf(people: Map<string, ChatPerson>, id: string | null): string {
-  const person = id ? people.get(id) : null;
-  return person ? `${person.firstName} ${person.lastName}`.trim() : "Somebody";
-}
-
-/** One day's worth of messages sits under one date. */
 function dayOf(iso: string): string {
   return fmtDate(iso);
 }
@@ -161,10 +124,24 @@ export function Conversation({
     return out;
   }, [messages, firstUnread]);
 
+  /**
+   * **Where the list starts inside the scroll box.** Above it sit the container's own padding and
+   * the "Scroll up for earlier messages" line, and a virtual item's offset is measured from the
+   * list, not from the box. Without telling the virtualiser about the difference, "go to the
+   * newest" landed some 36px short — under the 80px that counts as being at the bottom, so no
+   * button appeared and the last message stayed clipped (audit, 2026-09-20).
+   */
+  const list = useRef<HTMLDivElement>(null);
+  const [listTop, setListTop] = useState(0);
+  useLayoutEffect(() => {
+    if (list.current) setListTop(list.current.offsetTop);
+  }, [more, loadingMore]);
+
   const virtual = useVirtualizer({
     count: rows.length,
     getScrollElement: () => box.current,
     estimateSize: () => 64,
+    scrollMargin: listTop,
     overscan: 8,
     getItemKey: (i) => {
       const row = rows[i];
@@ -173,18 +150,33 @@ export function Conversation({
     },
   });
 
-  // the newest message is the one to be at, unless the reader has scrolled up to read
+  /**
+   * The newest message is the one to be at, unless the reader has scrolled up to read.
+   *
+   * `total` is in the dependencies on purpose: a photo's row is 64px of estimate until the picture
+   * decodes, and re-measuring it afterwards is what makes the total move. Without it a screenshot
+   * arriving while the reader sat at the bottom scrolled 64px and then unfolded below the fold
+   * (audit, 2026-09-20).
+   */
+  const total = virtual.getTotalSize();
   useLayoutEffect(() => {
     if (atBottom && rows.length > 0) virtual.scrollToIndex(rows.length - 1, { align: "end" });
-  }, [rows.length, atBottom, virtual]);
+  }, [rows.length, total, atBottom, virtual]);
 
   /**
    * The pinned bar and a reply's quote ask for a message by id, ONCE. Without remembering that it
    * has been done, every live event re-ran the scroll and the conversation kept jumping back to
    * the pinned message (review, 2026-09-20).
+   *
+   * **The ask carries a number**, because asking for the SAME message twice is a real thing to do:
+   * scroll away from a pinned message, click the bar again. Keyed by the id alone, the second
+   * click set the same state, changed nothing, and did nothing for ever after (audit, 2026-09-20).
    */
-  const [asked, setAsked] = useState<string | null>(null);
-  const onGoToMessage = useCallback((id: string) => setAsked(id), []);
+  const [asked, setAsked] = useState<{ id: string; nth: number } | null>(null);
+  const onGoToMessage = useCallback(
+    (id: string) => setAsked((was) => ({ id, nth: (was?.nth ?? 0) + 1 })),
+    [],
+  );
   const wentTo = useRef<string | null>(null);
   /**
    * A message the search found can be a long way up. The conversation loads older pages until it
@@ -200,17 +192,25 @@ export function Conversation({
    * the scroll handler below, and the hunt above.
    */
   const heldHeight = useRef<number | null>(null);
+  /** a link to a message this chat does not have any more; said once, above the conversation */
+  const [missing, setMissing] = useState(false);
   useEffect(() => {
-    const wanted = asked ?? goTo ?? (goToSeq ? `seq:${goToSeq}` : null);
-    if (!wanted || wentTo.current === wanted) {
+    // ONE target, and the key that says whether it has already been gone to. An ask from the
+    // screen wins over the address, and the two are never mixed: matching "this id OR that seq"
+    // let whichever came first in the list win, so a link and a click at the same moment sent the
+    // reader to the wrong message and marked the other as done (audit, 2026-09-20)
+    const target = asked
+      ? { key: `${asked.id}#${asked.nth}`, of: (m: ChatMessage) => m.id === asked.id }
+      : goTo
+        ? { key: goTo, of: (m: ChatMessage) => m.id === goTo }
+        : goToSeq !== null
+          ? { key: `seq:${goToSeq}`, of: (m: ChatMessage) => m.seq === goToSeq }
+          : null;
+    if (!target || wentTo.current === target.key) {
       hunted.current = 0;
       return;
     }
-    const at = rows.findIndex(
-      (r) =>
-        r.kind === "message" &&
-        (r.message.id === wanted || (goToSeq !== null && r.message.seq === goToSeq)),
-    );
+    const at = rows.findIndex((r) => r.kind === "message" && target.of(r.message));
     if (at < 0) {
       if (more && !loadingMore && hunted.current < HUNT) {
         hunted.current++;
@@ -220,11 +220,22 @@ export function Conversation({
         heldHeight.current = box.current?.scrollHeight ?? null;
         setAtBottom(false);
         onLoadMore();
+        return;
       }
+      if (loadingMore) return;
+      // **the hunt is over and the message is not there** — deleted since the link was sent, or
+      // further up than the hunt goes. Giving up silently left the reader stranded at the top of
+      // a thousand messages with `?m=` still in the address, so a reload did it all again
+      // (audit, 2026-09-20)
+      wentTo.current = target.key;
+      hunted.current = 0;
+      setMissing(true);
+      if (!asked) onWent?.();
       return;
     }
-    wentTo.current = wanted;
+    wentTo.current = target.key;
     hunted.current = 0;
+    setMissing(false);
     virtual.scrollToIndex(at, { align: "center" });
     if (!asked) onWent?.();
   }, [asked, goTo, goToSeq, rows, virtual, onWent, more, loadingMore, onLoadMore]);
@@ -253,17 +264,32 @@ export function Conversation({
   /** how many are below the reader while they are up in the history */
   const waiting = firstUnread > 0 ? Math.max(0, newest - firstUnread + 1) : 0;
   useEffect(() => {
-    if (atBottom && newest > 0 && document.hasFocus()) onRead(newest);
+    const mark = () => {
+      if (atBottom && newest > 0 && document.hasFocus()) onRead(newest);
+    };
+    mark();
+    // …and again when the window comes back: a message that arrived while the tab was behind
+    // another one stayed unread until something else moved (audit, 2026-09-20)
+    window.addEventListener("focus", mark);
+    return () => window.removeEventListener("focus", mark);
   }, [atBottom, newest, onRead]);
 
   return (
     <div ref={box} onScroll={onScroll} className="flex-1 overflow-y-auto px-4 py-3">
+      {missing && (
+        <p className="mb-2 rounded-(--radius-field) bg-divider px-3 py-2 text-center text-[12px] text-muted">
+          That message is not here any more.
+        </p>
+      )}
       {more && (
         <p className="pb-2 text-center text-[12px] text-muted">
           {loadingMore ? "Loading earlier messages…" : "Scroll up for earlier messages"}
         </p>
       )}
-      <div style={{ height: virtual.getTotalSize(), position: "relative", width: "100%" }}>
+      <div
+        ref={list}
+        style={{ height: virtual.getTotalSize(), position: "relative", width: "100%" }}
+      >
         {virtual.getVirtualItems().map((item) => {
           const row = rows[item.index];
           return (
@@ -276,7 +302,7 @@ export function Conversation({
                 top: 0,
                 left: 0,
                 width: "100%",
-                transform: `translateY(${item.start}px)`,
+                transform: `translateY(${item.start - virtual.options.scrollMargin}px)`,
               }}
             >
               {row.kind === "day" ? (
@@ -290,7 +316,7 @@ export function Conversation({
                   <span className="h-px flex-1 bg-primary/40" />
                 </p>
               ) : (
-                <Row
+                <MessageRow
                   chat={chat}
                   message={row.message}
                   people={people}
@@ -346,450 +372,3 @@ export function Conversation({
 }
 
 /** What a tap on the smiley offers (§5.2): the six everybody uses, and every other one behind +. */
-const QUICK = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
-
-function ReactionPicker({
-  onPick,
-  onClose,
-}: {
-  onPick: (emoji: string) => void;
-  onClose: () => void;
-}) {
-  const [all, setAll] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const away = (event: MouseEvent) => {
-      if (!box.current?.contains(event.target as Node)) onClose();
-    };
-    const escape = (event: KeyboardEvent) => event.key === "Escape" && onClose();
-    window.addEventListener("mousedown", away);
-    window.addEventListener("keydown", escape);
-    return () => {
-      window.removeEventListener("mousedown", away);
-      window.removeEventListener("keydown", escape);
-    };
-  }, [onClose]);
-
-  return (
-    <div ref={box} className="relative">
-      {all ? (
-        <EmojiPicker onPick={onPick} onClose={onClose} />
-      ) : (
-        <div className="absolute top-5 right-0 z-20 flex gap-0.5 rounded-full border border-border bg-surface px-1.5 py-1 shadow-(--shadow-card)">
-          {QUICK.map((emoji) => (
-            <button
-              key={emoji}
-              type="button"
-              onClick={() => onPick(emoji)}
-              className="rounded-full px-1 text-[16px] hover:bg-divider"
-            >
-              {emoji}
-            </button>
-          ))}
-          <button
-            type="button"
-            aria-label="More emoji"
-            onClick={() => setAll(true)}
-            className="rounded-full px-1 text-[13px] text-muted hover:bg-divider hover:text-ink"
-          >
-            +
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * **What a person does with one message** (the owner's ask, 2026-09-20: "як в телеграмі"): a
- * right-click anywhere on the bubble, or the ⋯ beside it, opens this. Reply and a reaction stay on
- * the hover row too, because on a desktop one click beats two for the things people do most.
- */
-function MessageMenu({
-  message,
-  at,
-  can,
-  onClose,
-  on,
-}: {
-  message: ChatMessage;
-  /** where the pointer was, in the window's own coordinates */
-  at: { x: number; y: number };
-  can: { edit: boolean; delete: boolean; pin: boolean; readBy: boolean };
-  onClose: () => void;
-  on: {
-    react: (emoji: string) => void;
-    reply: () => void;
-    forward: () => void;
-    copy: () => void;
-    link: () => void;
-    pin: () => void;
-    readBy: () => void;
-    edit: () => void;
-    remove: () => void;
-  };
-}) {
-  const [all, setAll] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
-  /**
-   * Where it actually fits. The menu is drawn into the BODY rather than into the row: a virtualised
-   * row carries a `transform`, and a transform makes `position: fixed` measure from itself instead
-   * of from the window — which is why the first version landed over the messages and was cut off by
-   * the conversation's own scrolling (found in use, 2026-09-20).
-   */
-  const [place, setPlace] = useState({ left: at.x, top: at.y });
-  useLayoutEffect(() => {
-    const el = box.current;
-    if (!el) return;
-    const { width, height } = el.getBoundingClientRect();
-    const margin = 8;
-    // upwards when there is no room below, which is most of the time near the composer, and
-    // always inside the window: a menu opened from the ⋯ of a row near the top went off it
-    const wanted = at.y + height + margin > window.innerHeight ? at.y - height - margin : at.y;
-    setPlace({
-      left: Math.max(margin, Math.min(at.x, window.innerWidth - width - margin)),
-      top: Math.max(margin, Math.min(wanted, window.innerHeight - height - margin)),
-    });
-  }, [at.x, at.y]);
-
-  useEffect(() => {
-    const away = (event: MouseEvent) => {
-      if (!box.current?.contains(event.target as Node)) onClose();
-    };
-    const escape = (event: KeyboardEvent) => event.key === "Escape" && onClose();
-    // a scroll of the conversation leaves the menu hanging where it was: close it instead
-    window.addEventListener("mousedown", away);
-    window.addEventListener("keydown", escape);
-    window.addEventListener("wheel", onClose, { passive: true });
-    return () => {
-      window.removeEventListener("mousedown", away);
-      window.removeEventListener("keydown", escape);
-      window.removeEventListener("wheel", onClose);
-    };
-  }, [onClose]);
-
-  const item =
-    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12.5px] text-ink hover:bg-divider";
-  const act = (run: () => void) => () => {
-    run();
-    onClose();
-  };
-
-  return createPortal(
-    <div
-      ref={box}
-      style={{ position: "fixed", left: place.left, top: place.top }}
-      className="z-[60] w-[200px] overflow-hidden rounded-(--radius-panel) border border-border bg-surface py-1 shadow-(--shadow-modal)"
-    >
-      {/* the reactions first, as they are in Telegram: most of the time that is what the menu is
-          opened for (owner, 2026-09-20) */}
-      {all ? (
-        <EmojiPicker onPick={(emoji) => act(() => on.react(emoji))()} onClose={onClose} />
-      ) : (
-        <div className="mb-1 flex items-center gap-0.5 border-b border-divider px-2 pb-1.5">
-          {QUICK.map((emoji) => (
-            <button
-              key={emoji}
-              type="button"
-              onClick={act(() => on.react(emoji))}
-              className="rounded-full px-1 text-[16px] hover:bg-divider"
-            >
-              {emoji}
-            </button>
-          ))}
-          <button
-            type="button"
-            aria-label="More emoji"
-            onClick={() => setAll(true)}
-            className="ml-auto rounded-full px-1.5 text-[13px] text-muted hover:bg-divider hover:text-ink"
-          >
-            +
-          </button>
-        </div>
-      )}
-      <button type="button" className={item} onClick={act(on.reply)}>
-        <CornerUpLeft className="size-3.5" />
-        Reply
-      </button>
-      <button type="button" className={item} onClick={act(on.forward)}>
-        <CornerUpRight className="size-3.5" />
-        Forward
-      </button>
-      {message.text && (
-        <button type="button" className={item} onClick={act(on.copy)}>
-          <Copy className="size-3.5" />
-          Copy text
-        </button>
-      )}
-      <button type="button" className={item} onClick={act(on.link)}>
-        <Link2 className="size-3.5" />
-        Copy link
-      </button>
-      {can.pin && (
-        <button type="button" className={item} onClick={act(on.pin)}>
-          <Pin className="size-3.5" />
-          {message.pinned ? "Unpin" : "Pin"}
-        </button>
-      )}
-      {can.readBy && (
-        <button type="button" className={item} onClick={act(on.readBy)}>
-          <Eye className="size-3.5" />
-          Read by
-        </button>
-      )}
-      {can.edit && (
-        <button type="button" className={item} onClick={act(on.edit)}>
-          <Pencil className="size-3.5" />
-          Edit
-        </button>
-      )}
-      {can.delete && (
-        <button type="button" className={cn(item, "text-danger-text")} onClick={act(on.remove)}>
-          <Trash2 className="size-3.5" />
-          Delete
-        </button>
-      )}
-    </div>,
-    document.body,
-  );
-}
-
-function Row({
-  chat,
-  message,
-  people,
-  me,
-  onReply,
-  onEdit,
-  onDelete,
-  onReact,
-  onPin,
-  onReadBy,
-  onVote,
-  onClosePoll,
-  onGoTo,
-  onForward,
-  firmAdmin,
-  onOpenFile,
-  mentionNames,
-}: {
-  chat: ChatDetail;
-  message: ChatMessage;
-  people: Map<string, ChatPerson>;
-  me: string;
-  onReply: (message: ChatMessage) => void;
-  onEdit: (message: ChatMessage) => void;
-  onDelete: (message: ChatMessage) => void;
-  onReact: (message: ChatMessage, emoji: string) => void;
-  onPin: (message: ChatMessage, pinned: boolean) => void;
-  onReadBy: (message: ChatMessage) => void;
-  onVote: (message: ChatMessage, options: number[]) => void;
-  onClosePoll: (message: ChatMessage) => void;
-  onGoTo: (messageId: string) => void;
-  onForward: (message: ChatMessage) => void;
-  /** the FIRM's admin: the only role left, and only over what destroys or broadcasts (§4.4) */
-  firmAdmin: boolean;
-  /** opens the CRM's viewer on a file this message carries (§6.2) */
-  onOpenFile: (files: ChatFile[], index: number, at: string) => void;
-  /** the names `@` may be marking in this chat */
-  mentionNames: string[];
-}) {
-  const [reacting, setReacting] = useState(false);
-  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
-
-  if (message.kind === "notice") {
-    const names = (message.notice?.userIds ?? []).map((id) => nameOf(people, id)).join(", ");
-    const who = nameOf(people, message.authorId);
-    const what = NOTICE[message.notice?.code ?? ""]?.(names) ?? "changed the group";
-    return (
-      <p className="my-1.5 text-center text-[12px] text-muted">
-        {message.notice?.code === "member_blocked" ? what : `${who} ${what}`}
-      </p>
-    );
-  }
-
-  const mine = message.authorId === me;
-  const author = message.authorId ? people.get(message.authorId) : null;
-  const inGroup = chat.kind !== "direct" && chat.kind !== "saved";
-  // ✓ the server has it, ✓✓ somebody else has read it (§5.4)
-  const read = chat.othersReadSeq >= message.seq;
-
-  /** A two-finger tap on a Mac is a secondary click: it lands wherever the pointer is, so the whole
-   *  line listens, not just the bubble (found in use, 2026-09-20). */
-  const openMenu = (e: { preventDefault: () => void; clientX: number; clientY: number }) => {
-    if (message.deletedAt) return;
-    e.preventDefault();
-    setMenuAt({ x: e.clientX, y: e.clientY });
-  };
-
-  return (
-    <div
-      onContextMenu={openMenu}
-      className={cn("group relative flex gap-2 py-1", mine && "flex-row-reverse")}
-    >
-      {inGroup && !mine && author && <UserAvatar user={author} size="sm" className="mt-1" />}
-      <div className={cn("max-w-[min(680px,78%)]", mine && "items-end")}>
-        <div
-          // double-click is the quickest reaction there is, and the one everybody already knows
-          // from Telegram (owner, 2026-09-20). The same again takes it back, as any reaction does
-          onDoubleClick={() => !message.deletedAt && onReact(message, "❤️")}
-          className={cn(
-            "rounded-(--radius-panel) px-3 py-2 text-[13px]",
-            mine ? "bg-primary text-white" : "border border-border bg-surface text-ink",
-            message.deletedAt && "italic opacity-70",
-          )}
-        >
-          {inGroup && !mine && (
-            <p className="mb-0.5 text-[12px] font-semibold text-ink-700">
-              {nameOf(people, message.authorId)}
-            </p>
-          )}
-          {message.forwardedFromId && (
-            <p className={cn("mb-0.5 text-[11.5px]", mine ? "text-white/80" : "text-muted")}>
-              Forwarded from {nameOf(people, message.forwardedFromId)}
-            </p>
-          )}
-          {message.replyTo && (
-            <button
-              type="button"
-              onClick={() => onGoTo(message.replyTo!.id)}
-              className={cn(
-                "mb-1 block w-full border-l-2 pl-2 text-left text-[12px]",
-                mine ? "border-white/50 text-white/90" : "border-border text-muted",
-              )}
-            >
-              <span className="font-semibold">{nameOf(people, message.replyTo.authorId)}</span>{" "}
-              {message.replyTo.deleted ? "Message deleted" : message.replyTo.preview}
-            </button>
-          )}
-          {/* a message that is nothing but a link to a record IS the record's card (§5.6) */}
-          {message.text && !isOnlyCrmLinks(message.text) && (
-            <RichText text={message.text} mentions={mentionNames} mine={mine} />
-          )}
-          {message.text &&
-            crmLinksIn(message.text).map((link) => (
-              <CrmLinkCard key={link.id} link={link} mine={mine} />
-            ))}
-          <MessageFiles
-            files={message.files}
-            mine={mine}
-            onOpen={(files, index) => onOpenFile(files, index, message.createdAt)}
-          />
-          {message.poll && !message.deletedAt && (
-            <PollCard
-              message={message}
-              me={me}
-              people={people}
-              canClose={mine || firmAdmin}
-              onVote={(options) => onVote(message, options)}
-              onClose={() => onClosePoll(message)}
-            />
-          )}
-          <p
-            className={cn(
-              "mt-0.5 flex items-center justify-end gap-1 text-[11px]",
-              mine ? "text-white/80" : "text-muted",
-            )}
-          >
-            {message.editedAt && !message.deletedAt && <span>edited</span>}
-            <span>{fmtTime(message.createdAt)}</span>
-            {mine &&
-              !message.deletedAt &&
-              (read ? <CheckCheck className="size-3.5" /> : <Check className="size-3.5" />)}
-          </p>
-        </div>
-        {message.reactions.length > 0 && (
-          <div className={cn("mt-1 flex flex-wrap gap-1", mine && "justify-end")}>
-            {message.reactions.map((r) => (
-              <button
-                key={r.emoji}
-                type="button"
-                onClick={() => onReact(message, r.emoji)}
-                title={r.userIds.map((id) => nameOf(people, id)).join(", ")}
-                className={cn(
-                  "rounded-full border px-1.5 py-0.5 text-[12px]",
-                  r.userIds.includes(me)
-                    ? "border-primary bg-divider"
-                    : "border-border bg-surface",
-                )}
-              >
-                {r.emoji} {r.userIds.length}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-      {!message.deletedAt && (
-        <div className="mt-1 flex items-start gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-          <div className="relative">
-            <button
-              type="button"
-              aria-label="React"
-              onClick={() => setReacting((open) => !open)}
-              className="text-muted hover:text-ink"
-            >
-              <SmilePlus className="size-3.5" />
-            </button>
-            {reacting && (
-              <ReactionPicker
-                onPick={(emoji) => {
-                  onReact(message, emoji);
-                  setReacting(false);
-                }}
-                onClose={() => setReacting(false)}
-              />
-            )}
-          </div>
-          <button
-            type="button"
-            aria-label="Reply"
-            onClick={() => onReply(message)}
-            className="text-muted hover:text-ink"
-          >
-            <CornerUpLeft className="size-3.5" />
-          </button>
-          <button
-            type="button"
-            aria-label="More"
-            // under the ⋯ itself, and the menu then fits itself into the window. A sentinel used
-            // to stand here and put the menu in the top-left corner (found in use, 2026-09-20)
-            onClick={(e) => {
-              const box = e.currentTarget.getBoundingClientRect();
-              setMenuAt({ x: box.right - 200, y: box.bottom + 6 });
-            }}
-            className="text-muted hover:text-ink"
-          >
-            <MoreHorizontal className="size-3.5" />
-          </button>
-        </div>
-      )}
-      {menuAt && (
-        <MessageMenu
-          message={message}
-          at={menuAt}
-          can={{
-            edit: mine && message.kind !== "poll",
-            delete: mine || firmAdmin,
-            pin: chat.kind !== "announcements" || firmAdmin,
-            readBy: mine && inGroup,
-          }}
-          onClose={() => setMenuAt(null)}
-          on={{
-            react: (emoji) => onReact(message, emoji),
-            reply: () => onReply(message),
-            forward: () => onForward(message),
-            copy: () => void navigator.clipboard?.writeText(message.text ?? ""),
-            link: () =>
-              void navigator.clipboard?.writeText(
-                `${window.location.origin}/chat/${chat.id}?m=${message.seq}`,
-              ),
-            pin: () => onPin(message, !message.pinned),
-            readBy: () => onReadBy(message),
-            edit: () => onEdit(message),
-            remove: () => onDelete(message),
-          }}
-        />
-      )}
-    </div>
-  );
-}

@@ -250,7 +250,14 @@ export function ChatList({
           New
         </Button>
       </div>
-      <div className="border-b border-divider">
+      {/* while it is searching the box takes the sidebar's height and its results scroll inside
+          it; empty it is just the input, and the chat list has the room (audit, 2026-09-20) */}
+      <div
+        className={cn(
+          "flex flex-col border-b border-divider",
+          searching && "min-h-0 flex-1 overflow-hidden",
+        )}
+      >
         <ChatSearchBox people={people} onOpen={onOpenHit} onActive={setSearching} />
       </div>
 

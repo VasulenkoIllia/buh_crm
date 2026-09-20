@@ -35,5 +35,11 @@ export const ACTIVITY_POLICIES_KEY = ["activity", "policies"] as const;
 export const CHAT_KEY = ["chat"] as const;
 /** who is online, kept current by the stream's `presence` events */
 export const CHAT_PRESENCE_KEY = ["chat", "presence"] as const;
+/**
+ * The chat LIST, named here rather than only in `chat.api.ts` because the app shell listens for
+ * a new message wherever the reader is and fetches this one query again — the unread badge, the
+ * chime and the tab title all hang off it (chat.md §7.2).
+ */
+export const CHAT_LIST_KEY = ["chat", "chats"] as const;
 // the signed-in user's own key stays with the auth provider that owns it (`ME_QUERY_KEY`
 // in app/auth.tsx) — shared/ must not reach up into app/

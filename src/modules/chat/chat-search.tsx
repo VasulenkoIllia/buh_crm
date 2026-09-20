@@ -175,7 +175,7 @@ export function ChatSearchBox({
               </span>
             </button>
           ))}
-          {found.data?.more && (
+          {(found.data?.more || found.data?.narrowed) && (
             <p className="px-3 py-2 text-[11.5px] text-muted">
               The newest 30 are shown. Add a word to narrow it down.
             </p>

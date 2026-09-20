@@ -39,7 +39,7 @@ function recent(): string[] {
   }
 }
 
-export function rememberEmoji(emoji: string) {
+function rememberEmoji(emoji: string) {
   try {
     const next = [emoji, ...recent().filter((e) => e !== emoji)].slice(0, 24);
     window.localStorage.setItem(RECENT_KEY, JSON.stringify(next));
@@ -51,9 +51,12 @@ export function rememberEmoji(emoji: string) {
 export function EmojiPicker({
   onPick,
   onClose,
+  /** placed by whoever renders it, rather than above the composer's own button */
+  inline = false,
 }: {
   onPick: (emoji: string) => void;
   onClose: () => void;
+  inline?: boolean;
 }) {
   const [groups, setGroups] = useState<Groups | null>(loaded);
   const [query, setQuery] = useState("");
@@ -96,7 +99,13 @@ export function EmojiPicker({
   return (
     <div
       ref={box}
-      className="absolute bottom-11 right-0 z-20 w-[320px] rounded-(--radius-panel) border border-border bg-surface shadow-(--shadow-card)"
+      className={cn(
+        "w-[320px] rounded-(--radius-panel) border border-border bg-surface shadow-(--shadow-card)",
+        // above the composer's own button by default; the message menu places it itself, and a
+        // picker positioned against a 200px menu with `overflow-hidden` was a clipped sliver
+        // nobody could scroll (audit, 2026-09-20)
+        inline ? "relative" : "absolute right-0 bottom-11 z-20",
+      )}
     >
       <input
         autoFocus

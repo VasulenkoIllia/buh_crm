@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BellOff, LogOut, Pin, UserPlus, X } from "lucide-react";
 import type { ChatDetail, ChatFileItem, ChatPeople, MuteFor } from "@shared/schema/chat";
 import { useAuth } from "@/app/auth";
@@ -20,6 +20,16 @@ import {
  * **A chat's panel** (chat.md §17): who is in it, what it is called, and the three things that are
  * the reader's own (mute, pin, hide). A group's admins also manage its people and its words here.
  */
+
+/** Which of the five the stored date means, so the box shows what the person chose. */
+function mutedAs(until: string | null): MuteFor {
+  if (!until) return "off";
+  const hours = (new Date(until).getTime() - Date.now()) / 3_600_000;
+  if (hours > 24 * 365) return "forever";
+  if (hours > 8) return "day";
+  if (hours > 1) return "eight_hours";
+  return "hour";
+}
 
 const MUTES: { value: MuteFor; label: string }[] = [
   { value: "off", label: "On" },
@@ -55,6 +65,20 @@ export function ChatPanel({
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState(chat.title ?? "");
   const [description, setDescription] = useState(chat.description ?? "");
+  /**
+   * A colleague's rename reaches these fields, unless this reader is in the middle of typing their
+   * own. Seeded once, the panel went on showing the old name with a Save button that would have
+   * put it back (audit, 2026-09-20).
+   */
+  const theirs = useRef({ title: chat.title ?? "", description: chat.description ?? "" });
+  useEffect(() => {
+    const now = { title: chat.title ?? "", description: chat.description ?? "" };
+    const was = theirs.current;
+    theirs.current = now;
+    if (was.title === now.title && was.description === now.description) return;
+    setTitle((mine) => (mine === was.title ? now.title : mine));
+    setDescription((mine) => (mine === was.description ? now.description : mine));
+  }, [chat.title, chat.description]);
 
   const update = useUpdateGroup(chat.id);
   const add = useAddMembers(chat.id);
@@ -139,7 +163,9 @@ export function ChatPanel({
         <section className="mb-4">
           <p className="mb-1 text-[11px] font-semibold text-muted uppercase">Notifications</p>
           <select
-            value={chat.mutedUntil ? "forever" : "off"}
+            // what is actually set, not "off"/"forever": picking "1 hour" sent the right request
+            // and then snapped the box to "Off until I turn it on" (audit, 2026-09-20)
+            value={mutedAs(chat.mutedUntil)}
             onChange={(e) => settings.mutate({ mute: e.target.value as MuteFor })}
             className="w-full rounded-(--radius-field) border border-border px-2 py-1.5 text-[13px] outline-none focus:border-primary"
           >
@@ -223,7 +249,9 @@ export function ChatPanel({
         </section>
       </div>
 
-      {chat.kind === "group" && (
+      {/* under Details, where it belongs: drawn for every tab it sat across the top of the file
+          list and the search results (audit, 2026-09-20) */}
+      {chat.kind === "group" && tab === "details" && (
         <div className="border-t border-divider px-3 py-2">
           <Button
             size="sm"
@@ -250,12 +278,7 @@ export function ChatPanel({
 
       {tab === "files" && (
         <div className="flex-1 overflow-y-auto px-3 py-3">
-          <ChatFilesTab
-            chatId={chat.id}
-            members={chat.members}
-            open={tab === "files"}
-            onOpen={onOpenFile}
-          />
+          <ChatFilesTab chatId={chat.id} members={chat.members} open onOpen={onOpenFile} />
         </div>
       )}
 

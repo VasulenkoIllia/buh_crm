@@ -22,7 +22,7 @@ import type {
   UpdateGroupInput,
 } from "@shared/schema/chat";
 import { api } from "@/shared/lib/api";
-import { CHAT_KEY, CHAT_PRESENCE_KEY } from "@/shared/lib/query-keys";
+import { CHAT_KEY, CHAT_LIST_KEY } from "@/shared/lib/query-keys";
 import { realtime } from "@/shared/lib/realtime";
 
 /**
@@ -35,14 +35,13 @@ import { realtime } from "@/shared/lib/realtime";
  */
 
 export const chatKeys = {
-  chats: [...CHAT_KEY, "chats"] as const,
+  chats: CHAT_LIST_KEY,
   chat: (id: string) => [...CHAT_KEY, "chats", id] as const,
   messages: (id: string) => [...CHAT_KEY, "messages", id] as const,
   pins: (id: string) => [...CHAT_KEY, "pins", id] as const,
   files: (id: string) => [...CHAT_KEY, "files", id] as const,
   search: [...CHAT_KEY, "search"] as const,
   people: [...CHAT_KEY, "people"] as const,
-  presence: CHAT_PRESENCE_KEY,
 };
 
 export function useChats() {
@@ -237,6 +236,9 @@ export function useChatLive(chatId: string | null) {
         // …and a delete or an edit may have taken both away
         void client.invalidateQueries({ queryKey: chatKeys.files(chatId) });
         void client.invalidateQueries({ queryKey: chatKeys.search });
+        // a colleague's pin: the bar above the conversation is a query of its own, and it sat
+        // empty until the reader switched chats (audit, 2026-09-20)
+        void client.invalidateQueries({ queryKey: chatKeys.pins(chatId) });
       }),
       connection.on("chat_read", (e) => {
         if (e.chatId !== chatId) return;
@@ -372,12 +374,20 @@ export function useMarkRead(chatId: string | null) {
     });
   }, [chatId, client]);
 
+  const latest = useRef(flush);
+  latest.current = flush;
   useEffect(() => {
     pending.current = 0;
     sent.current = 0;
     return () => {
-      if (timer.current !== null) window.clearTimeout(timer.current);
+      if (timer.current === null) return;
+      window.clearTimeout(timer.current);
       timer.current = null;
+      // **and send what was waiting.** Clearing the timer alone lost a read taken within two
+      // seconds of leaving the chat, so a glance at three unread left them unread (audit,
+      // 2026-09-20). `flush` is read through a ref: this runs on the way out, with the chat id it
+      // was set up with
+      latest.current();
     };
   }, [chatId]);
 
