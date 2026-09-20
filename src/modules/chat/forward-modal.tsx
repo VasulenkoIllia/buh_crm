@@ -4,6 +4,7 @@ import type { ChatSummary } from "@shared/schema/chat";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { Modal } from "@/shared/ui/modal";
+import { RowButton } from "@/shared/ui/row-button";
 import { chatTitle } from "./chat-list";
 
 /**
@@ -48,9 +49,9 @@ export function ForwardModal({
         {shown.map((chat) => {
           const on = picked.includes(chat.id);
           return (
-            <button
+            <RowButton
               key={chat.id}
-              type="button"
+              selected={on}
               onClick={() =>
                 setPicked((was) =>
                   was.includes(chat.id)
@@ -59,13 +60,13 @@ export function ForwardModal({
                 )
               }
               className={cn(
-                "flex w-full items-center gap-2 rounded-(--radius-field) px-2 py-1.5 text-left text-[13px]",
-                on ? "bg-divider font-semibold" : "hover:bg-divider",
+                "rounded-(--radius-field) px-2 py-1.5 text-[13px]",
+                on && "font-semibold",
               )}
             >
               <span className="min-w-0 flex-1 truncate">{chatTitle(chat)}</span>
               {on && <span className="text-[11px] text-primary">picked</span>}
-            </button>
+            </RowButton>
           );
         })}
       </div>

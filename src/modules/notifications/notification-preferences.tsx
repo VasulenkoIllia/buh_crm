@@ -18,6 +18,7 @@ import type { PreferenceChange } from "@shared/schema/notification";
 import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
 import { InfoHint } from "@/shared/ui/info-hint";
+import { Segmented } from "@/shared/ui/segmented";
 import { chimeStatus, playChime, type ChimeResult } from "./chime";
 import {
   useMyNotificationPreferences,
@@ -341,25 +342,13 @@ function ChannelSwitch({
         <Icon size={11} aria-hidden />
         {label}
       </div>
-      <div className="inline-flex overflow-hidden rounded-(--radius-btn-sm) border border-border">
-        {options.map((o) => (
-          <button
-            key={String(o.v)}
-            type="button"
-            disabled={disabled}
-            title={o.title}
-            className={cn(
-              "px-2 py-[3px] text-[10.5px] font-medium whitespace-nowrap",
-              value === o.v
-                ? "bg-primary text-white"
-                : "bg-surface text-muted hover:bg-divider",
-            )}
-            onClick={() => onChange(o.v)}
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        size="sm"
+        value={value}
+        disabled={disabled}
+        onChange={onChange}
+        options={options.map((o) => ({ value: o.v, label: o.label, title: o.title }))}
+      />
     </div>
   );
 }

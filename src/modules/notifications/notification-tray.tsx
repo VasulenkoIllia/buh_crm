@@ -4,6 +4,7 @@ import { Bell } from "lucide-react";
 import { notificationPath } from "@shared/notifications";
 import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
+import { Button } from "@/shared/ui/button";
 import {
   useDismissAllNotifications,
   useDismissNotification,
@@ -161,20 +162,23 @@ function TrayPanel({ onClose }: { onClose: () => void }) {
               </p>
               {n.sub && <p className="mt-[2px] text-[11px] break-words text-faint">{n.sub}</p>}
               <div className="mt-2 flex items-center gap-2.5">
-                <button
-                  type="button"
-                  className="rounded-(--radius-btn-sm) border border-[#cdd7f7] bg-[#eef1fb] px-[11px] py-[5px] text-[11px] font-semibold text-primary-link"
+                {/* the row's own two acts: one takes you there, one puts it away */}
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="border-primary/25 bg-primary-soft text-primary-link"
                   onClick={() => openRow(n.id, n.linkType, n.linkId)}
                 >
                   Open
-                </button>
-                <button
-                  type="button"
-                  className="text-[11px] text-faint hover:text-ink-700"
+                </Button>
+                <Button
+                  size="sm"
+                  variant="text"
+                  className="text-faint hover:text-ink-700 hover:no-underline"
                   onClick={() => void dismiss.mutateAsync(n.id).catch(() => {})}
                 >
                   Dismiss
-                </button>
+                </Button>
               </div>
             </div>
           </div>

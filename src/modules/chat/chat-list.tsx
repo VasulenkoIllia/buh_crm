@@ -22,6 +22,7 @@ import { fmtTime, isoDay } from "@/shared/lib/format";
 import { UserAvatar } from "@/shared/ui/avatar";
 import { Button } from "@/shared/ui/button";
 import { Modal } from "@/shared/ui/modal";
+import { RowButton } from "@/shared/ui/row-button";
 import { useChatListActions } from "./chat.api";
 import { ChatSearchBox } from "./chat-search";
 import { NotifySettings } from "./notify-modal";
@@ -482,26 +483,21 @@ function StartChat({
         placeholder="Search colleagues"
         className="mb-2 w-full rounded-(--radius-field) border border-border px-3 py-2 text-[13px] outline-none focus:border-primary"
       />
-      <button
-        type="button"
+      <RowButton
         onClick={() => setGroup({ title: "", picked: [] })}
-        className="mb-1 flex w-full items-center gap-2 rounded-(--radius-field) px-2 py-2 text-left hover:bg-divider"
+        className="mb-1 rounded-(--radius-field) px-2 py-2"
       >
         <span className="flex size-8 items-center justify-center rounded-full bg-divider">
           <UsersRound className="size-4 text-ink-700" />
         </span>
         <span className="text-[13px]">New group</span>
-      </button>
-      <button
-        type="button"
-        onClick={onSaved}
-        className="mb-1 flex w-full items-center gap-2 rounded-(--radius-field) px-2 py-2 text-left hover:bg-divider"
-      >
+      </RowButton>
+      <RowButton onClick={onSaved} className="mb-1 rounded-(--radius-field) px-2 py-2">
         <span className="flex size-8 items-center justify-center rounded-full bg-divider">
           <Bookmark className="size-4 text-ink-700" />
         </span>
         <span className="text-[13px]">Saved messages</span>
-      </button>
+      </RowButton>
       <div className="max-h-[320px] overflow-y-auto">
         {found.map((person) => (
           <button

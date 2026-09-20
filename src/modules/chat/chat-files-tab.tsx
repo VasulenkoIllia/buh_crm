@@ -6,6 +6,7 @@ import { fmtBytes, fmtDate } from "@/shared/lib/format";
 import { useDebounced } from "@/shared/lib/use-debounced";
 import { chatFileUrl } from "./attachments";
 import { useChatFiles } from "./chat.api";
+import { RowButton } from "@/shared/ui/row-button";
 
 /**
  * **The Files tab of a chat** (chat.md §6.4): the photos as a grid of previews and everything else
@@ -103,12 +104,10 @@ export function ChatFilesTab({
           <ul className="flex flex-col gap-1">
             {documents.map((file) => (
               <li key={file.fileId}>
-                <button
-                  type="button"
+                <RowButton
                   onClick={() => onOpen(rows, rows.indexOf(file))}
                   className={cn(
-                    "flex w-full items-center gap-2 rounded-(--radius-field) border border-border",
-                    "px-2 py-1.5 text-left text-[12.5px] hover:bg-divider",
+                    "rounded-(--radius-field) border border-border px-2 py-1.5 text-[12.5px]",
                   )}
                 >
                   <FileText className="size-4 shrink-0 text-muted" />
@@ -118,7 +117,7 @@ export function ChatFilesTab({
                       {fmtBytes(file.size)} · {fmtDate(file.at)}
                     </span>
                   </span>
-                </button>
+                </RowButton>
               </li>
             ))}
           </ul>

@@ -18,6 +18,7 @@ import { cn } from "@/shared/lib/cn";
 import { Chip } from "@/shared/ui/chip";
 import { InfoHint } from "@/shared/ui/info-hint";
 import { UserAvatar } from "@/shared/ui/avatar";
+import { Segmented } from "@/shared/ui/segmented";
 
 /**
  * **What each person may open, and what they may change.**
@@ -406,25 +407,13 @@ function StatePicker({
     ...(orphan ? [{ value: orphan as Choice, label: `${STATE_LABEL[orphan]} (kept)` }] : []),
   ];
   return (
-    <div className="inline-flex rounded-(--radius-field) border border-border p-0.5">
-      {options.map((opt) => (
-        <button
-          key={opt.value ?? "follow"}
-          type="button"
-          disabled={disabled}
-          onClick={() => onChange(opt.value)}
-          className={cn(
-            "whitespace-nowrap rounded-[5px] px-2.5 py-1 text-[12px] font-medium transition-colors",
-            value === opt.value
-              ? opt.value === null
-                ? "bg-[#e7eaee] text-ink-700"
-                : "bg-primary text-white"
-              : "text-muted hover:bg-divider disabled:hover:bg-transparent",
-          )}
-        >
-          {opt.label}
-        </button>
-      ))}
-    </div>
+    <Segmented
+      size="sm"
+      value={value}
+      disabled={disabled}
+      onChange={onChange}
+      // "Role · open" is not an opinion of its own, it is "whatever the role says": grey, not blue
+      options={options.map((opt) => ({ ...opt, quiet: opt.value === null }))}
+    />
   );
 }
