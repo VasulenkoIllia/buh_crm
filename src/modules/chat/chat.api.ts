@@ -479,6 +479,41 @@ export function useChatSettings(chatId: string) {
   });
 }
 
+/**
+ * **What the chat list's own menu does** (§4.2): the same three routes as the panel, but taking the
+ * chat as an argument, because the list acts on whichever row is under the pointer.
+ *
+ * "Delete for me" is hiding it AND moving the reader's marker to the end: the chat leaves their
+ * list with nothing left unread in it, and comes back only when somebody writes again — which is
+ * what a person means by deleting a conversation they are still in (owner, 2026-09-20).
+ */
+export function useChatListActions() {
+  const client = useQueryClient();
+  const refresh = (chatId: string) => {
+    void client.invalidateQueries({ queryKey: chatKeys.chats });
+    void client.invalidateQueries({ queryKey: chatKeys.chat(chatId) });
+  };
+  const settings = useMutation({
+    mutationFn: ({ chatId, ...input }: ChatSettingsInput & { chatId: string }) =>
+      api<ChatSummary>(`/api/chat/chats/${chatId}/settings`, { method: "PUT", body: input }),
+    onSuccess: (_, { chatId }) => refresh(chatId),
+  });
+  const markRead = useMutation({
+    mutationFn: ({ chatId, seq }: { chatId: string; seq: number }) =>
+      api<{ ok: true }>(`/api/chat/chats/${chatId}/read`, { method: "POST", body: { seq } }),
+    onSuccess: (_, { chatId }) => refresh(chatId),
+  });
+  const leave = useMutation({
+    mutationFn: (chatId: string) =>
+      api<{ ok: true }>(`/api/chat/chats/${chatId}/leave`, { method: "POST" }),
+    onSuccess: (_, chatId) => {
+      client.removeQueries({ queryKey: chatKeys.chat(chatId) });
+      void client.invalidateQueries({ queryKey: chatKeys.chats });
+    },
+  });
+  return { settings, markRead, leave };
+}
+
 // ── pinned, polls and who has read (chat.md §5.2, §5.4, §5.5) ─────────────────
 
 export function usePins(chatId: string | null) {

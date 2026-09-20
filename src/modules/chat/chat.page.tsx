@@ -127,6 +127,10 @@ export function ChatPage() {
             onSuccess: (summary) => navigate(`/chat/${summary.id}`),
           })
         }
+        onLeft={(id) => {
+          // the chat that is open is the one they just took off their list: come off it
+          if (id === chatId) navigate("/chat");
+        }}
         onOpenHit={(hit) => {
           // the conversation loads older pages until it has it, then scrolls (§8)
           if (hit.chatId !== chatId) navigate(`/chat/${hit.chatId}`);
