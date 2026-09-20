@@ -39,6 +39,8 @@ const MUTES: { value: MuteFor; label: string }[] = [
   { value: "forever", label: "Off until I turn it on" },
 ];
 
+export type PanelTab = "details" | "files" | "search";
+
 export function ChatPanel({
   chat,
   people,
@@ -47,6 +49,8 @@ export function ChatPanel({
   onOpenHit,
   onClose,
   onLeft,
+  openOn = "details",
+  openedAt = 0,
 }: {
   chat: ChatDetail;
   people: ChatPeople;
@@ -55,13 +59,20 @@ export function ChatPanel({
   onOpenFile: (files: ChatFileItem[], index: number) => void;
   /** goes to a message this chat's own search found (§8) */
   onOpenHit: (messageId: string) => void;
+  /** which tab to stand on when it opens; the header's two buttons choose */
+  openOn?: PanelTab;
+  /** bumped by the caller to say "open on that tab again", even if it is the same tab */
+  openedAt?: number;
   onClose: () => void;
   onLeft: () => void;
 }) {
   const { user } = useAuth();
   // a group has no roles: everybody in it may rename it, add, remove and leave (owner, 2026-09-20)
   const inGroup = chat.kind === "group";
-  const [tab, setTab] = useState<"details" | "files" | "search">("details");
+  const [tab, setTab] = useState<PanelTab>(openOn);
+  // the header's magnifier opens this panel straight on Search, and asking for it again while it
+  // is open moves to that tab rather than doing nothing (owner, 2026-09-20)
+  useEffect(() => setTab(openOn), [openOn, openedAt]);
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState(chat.title ?? "");
   const [description, setDescription] = useState(chat.description ?? "");

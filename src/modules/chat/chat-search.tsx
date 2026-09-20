@@ -16,10 +16,22 @@ import { useChatSearch } from "./chat.api";
  * **The two search boxes** (chat.md §8): the same component above the chat list, where it searches
  * every chat the reader is in, and inside a chat, where `chatId` holds it to that one.
  *
+ * Above the list it answers in two parts, the way Telegram does (owner, 2026-09-20): the CHATS
+ * whose name matches, from the first letter, and then the MESSAGES. The chats are matched here, in
+ * the list the screen already holds, so they appear as fast as the typing; the messages are the
+ * server's answer and need three letters.
+ *
  * The words are sealed, so the server matches keyed hashes of them and opens only what it is about
  * to show (`server/modules/chat/chat.search.ts`). Here that is invisible: three letters or more,
  * anywhere inside a word, and every word of the query must be somewhere in the message.
  */
+
+/** Case and accents folded, so "Petro" finds "PETRO" and "Олена" finds "олена". */
+const loose = (text: string) =>
+  text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 
 export function ChatSearchBox({
   chatId,
@@ -27,6 +39,8 @@ export function ChatSearchBox({
   onOpen,
   placeholder = "Search messages",
   onActive,
+  chats,
+  onOpenChat,
 }: {
   /** set inside a chat, left out above the list */
   chatId?: string;
@@ -36,6 +50,9 @@ export function ChatSearchBox({
   placeholder?: string;
   /** told while the box is showing results, so what is behind it can stand aside */
   onActive?: (active: boolean) => void;
+  /** above the list: the chats to match by name, matched here rather than on the server */
+  chats?: { id: string; name: string; subtitle: string }[];
+  onOpenChat?: (chatId: string) => void;
 }) {
   const [typed, setTyped] = useState("");
   const [filtering, setFiltering] = useState(false);
@@ -44,8 +61,15 @@ export function ChatSearchBox({
   const [to, setTo] = useState("");
   const [hasFiles, setHasFiles] = useState(false);
 
-  const q = useDebounced(typed.trim(), 350);
+  const typing = typed.trim();
+  const q = useDebounced(typing, 350);
   const enough = q.length >= SEARCH_MIN_WORD;
+  /** the chats whose name holds what is being typed, from the first letter */
+  const named =
+    typing.length > 0 && chats
+      ? chats.filter((c) => loose(c.name).includes(loose(typing))).slice(0, 8)
+      : [];
+  const showing = typing.length > 0 && (enough || named.length > 0);
   const query: ChatSearchQuery = {
     q,
     ...(chatId ? { chatId } : {}),
@@ -58,8 +82,8 @@ export function ChatSearchBox({
   const who = new Map((found.data?.people ?? []).map((p) => [p.id, p]));
 
   useEffect(() => {
-    onActive?.(enough);
-  }, [enough, onActive]);
+    onActive?.(showing);
+  }, [showing, onActive]);
 
   return (
     <div className="flex min-h-0 flex-col">
@@ -132,22 +156,50 @@ export function ChatSearchBox({
         </div>
       )}
 
-      {typed.trim().length > 0 && !enough && (
+      {typing.length > 0 && !enough && named.length === 0 && (
         <p className="px-3 pb-2 text-[11.5px] text-muted">
           At least {SEARCH_MIN_WORD} letters, anywhere in a word.
         </p>
       )}
 
-      {enough && (
+      {showing && (
         <div className="min-h-0 flex-1 overflow-y-auto border-t border-divider">
+          {named.length > 0 && (
+            <>
+              <p className="bg-divider/50 px-3 py-1 text-[11px] font-semibold text-muted uppercase">
+                Chats
+              </p>
+              {named.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => onOpenChat?.(c.id)}
+                  className="flex w-full flex-col border-b border-divider px-3 py-2 text-left hover:bg-divider"
+                >
+                  <span className="truncate text-[12.5px] font-semibold">{c.name}</span>
+                  <span className="truncate text-[11.5px] text-muted">{c.subtitle}</span>
+                </button>
+              ))}
+              <p className="bg-divider/50 px-3 py-1 text-[11px] font-semibold text-muted uppercase">
+                Messages
+              </p>
+            </>
+          )}
+          {!enough && named.length > 0 && (
+            <p className="px-3 py-2 text-[12.5px] text-muted">
+              At least {SEARCH_MIN_WORD} letters to search the messages.
+            </p>
+          )}
           {found.isLoading && <p className="px-3 py-2 text-[12.5px] text-muted">Searching…</p>}
           {found.isError && (
             <p className="px-3 py-2 text-[12.5px] text-danger-text">
               The search did not answer. Try again.
             </p>
           )}
-          {found.data && found.data.hits.length === 0 && (
-            <p className="px-3 py-2 text-[12.5px] text-muted">Nothing found.</p>
+          {enough && found.data && found.data.hits.length === 0 && (
+            <p className="px-3 py-2 text-[12.5px] text-muted">
+              {named.length > 0 ? "No messages with those words." : "Nothing found."}
+            </p>
           )}
           {found.data?.hits.map((hit) => (
             <button

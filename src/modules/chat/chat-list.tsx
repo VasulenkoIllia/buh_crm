@@ -258,7 +258,27 @@ export function ChatList({
           searching && "min-h-0 flex-1 overflow-hidden",
         )}
       >
-        <ChatSearchBox people={people} onOpen={onOpenHit} onActive={setSearching} />
+        <ChatSearchBox
+          people={people}
+          onOpen={onOpenHit}
+          onActive={setSearching}
+          placeholder="Search chats and messages"
+          // the chats are matched here, in the list this screen already holds, so a name answers
+          // from the first letter while the messages wait for three (owner, 2026-09-20)
+          chats={chats.map((c) => ({
+            id: c.id,
+            name: chatTitle(c),
+            subtitle:
+              c.kind === "group"
+                ? `${c.memberCount} people`
+                : c.kind === "direct"
+                  ? "Direct chat"
+                  : c.kind === "saved"
+                    ? "Only you"
+                    : "Everybody",
+          }))}
+          onOpenChat={onOpen}
+        />
       </div>
 
       <div className={cn("flex-1 overflow-y-auto", searching && "hidden")}>

@@ -1,5 +1,5 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { Info } from "lucide-react";
+import { Info, Search } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { ChatFile, ChatFileItem, ChatMessage } from "@shared/schema/chat";
 import { useAuth } from "@/app/auth";
@@ -28,7 +28,7 @@ import {
 } from "./chat.api";
 import { viewableOf } from "./attachments";
 import { ChatList, chatTitle } from "./chat-list";
-import { ChatPanel } from "./chat-panel";
+import { ChatPanel, type PanelTab } from "./chat-panel";
 import { ForwardModal } from "./forward-modal";
 import { Composer } from "./composer";
 import { Conversation } from "./conversation";
@@ -72,6 +72,14 @@ export function ChatPage() {
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [editing, setEditing] = useState<ChatMessage | null>(null);
   const [panel, setPanel] = useState(false);
+  /** which tab the panel opens on, and a counter so asking twice moves it there twice */
+  const [panelOn, setPanelOn] = useState<PanelTab>("details");
+  const [panelAsk, setPanelAsk] = useState(0);
+  const openPanel = (tab: PanelTab) => {
+    setPanel((open) => !(open && panelOn === tab));
+    setPanelOn(tab);
+    setPanelAsk((n) => n + 1);
+  };
   const [asking, setAsking] = useState(false);
   const [readBy, setReadBy] = useState<string | null>(null);
   const [forwarding, setForwarding] = useState<ChatMessage | null>(null);
@@ -171,10 +179,22 @@ export function ChatPage() {
               <span className="ml-auto text-[11.5px] text-muted">
                 {live.status === "open" ? "" : "Connecting…"}
               </span>
+              {/* the magnifier belongs beside the chat, not three clicks inside Details
+                  (owner, 2026-09-20) */}
+              <button
+                type="button"
+                aria-label="Search this chat"
+                title="Search this chat"
+                onClick={() => openPanel("search")}
+                className="text-muted hover:text-ink"
+              >
+                <Search className="size-4" />
+              </button>
               <button
                 type="button"
                 aria-label="Details"
-                onClick={() => setPanel((open) => !open)}
+                title="Details"
+                onClick={() => openPanel("details")}
                 className="text-muted hover:text-ink"
               >
                 <Info className="size-4" />
@@ -270,6 +290,8 @@ export function ChatPage() {
             openFiles(files, index, files[index]?.at ?? new Date().toISOString())
           }
           onOpenHit={(messageId) => setGoTo(messageId)}
+          openOn={panelOn}
+          openedAt={panelAsk}
           onClose={() => setPanel(false)}
           onLeft={() => {
             setPanel(false);
