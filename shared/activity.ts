@@ -1073,8 +1073,11 @@ const EVENTS = {
    */
   "chat_file.uploaded": {
     subject: "chat_file",
-    title: "{actor} sent {subject}",
-    when: "a file is sent in a chat",
+    // "uploaded", not "sent": the row is written when the bytes arrive, which is before the
+    // message that carries them exists — and an upload nobody sends is swept away that night
+    // (audit, 2026-09-20)
+    title: "{actor} uploaded {subject}",
+    when: "a file is uploaded into a chat, before the message carrying it is sent",
     granularity: "item",
     actorKinds: ["user"],
     retention: "ordinary",
@@ -1082,27 +1085,21 @@ const EVENTS = {
     enabledByDefault: true,
   },
   /**
-   * **A chat file's disposal, from its first day to its last.** Deleting the message that carried
-   * it puts it in the Trash — but only when no other live message carries it, since a forward
-   * reuses the file rather than copying it — and thirty days later the nightly purge removes it for
-   * good, like every other file the firm disposes of (files.md §9). Both are `long` for the reason
-   * `file.deleted` is: a disposal is the one thing an audit asks about years later.
+   * **A chat file's disposal.** Deleting the message that carried it removes the file for good —
+   * but only when no other live message carries it, since a forward reuses the file rather than
+   * copying it. There is no Trash and no way back (chat.md §6.3, owner 2026-09-20): a chat is a
+   * conversation, not a document store, and a document the firm means to keep belongs in Files.
+   *
+   * Which is exactly why this row is `long`, as `file.deleted` is: when the thing itself is gone
+   * for good, the record that it existed and who destroyed it is all an audit has.
    */
   "chat_file.deleted": {
     subject: "chat_file",
     title: "{actor} deleted {subject}",
-    when: "the last live message carrying a chat file is deleted, putting it in the Trash",
+    when: "the last live message carrying a chat file is deleted, which removes it for good",
     granularity: "item",
-    actorKinds: ["user"],
-    retention: "long",
-    enabledByDefault: true,
-  },
-  "chat_file.purged": {
-    subject: "chat_file",
-    title: "{subject} was removed for good",
-    when: "the nightly purge empties the Trash of a chat file that has waited 30 days",
-    granularity: "item",
-    actorKinds: ["system"],
+    // and the nightly job, on the night it finds a file a delete left behind (chat.md §6.3.2)
+    actorKinds: ["user", "system"],
     retention: "long",
     enabledByDefault: true,
   },

@@ -1,6 +1,6 @@
 import { buildApp } from "./app.js";
 import { ensureBaseData, ensureBootstrapAdmin, recordBootEvents } from "./core/bootstrap.js";
-import { ensureAnnouncementsChannel, sweepUnsentChatUploads } from "./modules/chat/index.js";
+import { ensureAnnouncementsChannel, sweepChatFiles } from "./modules/chat/index.js";
 import { purgeOldActivity } from "./core/activity.js";
 import { config, strayBackupVariables } from "./core/config.js";
 import { disconnectDb } from "./core/db.js";
@@ -408,10 +408,15 @@ async function main() {
     name: "chat:unsent-files",
     cronExpr: "50 4 * * *",
     run: async () => {
-      const gone = await sweepUnsentChatUploads();
+      const { gone, stranded } = await sweepChatFiles();
+      const said = [
+        gone > 0 ? `${plural(gone, "unsent file")} removed` : "",
+        // empty every night it is asked; the night it is not, a delete did not finish its work
+        stranded > 0 ? `${plural(stranded, "file")} no message carried any more` : "",
+      ].filter(Boolean);
       return {
-        note: gone > 0 ? `${plural(gone, "unsent file")} removed` : "Nothing to clear",
-        did: gone,
+        note: said.length > 0 ? said.join("; ") : "Nothing to clear",
+        did: gone + stranded,
       };
     },
   });

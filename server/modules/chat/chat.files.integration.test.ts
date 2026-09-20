@@ -8,8 +8,8 @@ import type {
 } from "@shared/schema/chat.js";
 import { buildApp } from "../../app.js";
 import { prisma } from "../../core/db.js";
-import { purgeTrash } from "../files/index.js";
 import * as repo from "./chat.repository.js";
+import { sweepChatFiles } from "./index.js";
 import { createPeople, removePeople, type Person } from "../../test/people.js";
 import { sweepUnsentChatUploads } from "./index.js";
 
@@ -458,20 +458,16 @@ describe("forwarding a file (§6.3)", () => {
     // deleting the first message leaves it alone: the forward still carries it
     await call(olena, "DELETE", `/messages/${message.id}`);
     expect((await call(petro, "GET", `/files/${file.fileId}/view`)).status).toBe(200);
-    expect(
-      (await prisma.file.findUniqueOrThrow({ where: { id: file.fileId } })).deletedAt,
-    ).toBeNull();
+    expect(await prisma.file.count({ where: { id: file.fileId } })).toBe(1);
 
-    // and deleting the last one puts it in the Trash
+    // and deleting the last one takes the file with it, for good
     const copy = (await call(petro, "GET", `/chats/${second}/files`)).body as ChatFilesPage;
     await call(olena, "DELETE", `/messages/${copy.files[0].messageId}`);
-    expect(
-      (await prisma.file.findUniqueOrThrow({ where: { id: file.fileId } })).deletedAt,
-    ).not.toBeNull();
+    expect(await prisma.file.count({ where: { id: file.fileId } })).toBe(0);
   });
 });
 
-describe("the Trash, and coming back (§6.3)", () => {
+describe("a file goes with its message (§6.3)", () => {
   async function trashList(who: Person) {
     const res = await app.inject({
       method: "GET",
@@ -479,13 +475,13 @@ describe("the Trash, and coming back (§6.3)", () => {
       headers: { cookie: who.cookie },
     });
     expect(res.statusCode).toBe(200);
-    return res.json() as {
-      batches: { items: { id: string; name: string; from: string }[] }[];
-    };
+    return (res.json() as { batches: { items: { id: string }[] }[] }).batches.flatMap(
+      (b) => b.items,
+    );
   }
 
-  it("shows a deleted message's file to its uploader and to whoever deleted it, and to nobody else", async () => {
-    const chatId = await group(olena, "Trash", [petro, iryna]);
+  it("removes it for good, and says so in the log without naming it", async () => {
+    const chatId = await group(olena, "Gone with it", [petro, iryna]);
     const file = await sent(petro, chatId, "petros-scan.png");
     const message = await say(petro, chatId, { files: [file] });
     // an admin of the group deletes somebody else's message
@@ -494,67 +490,38 @@ describe("the Trash, and coming back (§6.3)", () => {
     const deleted = await logged("chat_file.deleted", file.fileId);
     expect(deleted.subjectLabel).toBe("a chat file");
 
-    const items = (who: Awaited<ReturnType<typeof trashList>>) =>
-      who.batches.flatMap((b) => b.items);
-    expect(items(await trashList(petro)).map((i) => i.name)).toContain("petros-scan.png");
-    const olenas = items(await trashList(olena)).find((i) => i.id === file.fileId);
-    expect(olenas?.from).toBe("A chat");
-    // never which chat, and never to a colleague who was only in the group
-    expect(items(await trashList(iryna)).map((i) => i.id)).not.toContain(file.fileId);
-
-    // the photo's preview is not in the Trash beside it: it went with the message
-    expect(await prisma.file.count({ where: { id: file.previewFileId! } })).toBe(0);
-  });
-
-  it("brings it back into the restorer's own My files", async () => {
-    const chatId = await group(olena, "Restoring", [petro]);
-    const file = await sent(petro, chatId, "return-2025.png");
-    const message = await say(petro, chatId, { files: [file] });
-    await call(petro, "DELETE", `/messages/${message.id}`);
-
-    const restored = await app.inject({
-      method: "POST",
-      url: `/api/files/trash/files/${file.fileId}/restore`,
-      headers: { cookie: petro.cookie },
-    });
-    expect(restored.statusCode, restored.body).toBe(200);
-
-    const row = await prisma.file.findUniqueOrThrow({ where: { id: file.fileId } });
-    expect(row).toMatchObject({
-      scope: `personal:${petro.id}`,
-      space: "personal",
-      ownerId: petro.id,
-      chatId: null,
-      deletedAt: null,
-      folderId: null,
-    });
-    // it is an ordinary file of theirs now, and the chat's own door no longer opens it
-    expect((await call(petro, "GET", `/files/${file.fileId}/view`)).status).toBe(404);
-    const mine = await app.inject({
-      method: "GET",
-      url: "/api/files/my/list",
-      headers: { cookie: petro.cookie },
-    });
-    expect((mine.json().files as { name: string }[]).map((f) => f.name)).toContain(
-      "return-2025.png",
-    );
-    await prisma.file.delete({ where: { id: file.fileId } });
-  });
-
-  it("is emptied by the nightly purge, which says so without naming the file", async () => {
-    const chatId = await group(olena, "Purge", [petro]);
-    const file = await sent(olena, chatId, "old.png");
-    const message = await say(olena, chatId, { files: [file] });
-    await call(olena, "DELETE", `/messages/${message.id}`);
-
-    await prisma.file.update({
-      where: { id: file.fileId },
-      data: { deletedAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000) },
-    });
-    await purgeTrash();
+    // the rows are gone: the photo, and the small picture drawn for it
     expect(await prisma.file.count({ where: { id: file.fileId } })).toBe(0);
-    const purged = await logged("chat_file.purged", file.fileId);
-    expect(purged.subjectLabel).toBe("a chat file");
+    expect(await prisma.file.count({ where: { id: file.previewFileId! } })).toBe(0);
+    // and it is in nobody's Trash, because a chat is a conversation, not a document store
+    for (const who of [petro, olena, iryna]) {
+      expect((await trashList(who)).map((i) => i.id)).not.toContain(file.fileId);
+    }
+  });
+
+  it("keeps it while another live message still carries it", async () => {
+    const first = await group(olena, "Kept A", [petro]);
+    const second = await group(olena, "Kept B", [petro]);
+    const file = await sent(olena, first, "shared-photo.png");
+    const original = await say(olena, first, { files: [file] });
+    expect(
+      (
+        await call(olena, "POST", "/forward", {
+          messageIds: [original.id],
+          toChatIds: [second],
+        })
+      ).status,
+    ).toBe(200);
+
+    await call(olena, "DELETE", `/messages/${original.id}`);
+    expect(await prisma.file.count({ where: { id: file.fileId } })).toBe(1);
+    expect((await call(petro, "GET", `/files/${file.fileId}/view`)).status).toBe(200);
+
+    // …and goes with the last one
+    const copy = ((await call(petro, "GET", `/chats/${second}/files`)).body as ChatFilesPage)
+      .files[0];
+    await call(olena, "DELETE", `/messages/${copy.messageId}`);
+    expect(await prisma.file.count({ where: { id: file.fileId } })).toBe(0);
   });
 });
 
@@ -587,18 +554,44 @@ describe("two things at once", () => {
     ).toBe(true);
   });
 
-  it("moves a file to the Trash once, however many deletes ask", async () => {
-    const chatId = await group(olena, "Trashed once", [petro]);
+  it("asks, under a lock, whether any other live message still carries a file", async () => {
+    const first = await group(olena, "Carried A", [petro]);
+    const second = await group(olena, "Carried B", [petro]);
+    const file = await sent(olena, first, "two-homes.png");
+    const here = await say(olena, first, { files: [file] });
+    expect(
+      (await call(olena, "POST", "/forward", { messageIds: [here.id], toChatIds: [second] }))
+        .status,
+    ).toBe(200);
+    const there = ((await call(petro, "GET", `/chats/${second}/files`)).body as ChatFilesPage)
+      .files[0];
+
+    // this is the question a delete asks inside its transaction, and the answer that decides
+    // whether the file goes. While the other message is live, it is held
+    const whileLive = await repo.transaction((tx) =>
+      repo.carriedElsewhereTx(tx, [file.fileId], here.id),
+    );
+    expect(whileLive.has(file.fileId)).toBe(true);
+
+    // once the other message has gone, the same question about this one answers "nothing has it",
+    // which is the half that two deletes at once used to get wrong in BOTH directions
+    await prisma.chatMessage.update({
+      where: { id: there.messageId },
+      data: { deletedAt: new Date(), deletedById: olena.id },
+    });
+    const afterwards = await repo.transaction((tx) =>
+      repo.carriedElsewhereTx(tx, [file.fileId], here.id),
+    );
+    expect(afterwards.size).toBe(0);
+  });
+
+  it("removes a file once, however many deletes ask", async () => {
+    const chatId = await group(olena, "Removed once", [petro]);
     const file = await sent(olena, chatId, "once-only.png");
     await say(olena, chatId, { files: [file] });
-    const at = new Date();
-    expect(await repo.trashFileIfLive(file.fileId, olena.id, at, randomUUID())).toBe(true);
+    expect(await repo.deleteFileRowIfLive(file.fileId)).toBe(true);
     // the second caller is told it did nothing, which is what keeps the log to one disposal
-    expect(await repo.trashFileIfLive(file.fileId, petro.id, at, randomUUID())).toBe(false);
-    await prisma.file.update({
-      where: { id: file.fileId },
-      data: { deletedAt: null, deletedById: null, trashBatchId: null },
-    });
+    expect(await repo.deleteFileRowIfLive(file.fileId)).toBe(false);
   });
 
   it("posts one message when the same upload is sent twice at once", async () => {
@@ -644,9 +637,8 @@ describe("two things at once", () => {
       call(olena, "DELETE", `/messages/${original.id}`),
       call(olena, "DELETE", `/messages/${copy.messageId}`),
     ]);
-    // the file goes to the Trash once, and the log says so once
-    const row = await prisma.file.findUniqueOrThrow({ where: { id: file.fileId } });
-    expect(row.deletedAt).not.toBeNull();
+    // the file goes once, and the log says so once
+    expect(await prisma.file.count({ where: { id: file.fileId } })).toBe(0);
     expect(await settledCount("chat_file.deleted", file.fileId, since)).toBe(1);
   });
 
@@ -660,6 +652,38 @@ describe("two things at once", () => {
     // and even handed the id from an older list, the sweep's own delete refuses it
     expect(await repo.deleteIfStillUnsent(file.fileId)).toBe(false);
     expect(await prisma.file.count({ where: { id: file.fileId } })).toBe(1);
+  });
+
+  it("tidies away a file no live message carries, whatever left it behind", async () => {
+    const chatId = await group(olena, "Stranded", [petro]);
+    const file = await sent(olena, chatId, "stranded.png");
+    const message = await say(olena, chatId, { files: [file] });
+
+    // a delete whose disposal never ran: the message is gone, the file is live and carried by
+    // nothing — invisible to everybody and taken by no other sweep
+    await prisma.chatMessage.update({
+      where: { id: message.id },
+      data: {
+        deletedAt: new Date(),
+        deletedById: olena.id,
+        ciphertext: null,
+        iv: null,
+        authTag: null,
+      },
+    });
+    expect((await call(petro, "GET", `/files/${file.fileId}/view`)).status).toBe(404);
+    expect(await prisma.file.count({ where: { id: file.fileId, deletedAt: null } })).toBe(1);
+
+    const { stranded } = await sweepChatFiles();
+    expect(stranded).toBeGreaterThanOrEqual(1);
+    // gone, exactly as the delete would have removed it, and its small picture with it
+    expect(await prisma.file.count({ where: { id: file.fileId } })).toBe(0);
+    expect(await prisma.file.count({ where: { id: file.previewFileId! } })).toBe(0);
+    // and a file a live message DOES carry is never touched by it
+    const kept = await sent(olena, chatId, "kept-by-a-message.png");
+    await say(olena, chatId, { files: [kept] });
+    await sweepChatFiles();
+    expect(await prisma.file.count({ where: { id: kept.fileId, deletedAt: null } })).toBe(1);
   });
 
   it("does not forward a file that was trashed a moment before", async () => {

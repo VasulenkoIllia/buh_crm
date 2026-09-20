@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import type { User } from "../../generated/prisma/client.js";
-import { A_CHAT_FILE } from "@shared/activity.js";
 import { plural } from "@shared/text.js";
 import {
   ZONE_LABEL,
@@ -363,22 +362,8 @@ async function restore(
     folderPlan.push({ id: folder.id, parentId, name });
   }
 
-  const filePlan: { id: string; folderId: string | null; name: string; scope?: string }[] = [];
-  /** a chat file has nowhere to go back to, so it comes back as the restorer's (chat.md §6.3) */
-  const mine = `personal:${user.id}`;
-  let intoMine = false;
+  const filePlan: { id: string; folderId: string | null; name: string }[] = [];
   for (const file of topFiles) {
-    if (!file.scope && file.chatId) {
-      // the message that carried it is gone; it lands at the root of the restorer's My files, and
-      // is an ordinary file from then on
-      intoMine = true;
-      const names_ = await takenAt("file", mine, null);
-      const name = names.firstFreeName(file.name, names_);
-      names_.add(name.toLowerCase());
-      if (name !== file.name) renamed.push({ id: file.id, name });
-      filePlan.push({ id: file.id, folderId: null, name, scope: mine });
-      continue;
-    }
     // a task's file that is not filed stands outside the library and its names
     if (!file.scope) {
       filePlan.push({ id: file.id, folderId: null, name: file.name });
@@ -397,7 +382,7 @@ async function restore(
     batchId,
   );
   const personal = scopes.find((s) => s?.startsWith("personal:"));
-  const ownerId = personal ? personal.split(":")[1] : intoMine ? user.id : null;
+  const ownerId = personal ? personal.split(":")[1] : null;
   // belt and braces: whatever filter found it, My files is only ever its owner's to restore
   if (ownerId && ownerId !== user.id) throw new NotFoundError("Nothing to restore here");
   try {
@@ -435,11 +420,7 @@ async function restore(
   }
   for (const [i, file] of topFiles.entries()) {
     const plan = filePlan[i];
-    const place = plan.scope
-      ? ({ space: "personal", ownerId: user.id } as Place)
-      : file.scope
-        ? (places.get(file.scope) ?? null)
-        : null;
+    const place = file.scope ? (places.get(file.scope) ?? null) : null;
     const to = place ? spoken(place, plan.folderId, chains) : (file.task?.title ?? "a task");
     recordFileRestored({ ...file, name: plan.name }, place, to);
   }
@@ -458,13 +439,7 @@ async function seenFilter(user: User) {
   const reader = await readerOf(user);
   const clients = opens(reader, "clients");
   return {
-    files: repo.trashedFilesSeen(
-      user.id,
-      clients,
-      opens(reader, "tasks"),
-      // a file deleted with a chat message: its uploader's and its deleter's, while Chat is open
-      opens(reader, "chat"),
-    ),
+    files: repo.trashedFilesSeen(user.id, clients, opens(reader, "tasks")),
     folders: repo.trashedFoldersSeen(user.id, clients),
   };
 }
@@ -614,10 +589,7 @@ export async function trashList(user: User, before?: Date): Promise<TrashPage> {
             name: f.name,
             from: place
               ? spoken(place, f.folderId, chains)
-              : f.chatId
-                ? // never which chat: the Trash is the Files screen, read outside it (chat.md §12.1)
-                  "A chat"
-                : `Task: ${f.task?.title ?? "a task"}`,
+              : `Task: ${f.task?.title ?? "a task"}`,
             totals: { files: 1, bytes: f.size },
           };
         }),
@@ -672,10 +644,7 @@ export async function purgeTrash(options: { limit?: number; now?: Date } = {}) {
       continue;
     }
     purged++;
-    if (!place && f.chatId) {
-      // no name and no chat, as every chat_file row (chat.md §12.1); the id is on the row
-      record("chat_file.purged", { subjectId: f.id, subjectLabel: A_CHAT_FILE });
-    } else if (!place && onInternalTask(f)) {
+    if (!place && onInternalTask(f)) {
       record("firm_file.purged", {
         subjectId: f.id,
         subjectLabel: f.name,

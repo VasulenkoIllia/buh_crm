@@ -278,19 +278,27 @@ export async function remove(user: User, messageId: string): Promise<ChatMessage
   if (row.deletedAt) return toMessage(row);
 
   const at = new Date();
-  await repo.deleteMessage(messageId, user.id, at);
+  // the count, not a void: two clicks on one message describe the act once (audit, 2026-09-20)
+  const deleted = await repo.deleteMessage(messageId, user.id, at);
   // the text is gone, and so are the words it could be found by (§8)
   await search.forget(messageId);
-  // its files go to the Trash unless another live message still carries them; what that disposed
-  // of is written to the log below, with the delete itself
-  const sayWhatWentWithIt = await attachments.onMessageDeleted(user, messageId, at);
-  const author = row.authorId ? await repo.findPerson(row.authorId) : null;
-  record("chat_message.deleted", {
-    subjectId: messageId,
-    subjectLabel: whichChat(m),
-    changes: { author: mine ? "their own" : personName(author) },
-  });
-  sayWhatWentWithIt();
+  // its files go with it unless another live message still carries them; what that removed is
+  // written to the log below, with the delete itself
+  const sayWhatWentWithIt = await attachments.onMessageDeleted(messageId);
+  try {
+    if (deleted) {
+      const author = row.authorId ? await repo.findPerson(row.authorId) : null;
+      record("chat_message.deleted", {
+        subjectId: messageId,
+        subjectLabel: whichChat(m),
+        changes: { author: mine ? "their own" : personName(author) },
+      });
+    }
+  } finally {
+    // whatever happened above, an act that has already committed is said: the row is all that is
+    // left of a file, and a read that threw must not swallow it (audit, 2026-09-20)
+    sayWhatWentWithIt();
+  }
   await tell(m.chat, m.chat.members, "chat_message_changed", row.seq);
   return toMessage((await repo.messageById(messageId))!);
 }
@@ -330,13 +338,14 @@ export async function forward(user: User, input: ForwardInput): Promise<void> {
     const m = await requireMember(chatId, user.id);
     requireWriter(m, user);
     for (const source of sources) {
-      const text = openText(source);
       // the source, read again at the moment it is copied: deleted since, and there is nothing to
-      // forward; a file trashed since is not in this list either (review, 2026-09-20). The FILES
-      // travel with it and reuse the same objects in the bucket (§6.3): a photo sent on to three
-      // chats is one file, which is why the link is a table
+      // forward; edited since, and these are the words it says NOW; a file gone since is not in
+      // this list either (reviews, 2026-09-20). The FILES travel with it and reuse the same objects
+      // in the bucket (§6.3): a photo sent on to three chats is one file, which is why the link is
+      // a table
       const fresh = await attachments.sourceForForward(source.id);
       if (!fresh) continue;
+      const text = openText(fresh);
       const carried = fresh.files;
       if (text === null && carried.length === 0) continue;
       const at = new Date();

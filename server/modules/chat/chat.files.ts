@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type {
   ChatFile,
   ChatFilesPage,
@@ -293,64 +292,52 @@ export async function listFiles(
 // ── what a delete and a forward do to files (§6.3) ─────────────────────────────
 
 /**
- * **A message deleted takes its files with it — unless somebody else's message still carries
- * them** (§6.3). Forwarding reuses a file rather than copying it, so the same photo can hang off
- * three messages in three chats, and the one being deleted is not the file's last home.
+ * **A message deleted takes its files with it, for good** (§6.3, owner 2026-09-20) — unless
+ * somebody else's message still carries them. Forwarding reuses a file rather than copying it, so
+ * the same photo can hang off three messages in three chats, and the one being deleted is not
+ * necessarily the file's last home.
+ *
+ * **No Trash and no restore** (the owner's call, 2026-09-20). A chat is a conversation, not a
+ * document store: a file sent in one lives exactly as long as the message that carries it, which is
+ * what everybody already expects of a chat. What is kept instead is the RECORD that it happened —
+ * `chat_file.deleted`, long-kept — because a document being destroyed is the thing an audit asks
+ * about. A document the firm means to keep belongs in Files, which has the Trash and the 30 days.
  *
  * **The decision is made inside the delete's own transaction**, with the file rows locked. Asked
  * outside it, two deletes of the two messages carrying one forwarded file each saw the other's
  * message still live, and neither disposed of the file: it stayed live with nothing carrying it,
  * reachable by nobody and swept by nothing (2026-09-20, from a test written for the review).
  *
- * What is let go goes into the Files Trash, as one gesture, and is seen there by the person who
- * deleted the message and by whoever uploaded it (`files.trash.ts`). Thirty days later the nightly
- * purge removes it for good, like every other file the firm disposes of.
- *
- * **A photo's preview does not go to the Trash**: it is a thumbnail the browser drew, worth
- * nothing without its photo, and a Trash listing it beside the photo would read like two files.
- * It is simply removed, bytes and row.
- *
  * Returns what to WRITE IN THE LOG once the caller's own work is done: `record()` never runs inside
- * a transaction, and only the call that actually moved a file may claim its disposal.
+ * a transaction, and only the call that actually removed a file may claim its disposal.
  */
-export async function onMessageDeleted(
-  user: User,
-  messageId: string,
-  at: Date,
-): Promise<() => void> {
+export async function onMessageDeleted(messageId: string): Promise<() => void> {
+  const empty = { gone: [] as repo.ChatFileRow[], said: [] as string[] };
   const disposed = await repo.transaction(async (tx) => {
     const links = await repo.linksOfMessageTx(tx, messageId);
-    if (links.length === 0)
-      return { trashed: [] as string[], previews: [] as repo.ChatFileRow[] };
+    if (links.length === 0) return empty;
     const previews = new Set(links.flatMap((l) => (l.previewFileId ? [l.previewFileId] : [])));
     const ids = [...new Set([...links.map((l) => l.fileId), ...previews])];
     // locked, and asked again inside the transaction: whoever commits second sees the other delete
     const held = await repo.carriedElsewhereTx(tx, ids, messageId);
     const letGo = ids.filter((id) => !held.has(id));
-    if (letGo.length === 0) return { trashed: [], previews: [] };
+    if (letGo.length === 0) return empty;
 
     const rows = await repo.filesByIdsTx(tx, letGo);
-    const batchId = randomUUID();
-    const trashed: string[] = [];
-    for (const file of rows.filter((r) => !previews.has(r.id))) {
-      // the count is the answer to "did THIS call move it": one disposal, one row in the log
-      if (await repo.trashFileIfLiveTx(tx, file.id, user.id, at, batchId))
-        trashed.push(file.id);
-    }
-    const toDrop = rows.filter((r) => previews.has(r.id));
-    if (toDrop.length > 0) {
-      await repo.deleteFileRowsTx(
-        tx,
-        toDrop.map((r) => r.id),
-      );
-    }
-    return { trashed, previews: toDrop };
+    // the rows go inside the transaction; their bytes after it, because a store is not a database
+    // and a refusal there must not undo the row that says the file is gone
+    await repo.deleteFileRowsTx(
+      tx,
+      rows.map((r) => r.id),
+    );
+    // a preview is a thumbnail the browser drew: its going is not an act anybody looks up
+    return { gone: rows, said: rows.filter((r) => !previews.has(r.id)).map((r) => r.id) };
   });
 
   // outside the transaction, as everything that is not the write itself must be (AGENTS.md)
-  for (const preview of disposed.previews) await takeBack(preview);
+  for (const file of disposed.gone) await takeBack(file);
   return () => {
-    for (const fileId of disposed.trashed) {
+    for (const fileId of disposed.said) {
       record("chat_file.deleted", { subjectId: fileId, subjectLabel: A_CHAT_FILE });
     }
   };
@@ -373,6 +360,46 @@ export const sourceForForward = (messageId: string) => repo.sourceForForward(mes
  * names. Files a message DOES carry are not here at any age.
  */
 export async function sweepUnsentUploads(now = new Date()): Promise<number> {
+  return (await sweep(now)).gone;
+}
+
+/**
+ * **What the night puts right** (§6.1, §6.3): the uploads nobody sent, and — as a net under the
+ * disposal that happens inside a delete's own transaction — any file left live with no live message
+ * carrying it. The second list is empty every night it is asked; the night it is not, something
+ * went wrong between a message's delete and its files', and this is what stops a file being kept
+ * for ever with nothing able to show it.
+ */
+export async function sweep(now = new Date()): Promise<{ gone: number; stranded: number }> {
+  const gone = await sweepUnsent(now);
+  const stranded = await sweepStranded();
+  return { gone, stranded };
+}
+
+/**
+ * A file nothing live carries, removed the way the delete would have removed it, and recorded the
+ * same way — except for a photo's preview, whose going is not an act anybody looks up. Nobody is
+ * named as its deleter in the row, because nobody deleted it: the job did, on the firm's behalf.
+ */
+async function sweepStranded(): Promise<number> {
+  const stranded = await repo.strandedChatFiles(SWEEP_LIMIT);
+  let tidied = 0;
+  for (const file of stranded) {
+    try {
+      if (!(await repo.deleteFileRowIfLive(file.id))) continue;
+      await deleteStoredFile(file);
+      if (file.previewInChatMessages.length === 0) {
+        record("chat_file.deleted", { subjectId: file.id, subjectLabel: A_CHAT_FILE });
+      }
+      tidied++;
+    } catch (error) {
+      console.error("chat: could not tidy a file no message carries", file.id, error);
+    }
+  }
+  return tidied;
+}
+
+async function sweepUnsent(now: Date): Promise<number> {
   const before = new Date(now.getTime() - UNSENT_HOURS * 60 * 60 * 1000);
   const stale = await repo.staleUploads(before, SWEEP_LIMIT);
   let gone = 0;

@@ -274,8 +274,8 @@ export const SYSTEM_JOBS: Record<SystemJobKey, SystemJobSpec> = {
     label: "Unsent chat files cleared",
     cadence: "Every night, at 4:50",
     whenOk:
-      "Removes files uploaded in a chat whose message was never sent, once they are a day old, " +
-      "at most 500 a night.",
+      "Removes files uploaded in a chat whose message was never sent, once they are a day old, at " +
+      "most 500 a night, and tidies away any file no message carries any more.",
     whenBad:
       "Storage grows with files nobody ever sent. Nothing anybody can see is affected: a file a " +
       "message carries is never touched by this.",

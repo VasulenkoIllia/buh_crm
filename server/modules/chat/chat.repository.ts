@@ -530,12 +530,18 @@ export function editMessage(
  * nothing is left to open. The row stays, so the chat's places have no hole, and it reads
  * "Message deleted".
  */
-export const deleteMessage = (messageId: string, byUserId: string, at: Date) =>
-  deleteMessageTx(prisma, messageId, byUserId, at);
-
-export function deleteMessageTx(tx: Tx, messageId: string, byUserId: string, at: Date) {
-  return tx.chatMessage.update({
-    where: { id: messageId },
+/**
+ * **The delete, once.** Guarded by `deletedAt: null` and answered by the count, so two clicks — or
+ * two people deleting the same message in the same instant — write one row in the log rather than
+ * two describing one act (audit, 2026-09-20).
+ */
+export async function deleteMessage(
+  messageId: string,
+  byUserId: string,
+  at: Date,
+): Promise<boolean> {
+  const { count } = await prisma.chatMessage.updateMany({
+    where: { id: messageId, deletedAt: null },
     data: {
       ciphertext: null,
       iv: null,
@@ -545,6 +551,7 @@ export function deleteMessageTx(tx: Tx, messageId: string, byUserId: string, at:
       mentions: [],
     },
   });
+  return count === 1;
 }
 
 /**
@@ -563,7 +570,10 @@ export async function carriedElsewhereTx(
   exceptMessageId: string,
 ): Promise<Set<string>> {
   if (fileIds.length === 0) return new Set();
-  await tx.$queryRaw`SELECT id FROM "File" WHERE id = ANY(${[...fileIds]}::uuid[]) FOR UPDATE`;
+  // ORDER BY: two transactions locking an overlapping set must take the rows in the same order, and
+  // the planner's physical order is a habit rather than a promise (audits, 2026-09-20)
+  await tx.$queryRaw`
+    SELECT id FROM "File" WHERE id = ANY(${[...fileIds]}::uuid[]) ORDER BY id FOR UPDATE`;
   const rows = await tx.chatMessageFile.findMany({
     where: {
       messageId: { not: exceptMessageId },
@@ -590,19 +600,6 @@ export function linksOfMessageTx(tx: Tx, messageId: string) {
 
 export function filesByIdsTx(tx: Tx, ids: readonly string[]) {
   return tx.file.findMany({ where: { id: { in: [...ids] } }, select: CHAT_FILE });
-}
-
-export function trashFilesTx(
-  tx: Tx,
-  ids: readonly string[],
-  byUserId: string,
-  at: Date,
-  batchId: string,
-) {
-  return tx.file.updateMany({
-    where: { id: { in: [...ids] }, deletedAt: null },
-    data: { deletedAt: at, deletedById: byUserId, trashBatchId: batchId },
-  });
 }
 
 export function deleteFileRowsTx(tx: Tx, ids: readonly string[]) {
@@ -824,6 +821,40 @@ export async function deleteIfStillUnsent(fileId: string): Promise<boolean> {
   return count === 1;
 }
 
+/**
+ * **Files a message once carried that no LIVE message carries any more, and that nobody put in the
+ * Trash.** The disposal happens inside the delete's transaction, so this should always be empty —
+ * but if that transaction fails after the message's own delete has committed (a lock timeout, a
+ * restart between the two statements), the file is left live, reachable by nobody, in no Trash and
+ * taken by no sweep: kept for ever with nothing able to show it. The nightly job is the net.
+ *
+ * Which is which is said by the caller: a file that is somebody's preview goes, the rest go to the
+ * Trash, exactly as a delete would have done.
+ */
+export function strandedChatFiles(limit: number) {
+  return prisma.file.findMany({
+    where: {
+      chatId: { not: null },
+      deletedAt: null,
+      // it was carried once…
+      OR: [{ inChatMessages: { some: {} } }, { previewInChatMessages: { some: {} } }],
+      // …and nothing live carries it now
+      AND: [
+        { inChatMessages: { none: { message: { deletedAt: null } } } },
+        { previewInChatMessages: { none: { message: { deletedAt: null } } } },
+      ],
+    },
+    select: {
+      id: true,
+      path: true,
+      storage: true,
+      previewInChatMessages: { select: { messageId: true }, take: 1 },
+    },
+    orderBy: { createdAt: "asc" },
+    take: limit,
+  });
+}
+
 /** Uploads no message ever named, older than this: the nightly sweep's work (§6.1). */
 export function staleUploads(before: Date, limit: number) {
   return prisma.file.findMany({
@@ -845,6 +876,12 @@ export function sourceForForward(messageId: string) {
     where: { id: messageId, deletedAt: null },
     select: {
       id: true,
+      // the words as they read NOW: an edit between the batch read and this copy would otherwise
+      // forward what the message used to say (audit, 2026-09-20)
+      ciphertext: true,
+      iv: true,
+      authTag: true,
+      keyVersion: true,
       files: {
         where: { file: { deletedAt: null } },
         select: { fileId: true, previewFileId: true, position: true },
@@ -868,7 +905,8 @@ export async function claimUploadsTx(
   ids: readonly string[],
 ): Promise<boolean> {
   if (ids.length === 0) return true;
-  await tx.$queryRaw`SELECT id FROM "File" WHERE id = ANY(${[...ids]}::uuid[]) FOR UPDATE`;
+  await tx.$queryRaw`
+    SELECT id FROM "File" WHERE id = ANY(${[...ids]}::uuid[]) ORDER BY id FOR UPDATE`;
   const still = await tx.file.findMany({
     where: {
       id: { in: [...ids] },
@@ -916,16 +954,15 @@ export async function stillCarried(
   return held;
 }
 
-/**
- * Into the Trash, with the rest of the library's Trash (files.md §9). One file at a time and
- * guarded by `deletedAt: null`, so the count is the answer to "did THIS call trash it": two deletes
- * of two messages carrying the same forwarded file used to write the disposal twice (review,
- * 2026-09-20).
- */
+export async function deleteFileRowIfLive(fileId: string): Promise<boolean> {
+  const { count } = await prisma.file.deleteMany({ where: { id: fileId, deletedAt: null } });
+  return count === 1;
+}
+
 export async function trashFileIfLiveTx(
   tx: Tx,
   fileId: string,
-  byUserId: string,
+  byUserId: string | null,
   at: Date,
   batchId: string,
 ): Promise<boolean> {
@@ -935,9 +972,6 @@ export async function trashFileIfLiveTx(
   });
   return count === 1;
 }
-
-export const trashFileIfLive = (fileId: string, byUserId: string, at: Date, batchId: string) =>
-  trashFileIfLiveTx(prisma, fileId, byUserId, at, batchId);
 
 export function filesByIds(ids: readonly string[]) {
   return prisma.file.findMany({ where: { id: { in: [...ids] } }, select: CHAT_FILE });
