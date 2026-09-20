@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Info, Search } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { ChatFile, ChatFileItem, ChatMessage } from "@shared/schema/chat";
@@ -76,10 +76,24 @@ export function ChatPage() {
   const [panel, setPanel] = useState(false);
   /** the bar under the header, which is where searching one chat lives (§8) */
   const [searchHere, setSearchHere] = useState(false);
+  /** and the words it is looking for, marked inside the messages while it is open */
+  const [foundWords, setFoundWords] = useState<string[]>([]);
+  const takeWords = useCallback((words: string[]) => setFoundWords(words), []);
+  /** the match the search is standing on: it is jumped to, and ringed while it stands there */
+  const [standingOn, setStandingOn] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
   const [readBy, setReadBy] = useState<string | null>(null);
   const [forwarding, setForwarding] = useState<ChatMessage | null>(null);
-  const [goTo, setGoTo] = useState<string | null>(null);
+  /**
+   * The message the conversation is being sent to, and a number that rises with every ask: the
+   * SAME message asked for twice in a row is two jumps, which is what stepping through pinned
+   * messages and search hits does (audit, 2026-09-20).
+   */
+  const [goTo, setGoTo] = useState<{ id: string; nth: number } | null>(null);
+  const goToMessage = useCallback(
+    (id: string) => setGoTo((was) => ({ id, nth: (was?.nth ?? 0) + 1 })),
+    [],
+  );
   /**
    * `?m=<place>` — a link to one message, which is what "Copy link" puts on the clipboard. The
    * conversation loads older pages until it has that place and scrolls to it.
@@ -144,7 +158,7 @@ export function ChatPage() {
         onOpenHit={(hit) => {
           // the conversation loads older pages until it has it, then scrolls (§8)
           if (hit.chatId !== chatId) navigate(`/chat/${hit.chatId}?m=${hit.seq}`);
-          else setGoTo(hit.messageId);
+          else goToMessage(hit.messageId);
         }}
         onNewGroup={(title, memberIds) =>
           createGroup.mutate(
@@ -201,15 +215,23 @@ export function ChatPage() {
               <ChatSearchBar
                 chatId={chat.data.id}
                 people={chat.data.members}
-                onGo={(messageId) => setGoTo(messageId)}
-                onClose={() => setSearchHere(false)}
+                onGo={(messageId) => {
+                  setStandingOn(messageId);
+                  if (messageId) goToMessage(messageId);
+                }}
+                onWords={takeWords}
+                onClose={() => {
+                  setSearchHere(false);
+                  setFoundWords([]);
+                  setStandingOn(null);
+                }}
               />
             )}
 
             <PinnedBar
               pinned={pins.data?.messages ?? []}
               canPin={chat.data.kind !== "announcements" || user?.role === "admin"}
-              onGo={(message) => setGoTo(message.id)}
+              onGo={(message) => goToMessage(message.id)}
               onUnpin={(message) => setPinned.mutate({ id: message.id, pinned: false })}
             />
 
@@ -242,6 +264,8 @@ export function ChatPage() {
                   : 0
               }
               onOpenFile={openFiles}
+              found={foundWords}
+              standingOn={standingOn}
               goTo={goTo}
               goToSeq={linkedSeq}
               onWent={() => {

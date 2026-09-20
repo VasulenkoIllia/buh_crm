@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronUp, Paperclip, Search, SlidersHorizontal, X } from "lucide-react";
 import {
   SEARCH_MIN_WORD,
@@ -11,6 +11,7 @@ import { fmtDate } from "@/shared/lib/format";
 import { useDebounced } from "@/shared/lib/use-debounced";
 import { UserAvatar } from "@/shared/ui/avatar";
 import { useChatSearch } from "./chat.api";
+import { foundSpans } from "./rich-text";
 
 /**
  * **The box above the chat list** (chat.md §8), which searches every chat the reader is in.
@@ -76,6 +77,7 @@ export function ChatSearchBox({
   };
   const found = useChatSearch(query, enough);
   const who = new Map((found.data?.people ?? []).map((p) => [p.id, p]));
+  const words = enough ? q.split(/\s+/).filter((w) => w.length >= SEARCH_MIN_WORD) : [];
 
   useEffect(() => {
     onActive?.(showing);
@@ -216,7 +218,8 @@ export function ChatSearchBox({
                   </span>
                 </span>
                 <span className="mt-0.5 line-clamp-2 block text-[12px] text-muted">
-                  {`${nameOf(who, hit.authorId)}: ${hit.snippet}`}
+                  {`${nameOf(who, hit.authorId)}: `}
+                  <Found text={hit.snippet} words={words} />
                 </span>
               </span>
             </button>
@@ -232,62 +235,114 @@ export function ChatSearchBox({
   );
 }
 
+/** A snippet with the searched words marked, the same way the conversation marks them (§8). */
+function Found({ text, words }: { text: string; words: readonly string[] }) {
+  const spans = foundSpans(text, words);
+  if (spans.length === 0) return <>{text}</>;
+  const out: ReactNode[] = [];
+  let cursor = 0;
+  for (const [from, to] of spans) {
+    if (from > cursor) out.push(text.slice(cursor, from));
+    out.push(
+      <mark key={from} className="rounded-[3px] bg-found px-px text-ink">
+        {text.slice(from, to)}
+      </mark>,
+    );
+    cursor = to;
+  }
+  if (cursor < text.length) out.push(text.slice(cursor));
+  return <>{out}</>;
+}
+
 function nameOf(people: Map<string, ChatPerson>, id: string | null): string {
   const person = id ? people.get(id) : null;
   return person ? `${person.firstName} ${person.lastName}`.trim() : "Somebody";
 }
 
 /**
- * **Searching inside one chat, from the chat's own header** (owner, 2026-09-20: "лупа в рамках
- * чату відразу має давати можливість введення… так як в телеграмі").
+ * **Searching inside one chat, the way Telegram does it** (chat.md §8; owner, 2026-09-20: "треба
+ * аналіз того як зроблений пошук в телеграмі і за максимально повторити його").
  *
- * A bar under the header rather than a tab in the side panel: the magnifier opens it with the
- * caret already in it, the hits are listed under it, and ↑ ↓ step through them without touching
- * the list — which is what the arrows do in Telegram. Escape closes it.
+ * The behaviour, which is the whole point of it, in the order a person meets it:
  *
- * It shares the server's search with the box above the chat list; what is its own is the stepping
- * and the counter, because in one chat a person reads the hits in order.
+ * 1. The magnifier in the chat's header opens a bar under it with the caret already inside.
+ * 2. Typing shows the matches as a LIST hanging over the conversation — over it, not pushing it,
+ *    so the messages do not jump about while somebody is reading the list.
+ * 3. The newest match is stepped onto at once: the conversation scrolls to it, the words are
+ *    marked inside it, and the message itself is ringed so the eye finds it without hunting.
+ * 4. **Stepping closes the list** — with ↑ ↓, or Enter and Shift-Enter, or by clicking a row. The
+ *    bar stays, with the query in it and the counter reading "3 of 12", and the conversation is
+ *    free to be read.
+ * 5. **Clicking the box opens the list again**, at the match currently stood on. That is the part
+ *    that makes it feel like Telegram: the search is a place you step in and out of, not a panel
+ *    that is either open or shut.
+ * 6. Escape, or ×, closes the search and takes the marks away.
  */
 export function ChatSearchBar({
   chatId,
   people,
   onGo,
+  onWords,
   onClose,
 }: {
   chatId: string;
   people: { id: string; firstName: string; lastName: string }[];
-  /** jumps the conversation to that message */
-  onGo: (messageId: string) => void;
+  /** jumps the conversation to that message, and rings it while the search stands on it */
+  onGo: (messageId: string | null) => void;
+  /** what to mark inside the messages while this bar is open (§8) */
+  onWords: (words: string[]) => void;
   onClose: () => void;
 }) {
   const [typed, setTyped] = useState("");
   const [senderId, setSenderId] = useState("");
   const [at, setAt] = useState(0);
+  const [listOpen, setListOpen] = useState(false);
   const field = useRef<HTMLInputElement>(null);
 
-  const q = useDebounced(typed.trim(), 350);
+  const q = useDebounced(typed.trim(), 300);
   const enough = q.length >= SEARCH_MIN_WORD;
   const found = useChatSearch({ q, chatId, ...(senderId ? { senderId } : {}) }, enough);
   const hits = found.data?.hits ?? [];
   const who = new Map((found.data?.people ?? []).map((p) => [p.id, p]));
+  const words = enough ? q.split(/\s+/).filter((w) => w.length >= SEARCH_MIN_WORD) : [];
 
-  // a new answer starts at its first hit, and goes to it
+  // the words the conversation marks: the same ones this bar marks in its own snippets
+  const asked = words.join(" ");
   useEffect(() => {
-    if (hits.length === 0) return;
-    setAt(0);
-    onGo(hits[0].messageId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- on a new answer, not on every render
-  }, [found.dataUpdatedAt]);
+    onWords(asked ? asked.split(" ") : []);
+  }, [asked, onWords]);
 
+  /**
+   * A new answer opens the list and steps onto its newest match. `dataUpdatedAt` rather than the
+   * hits themselves: it moves once per answer, so this does not re-run as the conversation around
+   * it re-renders.
+   */
+  const answered = found.dataUpdatedAt;
+  useEffect(() => {
+    const first = found.data?.hits[0] ?? null;
+    setAt(0);
+    setListOpen(!!first);
+    onGo(first?.messageId ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per answer, by design
+  }, [answered]);
+
+  /** Stepping is what the arrows do, and it puts the list away: the conversation is what matters. */
   const step = (by: 1 | -1) => {
     if (hits.length === 0) return;
     const next = (at + by + hits.length) % hits.length;
     setAt(next);
+    setListOpen(false);
     onGo(hits[next].messageId);
   };
 
+  const shut = () => {
+    onGo(null);
+    onWords([]);
+    onClose();
+  };
+
   return (
-    <div className="border-b border-divider bg-surface">
+    <div className="relative border-b border-divider bg-surface">
       <div className="flex items-center gap-1.5 px-4 py-2">
         <div className="relative flex-1">
           <Search className="absolute top-2 left-2 size-3.5 text-muted" />
@@ -296,9 +351,22 @@ export function ChatSearchBar({
             autoFocus
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
+            // back into the box is back into the list, at the match being stood on (step 5)
+            onFocus={() => hits.length > 0 && setListOpen(true)}
+            onClick={() => hits.length > 0 && setListOpen(true)}
             onKeyDown={(e) => {
-              if (e.key === "Escape") onClose();
-              if (e.key === "Enter") step(e.shiftKey ? -1 : 1);
+              if (e.key === "Escape") {
+                e.preventDefault();
+                shut();
+              }
+              if (e.key === "Enter") {
+                e.preventDefault();
+                step(e.shiftKey ? -1 : 1);
+              }
+              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                e.preventDefault();
+                step(e.key === "ArrowDown" ? 1 : -1);
+              }
             }}
             placeholder="Search this chat"
             className="w-full rounded-(--radius-field) border border-border py-1.5 pr-7 pl-7 text-[13px] outline-none focus:border-primary"
@@ -309,6 +377,8 @@ export function ChatSearchBar({
               aria-label="Clear"
               onClick={() => {
                 setTyped("");
+                setListOpen(false);
+                onGo(null);
                 field.current?.focus();
               }}
               className="absolute top-2 right-2 text-muted hover:text-ink"
@@ -331,12 +401,19 @@ export function ChatSearchBar({
             ))}
           </select>
         )}
-        <span className="min-w-[56px] shrink-0 text-right text-[11.5px] tabular-nums text-muted">
-          {enough && found.data ? (hits.length ? `${at + 1} of ${hits.length}` : "none") : ""}
+        <span className="min-w-[58px] shrink-0 text-right text-[11.5px] tabular-nums text-muted">
+          {!enough
+            ? ""
+            : found.isFetching && hits.length === 0
+              ? "…"
+              : hits.length === 0
+                ? "none"
+                : `${at + 1} of ${hits.length}`}
         </span>
         <button
           type="button"
-          aria-label="Previous"
+          aria-label="Previous match"
+          title="Previous (Shift+Enter)"
           disabled={hits.length === 0}
           onClick={() => step(-1)}
           className="text-muted hover:text-ink disabled:opacity-40"
@@ -345,7 +422,8 @@ export function ChatSearchBar({
         </button>
         <button
           type="button"
-          aria-label="Next"
+          aria-label="Next match"
+          title="Next (Enter)"
           disabled={hits.length === 0}
           onClick={() => step(1)}
           className="text-muted hover:text-ink disabled:opacity-40"
@@ -355,7 +433,7 @@ export function ChatSearchBar({
         <button
           type="button"
           aria-label="Close the search"
-          onClick={onClose}
+          onClick={shut}
           className="text-muted hover:text-ink"
         >
           <X className="size-4" />
@@ -368,14 +446,21 @@ export function ChatSearchBar({
         </p>
       )}
 
-      {enough && hits.length > 0 && (
-        <div className="max-h-[35vh] overflow-y-auto border-t border-divider">
+      {enough && !found.isFetching && hits.length === 0 && (
+        <p className="px-4 pb-2 text-[12px] text-muted">Nothing found in this chat.</p>
+      )}
+
+      {/* over the conversation, never pushing it: the messages must not shift while the list is
+          being read, and they must be where they were when it closes */}
+      {listOpen && hits.length > 0 && (
+        <div className="absolute inset-x-0 top-full z-30 max-h-[45vh] overflow-y-auto border-b border-border bg-surface shadow-(--shadow-modal)">
           {hits.map((hit, i) => (
             <button
               key={hit.messageId}
               type="button"
               onClick={() => {
                 setAt(i);
+                setListOpen(false);
                 onGo(hit.messageId);
               }}
               className={cn(
@@ -394,16 +479,17 @@ export function ChatSearchBar({
                   </span>
                 </span>
                 <span className="mt-0.5 line-clamp-1 block text-[12px] text-muted">
-                  {hit.snippet}
+                  <Found text={hit.snippet} words={words} />
                 </span>
               </span>
             </button>
           ))}
+          {(found.data?.more || found.data?.narrowed) && (
+            <p className="px-4 py-2 text-[11.5px] text-muted">
+              The newest {hits.length} are shown. Add a word to narrow it down.
+            </p>
+          )}
         </div>
-      )}
-
-      {enough && found.data && hits.length === 0 && (
-        <p className="px-4 pb-2 text-[12px] text-muted">Nothing found in this chat.</p>
       )}
     </div>
   );

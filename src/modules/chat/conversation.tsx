@@ -36,6 +36,8 @@ export function Conversation({
   onForward,
   firstUnread,
   onOpenFile,
+  found = [],
+  standingOn = null,
   goTo,
   goToSeq,
   onWent,
@@ -62,7 +64,12 @@ export function Conversation({
   /** opens the CRM's viewer on a file a message carries (§6.2) */
   onOpenFile: (files: ChatFile[], index: number, at: string) => void;
   /** a message to scroll to, from the pinned bar or a reply's quote */
-  goTo: string | null;
+  /** the words this chat's search is looking for, marked inside the messages (§8) */
+  found?: readonly string[];
+  /** the match the search is standing on, ringed so the eye finds it without hunting */
+  standingOn?: string | null;
+  /** the message to go to, with the number of the ask: asking for the same one again is a jump */
+  goTo: { id: string; nth: number } | null;
   /** …or one named by its place, which is what a link to a message carries (§5.2) */
   goToSeq: number | null;
   /** told once the view has gone there, so the ask can be forgotten */
@@ -202,7 +209,7 @@ export function Conversation({
     const target = asked
       ? { key: `${asked.id}#${asked.nth}`, of: (m: ChatMessage) => m.id === asked.id }
       : goTo
-        ? { key: goTo, of: (m: ChatMessage) => m.id === goTo }
+        ? { key: `${goTo.id}#${goTo.nth}`, of: (m: ChatMessage) => m.id === goTo.id }
         : goToSeq !== null
           ? { key: `seq:${goToSeq}`, of: (m: ChatMessage) => m.seq === goToSeq }
           : null;
@@ -317,6 +324,8 @@ export function Conversation({
                 </p>
               ) : (
                 <MessageRow
+                  found={found}
+                  standingOn={standingOn === row.message.id}
                   chat={chat}
                   message={row.message}
                   people={people}

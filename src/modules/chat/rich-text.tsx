@@ -152,15 +152,91 @@ function withMentions(nodes: ReactNode[], names: readonly string[], key: string)
 
 const escape = (word: string) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+/**
+ * **What the search found, marked inside the message** (chat.md §8; owner, 2026-09-20: "підсвічуй
+ * слово що б було зрозуміліше").
+ *
+ * Folded the way the search folds — lower case, accents and the Cyrillic breve and diaeresis
+ * dropped — so typing "киів" marks "Київ", exactly as it finds it. Folding changes a string's
+ * length, so each folded character remembers where it came from and the marks are cut out of the
+ * ORIGINAL text; the reader sees what was written, with the hit standing out.
+ */
+function fold(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function foldedWithMap(text: string): { folded: string; from: number[] } {
+  let folded = "";
+  const from: number[] = [];
+  for (let i = 0; i < text.length; i++) {
+    for (const ch of fold(text[i])) {
+      folded += ch;
+      from.push(i);
+    }
+  }
+  from.push(text.length);
+  return { folded, from };
+}
+
+/** Where each of the words is in the text, in the ORIGINAL string's own places, never overlapping. */
+export function foundSpans(text: string, words: readonly string[]): [number, number][] {
+  const needles = words.map(fold).filter(Boolean);
+  if (needles.length === 0) return [];
+  const { folded, from } = foldedWithMap(text);
+  const spans: [number, number][] = [];
+  for (const needle of needles) {
+    for (let at = folded.indexOf(needle); at >= 0; at = folded.indexOf(needle, at + 1)) {
+      spans.push([from[at], from[at + needle.length]]);
+    }
+  }
+  // two words of the query can overlap in the text; one mark, not two nested
+  spans.sort((a, b) => a[0] - b[0]);
+  const merged: [number, number][] = [];
+  for (const span of spans) {
+    const last = merged.at(-1);
+    if (last && span[0] <= last[1]) last[1] = Math.max(last[1], span[1]);
+    else merged.push([...span]);
+  }
+  return merged;
+}
+
+function withFound(nodes: ReactNode[], words: readonly string[], key: string): ReactNode[] {
+  if (words.length === 0) return nodes;
+  return nodes.flatMap((node, i) => {
+    if (typeof node !== "string") return [node];
+    const merged = foundSpans(node, words);
+    if (merged.length === 0) return [node];
+    const out: ReactNode[] = [];
+    let cursor = 0;
+    for (const [start, end] of merged) {
+      if (start > cursor) out.push(node.slice(cursor, start));
+      out.push(
+        <mark key={`${key}-${i}-${start}`} className="rounded-[3px] bg-found px-px text-ink">
+          {node.slice(start, end)}
+        </mark>,
+      );
+      cursor = end;
+    }
+    if (cursor < node.length) out.push(node.slice(cursor));
+    return out;
+  });
+}
+
 export function RichText({
   text,
   mentions = [],
   mine = false,
+  found = [],
 }: {
   text: string;
   mentions?: readonly string[];
   /** drawn on the reader's own bubble, which is the primary colour */
   mine?: boolean;
+  /** the words the chat's search is looking for, marked wherever they appear (§8) */
+  found?: readonly string[];
 }) {
   return (
     <>
@@ -178,7 +254,11 @@ export function RichText({
         const body = block.lines.map((line, j) => (
           <Fragment key={j}>
             {j > 0 && <br />}
-            {withMentions(inline(line, `${i}-${j}`, 0, mine), mentions, `${i}-${j}`)}
+            {withFound(
+              withMentions(inline(line, `${i}-${j}`, 0, mine), mentions, `${i}-${j}`),
+              found,
+              `${i}-${j}`,
+            )}
           </Fragment>
         ));
         return block.kind === "quote" ? (

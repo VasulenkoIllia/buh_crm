@@ -30,6 +30,10 @@
   /* Overdue row highlight */
   --color-overdue-row: #fef6f6;
 
+  /* What a search found, marked inside the text (chat.md §8). One colour on both a white bubble
+     and the primary one, so a hit reads the same wherever it is. */
+  --color-found: #ffd75e;
+
   /* Radii */
   --radius-chip: 5px;
   --radius-btn-sm: 6px;

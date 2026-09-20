@@ -54,6 +54,8 @@ export function MessageRow({
   firmAdmin,
   onOpenFile,
   mentionNames,
+  found = [],
+  standingOn = false,
 }: {
   chat: ChatDetail;
   message: ChatMessage;
@@ -75,6 +77,10 @@ export function MessageRow({
   onOpenFile: (files: ChatFile[], index: number, at: string) => void;
   /** the names `@` may be marking in this chat */
   mentionNames: string[];
+  /** the words this chat's search is looking for (§8) */
+  found?: readonly string[];
+  /** the search is standing on this one: ringed until it steps off */
+  standingOn?: boolean;
 }) {
   const [reacting, setReacting] = useState(false);
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
@@ -127,6 +133,9 @@ export function MessageRow({
             "rounded-(--radius-panel) px-3 py-2 text-[13px]",
             mine ? "bg-primary text-white" : "border border-border bg-surface text-ink",
             message.deletedAt && "italic opacity-70",
+            // the one the search is standing on: ringed, so stepping with the arrows lands
+            // somewhere obvious rather than somewhere in the middle of the screen
+            standingOn && "ring-2 ring-found ring-offset-1",
           )}
         >
           {inGroup && !mine && (
@@ -154,7 +163,7 @@ export function MessageRow({
           )}
           {/* a message that is nothing but links to records IS those records' cards (§5.6) */}
           {message.text && cards.wordsToo && (
-            <RichText text={message.text} mentions={mentionNames} mine={mine} />
+            <RichText text={message.text} mentions={mentionNames} mine={mine} found={found} />
           )}
           {cards.links.map((link) => (
             <RecordCard key={`${link.kind}-${link.id}`} link={link} onPrimary={mine} />
