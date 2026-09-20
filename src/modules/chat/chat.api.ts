@@ -456,27 +456,6 @@ export function useRemoveMember(chatId: string) {
   });
 }
 
-export function useSetMemberRole(chatId: string) {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: ({ userId, role }: { userId: string; role: "admin" | "member" }) =>
-      api<ChatDetail>(`/api/chat/chats/${chatId}/members/${userId}/role`, {
-        method: "PUT",
-        body: { role },
-      }),
-    onSuccess: () => afterChatChange(client, chatId),
-  });
-}
-
-export function useTransferOwner(chatId: string) {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (userId: string) =>
-      api<ChatDetail>(`/api/chat/chats/${chatId}/owner`, { method: "POST", body: { userId } }),
-    onSuccess: () => afterChatChange(client, chatId),
-  });
-}
-
 export function useLeaveChat(chatId: string) {
   const client = useQueryClient();
   return useMutation({

@@ -6,10 +6,9 @@ import type {
   ChatSummary,
   CreateGroupInput,
   MuteFor,
-  SetMemberRoleInput,
   UpdateGroupInput,
 } from "@shared/schema/chat.js";
-import type { ChatMemberRole, Prisma, User } from "../../generated/prisma/client.js";
+import type { Prisma, User } from "../../generated/prisma/client.js";
 import { record } from "../../core/activity.js";
 import { ForbiddenError, NotFoundError, ValidationError } from "../../core/errors.js";
 import { personName } from "../../core/names.js";
@@ -19,16 +18,19 @@ import * as repo from "./chat.repository.js";
 import { openGroup, openText, sealGroup } from "./chat.sealing.js";
 
 /**
- * **Chats and who is in them** (chat.md §4): the list, the four kinds, groups with their owner and
- * admins, the reader's own settings, and what a block does (§11). Messages are
- * `chat.messages.ts` (step A.3).
+ * **Chats and who is in them** (chat.md §4): the list, the four kinds, groups, the reader's own
+ * settings, and what a block does (§11). Messages are `chat.messages.ts`.
+ *
+ * **A group has no roles** (owner, 2026-09-20): everybody in one may rename it, add and remove
+ * people, pin and leave. The only chat with a rule about who may write is the announcements
+ * channel, and that rule is the FIRM's admin role, not a role of the chat's own.
  *
  * **One rule decides reading** (§4.4): an ACTIVE membership of the chat. A person who is not in a
  * chat, a firm admin included, is told it does not exist, the way a record they may not see is
  * everywhere else in the CRM. The `chat` gate only decides whether a person has the chat at all.
  *
- * Every change to a group's people happens under the chat's row lock, and the caller's own role is
- * read again inside it, so two admins acting at once cannot both remove the last owner.
+ * Every change to a group's people happens under the chat's row lock, and the caller's membership
+ * is read again inside it, so somebody taken out a moment ago cannot still change the group.
  */
 
 export type Membership = repo.MembershipRow;
@@ -77,7 +79,6 @@ function summaryOf(m: Membership, meId: string, now = Date.now()): ChatSummary {
     kind: chat.kind,
     title: titleOf(chat),
     peer,
-    myRole: m.role,
     memberCount: chat.members.length,
     lastSeq: chat.lastSeq,
     lastReadSeq: m.lastReadSeq,
@@ -101,7 +102,6 @@ function detailOf(m: Membership, meId: string): ChatDetail {
     description: m.chat.kind === "group" ? (openGroup(m.chat)?.description ?? null) : null,
     members: m.chat.members.map((x) => ({
       ...x.user,
-      role: x.role,
       joinedAt: x.joinedAt.toISOString(),
       readSeq: x.lastReadSeq,
       lastReadAt: x.lastReadAt?.toISOString() ?? null,
@@ -231,11 +231,15 @@ function requireGroup(chat: Pick<ChatRow, "kind">) {
  */
 const A_GROUP = "a group";
 
-const MANAGES: readonly ChatMemberRole[] = ["owner", "admin"];
-
-function requireManager(role: ChatMemberRole | undefined) {
-  if (!role) throw new NotFoundError("Chat not found");
-  if (!MANAGES.includes(role)) throw new ForbiddenError("Only the group's admins can do this");
+/**
+ * **A group has no roles** (owner, 2026-09-20). Everybody in one may rename it, add a colleague,
+ * take one out, pin, and leave — because a group of four people in one firm is not a place that
+ * needs a hierarchy, and the one that does is the announcements channel, where the FIRM's admins
+ * are the writers (§4.1). Deleting somebody else's message is still a firm admin's, and that is
+ * the only brake left, because it destroys something.
+ */
+function stillIn(current: readonly { userId: string }[], userId: string) {
+  if (!current.some((x) => x.userId === userId)) throw new NotFoundError("Chat not found");
 }
 
 async function activePeople(ids: readonly string[]) {
@@ -245,14 +249,6 @@ async function activePeople(ids: readonly string[]) {
     throw new ValidationError("Only active colleagues can be in a group");
   }
   return found;
-}
-
-/**
- * The next owner when the owner goes (§4.3): the longest-standing admin, or else the
- * longest-standing member. `members` is in joining order and no longer holds the one leaving.
- */
-function successorOf(members: readonly { userId: string; role: ChatMemberRole }[]) {
-  return members.find((m) => m.role === "admin") ?? members[0] ?? null;
 }
 
 /** Tells every tab it concerns to refetch the list and this chat. */
@@ -293,7 +289,6 @@ export async function updateGroup(
 ): Promise<ChatDetail> {
   const m = await requireMember(chatId, user.id);
   requireGroup(m.chat);
-  requireManager(m.role);
   const before = openGroup(m.chat) ?? { title: "", description: null };
   const after = {
     title: input.title ?? before.title,
@@ -306,10 +301,9 @@ export async function updateGroup(
 
   const at = new Date();
   await repo.transaction(async (tx) => {
-    // the role again, under the chat's lock: an admin demoted a moment ago must not still rename it
+    // membership again, under the chat's lock: somebody taken out a moment ago does not rename it
     await repo.lockChat(tx, chatId);
-    const current = await repo.activeMembersTx(tx, chatId);
-    requireManager(current.find((x) => x.userId === user.id)?.role);
+    stillIn(await repo.activeMembersTx(tx, chatId), user.id);
     await repo.setGroupWords(tx, chatId, sealGroup(after));
     if (titleMoved) await repo.writeNotice(tx, chatId, "renamed", [], user.id, at);
   });
@@ -338,7 +332,7 @@ export async function addMembers(
   const { added, members } = await repo.transaction(async (tx) => {
     await repo.lockChat(tx, chatId);
     const current = await repo.activeMembersTx(tx, chatId);
-    requireManager(current.find((x) => x.userId === user.id)?.role);
+    stillIn(current, user.id);
     const inIt = new Set(current.map((x) => x.userId));
     const added = people.filter((p) => !inIt.has(p.id));
     if (added.length > 0) {
@@ -380,14 +374,9 @@ export async function removeMember(
   const members = await repo.transaction(async (tx) => {
     await repo.lockChat(tx, chatId);
     const current = await repo.activeMembersTx(tx, chatId);
-    const myRole = current.find((x) => x.userId === user.id)?.role;
-    requireManager(myRole);
-    const target = current.find((x) => x.userId === targetId);
-    if (!target) throw new NotFoundError("Not in this group");
-    if (target.role === "owner")
-      throw new ForbiddenError("The group's owner cannot be removed");
-    if (target.role === "admin" && myRole !== "owner") {
-      throw new ForbiddenError("Only the group's owner can remove an admin");
+    stillIn(current, user.id);
+    if (!current.some((x) => x.userId === targetId)) {
+      throw new NotFoundError("Not in this group");
     }
     await repo.leaveTx(tx, chatId, targetId, at);
     await repo.writeNotice(tx, chatId, "member_removed", [targetId], user.id, at);
@@ -404,82 +393,9 @@ export async function removeMember(
   return getChat(user, chatId);
 }
 
-export async function setMemberRole(
-  user: User,
-  chatId: string,
-  targetId: string,
-  input: SetMemberRoleInput,
-): Promise<ChatDetail> {
-  if (targetId === user.id) throw new ValidationError("Ask another admin to change your role");
-  const m = await requireMember(chatId, user.id);
-  requireGroup(m.chat);
-  const at = new Date();
-
-  const outcome = await repo.transaction(async (tx) => {
-    await repo.lockChat(tx, chatId);
-    const current = await repo.activeMembersTx(tx, chatId);
-    requireManager(current.find((x) => x.userId === user.id)?.role);
-    const target = current.find((x) => x.userId === targetId);
-    if (!target) throw new NotFoundError("Not in this group");
-    if (target.role === "owner") {
-      throw new ValidationError("The owner's role changes only by handing ownership on");
-    }
-    if (target.role === input.role) return null;
-    await repo.setRoleTx(tx, chatId, targetId, input.role);
-    await repo.writeNotice(tx, chatId, "role_changed", [targetId], user.id, at);
-    return { from: target.role, members: current.map((x) => x.userId) };
-  });
-  if (!outcome) return getChat(user, chatId);
-
-  const target = await repo.findPerson(targetId);
-  record("chat_member.role_changed", {
-    subjectId: targetId,
-    subjectLabel: personName(target),
-    changes: { group: A_GROUP, role: { from: outcome.from, to: input.role } },
-  });
-  await announce(chatId, outcome.members);
-  return getChat(user, chatId);
-}
-
-/** The owner hands the group on, and stays in it as an admin (§4.3). */
-export async function transferOwner(
-  user: User,
-  chatId: string,
-  targetId: string,
-): Promise<ChatDetail> {
-  if (targetId === user.id) throw new ValidationError("You already own this group");
-  const m = await requireMember(chatId, user.id);
-  requireGroup(m.chat);
-  const at = new Date();
-
-  const outcome = await repo.transaction(async (tx) => {
-    await repo.lockChat(tx, chatId);
-    const current = await repo.activeMembersTx(tx, chatId);
-    if (current.find((x) => x.userId === user.id)?.role !== "owner") {
-      throw new ForbiddenError("Only the group's owner can hand it on");
-    }
-    const target = current.find((x) => x.userId === targetId);
-    if (!target) throw new NotFoundError("Not in this group");
-    await repo.setRoleTx(tx, chatId, targetId, "owner");
-    await repo.setRoleTx(tx, chatId, user.id, "admin");
-    await repo.writeNotice(tx, chatId, "owner_changed", [targetId], user.id, at);
-    return { from: target.role, members: current.map((x) => x.userId) };
-  });
-
-  const target = await repo.findPerson(targetId);
-  record("chat_member.role_changed", {
-    subjectId: targetId,
-    subjectLabel: personName(target),
-    changes: { group: A_GROUP, role: { from: outcome.from, to: "owner" } },
-  });
-  await announce(chatId, outcome.members);
-  return getChat(user, chatId);
-}
-
 /**
- * Anyone may leave a group, and keeps nothing of it on their list (§4.3). An owner who leaves
- * hands it to the longest-standing admin, or else member; the last one out leaves a group nobody
- * sees, and nothing is deleted.
+ * Anyone may leave a group, and keeps nothing of it on their list (§4.3). The last one out leaves
+ * a group nobody sees, and nothing is deleted.
  */
 export async function leave(user: User, chatId: string): Promise<void> {
   const m = await requireMember(chatId, user.id);
@@ -492,16 +408,9 @@ export async function leave(user: User, chatId: string): Promise<void> {
   const members = await repo.transaction(async (tx) => {
     await repo.lockChat(tx, chatId);
     const current = await repo.activeMembersTx(tx, chatId);
-    const me = current.find((x) => x.userId === user.id);
-    if (!me) throw new NotFoundError("Chat not found");
+    stillIn(current, user.id);
     await repo.leaveTx(tx, chatId, user.id, at);
     await repo.writeNotice(tx, chatId, "member_left", [user.id], user.id, at);
-    const rest = current.filter((x) => x.userId !== user.id);
-    const next = me.role === "owner" ? successorOf(rest) : null;
-    if (next) {
-      await repo.setRoleTx(tx, chatId, next.userId, "owner");
-      await repo.writeNotice(tx, chatId, "owner_changed", [next.userId], null, at);
-    }
     return current.map((x) => x.userId);
   });
 
@@ -568,12 +477,6 @@ export async function leaveChatsOnBlock(
     const current = await repo.activeMembersTx(tx, g.chatId);
     await repo.leaveTx(tx, g.chatId, userId, at);
     await repo.writeNotice(tx, g.chatId, "member_blocked", [userId], null, at);
-    const rest = current.filter((x) => x.userId !== userId);
-    const next = g.role === "owner" ? successorOf(rest) : null;
-    if (next) {
-      await repo.setRoleTx(tx, g.chatId, next.userId, "owner");
-      await repo.writeNotice(tx, g.chatId, "owner_changed", [next.userId], null, at);
-    }
     left.push({
       chatId: g.chatId,
       title: openGroup(g.chat)?.title ?? null,

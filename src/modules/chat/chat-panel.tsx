@@ -13,8 +13,6 @@ import {
   useChatSettings,
   useLeaveChat,
   useRemoveMember,
-  useSetMemberRole,
-  useTransferOwner,
   useUpdateGroup,
 } from "./chat.api";
 
@@ -51,7 +49,8 @@ export function ChatPanel({
   onLeft: () => void;
 }) {
   const { user } = useAuth();
-  const manages = chat.kind === "group" && chat.myRole !== "member";
+  // a group has no roles: everybody in it may rename it, add, remove and leave (owner, 2026-09-20)
+  const inGroup = chat.kind === "group";
   const [tab, setTab] = useState<"details" | "files" | "search">("details");
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState(chat.title ?? "");
@@ -60,8 +59,6 @@ export function ChatPanel({
   const update = useUpdateGroup(chat.id);
   const add = useAddMembers(chat.id);
   const remove = useRemoveMember(chat.id);
-  const setRole = useSetMemberRole(chat.id);
-  const hand = useTransferOwner(chat.id);
   const leave = useLeaveChat(chat.id);
   const settings = useChatSettings(chat.id);
 
@@ -106,7 +103,7 @@ export function ChatPanel({
             </label>
             <input
               value={title}
-              disabled={!manages}
+              disabled={!inGroup}
               onChange={(e) => setTitle(e.target.value)}
               className="mb-2 w-full rounded-(--radius-field) border border-border px-2 py-1.5 text-[13px] outline-none focus:border-primary disabled:bg-divider"
             />
@@ -116,11 +113,11 @@ export function ChatPanel({
             <textarea
               rows={2}
               value={description}
-              disabled={!manages}
+              disabled={!inGroup}
               onChange={(e) => setDescription(e.target.value)}
               className="w-full resize-none rounded-(--radius-field) border border-border px-2 py-1.5 text-[13px] outline-none focus:border-primary disabled:bg-divider"
             />
-            {manages &&
+            {inGroup &&
               (title !== (chat.title ?? "") || description !== (chat.description ?? "")) && (
                 <Button
                   size="sm"
@@ -179,7 +176,7 @@ export function ChatPanel({
             <p className="text-[11px] font-semibold text-muted uppercase">
               {chat.members.length} people
             </p>
-            {manages && canAdd.length > 0 && (
+            {inGroup && canAdd.length > 0 && (
               <button
                 type="button"
                 onClick={() => setAdding(true)}
@@ -205,30 +202,10 @@ export function ChatPanel({
                     {member.firstName} {member.lastName}
                     {me && " (you)"}
                   </span>
-                  {member.role !== "member" && (
-                    <span className="text-[11px] text-muted">{member.role}</span>
-                  )}
                 </span>
-                {manages && !me && chat.kind === "group" && (
+                {!me && chat.kind === "group" && (
                   <span className="flex items-center gap-1">
-                    <select
-                      value={member.role}
-                      onChange={(e) => {
-                        const role = e.target.value;
-                        if (role === "owner") hand.mutate(member.id);
-                        else
-                          setRole.mutate({
-                            userId: member.id,
-                            role: role as "admin" | "member",
-                          });
-                      }}
-                      className="rounded border border-border px-1 py-0.5 text-[11px]"
-                    >
-                      <option value="member">member</option>
-                      <option value="admin">admin</option>
-                      {chat.myRole === "owner" && <option value="owner">owner</option>}
-                    </select>
-                    {member.role !== "owner" && (
+                    {
                       <button
                         type="button"
                         aria-label="Remove"
@@ -237,7 +214,7 @@ export function ChatPanel({
                       >
                         <X className="size-3.5" />
                       </button>
-                    )}
+                    }
                   </span>
                 )}
               </div>

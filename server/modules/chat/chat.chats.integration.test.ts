@@ -9,7 +9,7 @@ import { openTestStream } from "../../test/stream-probe.js";
  * "Blocking").
  *
  * Through the routes, as a tab uses them: the list, one direct chat per pair, Saved messages,
- * groups with their owner and admins, the reader's own settings, and what a block does. Messages
+ * groups (which have no roles, owner 2026-09-20), the reader's own settings, and a block. Messages
  * are step A.3.
  */
 
@@ -22,7 +22,7 @@ let iryna: Person;
 let taras: Person;
 let outsider: Person;
 
-type Json = Record<string, unknown> & { members?: { id: string; role: string }[] };
+type Json = Record<string, unknown> & { members?: { id: string }[] };
 
 async function call(
   who: Person,
@@ -158,7 +158,7 @@ describe("groups", () => {
     const chatId = await group(olena, "Tax season 2025", [petro, iryna]);
     const detail = (await call(olena, "GET", `/chats/${chatId}`)).body;
     expect(detail.title).toBe("Tax season 2025");
-    expect(detail.myRole).toBe("owner");
+    expect(detail.members?.map((m) => m.id)).toContain(olena.id);
     expect(detail.members?.map((m) => m.id).sort()).toEqual(
       [olena.id, petro.id, iryna.id].sort(),
     );
@@ -201,12 +201,8 @@ describe("groups", () => {
     ).toBe(400);
   });
 
-  it("lets its admins change its words, and records that they moved, not what they say", async () => {
+  it("lets anybody in it change its words, and records that they moved, not what they say", async () => {
     const chatId = await group(olena, "Old name", [petro]);
-    expect((await call(petro, "PATCH", `/chats/${chatId}`, { title: "Petro's" })).status).toBe(
-      403,
-    );
-
     const renamed = await call(olena, "PATCH", `/chats/${chatId}`, {
       title: "New name",
       description: "Returns and extensions",
@@ -220,11 +216,24 @@ describe("groups", () => {
     expect((await notices(chatId)).map((n) => n.notice)).toEqual(["created", "renamed"]);
   });
 
+  it("is renamed by anybody in it, and by nobody outside it", async () => {
+    // a group has no roles (owner, 2026-09-20): membership is the whole rule
+    const chatId = await group(olena, "Ours", [petro]);
+    expect((await call(petro, "PATCH", `/chats/${chatId}`, { title: "Petro's" })).status).toBe(
+      200,
+    );
+    expect((await call(iryna, "PATCH", `/chats/${chatId}`, { title: "Iryna's" })).status).toBe(
+      404,
+    );
+    expect((await call(petro, "GET", `/chats/${chatId}`)).body.title).toBe("Petro's");
+  });
+
   it("adds people, who read from now and see the whole history, and records each", async () => {
     const chatId = await group(olena, "Adding", [petro]);
+    // whoever is outside the group cannot add to it; whoever is in it may
     expect(
-      (await call(petro, "POST", `/chats/${chatId}/members`, { userIds: [iryna.id] })).status,
-    ).toBe(403);
+      (await call(iryna, "POST", `/chats/${chatId}/members`, { userIds: [taras.id] })).status,
+    ).toBe(404);
 
     const added = await call(olena, "POST", `/chats/${chatId}/members`, {
       userIds: [iryna.id],
@@ -238,19 +247,16 @@ describe("groups", () => {
     expect(last).toMatchObject({ notice: "member_added", noticeUserIds: [iryna.id] });
   });
 
-  it("lets an admin take out a member but not another admin, and never the owner", async () => {
+  it("lets anybody in a group take somebody out, and nobody outside it", async () => {
     const chatId = await group(olena, "Removing", [petro, iryna, taras]);
-    await call(olena, "PUT", `/chats/${chatId}/members/${petro.id}/role`, { role: "admin" });
-    await call(olena, "PUT", `/chats/${chatId}/members/${iryna.id}/role`, { role: "admin" });
 
-    expect((await call(petro, "DELETE", `/chats/${chatId}/members/${iryna.id}`)).status).toBe(
-      403,
-    );
-    expect((await call(petro, "DELETE", `/chats/${chatId}/members/${olena.id}`)).status).toBe(
-      403,
-    );
+    // a group has no roles (owner, 2026-09-20): whoever is in it may take somebody out…
     expect((await call(petro, "DELETE", `/chats/${chatId}/members/${taras.id}`)).status).toBe(
       200,
+    );
+    // …and whoever is not is told the chat does not exist
+    expect((await call(taras, "DELETE", `/chats/${chatId}/members/${iryna.id}`)).status).toBe(
+      404,
     );
     expect((await call(taras, "GET", `/chats/${chatId}`)).status).toBe(404);
     expect((await listOf(taras)).some((c) => c.id === chatId)).toBe(false);
@@ -263,51 +269,17 @@ describe("groups", () => {
     );
   });
 
-  it("names admins and records the role that moved", async () => {
-    const chatId = await group(olena, "Roles", [petro]);
-    const res = await call(olena, "PUT", `/chats/${chatId}/members/${petro.id}/role`, {
-      role: "admin",
-    });
-    expect(res.body.members?.find((m) => m.id === petro.id)?.role).toBe("admin");
-    expect((await logged("chat_member.role_changed", petro.id)).changes).toEqual({
-      group: "a group",
-      role: { from: "member", to: "admin" },
-    });
-    // the owner's role moves only by handing the group on
-    expect(
-      (
-        await call(petro, "PUT", `/chats/${chatId}/members/${olena.id}/role`, {
-          role: "member",
-        })
-      ).status,
-    ).toBe(400);
-  });
-
-  it("hands ownership on, by the owner alone", async () => {
-    const chatId = await group(olena, "Handing on", [petro]);
-    expect(
-      (await call(petro, "POST", `/chats/${chatId}/owner`, { userId: petro.id })).status,
-    ).toBe(400);
-    const res = await call(olena, "POST", `/chats/${chatId}/owner`, { userId: petro.id });
-    const roles = Object.fromEntries(res.body.members!.map((m) => [m.id, m.role]));
-    expect(roles).toEqual({ [olena.id]: "admin", [petro.id]: "owner" });
-  });
-
-  it("lets anyone leave; an owner's group passes to the longest-standing admin", async () => {
+  it("lets anyone leave, and the group carries on without them", async () => {
     const chatId = await group(olena, "Leaving", [petro, iryna]);
-    await call(olena, "PUT", `/chats/${chatId}/members/${iryna.id}/role`, { role: "admin" });
-
+    // the one who made it is nobody special any more: they leave like anybody else, and there is
+    // nothing to hand on (owner, 2026-09-20)
     expect((await call(olena, "POST", `/chats/${chatId}/leave`)).status).toBe(200);
     expect((await call(olena, "GET", `/chats/${chatId}`)).status).toBe(404);
-    const roles = Object.fromEntries(
-      (await call(petro, "GET", `/chats/${chatId}`)).body.members!.map((m) => [m.id, m.role]),
-    );
-    expect(roles[iryna.id]).toBe("owner");
+    expect(
+      (await call(petro, "GET", `/chats/${chatId}`)).body.members?.map((m) => m.id),
+    ).toEqual([petro.id, iryna.id]);
     expect((await logged("chat_member.left", olena.id)).changes).toEqual({ group: "a group" });
-    expect((await notices(chatId)).map((n) => n.notice).slice(-2)).toEqual([
-      "member_left",
-      "owner_changed",
-    ]);
+    expect((await notices(chatId)).map((n) => n.notice).at(-1)).toBe("member_left");
   });
 
   it("does not let anybody leave the channel, a direct chat or Saved messages", async () => {
@@ -355,7 +327,6 @@ describe("a block (chat.md §11)", () => {
     const [kyrylo] = await createPeople(app, DOMAIN, ["Kyrylo"]);
     await listOf(kyrylo); // into the channel
     const owned = await group(kyrylo, "Kyrylo's", [petro, iryna]);
-    await call(kyrylo, "PUT", `/chats/${owned}/members/${iryna.id}/role`, { role: "admin" });
     const other = await group(olena, "With Kyrylo", [kyrylo]);
     const direct = (await call(olena, "POST", "/direct", { userId: kyrylo.id })).body
       .id as string;
@@ -380,17 +351,16 @@ describe("a block (chat.md §11)", () => {
     });
     expect((await membership(channel.id)).leftAt).not.toBeNull();
 
-    // the group reads "Kyrylo was blocked", and passes to its longest-standing admin
-    const ownedNotices = await notices(owned);
-    expect(ownedNotices.at(-2)).toMatchObject({
+    // the group reads "Kyrylo was blocked", and simply carries on without him: a group has no
+    // roles, so there is nothing to pass on (owner, 2026-09-20)
+    expect((await notices(owned)).at(-1)).toMatchObject({
       notice: "member_blocked",
       noticeUserIds: [kyrylo.id],
       authorId: null,
     });
-    const roles = Object.fromEntries(
-      (await call(petro, "GET", `/chats/${owned}`)).body.members!.map((m) => [m.id, m.role]),
-    );
-    expect(roles[iryna.id]).toBe("owner");
+    expect(
+      (await call(petro, "GET", `/chats/${owned}`)).body.members?.map((m) => m.id),
+    ).toEqual([petro.id, iryna.id]);
     expect((await logged("chat_member.removed", kyrylo.id)).subjectLabel).toBe("Kyrylo Tester");
 
     await app.inject({

@@ -133,10 +133,13 @@ describe("route inventory", () => {
       // +1 and its HEAD for a chat's own Files tab (step B.2), a read of what the chat carries.
       // +1 and its HEAD for the word search (step B.3), one route for both boxes: the one above
       // the chat list and the one inside a chat, which differ only by naming a chat.
-      total: 386,
+      // −2 on 2026-09-20 (stage C): a group has no roles, so nothing sets one and nothing hands a
+      // group on. The owner's call — the only chat with a rule about who writes is the
+      // announcements channel, and that rule is the FIRM's admin (chat.md §4.3).
+      total: 384,
       derivedHead: 94,
-      real: 292,
-      api: 291, // everything but /health
+      real: 290,
+      api: 289, // everything but /health
       anonymous: 9, // 6 credential routes, 2 unsubscribe pages, /health
       // `POST /tasks/timer/start` moved to the `tasks` gate during the 2026-09-07 audit. It takes a
       // taskId and writes against somebody else's module, so it was never really "the caller's own
@@ -144,7 +147,7 @@ describe("route inventory", () => {
       // second factor and name nobody else.
       own: 15,
       shared: 9,
-      gated: 259,
+      gated: 257,
       adminOnly: 20,
     });
   });

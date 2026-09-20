@@ -1,4 +1,4 @@
-import type { ChatMemberRole, ChatNotice, Prisma } from "../../generated/prisma/client.js";
+import type { ChatNotice, Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../core/db.js";
 
 /**
@@ -110,7 +110,6 @@ const CHAT_WITH_MEMBERS = {
     orderBy: { joinedAt: "asc" },
     select: {
       userId: true,
-      role: true,
       joinedAt: true,
       lastReadSeq: true,
       lastReadAt: true,
@@ -253,7 +252,7 @@ export function createGroupTx(
       lastActivityAt: at,
       members: {
         create: [
-          { userId: ownerId, role: "owner", joinedAt: at },
+          { userId: ownerId, joinedAt: at },
           ...memberIds.map((userId) => ({ userId, joinedAt: at })),
         ],
       },
@@ -284,7 +283,7 @@ export function activeMembersTx(tx: Tx, chatId: string) {
   return tx.chatMember.findMany({
     where: { chatId, leftAt: null },
     orderBy: { joinedAt: "asc" },
-    select: { userId: true, role: true, joinedAt: true },
+    select: { userId: true, joinedAt: true },
   });
 }
 
@@ -298,7 +297,6 @@ export function joinTx(tx: Tx, chatId: string, userId: string, readUpTo: number,
     create: { chatId, userId, joinedAt: at, lastReadSeq: readUpTo },
     update: {
       leftAt: null,
-      role: "member",
       joinedAt: at,
       lastReadSeq: readUpTo,
       hiddenAt: null,
@@ -310,12 +308,8 @@ export function joinTx(tx: Tx, chatId: string, userId: string, readUpTo: number,
 export function leaveTx(tx: Tx, chatId: string, userId: string, at: Date) {
   return tx.chatMember.update({
     where: { chatId_userId: { chatId, userId } },
-    data: { leftAt: at, role: "member" },
+    data: { leftAt: at },
   });
-}
-
-export function setRoleTx(tx: Tx, chatId: string, userId: string, role: ChatMemberRole) {
-  return tx.chatMember.update({ where: { chatId_userId: { chatId, userId } }, data: { role } });
 }
 
 export function lastSeqTx(tx: Tx, chatId: string) {
@@ -328,7 +322,6 @@ export function activeGroupsOfTx(tx: Tx, userId: string) {
     where: { userId, leftAt: null, chat: { kind: "group" } },
     select: {
       chatId: true,
-      role: true,
       chat: { select: { ciphertext: true, iv: true, authTag: true, keyVersion: true } },
     },
   });

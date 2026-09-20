@@ -1025,6 +1025,10 @@ const EVENTS = {
     changeKeys: ["group"],
     enabledByDefault: true,
   },
+  /**
+   * A group has no roles since 2026-09-20 (chat.md §4.3), so nothing changes one and the event that
+   * said so is gone from this registry with the routes that wrote it.
+   */
   "chat_member.left": {
     subject: "chat_member",
     title: "{subject} left a group",
@@ -1035,17 +1039,6 @@ const EVENTS = {
     changeKeys: ["group"],
     enabledByDefault: true,
   },
-  "chat_member.role_changed": {
-    subject: "chat_member",
-    title: "{actor} changed {subject}'s role in a group",
-    when: "a group admin is named or removed, or a group's ownership passes on",
-    granularity: "item",
-    actorKinds: ["user"],
-    retention: "ordinary",
-    changeKeys: ["group", "role"],
-    enabledByDefault: true,
-  },
-
   /**
    * **The one thing a message does that the conversation cannot hold.** A delete destroys the text
    * at once and for good (§5.3), so the row that says it happened is the only record left: who

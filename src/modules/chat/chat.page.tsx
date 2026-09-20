@@ -173,7 +173,7 @@ export function ChatPage() {
 
             <PinnedBar
               pinned={pins.data?.messages ?? []}
-              canPin={chat.data.kind === "direct" || chat.data.myRole !== "member"}
+              canPin={chat.data.kind !== "announcements" || user?.role === "admin"}
               onGo={(message) => setGoTo(message.id)}
               onUnpin={(message) => setPinned.mutate({ id: message.id, pinned: false })}
             />

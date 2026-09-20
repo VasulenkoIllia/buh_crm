@@ -278,11 +278,6 @@
     "access": "gate:chat"
   },
   {
-    "method": "PUT",
-    "url": "/api/chat/chats/:id/members/:userId/role",
-    "access": "gate:chat"
-  },
-  {
     "method": "GET",
     "url": "/api/chat/chats/:id/messages",
     "access": "gate:chat"
@@ -296,11 +291,6 @@
   {
     "method": "POST",
     "url": "/api/chat/chats/:id/messages",
-    "access": "gate:chat"
-  },
-  {
-    "method": "POST",
-    "url": "/api/chat/chats/:id/owner",
     "access": "gate:chat"
   },
   {

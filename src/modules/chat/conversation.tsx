@@ -100,6 +100,7 @@ export function Conversation({
 }) {
   const { user } = useAuth();
   const me = user?.id ?? "";
+  const firmAdmin = user?.role === "admin";
   const box = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
 
@@ -292,6 +293,7 @@ export function Conversation({
                   onClosePoll={onClosePoll}
                   onGoTo={onGoToMessage}
                   onForward={onForward}
+                  firmAdmin={firmAdmin}
                   onOpenFile={onOpenFile}
                   mentionNames={mentionNames}
                 />
@@ -401,6 +403,7 @@ function Row({
   onClosePoll,
   onGoTo,
   onForward,
+  firmAdmin,
   onOpenFile,
   mentionNames,
 }: {
@@ -418,6 +421,8 @@ function Row({
   onClosePoll: (message: ChatMessage) => void;
   onGoTo: (messageId: string) => void;
   onForward: (message: ChatMessage) => void;
+  /** the FIRM's admin: the only role left, and only over what destroys or broadcasts (§4.4) */
+  firmAdmin: boolean;
   /** opens the CRM's viewer on a file this message carries (§6.2) */
   onOpenFile: (files: ChatFile[], index: number, at: string) => void;
   /** the names `@` may be marking in this chat */
@@ -487,7 +492,7 @@ function Row({
               message={message}
               me={me}
               people={people}
-              canClose={mine || chat.myRole !== "member"}
+              canClose={mine || firmAdmin}
               onVote={(options) => onVote(message, options)}
               onClose={() => onClosePoll(message)}
             />
@@ -563,7 +568,7 @@ function Row({
           >
             <CornerUpRight className="size-3.5" />
           </button>
-          {(chat.kind === "direct" || chat.myRole !== "member") && (
+          {(chat.kind !== "announcements" || firmAdmin) && (
             <button
               type="button"
               aria-label={message.pinned ? "Unpin" : "Pin"}
@@ -593,7 +598,7 @@ function Row({
               <Pencil className="size-3.5" />
             </button>
           )}
-          {(mine || chat.myRole !== "member") && (
+          {(mine || firmAdmin) && (
             <button
               type="button"
               aria-label="Delete"

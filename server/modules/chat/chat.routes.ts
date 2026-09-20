@@ -11,8 +11,6 @@ import {
   chatSettingsInput,
   createGroupInput,
   openDirectInput,
-  setMemberRoleInput,
-  transferOwnerInput,
   updateGroupInput,
   type ChatPingResult,
   type ChatPresence,
@@ -136,25 +134,6 @@ export async function registerRoutes(instance: FastifyInstance) {
     { config: chat, schema: { params: memberParams } },
     async (request) =>
       service.removeMember(request.currentUser!, request.params.id, request.params.userId),
-  );
-
-  app.put(
-    "/chats/:id/members/:userId/role",
-    { config: chat, schema: { params: memberParams, body: setMemberRoleInput } },
-    async (request) =>
-      service.setMemberRole(
-        request.currentUser!,
-        request.params.id,
-        request.params.userId,
-        request.body,
-      ),
-  );
-
-  app.post(
-    "/chats/:id/owner",
-    { config: chat, schema: { params: idParams, body: transferOwnerInput } },
-    async (request) =>
-      service.transferOwner(request.currentUser!, request.params.id, request.body.userId),
   );
 
   app.post(

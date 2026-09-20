@@ -2138,12 +2138,6 @@ enum ChatKind {
   announcements
 }
 
-enum ChatMemberRole {
-  owner
-  admin
-  member
-}
-
 enum ChatMessageKind {
   text
   poll
@@ -2151,6 +2145,8 @@ enum ChatMessageKind {
   notice
 }
 
+/// `role_changed` and `owner_changed` are here for the lines written before groups lost their
+/// roles (owner, 2026-09-20); nothing writes them any more, and PostgreSQL cannot drop a value.
 enum ChatNotice {
   created
   renamed
@@ -2197,7 +2193,6 @@ model Chat {
 model ChatMember {
   chatId         String         @db.Uuid
   userId         String         @db.Uuid
-  role           ChatMemberRole @default(member)
   joinedAt       DateTime       @default(now())
   /// null = an active member
   leftAt         DateTime?

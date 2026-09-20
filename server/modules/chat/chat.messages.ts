@@ -44,9 +44,12 @@ type MessageRow = repo.MessageRow;
 
 type Membership = Awaited<ReturnType<typeof requireMember>>;
 
-function manages(m: Membership): boolean {
-  return m.role === "owner" || m.role === "admin";
-}
+/**
+ * **A group has no roles** (owner, 2026-09-20), so the only brake left on acting over somebody
+ * else's message is the FIRM's admin — and it is left exactly where something is destroyed or
+ * broadcast: deleting another person's message, and the announcements channel.
+ */
+const firmAdmin = (user: User) => user.role === "admin";
 
 // ── what a message looks like ──────────────────────────────────────────────────
 
@@ -268,11 +271,9 @@ export async function edit(
 export async function remove(user: User, messageId: string): Promise<ChatMessage> {
   const { row, m } = await messageFor(user, messageId);
   const mine = row.authorId === user.id;
-  const asAdmin =
-    (m.chat.kind === "group" && manages(m)) ||
-    (m.chat.kind === "announcements" && user.role === "admin");
+  const asAdmin = firmAdmin(user);
   if (!mine && !asAdmin)
-    throw new ForbiddenError("Only its author or an admin deletes a message");
+    throw new ForbiddenError("Only its author or a firm admin deletes a message");
   if (row.kind === "notice")
     throw new ValidationError("This line was written by the chat itself");
   if (row.deletedAt) return toMessage(row);
@@ -385,11 +386,8 @@ export async function react(
   return toMessage((await repo.messageById(messageId))!);
 }
 
-/** Pinned by either person in a direct chat, by a group's admins, by a firm admin in the channel. */
+/** Pinned by anybody in a direct chat or a group; in the channel, by a firm admin (§5.2). */
 function requirePinner(m: Membership, user: User) {
-  if (m.chat.kind === "group" && !manages(m)) {
-    throw new ForbiddenError("Only the group's admins pin a message");
-  }
   if (m.chat.kind === "announcements" && user.role !== "admin") {
     throw new ForbiddenError("Only an admin pins in the announcements channel");
   }
@@ -431,8 +429,8 @@ export async function vote(
 export async function closePoll(user: User, messageId: string): Promise<ChatMessage> {
   const { row, m } = await messageFor(user, messageId);
   if (!row.poll) throw new ValidationError("This message is not a poll");
-  if (row.authorId !== user.id && !(m.chat.kind === "group" && manages(m))) {
-    throw new ForbiddenError("Only its author or the group's admins close a poll");
+  if (row.authorId !== user.id && !firmAdmin(user)) {
+    throw new ForbiddenError("Only its author or a firm admin closes a poll");
   }
   if (!row.poll.closedAt) await repo.closePoll(messageId, user.id, new Date());
   await tell(m.chat, m.chat.members, "chat_message_changed", row.seq);
