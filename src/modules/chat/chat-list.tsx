@@ -289,7 +289,14 @@ export function ChatList({
                   </span>
                   {chat.pinnedAt && <Pin className="size-3 shrink-0 text-muted" />}
                   {chat.mutedUntil && <BellOff className="size-3 shrink-0 text-muted" />}
-                  <span className="ml-auto shrink-0 text-[11px] text-muted">
+                  {/* the ⋯ stands exactly here, so the time steps aside for it rather than being
+                      written over (owner, 2026-09-20) */}
+                  <span
+                    className={cn(
+                      "ml-auto shrink-0 text-[11px] text-muted transition-opacity",
+                      menuFor === chat.id ? "opacity-0" : "group-hover:opacity-0",
+                    )}
+                  >
                     {chat.lastMessage ? when(chat.lastMessage.at) : ""}
                   </span>
                 </span>
@@ -309,8 +316,10 @@ export function ChatList({
               aria-label="More"
               onClick={() => setMenuFor(chat.id)}
               className={cn(
-                "absolute top-2 right-1.5 rounded p-0.5 text-muted opacity-0 hover:bg-divider",
-                "hover:text-ink group-hover:opacity-100",
+                "absolute top-1.5 right-1.5 rounded p-0.5 text-muted hover:bg-divider",
+                "transition-opacity hover:text-ink",
+                // and it stays while its own menu is open, wherever the pointer goes
+                menuFor === chat.id ? "opacity-100" : "opacity-0 group-hover:opacity-100",
               )}
             >
               <MoreHorizontal className="size-3.5" />
