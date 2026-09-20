@@ -343,9 +343,9 @@ export function MeetingModal({
       open
       onClose={onClose}
       size="lg"
+      actions={existing ? <CopyLink href={`/calendar?meeting=${existing.id}`} /> : undefined}
       footer={
         <>
-          {editing && existing && <CopyLink href={`/calendar?meeting=${existing.id}`} />}
           {editing && existing?.taskId && (
             <Button
               variant="text"

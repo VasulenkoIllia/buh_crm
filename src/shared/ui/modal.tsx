@@ -15,6 +15,7 @@ export function Modal({
   onClose,
   children,
   footer,
+  actions,
   size = "sm",
 }: {
   title: string;
@@ -22,6 +23,12 @@ export function Modal({
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
+  /**
+   * Icons in the top right, before the ×: **Copy link** lives here on every record, and anything
+   * else of that weight belongs beside it (owner, 2026-09-20: "в тому ж місці в правому верхньому
+   * кутку… що б був один вигляд"). Words belong in `footer`.
+   */
+  actions?: ReactNode;
   size?: keyof typeof SIZES;
 }) {
   // Was the mousedown on the backdrop itself? Only then does a full click close it —
@@ -63,8 +70,9 @@ export function Modal({
           SIZES[size],
         )}
       >
-        <div className="flex flex-none items-center justify-between border-b border-divider px-5 py-3.5">
-          <h2 className="text-[15px] font-semibold">{title}</h2>
+        <div className="flex flex-none items-center gap-2 border-b border-divider px-5 py-3.5">
+          <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold">{title}</h2>
+          {actions}
           <button
             type="button"
             onClick={onClose}

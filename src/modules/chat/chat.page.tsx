@@ -192,7 +192,7 @@ export function ChatPage() {
               </span>
               {/* the magnifier belongs beside the chat and opens a box to type in at once, the
                   way it does in Telegram (owner, 2026-09-20) */}
-              <CopyLink icon href={`/chat/${chat.data.id}`} label="Copy link to this chat" />
+              <CopyLink href={`/chat/${chat.data.id}`} label="Copy link to this chat" />
               <button
                 type="button"
                 aria-label="Search this chat"

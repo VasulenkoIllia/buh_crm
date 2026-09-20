@@ -655,9 +655,9 @@ function ServiceEditorModal({
       }
       open={open}
       onClose={onClose}
+      actions={service ? <CopyLink href={`/services?service=${service.id}`} /> : undefined}
       footer={
         <>
-          {service && <CopyLink href={`/services?service=${service.id}`} />}
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>

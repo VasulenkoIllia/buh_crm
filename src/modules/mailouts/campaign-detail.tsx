@@ -24,15 +24,18 @@ export function CampaignDetailModal({
   const { data, isLoading } = useCampaign(id);
 
   return (
-    <Modal open={!!id} onClose={onClose} size="lg" title={data?.name ?? "Campaign"}>
+    <Modal
+      open={!!id}
+      onClose={onClose}
+      size="lg"
+      title={data?.name ?? "Campaign"}
+      actions={id ? <CopyLink href={`/mailouts?tab=campaigns&campaign=${id}`} /> : undefined}
+    >
       {isLoading || !data ? (
         <p className="text-[13px] text-muted">Loading…</p>
       ) : (
         <>
           <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted">
-            <span className="order-last ml-auto">
-              <CopyLink href={`/mailouts?tab=campaigns&campaign=${data.id}`} />
-            </span>
             <CampaignStatus campaign={data} />
             <span className="flex items-center gap-1">
               {data.rhythm !== "once" && data.rhythm !== "dates" && <Repeat size={11} />}

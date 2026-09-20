@@ -585,7 +585,7 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
             )}
           </div>
           <div className="flex flex-none items-center gap-0.5">
-            <CopyLink icon href={`/leads?lead=${lead.id}`} label="Copy link to this lead" />
+            <CopyLink href={`/leads?lead=${lead.id}`} label="Copy link to this lead" />
             {editable && (
               <IconButton label="Edit lead" onClick={() => setEditOpen(true)}>
                 <Pencil size={15} />

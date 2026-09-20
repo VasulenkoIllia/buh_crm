@@ -109,6 +109,11 @@ export function SecretWindow({
         open
         size="lg"
         onClose={onClose}
+        // the link names no secret: the card it draws in a chat says only where it lives and what
+        // kind it is (secrets.md §22)
+        actions={
+          <CopyLink href={`/secrets?secret=${secret.id}`} label="Copy link to this entry" />
+        }
         footer={footer?.({ revealed: values })}
       >
         <div className="space-y-4">
@@ -123,13 +128,6 @@ export function SecretWindow({
                 </Chip>
               )}
             </div>
-            {/* the link names no secret: the card it draws in a chat says only where it lives and
-                what kind it is (secrets.md §22) */}
-            <CopyLink
-              icon
-              href={`/secrets?secret=${secret.id}`}
-              label="Copy link to this entry"
-            />
           </div>
 
           {secret.description && (

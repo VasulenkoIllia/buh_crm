@@ -848,6 +848,7 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
       size="xl"
       open
       onClose={onClose}
+      actions={<CopyLink href={`/tasks?task=${task.id}`} />}
       footer={
         <>
           {/* Archiving is TIDYING UP, not a way to make work go away: it is offered only once the
@@ -889,7 +890,6 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
               📦 Archive
             </Button>
           )}
-          <CopyLink href={`/tasks?task=${task.id}`} />
           <Button variant="secondary" onClick={onClose}>
             Close
           </Button>

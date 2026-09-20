@@ -25,7 +25,13 @@ export function MailoutDetailModal({
   const { data, isLoading } = useMailoutDetail(id);
 
   return (
-    <Modal open={!!id} onClose={onClose} size="lg" title={data?.subject ?? "Mailout"}>
+    <Modal
+      open={!!id}
+      onClose={onClose}
+      size="lg"
+      title={data?.subject ?? "Mailout"}
+      actions={id ? <CopyLink href={`/mailouts?tab=log&mailout=${id}`} /> : undefined}
+    >
       {isLoading || !data ? (
         <p className="text-[13px] text-muted">Loading…</p>
       ) : (
@@ -35,9 +41,6 @@ export function MailoutDetailModal({
             <span>{data.kind === "commercial" ? "Commercial" : "Transactional"}</span>
             <span>Sent by {data.createdByName ?? "—"}</span>
             <span>{fmtDateTime(data.createdAt)}</span>
-            <span className="ml-auto">
-              <CopyLink href={`/mailouts?tab=log&mailout=${data.id}`} />
-            </span>
           </div>
 
           <DeliveryCounts counts={data.counts} className="mb-4" />

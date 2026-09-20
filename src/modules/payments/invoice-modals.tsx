@@ -107,9 +107,9 @@ export function InvoiceModal({
       open
       onClose={onClose}
       size="lg"
+      actions={<CopyLink href={`/billing?invoice=${invoiceId}`} />}
       footer={
         <>
-          <CopyLink href={`/billing?invoice=${invoiceId}`} />
           {invoice && (invoice.balance === 0 || invoice.cancelledAt) && (
             <Button
               variant="text"
