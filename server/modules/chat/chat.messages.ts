@@ -130,6 +130,8 @@ async function peopleIn(messages: readonly ChatMessage[]) {
     if (m.forwardedFromId) ids.add(m.forwardedFromId);
     if (m.replyTo?.authorId) ids.add(m.replyTo.authorId);
     for (const id of m.notice?.userIds ?? []) ids.add(id);
+    // the mentioned, so `@Petro Marchenko` still reads as a name after Petro has left the group
+    for (const id of m.mentions) ids.add(id);
     for (const r of m.reactions) for (const id of r.userIds) ids.add(id);
     for (const v of m.poll?.votes ?? []) for (const id of v.userIds) ids.add(id);
   }

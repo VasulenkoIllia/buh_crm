@@ -42,13 +42,39 @@ function when(iso: string): string {
     : new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
 
+/** What the chat's own lines say in a list, where there is room for four words (§4.2). */
+const NOTICE_LINE: Record<string, string> = {
+  created: "The group was made",
+  renamed: "The group was renamed",
+  member_added: "Somebody was added",
+  member_removed: "Somebody was taken out",
+  member_left: "Somebody left",
+  member_blocked: "Somebody was blocked",
+  role_changed: "A role changed",
+  owner_changed: "The group has a new owner",
+};
+
+/**
+ * The marks are for reading a message, not for a one-line preview: `**Friday**` in a list is
+ * noise, and that is exactly what it looked like in use (found 2026-09-20).
+ */
+function plain(text: string): string {
+  return text
+    .replace(/```/g, "")
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/~~(.+?)~~/g, "$1")
+    .replace(/`(.+?)`/g, "$1")
+    .replace(/(^|[\s(])_(.+?)_(?=[\s).,!?]|$)/g, "$1$2")
+    .replace(/^>\s?/gm, "");
+}
+
 function lastLine(chat: ChatSummary): string {
   const last = chat.lastMessage;
   if (!last) return "No messages yet";
-  if (last.notice) return "…";
+  if (last.notice) return NOTICE_LINE[last.notice] ?? "The group changed";
   if (last.deleted) return "Message deleted";
-  if (last.kind === "poll") return `Poll: ${last.preview ?? ""}`;
-  return last.preview ?? "";
+  if (last.kind === "poll") return `Poll: ${plain(last.preview ?? "")}`;
+  return plain(last.preview ?? "");
 }
 
 export function ChatList({

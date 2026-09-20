@@ -102,7 +102,52 @@ function inline(text: string, key: string, depth = 0): ReactNode[] {
   return out;
 }
 
-export function RichText({ text }: { text: string }) {
+/**
+ * **A name after `@` is marked** when it is somebody in this chat, or `@all` (§5.2). Matched
+ * against the chat's own people rather than by shape, so an email address or a price in a message
+ * is left alone.
+ */
+function withMentions(nodes: ReactNode[], names: readonly string[], key: string): ReactNode[] {
+  if (names.length === 0) return nodes;
+  const pattern = new RegExp(
+    `@(${[...names]
+      .sort((a, b) => b.length - a.length)
+      .map(escape)
+      .join("|")})\\b`,
+    "g",
+  );
+  return nodes.flatMap((node, i) => {
+    if (typeof node !== "string") return [node];
+    const out: ReactNode[] = [];
+    let at = 0;
+    for (const match of node.matchAll(pattern)) {
+      const start = match.index;
+      if (start > at) out.push(node.slice(at, start));
+      out.push(
+        <span
+          key={`${key}-${i}-${start}`}
+          // the colour is the bubble's: a link blue is unreadable inside one's own message
+          className="font-semibold underline decoration-1 underline-offset-2"
+        >
+          {match[0]}
+        </span>,
+      );
+      at = start + match[0].length;
+    }
+    if (at < node.length) out.push(node.slice(at));
+    return out;
+  });
+}
+
+const escape = (word: string) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+export function RichText({
+  text,
+  mentions = [],
+}: {
+  text: string;
+  mentions?: readonly string[];
+}) {
   return (
     <>
       {blocksOf(text).map((block, i) => {
@@ -119,7 +164,7 @@ export function RichText({ text }: { text: string }) {
         const body = block.lines.map((line, j) => (
           <Fragment key={j}>
             {j > 0 && <br />}
-            {inline(line, `${i}-${j}`)}
+            {withMentions(inline(line, `${i}-${j}`), mentions, `${i}-${j}`)}
           </Fragment>
         ));
         return block.kind === "quote" ? (

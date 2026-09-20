@@ -66,6 +66,13 @@ function useTabTitle(unread: number) {
   useEffect(() => {
     document.title = unread > 0 ? `(${unread}) ${base.current}` : base.current;
   }, [unread]);
+  // signing out takes this watcher off the page, and the count must go with it (found in use)
+  useEffect(() => {
+    const name = base.current;
+    return () => {
+      document.title = name;
+    };
+  }, []);
 }
 
 function nameFor(chat: ChatSummary, fallback: string): string {

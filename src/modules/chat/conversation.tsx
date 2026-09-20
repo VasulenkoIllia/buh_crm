@@ -91,6 +91,21 @@ export function Conversation({
   const box = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
 
+  /**
+   * The names a `@` may be marking: everybody in the chat now, and everybody the page names,
+   * because a mention of somebody who has since left the group is still a mention of them.
+   */
+  const mentionNames = useMemo(
+    () => [
+      "all",
+      ...new Set([
+        ...chat.members.map((m) => `${m.firstName} ${m.lastName}`.trim()),
+        ...[...people.values()].map((p) => `${p.firstName} ${p.lastName}`.trim()),
+      ]),
+    ],
+    [chat.members, people],
+  );
+
   const rows = useMemo(() => {
     const out: ({ kind: "day"; day: string } | { kind: "message"; message: ChatMessage })[] =
       [];
@@ -213,6 +228,7 @@ export function Conversation({
                   onVote={onVote}
                   onClosePoll={onClosePoll}
                   onGoTo={onGoToMessage}
+                  mentionNames={mentionNames}
                 />
               )}
             </div>
@@ -243,6 +259,7 @@ function Row({
   onVote,
   onClosePoll,
   onGoTo,
+  mentionNames,
 }: {
   chat: ChatDetail;
   message: ChatMessage;
@@ -257,6 +274,8 @@ function Row({
   onVote: (message: ChatMessage, options: number[]) => void;
   onClosePoll: (message: ChatMessage) => void;
   onGoTo: (messageId: string) => void;
+  /** the names `@` may be marking in this chat */
+  mentionNames: string[];
 }) {
   if (message.kind === "notice") {
     const names = (message.notice?.userIds ?? []).map((id) => nameOf(people, id)).join(", ");
@@ -312,7 +331,7 @@ function Row({
           {message.deletedAt ? (
             <p>{message.deletedByOther ? "Deleted by an admin" : "Message deleted"}</p>
           ) : (
-            <RichText text={message.text ?? ""} />
+            <RichText text={message.text ?? ""} mentions={mentionNames} />
           )}
           {message.poll && !message.deletedAt && (
             <PollCard
