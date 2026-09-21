@@ -198,6 +198,40 @@ export function findClientBrief(id: string) {
   });
 }
 
+/**
+ * One of the three records that live INSIDE a client, named for a link to it (chat.md §5.6): a
+ * company, a contact person, a subscription. They have no screen of their own, so the link is the
+ * client's with a tab on it — but the CARD should say who or what is being pointed at, which is
+ * this. A subscription is named by its service, which is the only word a person would use for it.
+ */
+export async function findChildOfClient(
+  clientId: string,
+  child: { person?: string; company?: string; subscription?: string },
+): Promise<{ kind: "person" | "company" | "subscription"; name: string } | null> {
+  if (child.company) {
+    const row = await prisma.company.findFirst({
+      where: { id: child.company, clientId },
+      select: { name: true },
+    });
+    return row ? { kind: "company", name: row.name } : null;
+  }
+  if (child.person) {
+    const row = await prisma.clientPerson.findFirst({
+      where: { id: child.person, clientId },
+      select: { name: true },
+    });
+    return row ? { kind: "person", name: row.name } : null;
+  }
+  if (child.subscription) {
+    const row = await prisma.subscription.findFirst({
+      where: { id: child.subscription, clientId },
+      select: { service: { select: { name: true } } },
+    });
+    return row ? { kind: "subscription", name: row.service.name } : null;
+  }
+  return null;
+}
+
 export function findClient(id: string) {
   return prisma.client.findUnique({ where: { id }, include: clientInclude });
 }

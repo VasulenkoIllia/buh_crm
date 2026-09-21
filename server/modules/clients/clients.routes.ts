@@ -17,6 +17,12 @@ import { sendDownload, sendView } from "../files/index.js";
 import * as service from "./clients.service.js";
 
 const idParams = z.object({ id: uuid });
+/** A link may point at one of the three records that live inside a client (chat.md §5.6). */
+const clientCardQuery = z.object({
+  person: uuid.optional(),
+  company: uuid.optional(),
+  subscription: uuid.optional(),
+});
 const fileParams = z.object({ id: uuid, fileId: uuid });
 
 export async function registerRoutes(instance: FastifyInstance) {
@@ -52,8 +58,10 @@ export async function registerRoutes(instance: FastifyInstance) {
    * to everyone. It records nothing — a card drawn by scrolling past a message is not somebody
    * opening a client (audit, 2026-09-20).
    */
-  app.get("/:id/card", { config: shared(), schema: { params: idParams } }, async (request) =>
-    service.cardOf(request.params.id),
+  app.get(
+    "/:id/card",
+    { config: shared(), schema: { params: idParams, querystring: clientCardQuery } },
+    async (request) => service.cardOf(request.params.id, request.query),
   );
 
   app.post(

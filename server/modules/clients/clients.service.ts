@@ -448,14 +448,21 @@ export async function viewClient(id: string, userId: string) {
  *
  * An archived client has no card, the same way it has no screen.
  */
-export async function cardOf(id: string) {
+export async function cardOf(
+  id: string,
+  child: { person?: string; company?: string; subscription?: string } = {},
+) {
   const client = await repo.findClientBrief(id);
   if (!client || client.archivedAt) throw new NotFoundError("Client not found");
+  // a link may point INSIDE the client — at a company, a contact person, a subscription — and the
+  // card then names that, with the client under it (chat.md §5.6, owner 2026-09-21)
+  const inside = await repo.findChildOfClient(id, child);
   return {
     id: client.id,
     name: clientLabel(client),
     companyName: client.companyName,
     code: client.code,
+    child: inside,
   };
 }
 

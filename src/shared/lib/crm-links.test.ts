@@ -34,7 +34,7 @@ describe("the addresses the CRM links to", () => {
     for (const spec of CRM_LINKS) {
       const found = crmLinksIn(`${HERE}${spec.href(ID)}`);
       expect(found, spec.kind).toEqual([
-        { kind: spec.kind, id: ID, url: `${HERE}${spec.href(ID)}` },
+        { kind: spec.kind, id: ID, url: `${HERE}${spec.href(ID)}`, to: spec.href(ID) },
       ]);
     }
     expect(every).toContain("/tasks?task=");
@@ -66,7 +66,12 @@ describe("the addresses the CRM links to", () => {
   it("reads the record's own parameter out of an address that carries the screen's filters too", () => {
     // what a person copies out of the address bar after using the screen (owner, 2026-09-20)
     expect(crmLinksIn(`${HERE}/billing?status=owed&invoice=${ID}`)).toEqual([
-      { kind: "invoice", id: ID, url: `${HERE}/billing?status=owed&invoice=${ID}` },
+      {
+        kind: "invoice",
+        id: ID,
+        url: `${HERE}/billing?status=owed&invoice=${ID}`,
+        to: `/billing?status=owed&invoice=${ID}`,
+      },
     ]);
     expect(crmLinksIn(`${HERE}/tasks?task=${ID}&view=board`)).toHaveLength(1);
     expect(crmLinksIn(`${HERE}/clients/${ID}/`)).toHaveLength(1);
@@ -74,7 +79,9 @@ describe("the addresses the CRM links to", () => {
 
   it("keeps a sentence's punctuation out of the link", () => {
     const found = crmLinksIn(`see ${HERE}/tasks?task=${ID}, then tell me`);
-    expect(found).toEqual([{ kind: "task", id: ID, url: `${HERE}/tasks?task=${ID}` }]);
+    expect(found).toEqual([
+      { kind: "task", id: ID, url: `${HERE}/tasks?task=${ID}`, to: `/tasks?task=${ID}` },
+    ]);
   });
 
   it("does not name the same record twice, and does name two different ones", () => {
@@ -97,7 +104,9 @@ describe("a message that is nothing but links", () => {
 describe("what a message draws", () => {
   it("draws the cards alone when the message is only links, and the words otherwise", () => {
     expect(cardsIn(`${HERE}/tasks?task=${ID}`)).toEqual({
-      links: [{ kind: "task", id: ID, url: `${HERE}/tasks?task=${ID}` }],
+      links: [
+        { kind: "task", id: ID, url: `${HERE}/tasks?task=${ID}`, to: `/tasks?task=${ID}` },
+      ],
       wordsToo: false,
     });
     expect(cardsIn(`have a look: ${HERE}/tasks?task=${ID}`).wordsToo).toBe(true);
@@ -122,7 +131,16 @@ describe("a record inside another one", () => {
    */
   it("is a link to its parent, opened at the right part", () => {
     const inside = `${HERE}/clients/${ID}?tab=companies&company=${OTHER}`;
-    expect(crmLinksIn(inside)).toEqual([{ kind: "client", id: ID, url: inside }]);
+    // `to` keeps the tab and the mark: clicking the card in a chat has to arrive at the company,
+    // not at the client's Profile (owner, 2026-09-21)
+    expect(crmLinksIn(inside)).toEqual([
+      {
+        kind: "client",
+        id: ID,
+        url: inside,
+        to: `/clients/${ID}?tab=companies&company=${OTHER}`,
+      },
+    ]);
     expect(crmLinksIn(`${HERE}/clients/${ID}?tab=people&person=${OTHER}`)).toHaveLength(1);
     expect(crmLinksIn(`${HERE}/clients/${ID}?tab=services&subscription=${OTHER}`)).toHaveLength(
       1,

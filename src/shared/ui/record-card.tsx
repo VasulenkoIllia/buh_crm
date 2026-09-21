@@ -72,9 +72,11 @@ export function RecordCard({
   onPrimary?: boolean;
 }) {
   const spec = kindOf(link.kind);
+  const query = link.to.includes("?") ? link.to.slice(link.to.indexOf("?")) : "";
   const record = useQuery({
-    queryKey: ["crm-link", link.kind, link.id],
-    queryFn: () => spec.ask(link.id),
+    // the query is part of the key: `?person=A` and `?person=B` on one client are two cards
+    queryKey: ["crm-link", link.kind, link.id, query],
+    queryFn: () => spec.ask(link.id, new URLSearchParams(query)),
     // refused means refused: the card says so rather than asking again four times
     retry: false,
     staleTime: 5 * 60_000,
@@ -87,7 +89,10 @@ export function RecordCard({
 
   return (
     <Link
-      to={spec.href(link.id)}
+      // **where the link itself points**, not where this kind's address is rebuilt from an id: a
+      // link to a person inside a client is `/clients/<id>?tab=people&person=<id>`, and rebuilding
+      // it dropped everything after the client and landed on Profile (owner, 2026-09-21)
+      to={link.to}
       title={`${spec.label}: ${record.data?.name ?? link.url}`}
       className={cn(
         "mt-1 flex w-full items-center gap-2 rounded-(--radius-field) border px-2 py-1.5 text-left",

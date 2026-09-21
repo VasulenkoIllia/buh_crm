@@ -234,6 +234,40 @@ describe("a link to a client", () => {
     ).toBe(before);
   });
 
+  it("names the person, the company or the subscription a link points INSIDE it at", async () => {
+    // the three records that live in a client and have no screen of their own (chat.md §5.6)
+    await prisma.client.update({
+      where: { id: liveClient },
+      data: {
+        people: { create: { name: `${TAG} Halyna`, role: "Bookkeeper" } },
+        companies: { create: { name: `${TAG} Dnipro Steel` } },
+      },
+    });
+    const person = await prisma.clientPerson.findFirstOrThrow({
+      where: { clientId: liveClient },
+    });
+    const company = await prisma.company.findFirstOrThrow({ where: { clientId: liveClient } });
+
+    const named = await get(colleague, `/api/clients/${liveClient}/card?person=${person.id}`);
+    expect(named.json().child).toEqual({ kind: "person", name: `${TAG} Halyna` });
+    // …and the client is still on the card, because that is where the link goes
+    expect(named.json().name).toBe(`${TAG} Petrenko`);
+
+    const byCompany = await get(
+      colleague,
+      `/api/clients/${liveClient}/card?company=${company.id}`,
+    );
+    expect(byCompany.json().child).toEqual({ kind: "company", name: `${TAG} Dnipro Steel` });
+
+    // somebody else's person is not named by this client's card
+    const other = await get(
+      colleague,
+      `/api/clients/${liveClient}/card?person=${randomUUID()}`,
+    );
+    expect(other.statusCode).toBe(200);
+    expect(other.json().child).toBeNull();
+  });
+
   it("has no card for an archived client, the same way it has no screen", async () => {
     const gone = await get(admin, `/api/clients/${goneClient}/card`);
     expect(gone.statusCode).toBe(404);

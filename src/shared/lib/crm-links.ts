@@ -54,8 +54,13 @@ export interface CrmLinkKind {
   href: (id: string) => string;
   /** the record this URL of ours names, or null; see `byParam`/`byPath` below */
   idIn: (url: URL) => string | null;
-  /** the record's OWN read; it throws when this reader may not see it, and that is the answer */
-  ask: (id: string) => Promise<RecordName>;
+  /**
+   * The record's OWN read; it throws when this reader may not see it, and that is the answer.
+   *
+   * `query` is what the link carried after its path, for the kinds where a link can point at a
+   * PART of a record — a client's contact person, a task's comment one day. Most kinds ignore it.
+   */
+  ask: (id: string, query?: URLSearchParams) => Promise<RecordName>;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -108,13 +113,30 @@ export const CRM_LINKS: CrmLinkKind[] = [
     label: "Client",
     href: (id) => `/clients/${id}`,
     idIn: byPath("/clients"),
-    ask: async (id) => {
+    /**
+     * A link may point INSIDE a client — at a company, a contact person, a subscription — and then
+     * the card names THAT, with the client under it (owner, 2026-09-21: "посилання на людину в
+     * чаті посилання на клієнта а не на людину"). The child is named by the same read, which is
+     * why this one takes the query along.
+     */
+    ask: async (id, query) => {
       // the card's own read, not the screen's: `/api/clients/:id` records a view, and a card is
       // drawn by scrolling past a message rather than by opening anything (audit, 2026-09-20)
-      const client = await api<{ name: string; companyName: string | null; code: number }>(
-        `/api/clients/${id}/card`,
-      );
-      return { name: client.name, note: client.companyName ?? `C-${client.code}` };
+      const inside = new URLSearchParams();
+      for (const key of ["person", "company", "subscription"]) {
+        const value = query?.get(key);
+        if (value) inside.set(key, value);
+      }
+      const client = await api<{
+        name: string;
+        companyName: string | null;
+        code: number;
+        child: { kind: string; name: string } | null;
+      }>(`/api/clients/${id}/card${inside.size ? `?${inside}` : ""}`);
+      const under = client.companyName ?? `C-${client.code}`;
+      return client.child
+        ? { name: client.child.name, note: `${client.name} · ${client.child.kind}` }
+        : { name: client.name, note: under };
     },
   },
   {
@@ -333,7 +355,10 @@ export const CRM_LINKS: CrmLinkKind[] = [
 export interface CrmLink {
   kind: CrmKind;
   id: string;
+  /** the address as it was written, which is what the card shows on hover */
   url: string;
+  /** where a click goes: this CRM's own path, with everything the link said after it */
+  to: string;
 }
 
 /** Every CRM link in a piece of text, in the order they appear; at most two — a message is not a list. */
@@ -352,7 +377,14 @@ export function crmLinksIn(text: string): CrmLink[] {
     for (const link of CRM_LINKS) {
       const id = link.idIn(url);
       if (id && !out.some((l) => l.id === id && l.kind === link.kind)) {
-        out.push({ kind: link.kind, id, url: match[0] });
+        out.push({
+          kind: link.kind,
+          id,
+          url: match[0],
+          // the path and the query as they were written: a link into a part of a record has to
+          // arrive at that part, and only the link knows which part (owner, 2026-09-21)
+          to: `${url.pathname}${url.search}`,
+        });
       }
     }
     if (out.length >= 2) break;
