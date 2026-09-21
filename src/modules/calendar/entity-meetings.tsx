@@ -4,6 +4,8 @@ import { useCanEdit } from "@/app/auth";
 import { cn } from "@/shared/lib/cn";
 import { fmtDate } from "@/shared/lib/format";
 import { Button } from "@/shared/ui/button";
+import { CopyLink } from "@/shared/ui/copy-link";
+import { RowButton } from "@/shared/ui/row-button";
 import { useMeetingsFor } from "./calendar.api";
 import { MeetingModal } from "./meeting-modal";
 import { fmtRange } from "./grid";
@@ -160,29 +162,35 @@ function Group({
         {title}
       </div>
       {items.map((m) => (
-        <button
+        <div
           key={m.id}
-          type="button"
-          onClick={() => onOpen(m.id)}
-          className="flex w-full items-center gap-3 border-b border-[#f2f4f7] px-5 py-2.5 text-left text-[13px] last:border-b-0 hover:bg-divider/40"
+          className="flex items-center gap-2 border-b border-divider px-5 last:border-b-0"
         >
-          <span
-            className={cn(
-              "min-w-0 flex-1 truncate font-medium",
-              m.cancelledAt && "line-through text-faint",
-            )}
+          <RowButton
+            onClick={() => onOpen(m.id)}
+            className="-mx-2 gap-3 rounded-(--radius-field) px-2 py-2.5 text-[13px]"
           >
-            {m.title}
-          </span>
-          {m.cancelledAt && (
-            <span className="flex-none rounded-(--radius-chip) bg-divider px-2 py-0.5 text-[11px] text-muted">
-              called off
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate font-medium",
+                m.cancelledAt && "line-through text-faint",
+              )}
+            >
+              {m.title}
             </span>
-          )}
-          <span className="flex-none text-[12px] text-muted">
-            {fmtDate(m.startAt)} · {fmtRange(m.startAt, m.durationMinutes)}
-          </span>
-        </button>
+            {m.cancelledAt && (
+              <span className="flex-none rounded-(--radius-chip) bg-divider px-2 py-0.5 text-[11px] text-muted">
+                called off
+              </span>
+            )}
+            <span className="flex-none text-[12px] text-muted">
+              {fmtDate(m.startAt)} · {fmtRange(m.startAt, m.durationMinutes)}
+            </span>
+          </RowButton>
+          {/* the same copy button every record has, in the row rather than only in the modal
+            (owner, 2026-09-21: "і з задач і інвойсів самого клієнта") */}
+          <CopyLink href={`/calendar?meeting=${m.id}`} label="Copy link to this meeting" />
+        </div>
       ))}
     </div>
   );

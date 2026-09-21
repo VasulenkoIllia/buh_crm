@@ -9,6 +9,7 @@ import { Button } from "@/shared/ui/button";
 import { Chip } from "@/shared/ui/chip";
 import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
 import { RowButton } from "@/shared/ui/row-button";
+import { CopyLink } from "@/shared/ui/copy-link";
 import { fmtBizDate } from "@/shared/lib/format";
 import { isOverdue, TaskKindChip } from "./lib";
 import { TaskDetailsModal, TaskFormModal, type Target } from "./task-modals";
@@ -201,6 +202,11 @@ function TaskRow({
         )}
       >
         {task.deadline ? fmtBizDate(task.deadline) : "—"}
+      </span>
+      {/* the same copy button every record has, in the row rather than only in the modal
+          (owner, 2026-09-21) */}
+      <span onClick={(e) => e.stopPropagation()}>
+        <CopyLink href={`/tasks?task=${task.id}`} label="Copy link to this task" />
       </span>
     </RowButton>
   );

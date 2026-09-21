@@ -9,6 +9,7 @@ import { Button } from "@/shared/ui/button";
 import { Select } from "@/shared/ui/field";
 import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
 import { FilterChips } from "@/shared/ui/tabs";
+import { CopyLink } from "@/shared/ui/copy-link";
 import { InvoiceModal, NewInvoiceModal } from "./invoice-modals";
 import { useInvoices } from "./payments.api";
 
@@ -28,7 +29,7 @@ const VIEWS: { key: InvoiceListQuery["filter"]; label: string }[] = [
  * `minmax(0,1fr)` for the same reason Billing uses it: header and rows are separate grids in one
  * scrolling box, and a content-sized floor drifts them apart (see billing.page.tsx).
  */
-const GRID = "grid-cols-[104px_minmax(0,1fr)_84px_100px_76px_76px_88px_88px]";
+const GRID = "grid-cols-[104px_minmax(0,1fr)_84px_100px_76px_76px_88px_88px_28px]";
 
 /**
  * A client's invoices, for the card's Invoices tab. Same modal as the Billing screen;
@@ -139,6 +140,9 @@ export function EntityInvoices({ client }: { client: Client }) {
               <div>Due</div>
               <div className="text-right">Amount</div>
               <div className="text-right">Paid</div>
+              {/* the copy button's column: a header word over one icon would read as a fifth
+                  column of data */}
+              <div />
             </div>
             {items.map((invoice) => (
               <InvoiceRow
@@ -270,6 +274,9 @@ function InvoiceRow({ invoice, onOpen }: { invoice: Invoice; onOpen: () => void 
       <div className="text-right tabular-nums text-muted">
         {invoice.paid > 0 ? fmtMoney(invoice.paid) : <span className="text-faint">—</span>}
       </div>
+      <span onClick={(e) => e.stopPropagation()} className="justify-self-end">
+        <CopyLink href={`/billing?invoice=${invoice.id}`} label="Copy link to this invoice" />
+      </span>
     </div>
   );
 }
