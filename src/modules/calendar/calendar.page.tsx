@@ -6,7 +6,7 @@ import type { DeadlineItem, Meeting } from "@shared/schema/calendar";
 import { useAssignees } from "@/modules/tasks";
 import { cn } from "@/shared/lib/cn";
 import { userLabel } from "@/shared/ui/avatar";
-import { Button } from "@/shared/ui/button";
+import { Button, IconButton } from "@/shared/ui/button";
 import { Segmented } from "@/shared/ui/segmented";
 import { FilterChips } from "@/shared/ui/tabs";
 import { useCalendar, useMeeting } from "./calendar.api";
@@ -142,10 +142,18 @@ export function CalendarPage() {
       <div className="mb-3.5 flex flex-wrap items-center gap-3">
         <h1 className="text-[20px] font-semibold">Calendar</h1>
         <div className="flex items-center gap-1">
-          <IconButton label="Previous" onClick={() => step(-1)}>
+          <IconButton
+            label="Previous"
+            className="h-8 w-8 rounded-(--radius-card) border border-border bg-surface"
+            onClick={() => step(-1)}
+          >
             <ChevronLeft size={16} />
           </IconButton>
-          <IconButton label="Next" onClick={() => step(1)}>
+          <IconButton
+            label="Next"
+            className="h-8 w-8 rounded-(--radius-card) border border-border bg-surface"
+            onClick={() => step(1)}
+          >
             <ChevronRight size={16} />
           </IconButton>
           <Button
@@ -268,27 +276,6 @@ function groupBy<T>(items: T[], key: (item: T) => string): Record<string, T[]> {
   const out: Record<string, T[]> = {};
   for (const item of items) (out[key(item)] ??= []).push(item);
   return out;
-}
-
-function IconButton({
-  label,
-  onClick,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      onClick={onClick}
-      className="flex h-8 w-8 items-center justify-center rounded-(--radius-card) border border-[#d9dde3] bg-surface text-muted hover:bg-divider"
-    >
-      {children}
-    </button>
-  );
 }
 
 /** A chip that both explains a lane's colour and switches it off — and says how much is on it. */

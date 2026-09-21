@@ -619,7 +619,7 @@ function BoardColumn({
             <button
               type="button"
               aria-label={`Reorder ${column.name}`}
-              className="-ml-0.5 flex-none cursor-grab touch-none text-[#b6bcc5] hover:text-muted active:cursor-grabbing"
+              className="-ml-0.5 flex-none cursor-grab touch-none text-faint hover:text-muted active:cursor-grabbing"
               {...attributes}
               {...listeners}
             >
