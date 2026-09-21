@@ -127,7 +127,7 @@ export function EntityInvoices({ client }: { client: Client }) {
           <div className="overflow-x-auto rounded-(--radius-panel) border border-border bg-surface">
             <div
               className={cn(
-                "grid min-w-[860px] items-center gap-x-3 border-b border-border px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-faint",
+                "grid min-w-[900px] items-center gap-x-3 border-b border-border px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-faint",
                 GRID,
               )}
             >
@@ -225,7 +225,7 @@ function InvoiceRow({ invoice, onOpen }: { invoice: Invoice; onOpen: () => void 
     <div
       onClick={onOpen}
       className={cn(
-        "grid min-w-[860px] cursor-pointer items-center gap-x-3 border-b border-divider px-4 py-2.5 text-[13px] last:border-0 hover:bg-divider/40",
+        "grid min-w-[900px] cursor-pointer items-center gap-x-3 border-b border-divider px-4 py-2.5 text-[13px] last:border-0 hover:bg-divider/40",
         GRID,
         overdue && "bg-[#fef6f6]",
         (invoice.cancelledAt || invoice.tidiedAt) && "opacity-60",
