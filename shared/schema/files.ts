@@ -150,6 +150,22 @@ export interface FileCard {
   downloadUrl: string;
 }
 
+/**
+ * **What a link to a FOLDER says about it** (chat.md §5.6). A folder has no screen of its own, so
+ * the link is the library opened at it; the card names it and says which place it is in, and the
+ * place comes back in a shape the screen can open — a folder id alone does not say where it lives.
+ */
+export interface FolderCard {
+  id: string;
+  name: string;
+  /** in words, for the card: "My files", "Company", "Petrenko Olena · Shared with client" */
+  where: string;
+  place:
+    | { space: "personal" }
+    | { space: "company" }
+    | { space: "client"; clientId: string; zone: FileZone };
+}
+
 export interface FolderListing {
   folder: { id: string; name: string } | null;
   /** from the fixed level down, the open folder last */

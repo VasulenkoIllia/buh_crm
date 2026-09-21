@@ -85,6 +85,21 @@ export async function registerRoutes(instance: FastifyInstance) {
     async (request) => service.cardOf(request.currentUser!, request.params.fileId),
   );
 
+  /**
+   * **One folder, named for a link to it** (chat.md §5.6), and the place to open it in — a folder
+   * id alone does not say where it lives. `shared()` for the same reason the file card is: a
+   * folder can be a client's, which belongs to Clients and not to this gate, and the service
+   * decides by the folder's own place.
+   *
+   * Declared BEFORE nothing in particular: `/folders/:folderId/card` cannot collide with
+   * `/:fileId/card`, whose parameter is a uuid and whose path has one segment.
+   */
+  app.get(
+    "/folders/:folderId/card",
+    { config: shared(), schema: { params: folderParams } },
+    async (request) => service.folderCardOf(request.currentUser!, request.params.folderId),
+  );
+
   // ── My files and Company: the same routes over two places ──────────────────
   for (const space of ["my", "company"] as const) {
     const place = (request: FastifyRequest) =>

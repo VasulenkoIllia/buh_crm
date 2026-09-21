@@ -215,6 +215,37 @@ describe("a link to a file", () => {
   });
 });
 
+describe("a link to a folder", () => {
+  it("names it and its place to whoever may open that place, and nobody else", async () => {
+    const made = await app.inject({
+      method: "POST",
+      url: "/api/files/company/folders",
+      headers: { cookie: owner.cookie },
+      payload: { parentId: null, name: `${TAG} Returns` },
+    });
+    expect(made.statusCode, made.body).toBe(201);
+    const folderId = made.json().id as string;
+
+    const card = await get(colleague, `/api/files/folders/${folderId}/card`);
+    expect(card.statusCode).toBe(200);
+    expect(card.json()).toMatchObject({
+      id: folderId,
+      name: `${TAG} Returns`,
+      where: "Company",
+      place: { space: "company" },
+    });
+
+    // Files shut: a Company folder is this gate's, so its name goes with it
+    await setGate(colleague, "files", "closed");
+    const shut = await get(colleague, `/api/files/folders/${folderId}/card`);
+    expect(shut.statusCode).toBe(404);
+    expect(shut.body).not.toContain("Returns");
+    await setGate(colleague, "files", "open");
+
+    expect((await get(owner, `/api/files/folders/${randomUUID()}/card`)).statusCode).toBe(404);
+  });
+});
+
 describe("a link to a client", () => {
   it("names the client without recording that anybody opened one", async () => {
     const before = await prisma.activityEvent.count({

@@ -17,6 +17,7 @@ import {
   type AttachmentGroup,
   type ClientFilesDetail,
   type FileCard,
+  type FolderCard,
   type ClientFilesNode,
   type EnsuredFolder,
   type FileRow,
@@ -1477,6 +1478,41 @@ export async function fileCompanyAttachment(
     changes: { to: done.to, task: done.task },
   });
   return { id: file.id, name: done.name };
+}
+
+// ── one folder, named for a link to it (chat.md §5.6) ────────────────────────
+
+/**
+ * **What a link to a folder says about it.** Its own place decides who may ask, exactly as a
+ * file's card does: a personal folder is its owner's, Company's belongs to whoever has Files, a
+ * client's to whoever has Clients. Anybody else is told it does not exist, because a folder's NAME
+ * is what those gates protect as surely as a file's.
+ *
+ * It carries the place in a shape the screen can open with, since a folder id alone does not say
+ * where it lives.
+ */
+export async function folderCardOf(user: User, folderId: string): Promise<FolderCard> {
+  const folder = await repo.findFolder(folderId);
+  if (!folder || folder.deletedAt) throw new NotFoundError("Folder not found");
+  const place = await placeOfScope(folder.scope);
+  const reader = await readerOf(user);
+
+  const mine = place.space === "personal" && place.ownerId === user.id;
+  const may =
+    (mine && opens(reader, "files")) ||
+    (place.space === "company" && opens(reader, "files")) ||
+    (place.space === "client" && opens(reader, "clients"));
+  if (!may) throw new NotFoundError("Folder not found");
+
+  return {
+    id: folder.id,
+    name: folder.name,
+    where: await words(place, folder.parentId),
+    place:
+      place.space === "client"
+        ? { space: "client", clientId: place.clientId, zone: place.zone }
+        : { space: place.space },
+  };
 }
 
 // ── one file, named for a link to it (chat.md §5.6) ──────────────────────────

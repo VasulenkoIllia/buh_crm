@@ -4,6 +4,7 @@ import {
   CircleSlash,
   FileSignature,
   FileText,
+  Folder as FolderIcon,
   KeyRound,
   Layers,
   ListTodo,
@@ -49,6 +50,7 @@ const ICONS: Record<CrmKind, typeof ListTodo> = {
   service: Layers,
   template: FileSignature,
   person: UserRound,
+  folder: FolderIcon,
 };
 
 /**

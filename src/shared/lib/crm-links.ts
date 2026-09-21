@@ -35,7 +35,8 @@ export type CrmKind =
   | "campaign"
   | "service"
   | "template"
-  | "person";
+  | "person"
+  | "folder";
 
 /** What a card shows once the record has answered. */
 export interface RecordName {
@@ -204,6 +205,18 @@ export const CRM_LINKS: CrmLinkKind[] = [
         `/api/files/${id}/card`,
       );
       return { name: file.name, note: `${file.where} · ${Math.ceil(file.size / 1024)} KB` };
+    },
+  },
+  {
+    kind: "folder",
+    label: "Folder",
+    href: (id) => `/files?folder=${id}`,
+    idIn: byParam("/files", "folder"),
+    ask: async (id) => {
+      const folder = await api<{ name: string; where: string }>(
+        `/api/files/folders/${id}/card`,
+      );
+      return { name: folder.name, note: folder.where };
     },
   },
   {

@@ -771,6 +771,17 @@
     "access": "gate:files"
   },
   {
+    "method": "GET",
+    "url": "/api/files/folders/:folderId/card",
+    "access": "shared"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/files/folders/:folderId/card",
+    "access": "shared",
+    "derived": true
+  },
+  {
     "method": "POST",
     "url": "/api/files/my/delete",
     "access": "gate:files"

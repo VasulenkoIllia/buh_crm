@@ -144,17 +144,20 @@ describe("route inventory", () => {
       // +1 and its HEAD on 2026-09-20: a card for one secret (secrets.md §22), the read behind a
       // `/secrets?secret=…` link. Behind the vault's gate, and it answers with the PLACE and the
       // template, never the label.
-      total: 390,
-      derivedHead: 97,
-      real: 293,
-      api: 292, // everything but /health
+      // +1 and its HEAD on 2026-09-21: a card for one FOLDER (files.md §22), the read behind a
+      // `/files?folder=…` link. `shared()` like the file card beside it, and for the same reason:
+      // a client's folder belongs to Clients, and the folder's own place decides in the service.
+      total: 392,
+      derivedHead: 98,
+      real: 294,
+      api: 293, // everything but /health
       anonymous: 9, // 6 credential routes, 2 unsubscribe pages, /health
       // `POST /tasks/timer/start` moved to the `tasks` gate during the 2026-09-07 audit. It takes a
       // taskId and writes against somebody else's module, so it was never really "the caller's own
       // row" — `active` and `stop` still are, and must be. The two-factor five are the caller's own
       // second factor and name nobody else.
       own: 15,
-      shared: 11,
+      shared: 12,
       gated: 258,
       adminOnly: 20,
     });

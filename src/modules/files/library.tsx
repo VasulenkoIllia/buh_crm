@@ -14,7 +14,7 @@ import { getEventCoordinates } from "@dnd-kit/utilities";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { FilePlus, FileUp, FolderPlus, FolderUp, Upload } from "lucide-react";
-import type { FileCard, FolderNode } from "@shared/schema/files";
+import type { FileCard, FolderCard, FolderNode } from "@shared/schema/files";
 import { plural } from "@shared/text";
 import { useAuth, useCanEdit, useCanOpen } from "@/app/auth";
 import { api as ask } from "@/shared/lib/api";
@@ -66,11 +66,13 @@ import { checkMove } from "./move-rules";
 import { AttachmentsPane, ClientPane, ClientsPane, TrashPane } from "./other-panes";
 import {
   COMPANY,
+  MY,
   clientSees,
   placeInput,
   placeKey,
   placeLabel,
   samePlace,
+  type UiPlace,
   type View,
 } from "./places";
 import { ClientTree, FirmTree } from "./tree";
@@ -177,6 +179,45 @@ export function Library({ mode }: { mode: LibraryMode }) {
    * until the reader dismisses it or opens something else.
    */
   const [refused, setRefused] = useState(false);
+  /**
+   * **`?folder=<id>` opens the library AT that folder** (chat.md §5.6). A folder id does not say
+   * where it lives, so the card route answers with the place as well; who may ask is the folder's
+   * own place, as for a file.
+   */
+  const linkedFolderId = params.get("folder");
+  const linkedFolder = useQuery({
+    queryKey: ["files", "folder-card", linkedFolderId],
+    queryFn: () => ask<FolderCard>(`/api/files/folders/${linkedFolderId!}/card`),
+    enabled: linkedFolderId !== null,
+    retry: false,
+  });
+  useEffect(() => {
+    if (!linkedFolderId) return;
+    const card = linkedFolder.data;
+    if (card) {
+      setRefused(false);
+      const place: UiPlace =
+        card.place.space === "personal"
+          ? MY
+          : card.place.space === "company"
+            ? COMPANY
+            : { kind: "client", clientId: card.place.clientId, zone: card.place.zone };
+      const next: View = { type: "place", place, folderId: card.id };
+      setView(next);
+      setOpen((was) => new Set([...was, ...keysFor(next)]));
+    }
+    if (linkedFolder.isError) setRefused(true);
+    if (card || linkedFolder.isError) {
+      setParams(
+        (prev) => {
+          const out = new URLSearchParams(prev);
+          out.delete("folder");
+          return out;
+        },
+        { replace: true },
+      );
+    }
+  }, [linkedFolderId, linkedFolder.data, linkedFolder.isError, setParams]);
   useEffect(() => {
     if (!linked) return;
     if (linkedFile.data) {

@@ -31,6 +31,7 @@ import { Button, IconButton } from "@/shared/ui/button";
 import { Chip } from "@/shared/ui/chip";
 import { ClientCode } from "@/shared/ui/client-code";
 import { Menu, type MenuItem } from "@/shared/ui/menu";
+import { CopyLink } from "@/shared/ui/copy-link";
 import { ExtBadge, FolderBadge, download, errorText } from "./file-bits";
 import { useCreateFolder, useListing, useRename } from "./files.api";
 import {
@@ -401,6 +402,11 @@ export function FolderPane({
             ? "Shift or Ctrl to select several · drag onto a folder to move · drop files here to upload"
             : "You can open and download here; changes are not yours to make"}
         </span>
+        {/* a folder is a record like any other: the link to it is this screen opened at it
+            (chat.md §5.6) */}
+        {folderId && (
+          <CopyLink href={`/files?folder=${folderId}`} label="Copy link to this folder" />
+        )}
       </>
     );
   }
