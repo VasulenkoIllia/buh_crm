@@ -329,8 +329,15 @@ export function ChatSearchBar({
   }, [answered]);
 
   /** Stepping is what the arrows do, and it puts the list away: the conversation is what matters. */
-  const step = (by: 1 | -1) => {
+  /**
+   * **Stepping is in TIME, not in the list.** The server answers newest first, so the newest hit
+   * is index 0 and the oldest is last — walking the list forwards walks the conversation BACKWARDS.
+   * The arrows were wired to the index, so ↓ went up the chat and ↑ went down (owner, 2026-09-21).
+   * Here ↓ means "a newer one, further down the conversation", which is what the arrow draws.
+   */
+  const go = (dir: "older" | "newer") => {
     if (hits.length === 0) return;
+    const by = dir === "older" ? 1 : -1;
     const next = (at + by + hits.length) % hits.length;
     setAt(next);
     setListOpen(false);
@@ -363,11 +370,11 @@ export function ChatSearchBar({
               }
               if (e.key === "Enter") {
                 e.preventDefault();
-                step(e.shiftKey ? -1 : 1);
+                go(e.shiftKey ? "newer" : "older");
               }
               if (e.key === "ArrowDown" || e.key === "ArrowUp") {
                 e.preventDefault();
-                step(e.key === "ArrowDown" ? 1 : -1);
+                go(e.key === "ArrowDown" ? "newer" : "older");
               }
             }}
             placeholder="Search this chat"
@@ -413,20 +420,20 @@ export function ChatSearchBar({
                 : `${at + 1} of ${hits.length}`}
         </span>
         <IconButton
-          label="Previous match"
-          title="Previous (Shift+Enter)"
+          label="Older match"
+          title="Older, up the chat (Enter)"
           size="sm"
           disabled={hits.length === 0}
-          onClick={() => step(-1)}
+          onClick={() => go("older")}
         >
           <IconUp />
         </IconButton>
         <IconButton
-          label="Next match"
-          title="Next (Enter)"
+          label="Newer match"
+          title="Newer, down the chat (Shift+Enter)"
           size="sm"
           disabled={hits.length === 0}
-          onClick={() => step(1)}
+          onClick={() => go("newer")}
         >
           <IconCollapse />
         </IconButton>

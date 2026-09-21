@@ -242,7 +242,7 @@ export async function send(
         await repo.linkFilesTx(tx, id, carried);
       }
       // the words it can be found by, written with it rather than after it (§8)
-      await search.indexTx(tx, chatId, id, [text, ...(input.poll?.options ?? [])]);
+      await search.indexTx(tx, chatId, id, [text, ...(input.poll?.options ?? [])], at);
       await repo.markSentTx(tx, chatId, user.id, seq, mentions);
       return id;
     });
@@ -276,10 +276,14 @@ export async function edit(
     throw new ValidationError("A poll cannot be changed once somebody has voted");
   }
   await repo.editMessage(messageId, sealText(input.text), new Date());
-  await search.reindex(row.chatId, messageId, [
-    input.text,
-    ...(row.poll ? openOptions(row.poll) : []),
-  ]);
+  // the message's OWN instant, not the edit's: the search answers in the order a conversation
+  // reads in, and an edited line does not jump to the top of it
+  await search.reindex(
+    row.chatId,
+    messageId,
+    [input.text, ...(row.poll ? openOptions(row.poll) : [])],
+    row.createdAt,
+  );
   await tell(m.chat, m.chat.members, "chat_message_changed", row.seq);
   return toMessage((await repo.messageById(messageId))!);
 }
@@ -356,6 +360,21 @@ function whichChat(m: Membership): string {
  * **Forwarding copies the words into another chat** (§5.2), marked with whom they came from. The
  * sender must be in both chats and able to write in the one they are sending to.
  */
+/**
+ * **Sending messages on** (§5.2). Three things this had to learn the hard way (audit, 2026-09-20):
+ *
+ * - **one transaction per DESTINATION**, not per copy, so a chat gets all of the forwarded
+ *   messages or none of them. A failure halfway used to leave a chat holding three of five;
+ * - **the destinations in id order**, the module's own rule for anything that locks several rows
+ *   (`carriedElsewhereTx`, `claimUploadsTx`): two people forwarding into the same two chats at the
+ *   same moment took the locks in opposite orders and could deadlock;
+ * - **the sources read ONCE**, not once per destination. Twenty messages into ten chats was two
+ *   hundred reads of the same twenty rows.
+ *
+ * What is still true, and deliberate: a forward that fails on the fourth of five chats leaves the
+ * first three done and says so by throwing. The retry costs nothing, because a copy is named after
+ * its source and its destination and lands exactly once.
+ */
 export async function forward(user: User, input: ForwardInput): Promise<void> {
   const sources = await repo.messagesById(input.messageIds);
   if (sources.length !== new Set(input.messageIds).size) {
@@ -368,47 +387,66 @@ export async function forward(user: User, input: ForwardInput): Promise<void> {
       throw new ValidationError("Only a message's words are forwarded");
   }
 
-  for (const chatId of new Set(input.toChatIds)) {
+  /**
+   * The sources as they are NOW, read once: deleted since and there is nothing to forward; edited
+   * since and these are the words it says now; a file gone since is not in this list either
+   * (reviews, 2026-09-20). The FILES travel with it and reuse the same objects in the bucket
+   * (§6.3): a photo sent on to three chats is one file, which is why the link is a table.
+   */
+  const carrying: {
+    source: (typeof sources)[number];
+    text: string | null;
+    files: Awaited<ReturnType<typeof attachments.sourceForForward>> extends infer T
+      ? T extends { files: infer F }
+        ? F
+        : never
+      : never;
+  }[] = [];
+  for (const source of sources) {
+    const fresh = await attachments.sourceForForward(source.id);
+    if (!fresh) continue;
+    const text = openText(fresh);
+    if (text === null && fresh.files.length === 0) continue;
+    carrying.push({ source, text, files: fresh.files });
+  }
+  if (carrying.length === 0) return;
+
+  for (const chatId of [...new Set(input.toChatIds)].sort()) {
     const m = await requireMember(chatId, user.id);
     requireWriter(m, user);
-    for (const source of sources) {
-      // the source, read again at the moment it is copied: deleted since, and there is nothing to
-      // forward; edited since, and these are the words it says NOW; a file gone since is not in
-      // this list either (reviews, 2026-09-20). The FILES travel with it and reuse the same objects
-      // in the bucket (§6.3): a photo sent on to three chats is one file, which is why the link is
-      // a table
-      const fresh = await attachments.sourceForForward(source.id);
-      if (!fresh) continue;
-      // **the same forward twice is one copy.** A forward is one request into many chats, each in
-      // its own transaction, so a connection lost halfway leaves some of them done; a retry with a
-      // fresh id per copy duplicated every one that had already landed. Naming the copy after the
-      // source and its destination makes the retry find its own row and stop, the way `send` does
-      // with the composer's id (audit, 2026-09-20)
-      const copyId = forwardId(source.id, chatId);
+
+    // what this destination does not already hold: a retry finds its own copies and stops
+    const todo: ((typeof carrying)[number] & { copyId: string })[] = [];
+    for (const one of carrying) {
+      const copyId = forwardId(one.source.id, chatId);
       if (await repo.sentAlready(chatId, user.id, copyId)) continue;
-      const text = openText(fresh);
-      const carried = fresh.files;
-      if (text === null && carried.length === 0) continue;
-      const at = new Date();
-      const seq = await repo.transaction(async (tx) => {
+      todo.push({ ...one, copyId });
+    }
+    if (todo.length === 0) continue;
+
+    const at = new Date();
+    const seqs = await repo.transaction(async (tx) => {
+      const out: number[] = [];
+      for (const one of todo) {
         const seq = await repo.nextSeq(tx, chatId, at);
         const { id } = await repo.insertMessageTx(tx, {
           chatId,
           seq,
           authorId: user.id,
-          clientMessageId: copyId,
-          sealed: text === null ? null : sealText(text),
+          clientMessageId: one.copyId,
+          sealed: one.text === null ? null : sealText(one.text),
           // a message forwarded on keeps the first author, as Telegram does
-          forwardedFromId: source.forwardedFromId ?? source.authorId,
+          forwardedFromId: one.source.forwardedFromId ?? one.source.authorId,
           at,
         });
-        if (carried.length > 0) await repo.copyLinksTx(tx, id, carried);
-        if (text !== null) await search.indexTx(tx, chatId, id, [text]);
+        if (one.files.length > 0) await repo.copyLinksTx(tx, id, one.files);
+        if (one.text !== null) await search.indexTx(tx, chatId, id, [one.text], at);
         await repo.markSentTx(tx, chatId, user.id, seq, []);
-        return seq;
-      });
-      await tell(m.chat, m.chat.members, "chat_message", seq);
-    }
+        out.push(seq);
+      }
+      return out;
+    });
+    for (const seq of seqs) await tell(m.chat, m.chat.members, "chat_message", seq);
   }
 }
 

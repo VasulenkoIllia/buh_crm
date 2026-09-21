@@ -277,6 +277,28 @@ describe("everything Olena can send, in one group", () => {
     expect((await filesOf(iryna, chatId, `senderId=${olena.id}`)).files).toHaveLength(2);
   });
 
+  it("pages its files without losing the rest of a message that carries several", async () => {
+    // a page can end in the middle of a message with ten files; the cursor is the pair (place,
+    // position), so the next page picks up inside that same message (audit, 2026-09-20)
+    const many = await Promise.all(
+      [0, 1, 2].map((n) => attach(olena, chatId, `sheet-${n}.txt`, Buffer.from(`n${n}`))),
+    );
+    await say(olena, chatId, { text: "three at once", files: many });
+
+    const first = await filesOf(petro, chatId, "");
+    const all = first.files.map((f) => f.name);
+    expect(all.slice(0, 3)).toEqual(["sheet-2.txt", "sheet-1.txt", "sheet-0.txt"]);
+
+    // stop after the FIRST of the three and ask for what is older than it
+    const head = first.files[0];
+    const next = await filesOf(
+      petro,
+      chatId,
+      `before=${head.seq}&beforePosition=${head.position}`,
+    );
+    expect(next.files.map((f) => f.name).slice(0, 2)).toEqual(["sheet-1.txt", "sheet-0.txt"]);
+  });
+
   it("is searchable by part of a word, in this chat and across them all, by each of them", async () => {
     for (const who of [olena, petro, iryna]) {
       const here = await find(who, `q=онcил&chatId=${chatId}`);
@@ -385,10 +407,10 @@ describe("what one person does to another's view", () => {
     expect((await door(iryna, photo.fileId, "view")).statusCode).toBe(200);
     // …and reaches only the people in THAT chat: Olena sent it and can no longer open it
     expect((await door(olena, photo.fileId, "view")).statusCode).toBe(404);
-    // the group's Files tab has let it go with the message
-    expect((await filesOf(olena, chatId)).files.map((f) => f.name)).toEqual([
-      "amortisation-2026.pdf",
-    ]);
+    // the group's Files tab has let it go with the message, and still holds what is still carried
+    const tab = (await filesOf(olena, chatId)).files.map((f) => f.name);
+    expect(tab).not.toContain("office.png");
+    expect(tab).toContain("amortisation-2026.pdf");
   });
 
   it("makes the same forward twice one copy, however the first attempt ended", async () => {
@@ -401,6 +423,23 @@ describe("what one person does to another's view", () => {
     // a forward is one request into many chats, each in its own transaction: a retry after a lost
     // connection used to duplicate every chat that had already landed (audit, 2026-09-20)
     expect((await history(iryna, direct)).messages.length).toBe(before + 1);
+  });
+
+  it("gives a destination all of a forward or none of it", async () => {
+    const direct = (await call(petro, "POST", "/direct", { userId: iryna.id })).body
+      .id as string;
+    const before = (await history(iryna, direct)).messages.length;
+    // not `said.words`: the idempotency test above already put its copy in this chat, and a copy
+    // that is already there is exactly what does NOT land twice
+    const three = [said.mention.id, said.paper.id, said.reply.id];
+    expect(
+      (await call(petro, "POST", "/forward", { messageIds: three, toChatIds: [direct] }))
+        .status,
+    ).toBe(200);
+    // one transaction per destination: three in, three arrive, in the order they were sent
+    const after = (await history(iryna, direct)).messages;
+    expect(after.length).toBe(before + 3);
+    expect(after.slice(-3).every((m) => m.forwardedFromId !== null)).toBe(true);
   });
 
   it("takes a leaver out of the conversation without taking the conversation out of it", async () => {
@@ -416,7 +455,11 @@ describe("what one person does to another's view", () => {
     expect((await find(petro, "q=reconciliation")).hits.map((h) => h.chatId)).not.toContain(
       chatId,
     );
-    expect((await door(petro, paper.fileId, "download")).statusCode).toBe(404);
+    // the group's Files tab is not his either; the PDF itself he can still open, because he
+    // forwarded it into his own direct chat a moment ago and a live message there carries it —
+    // a file belongs to the MESSAGES that carry it, not to a chat (§6.3)
+    expect((await call(petro, "GET", `/chats/${chatId}/files`)).status).toBe(404);
+    expect((await door(petro, paper.fileId, "download")).statusCode).toBe(200);
 
     // for the two still in it, nothing of his is missing, the reply included
     const page = await history(iryna, chatId);

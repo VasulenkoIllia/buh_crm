@@ -150,8 +150,45 @@ export function MessageMenu({
     };
   }, [onClose]);
 
+  /**
+   * **It is a menu to the keyboard too** (audit, 2026-09-20: it was reachable only with a pointer,
+   * and every destructive act on a message lives in it). Opening it puts the focus on the first
+   * action; the arrows, Home and End walk them; Escape and Tab close it and hand the focus back to
+   * whatever opened it. The same behaviour `shared/ui/menu.tsx` has, written here because this one
+   * opens at a POINT — a right-click, a two-finger tap — rather than under a trigger.
+   */
+  const opener = useRef<Element | null>(null);
+  useEffect(() => {
+    opener.current = document.activeElement;
+    const first = box.current?.querySelector<HTMLElement>("[data-menu-item]");
+    first?.focus();
+    return () => (opener.current as HTMLElement | null)?.focus?.();
+  }, []);
+
+  const walk = (event: React.KeyboardEvent) => {
+    const keys = ["ArrowDown", "ArrowUp", "Home", "End", "Tab"];
+    if (!keys.includes(event.key)) return;
+    if (event.key === "Tab") {
+      onClose();
+      return;
+    }
+    event.preventDefault();
+    const items = [...(box.current?.querySelectorAll<HTMLElement>("[data-menu-item]") ?? [])];
+    if (items.length === 0) return;
+    const now = items.indexOf(document.activeElement as HTMLElement);
+    const next =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? items.length - 1
+          : (now + (event.key === "ArrowDown" ? 1 : items.length - 1) + items.length) %
+            items.length;
+    items[next]?.focus();
+  };
+
   const item =
-    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12.5px] text-ink hover:bg-divider";
+    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12.5px] text-ink hover:bg-divider " +
+    "outline-none focus-visible:bg-divider focus:bg-divider";
   const act = (run: () => void) => () => {
     run();
     onClose();
@@ -180,6 +217,9 @@ export function MessageMenu({
   return createPortal(
     <div
       ref={box}
+      role="menu"
+      aria-label="What to do with this message"
+      onKeyDown={walk}
       style={{ position: "fixed", left: place.left, top: place.top }}
       className="z-[60] w-[200px] overflow-hidden rounded-(--radius-panel) border border-border bg-surface py-1 shadow-(--shadow-modal)"
     >
@@ -191,8 +231,9 @@ export function MessageMenu({
             <button
               key={emoji}
               type="button"
+              data-menu-item
               onClick={act(() => on.react(emoji))}
-              className="rounded-full px-1 text-[16px] hover:bg-divider"
+              className="rounded-full px-1 text-[16px] outline-none hover:bg-divider focus-visible:bg-divider focus:bg-divider"
             >
               {emoji}
             </button>
@@ -207,38 +248,38 @@ export function MessageMenu({
           </button>
         </div>
       )}
-      <button type="button" className={item} onClick={act(on.reply)}>
+      <button type="button" data-menu-item className={item} onClick={act(on.reply)}>
         <CornerUpLeft className="size-3.5" />
         Reply
       </button>
-      <button type="button" className={item} onClick={act(on.forward)}>
+      <button type="button" data-menu-item className={item} onClick={act(on.forward)}>
         <CornerUpRight className="size-3.5" />
         Forward
       </button>
       {message.text && (
-        <button type="button" className={item} onClick={act(on.copy)}>
+        <button type="button" data-menu-item className={item} onClick={act(on.copy)}>
           <Copy className="size-3.5" />
           Copy text
         </button>
       )}
-      <button type="button" className={item} onClick={act(on.link)}>
+      <button type="button" data-menu-item className={item} onClick={act(on.link)}>
         <Link2 className="size-3.5" />
         Copy link
       </button>
       {can.pin && (
-        <button type="button" className={item} onClick={act(on.pin)}>
+        <button type="button" data-menu-item className={item} onClick={act(on.pin)}>
           <Pin className="size-3.5" />
           {message.pinned ? "Unpin" : "Pin"}
         </button>
       )}
       {can.readBy && (
-        <button type="button" className={item} onClick={act(on.readBy)}>
+        <button type="button" data-menu-item className={item} onClick={act(on.readBy)}>
           <Eye className="size-3.5" />
           Read by
         </button>
       )}
       {can.edit && (
-        <button type="button" className={item} onClick={act(on.edit)}>
+        <button type="button" data-menu-item className={item} onClick={act(on.edit)}>
           <Pencil className="size-3.5" />
           Edit
         </button>

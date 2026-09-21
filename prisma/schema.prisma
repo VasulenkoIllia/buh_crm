@@ -2359,8 +2359,12 @@ model ChatMessageFile {
 /// that the index stays small (a message of thirty words is about two hundred rows).
 model ChatSearchToken {
   token     Bytes
-  chatId    String @db.Uuid
-  messageId String @db.Uuid
+  chatId    String   @db.Uuid
+  messageId String   @db.Uuid
+  /// the MESSAGE's own instant, copied here so the search can read this table in the order it
+  /// answers in and stop at the first page. Without it a three-letter query aggregated every
+  /// message in the firm holding that triple before the limit could bite (audit, 2026-09-20).
+  createdAt DateTime @default(now())
 
   chat    Chat        @relation(fields: [chatId], references: [id], onDelete: Cascade)
   message ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
@@ -2368,6 +2372,8 @@ model ChatSearchToken {
   @@id([token, messageId])
   /// the search's own read: this word, in the chats this person is in
   @@index([token, chatId])
+  /// …and the newest first, which is how it answers: one word walks this and stops at 500
+  @@index([token, createdAt(sort: Desc)])
   /// an edit replaces a message's tokens and a delete removes them
   @@index([messageId])
 }

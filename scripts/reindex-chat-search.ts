@@ -62,6 +62,7 @@ async function main() {
       select: {
         id: true,
         chatId: true,
+        createdAt: true,
         ciphertext: true,
         iv: true,
         authTag: true,
@@ -74,7 +75,7 @@ async function main() {
 
     for (const message of page) {
       const texts = [openText(message), ...(message.poll ? openOptions(message.poll) : [])];
-      await reindex(message.chatId, message.id, texts);
+      await reindex(message.chatId, message.id, texts, message.createdAt);
       if (texts.some((t) => t && t.trim())) withWords++;
       done++;
     }

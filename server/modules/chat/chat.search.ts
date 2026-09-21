@@ -128,10 +128,12 @@ export function indexTx(
   chatId: string,
   messageId: string,
   texts: readonly (string | null | undefined)[],
+  /** the message's own instant; the index answers in that order (§8) */
+  createdAt?: Date,
 ) {
   const tokens = tokensOf(texts);
   if (tokens.length === 0) return Promise.resolve({ count: 0 });
-  return repo.insertTokensTx(tx, chatId, messageId, tokens);
+  return repo.insertTokensTx(tx, chatId, messageId, tokens, createdAt);
 }
 
 /** An edit replaces a message's words; a delete takes them away (§8). */
@@ -139,10 +141,11 @@ export async function reindex(
   chatId: string,
   messageId: string,
   texts: readonly (string | null | undefined)[],
+  createdAt?: Date,
 ) {
   await repo.clearTokens(messageId);
   const tokens = tokensOf(texts);
-  if (tokens.length > 0) await repo.insertTokens(chatId, messageId, tokens);
+  if (tokens.length > 0) await repo.insertTokens(chatId, messageId, tokens, createdAt);
 }
 
 export const forget = (messageId: string) => repo.clearTokens(messageId);

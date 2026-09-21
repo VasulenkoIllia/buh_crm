@@ -195,8 +195,13 @@ export type ChatFilesPage = z.infer<typeof chatFilesPageSchema>;
 export const chatFilesQuery = z.object({
   q: z.string().trim().max(100).optional(),
   senderId: uuid.optional(),
-  /** the page ends below this place in the conversation */
+  /**
+   * The page ends below this place in the conversation — and below this file WITHIN it. A message
+   * carries up to ten files, so a page can end in the middle of one; a cursor of the place alone
+   * asked for "older than this message" and skipped the rest of it (audit, 2026-09-20).
+   */
   before: z.coerce.number().int().positive().optional(),
+  beforePosition: z.coerce.number().int().min(0).optional(),
 });
 export type ChatFilesQuery = z.infer<typeof chatFilesQuery>;
 

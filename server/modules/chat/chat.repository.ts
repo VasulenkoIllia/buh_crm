@@ -1002,9 +1002,23 @@ export function copyLinksTx(
  * **A chat's own files** (§6.4), newest first: what the Files tab lists. A deleted message's files
  * are not here, and neither is one in the Trash — the tab shows what the chat still carries.
  */
+/**
+ * A chat's files, newest first, a page at a time.
+ *
+ * **The cursor is the pair (place, position)**, because the order is the pair: a message carries up
+ * to ten files, so a page can end in the middle of one. Asking for "older than this message" then
+ * skipped the rest of that message for good (audit, 2026-09-20) — latent, because the screen has
+ * never sent a cursor, and fixed before it does.
+ */
 export async function filesOfChat(
   chatId: string,
-  opts: { q?: string; senderId?: string; before?: number; limit: number },
+  opts: {
+    q?: string;
+    senderId?: string;
+    before?: number;
+    beforePosition?: number;
+    limit: number;
+  },
 ) {
   const rows = await prisma.chatMessageFile.findMany({
     where: {
@@ -1012,12 +1026,26 @@ export async function filesOfChat(
         chatId,
         deletedAt: null,
         ...(opts.senderId ? { authorId: opts.senderId } : {}),
-        ...(opts.before ? { seq: { lt: opts.before } } : {}),
       },
       file: {
         deletedAt: null,
         ...(opts.q ? { name: { contains: opts.q, mode: "insensitive" as const } } : {}),
       },
+      ...(opts.before
+        ? {
+            OR: [
+              { message: { seq: { lt: opts.before } } },
+              ...(opts.beforePosition === undefined
+                ? []
+                : [
+                    {
+                      message: { seq: opts.before },
+                      position: { lt: opts.beforePosition },
+                    },
+                  ]),
+            ],
+          }
+        : {}),
     },
     select: {
       fileId: true,
@@ -1041,9 +1069,11 @@ export function insertTokensTx(
   chatId: string,
   messageId: string,
   tokens: readonly Uint8Array<ArrayBuffer>[],
+  /** the MESSAGE's instant, so the index can answer in the order the search answers in */
+  createdAt: Date = new Date(),
 ) {
   return tx.chatSearchToken.createMany({
-    data: tokens.map((token) => ({ token, chatId, messageId })),
+    data: tokens.map((token) => ({ token, chatId, messageId, createdAt })),
     skipDuplicates: true,
   });
 }
@@ -1052,8 +1082,9 @@ export function insertTokens(
   chatId: string,
   messageId: string,
   tokens: readonly Uint8Array<ArrayBuffer>[],
+  createdAt?: Date,
 ) {
-  return insertTokensTx(prisma, chatId, messageId, tokens);
+  return insertTokensTx(prisma, chatId, messageId, tokens, createdAt);
 }
 
 export function clearTokens(messageId: string) {
@@ -1097,6 +1128,15 @@ export interface SearchFilters {
  * over the tokens it matched — which Prisma cannot express, and because the membership join
  * belongs inside the query rather than around it: a filter applied afterwards would make the page
  * sizes and "there is more" wrong.
+ *
+ * **ONE token takes a different road**, and it is the common one: any three-letter search is a
+ * single triple. With one token the grouped intersection counts to one and filters nothing, so the
+ * database had to aggregate EVERY message in the firm holding that triple, sort them, and only
+ * then apply the limit — the limit bounded the rows returned and not the work done (audit,
+ * 2026-09-20). `(token, messageId)` is the table's primary key, so one token is already one row
+ * per message: no grouping is needed, and the query walks `(token, createdAt DESC)` and stops at
+ * the first page. The two queries are written out rather than composed because what differs is
+ * their SHAPE, and a reader of either should see the whole of it.
  */
 export function searchMessages(
   userId: string,
@@ -1120,6 +1160,33 @@ export function searchMessages(
     pollKeyVersion: number | null;
   }[]
 > {
+  if (tokens.length === 1) {
+    const token = Buffer.from(tokens[0]);
+    return prisma.$queryRaw`
+      SELECT m.id, m."chatId", m.seq, m."authorId", m."createdAt",
+             m.ciphertext, m.iv, m."authTag", m."keyVersion",
+             p.ciphertext AS "pollCiphertext", p.iv AS "pollIv",
+             p."authTag" AS "pollAuthTag", p."keyVersion" AS "pollKeyVersion"
+      FROM "ChatSearchToken" t
+      JOIN "ChatMessage" m ON m.id = t."messageId"
+      LEFT JOIN "ChatPoll" p ON p."messageId" = m.id
+      JOIN "ChatMember" cm ON cm."chatId" = m."chatId"
+        AND cm."userId" = ${userId}::uuid AND cm."leftAt" IS NULL
+      WHERE t.token = ${token}
+        AND m."deletedAt" IS NULL
+        AND (${f.chatId ?? null}::uuid IS NULL OR t."chatId" = ${f.chatId ?? null}::uuid)
+        AND (${f.senderId ?? null}::uuid IS NULL OR m."authorId" = ${f.senderId ?? null}::uuid)
+        AND (${f.from ?? null}::timestamptz IS NULL OR m."createdAt" >= ${f.from ?? null}::timestamptz)
+        AND (${f.to ?? null}::timestamptz IS NULL OR m."createdAt" < ${f.to ?? null}::timestamptz)
+        AND (
+          ${f.hasFiles ?? false} = false
+          OR EXISTS (SELECT 1 FROM "ChatMessageFile" mf WHERE mf."messageId" = m.id)
+        )
+      ORDER BY t."createdAt" DESC, m.id DESC
+      LIMIT ${f.take} OFFSET ${f.skip}
+    `;
+  }
+
   return prisma.$queryRaw`
     SELECT m.id, m."chatId", m.seq, m."authorId", m."createdAt",
            m.ciphertext, m.iv, m."authTag", m."keyVersion",
@@ -1146,10 +1213,14 @@ export function searchMessages(
         OR EXISTS (SELECT 1 FROM "ChatMessageFile" mf WHERE mf."messageId" = m.id)
       )
     GROUP BY m.id, p."messageId"
+    -- the TOKEN's own time, not the message's, so the index on (token, createdAt DESC) can answer
+    -- in this order. They are the same instant: the column is the message's, copied onto the token
+    -- when it is written (§8; audit, 2026-09-20).
+    --
+    -- The id as well: two messages written in the same millisecond have no order of their own, and
+    -- a page boundary inside such a pair would repeat one and skip the other (review, 2026-09-20).
     HAVING count(DISTINCT t.token) = ${tokens.length}
-    -- the id as well: two messages written in the same millisecond have no order of their own, and
-    -- a page boundary inside such a pair would repeat one and skip the other (review, 2026-09-20)
-    ORDER BY m."createdAt" DESC, m.id DESC
+    ORDER BY max(t."createdAt") DESC, m.id DESC
     LIMIT ${f.take} OFFSET ${f.skip}
   `;
 }
