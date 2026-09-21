@@ -113,6 +113,23 @@ describe("what a message draws", () => {
   });
 });
 
+describe("a record inside another one", () => {
+  /**
+   * A company, a contact person and a subscription live INSIDE a client, so their address is the
+   * client's with a tab and a mark on it. They are deliberately not kinds of their own: pasted
+   * into a chat they draw the CLIENT's card, which is the honest answer — that is the record, and
+   * the link opens it at the part being talked about (owner, 2026-09-21).
+   */
+  it("is a link to its parent, opened at the right part", () => {
+    const inside = `${HERE}/clients/${ID}?tab=companies&company=${OTHER}`;
+    expect(crmLinksIn(inside)).toEqual([{ kind: "client", id: ID, url: inside }]);
+    expect(crmLinksIn(`${HERE}/clients/${ID}?tab=people&person=${OTHER}`)).toHaveLength(1);
+    expect(crmLinksIn(`${HERE}/clients/${ID}?tab=services&subscription=${OTHER}`)).toHaveLength(
+      1,
+    );
+  });
+});
+
 describe("the registry itself", () => {
   it("has one entry per kind, each with an address that matches its own pattern", () => {
     const kinds = CRM_LINKS.map((spec) => spec.kind);

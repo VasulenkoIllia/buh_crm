@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   CalendarDays,
   CircleSlash,
+  FileSignature,
   FileText,
   KeyRound,
   Layers,
@@ -46,6 +47,8 @@ const ICONS: Record<CrmKind, typeof ListTodo> = {
   mailout: Mail,
   campaign: Megaphone,
   service: Layers,
+  template: FileSignature,
+  person: UserRound,
 };
 
 /**

@@ -1,5 +1,5 @@
 import { Suspense, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useAccess } from "@/app/auth";
 import type { Client } from "@shared/schema/client";
 import { ActivityFeed } from "@/modules/activity";
@@ -12,6 +12,7 @@ import { ClientSecrets } from "@/modules/secrets";
 import { EntityTasks } from "@/modules/tasks";
 import { useSettings } from "@/modules/settings";
 import { fmtDate } from "@/shared/lib/format";
+import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { CopyLink } from "@/shared/ui/copy-link";
 import { IconArchive, IconEdit } from "@/shared/ui/icons";
@@ -67,7 +68,26 @@ export function ClientCardPage() {
   const archive = useArchiveClient();
   const [editOpen, setEditOpen] = useState(false);
   const [peopleOpen, setPeopleOpen] = useState(false);
-  const [tab, setTab] = useState<TabKey>("profile");
+  /**
+   * **The open tab is in the address** (`/clients/<id>?tab=files`), so a link to a client can name
+   * the part of them being talked about, and the three things that live INSIDE this card — a
+   * company, a contact person, a subscription — have an address at all (chat.md §5.6). The card
+   * had it in `useState`, so every link to a client landed on Profile.
+   */
+  const [params, setParams] = useSearchParams();
+  const tab = (params.get("tab") ?? "profile") as TabKey;
+  const setTab = (next: TabKey) =>
+    setParams(
+      (prev) => {
+        const out = new URLSearchParams(prev);
+        if (next === "profile") out.delete("tab");
+        else out.set("tab", next);
+        // the thing that was open inside the old tab is not open in the new one
+        for (const key of ["company", "person", "subscription"]) out.delete(key);
+        return out;
+      },
+      { replace: true }, // a tab click is not a page somebody wants in their Back button
+    );
   const access = useAccess();
 
   /**
@@ -176,9 +196,15 @@ export function ClientCardPage() {
 
       {/* company view (multi-company clients) */}
       {activeTab === "profile" && <ProfileTab client={client} />}
-      {activeTab === "companies" && <CompaniesTab client={client} />}
+      {activeTab === "companies" && (
+        <CompaniesTab client={client} marked={params.get("company")} />
+      )}
       {activeTab === "people" && (
-        <PeopleTab client={client} onManage={() => setPeopleOpen(true)} />
+        <PeopleTab
+          client={client}
+          marked={params.get("person")}
+          onManage={() => setPeopleOpen(true)}
+        />
       )}
       {activeTab === "secrets" && (
         // through the secrets barrel, already lazy: the forms, the generator and the move dialog
@@ -194,7 +220,9 @@ export function ClientCardPage() {
       {activeTab === "meetings" && (
         <EntityMeetings target={{ kind: "client", id: client.id }} />
       )}
-      {activeTab === "services" && <ServicesTab client={client} />}
+      {activeTab === "services" && (
+        <ServicesTab client={client} marked={params.get("subscription")} />
+      )}
       {/* Keyed by client: the route reuses this page when moving between two cards, so without it
           the Mailouts tab would carry its page number across — landing on page 3 of a client who
           has five letters, which renders a blank panel that explains nothing. */}
@@ -233,7 +261,7 @@ export function ClientCardPage() {
   );
 }
 
-function ServicesTab({ client }: { client: Client }) {
+function ServicesTab({ client, marked }: { client: Client; marked?: string | null }) {
   const [addOpen, setAddOpen] = useState(false);
   return (
     <div className="rounded-(--radius-panel) border border-border bg-surface p-5">
@@ -243,7 +271,7 @@ function ServicesTab({ client }: { client: Client }) {
           + Add service
         </Button>
       </div>
-      <SubscriptionList client={client} />
+      <SubscriptionList client={client} marked={marked} />
       <p className="mt-3 text-[12px] text-faint">
         Tasks are generated from subscriptions with the Tasks stage (S6).
       </p>
@@ -260,7 +288,16 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function PeopleTab({ client, onManage }: { client: Client; onManage: () => void }) {
+function PeopleTab({
+  client,
+  marked,
+  onManage,
+}: {
+  client: Client;
+  /** the one a link is pointing at (`?person=<id>`), marked so the eye finds it */
+  marked?: string | null;
+  onManage: () => void;
+}) {
   const { data: services } = useCatalog();
   const serviceById = new Map((services ?? []).map((s) => [s.id, s]));
   return (
@@ -285,9 +322,12 @@ function PeopleTab({ client, onManage }: { client: Client; onManage: () => void 
           {client.people.map((p) => (
             <li
               key={p.id}
-              className="flex items-center justify-between border-b border-divider px-5 py-3 text-[13px] last:border-0"
+              className={cn(
+                "flex items-center gap-3 border-b border-divider px-5 py-3 text-[13px] last:border-0",
+                p.id === marked && "bg-primary-soft",
+              )}
             >
-              <div>
+              <div className="min-w-0 flex-1">
                 <div className="font-medium">{p.name}</div>
                 <div className="text-[12px] text-muted">
                   {[p.phone, p.email].filter(Boolean).join(" · ") || "—"}
@@ -303,6 +343,10 @@ function PeopleTab({ client, onManage }: { client: Client; onManage: () => void 
                   {p.serviceLabel}
                 </span>
               ) : null}
+              <CopyLink
+                href={`/clients/${client.id}?tab=people&person=${p.id}`}
+                label={`Copy link to ${p.name}`}
+              />
             </li>
           ))}
         </ul>

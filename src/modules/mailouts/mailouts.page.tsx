@@ -256,6 +256,14 @@ function TemplateList({ newSignal }: { newSignal: number }) {
   const [editing, setEditing] = useState<EmailTemplate | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** `?template=<id>` is a template's own address (chat.md §5.6), so a link to one opens it */
+  const [openId, openTemplate, closeTemplate] = useRecordParam("template");
+  useEffect(() => {
+    if (!openId || !data) return;
+    const found = data.find((t) => t.id === openId);
+    if (found) setEditing(found);
+    else closeTemplate();
+  }, [openId, data, closeTemplate]);
 
   /**
    * A CHANGE in the signal opens the editor — never the signal's mere presence.
@@ -323,7 +331,7 @@ function TemplateList({ newSignal }: { newSignal: number }) {
                   row put four repeated words on every line and pulled the eye off the template
                   they act on — the reason IconButton exists (see its comment). */}
               <div className="flex flex-none items-center gap-1">
-                <IconButton label="Edit template" onClick={() => setEditing(t)}>
+                <IconButton label="Edit template" onClick={() => openTemplate(t.id)}>
                   <Pencil size={15} />
                 </IconButton>
                 <IconButton
@@ -362,7 +370,14 @@ function TemplateList({ newSignal }: { newSignal: number }) {
       )}
 
       <TemplateModal open={creating} template={null} onClose={() => setCreating(false)} />
-      <TemplateModal open={!!editing} template={editing} onClose={() => setEditing(null)} />
+      <TemplateModal
+        open={!!editing}
+        template={editing}
+        onClose={() => {
+          setEditing(null);
+          closeTemplate();
+        }}
+      />
     </>
   );
 }

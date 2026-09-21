@@ -33,7 +33,9 @@ export type CrmKind =
   | "chat"
   | "mailout"
   | "campaign"
-  | "service";
+  | "service"
+  | "template"
+  | "person";
 
 /** What a card shows once the record has answered. */
 export interface RecordName {
@@ -261,6 +263,46 @@ export const CRM_LINKS: CrmLinkKind[] = [
           campaign.nextRunOn ? ` · next ${campaign.nextRunOn}` : ""
         }`,
         settled: campaign.status !== "active",
+      };
+    },
+  },
+  {
+    kind: "template",
+    label: "Letter template",
+    href: (id) => `/mailouts?tab=templates&template=${id}`,
+    idIn: byParam("/mailouts", "template"),
+    /** the templates are one small list behind the Mail-outs gate; no read of its own is needed */
+    ask: async (id) => {
+      const all = await api<{ id: string; name: string; subject: string }[]>(
+        "/api/mailouts/templates",
+      );
+      const template = all.find((t) => t.id === id);
+      if (!template) throw new Error("No such template");
+      return { name: template.name, note: template.subject };
+    },
+  },
+  {
+    kind: "person",
+    label: "Colleague",
+    href: (id) => `/team?user=${id}`,
+    idIn: byParam("/team", "user"),
+    /**
+     * The firm's own directory (`/api/tasks/assignees`), which is `shared()` and is what every
+     * assignee picker in the CRM fills from — NOT `GET /api/users`, which is the Team screen's
+     * and admin-only. A colleague's name is not something to hide from their colleagues; what is
+     * admin-only is their email, their role and the acts on them, and none of that is here.
+     */
+    ask: async (id) => {
+      const all =
+        await api<{ id: string; firstName: string; lastName: string; status: string }[]>(
+          "/api/tasks/assignees",
+        );
+      const person = all.find((p) => p.id === id);
+      if (!person) throw new Error("No such colleague");
+      return {
+        name: `${person.firstName} ${person.lastName}`.trim(),
+        note: person.status === "active" ? null : person.status,
+        settled: person.status !== "active",
       };
     },
   },

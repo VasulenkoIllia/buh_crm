@@ -2,9 +2,11 @@ import { useState } from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import type { Client, Company, CompanyInput } from "@shared/schema/client";
 import { ApiError } from "@/shared/lib/api";
+import { cn } from "@/shared/lib/cn";
 import { Button, IconButton } from "@/shared/ui/button";
 import { FormField, Input, Textarea } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
+import { CopyLink } from "@/shared/ui/copy-link";
 import { useUpdateClient } from "./clients.api";
 
 /**
@@ -40,7 +42,14 @@ const toInput = (c: Company): CompanyInput => ({
   description: c.description,
 });
 
-export function CompaniesTab({ client }: { client: Client }) {
+export function CompaniesTab({
+  client,
+  marked,
+}: {
+  client: Client;
+  /** the one a link is pointing at (`?company=<id>`), marked so the eye finds it */
+  marked?: string | null;
+}) {
   const update = useUpdateClient();
   const [editing, setEditing] = useState<Company | "new" | null>(null);
 
@@ -95,7 +104,10 @@ export function CompaniesTab({ client }: { client: Client }) {
             {client.companies.map((c) => (
               <li
                 key={c.id}
-                className="flex items-start gap-3 border-b border-divider px-5 py-3 text-[13px] last:border-0"
+                className={cn(
+                  "flex items-start gap-3 border-b border-divider px-5 py-3 text-[13px] last:border-0",
+                  c.id === marked && "bg-primary-soft",
+                )}
               >
                 <div className="min-w-0 flex-1">
                   <div className="font-semibold">{c.name}</div>
@@ -111,6 +123,10 @@ export function CompaniesTab({ client }: { client: Client }) {
                   )}
                 </div>
                 <div className="flex flex-none items-center gap-1">
+                  <CopyLink
+                    href={`/clients/${client.id}?tab=companies&company=${c.id}`}
+                    label="Copy link to this company"
+                  />
                   <IconButton label="Edit company" onClick={() => openForm(c)}>
                     <Pencil size={15} />
                   </IconButton>

@@ -5,6 +5,7 @@ import { Button } from "@/shared/ui/button";
 import { FormField, Input, Select, Textarea } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
 import { Segmented } from "@/shared/ui/segmented";
+import { CopyLink } from "@/shared/ui/copy-link";
 import { LetterPreviewModal } from "./letter-preview-modal";
 import { useCreateTemplate, useSenderOptions, useUpdateTemplate } from "./mailouts.api";
 
@@ -116,6 +117,11 @@ export function TemplateModal({
       onClose={onClose}
       size="xl"
       title={template ? "Edit template" : "New template"}
+      actions={
+        template ? (
+          <CopyLink href={`/mailouts?tab=templates&template=${template.id}`} />
+        ) : undefined
+      }
       footer={
         <div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose} disabled={busy}>

@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { inviteUserInput, type InviteUserInput, type PublicUser } from "@shared/schema/user";
@@ -6,6 +7,7 @@ import type { TwoFactorPolicy, TwoFactorTeamOverview } from "@shared/schema/two-
 import type { PersonalFilesSummary } from "@shared/schema/files";
 import { plural } from "@shared/text";
 import { useAuth } from "@/app/auth";
+import { cn } from "@/shared/lib/cn";
 import { ApiError } from "@/shared/lib/api";
 import { fmtBytes } from "@/shared/lib/format";
 import { UserAvatar } from "@/shared/ui/avatar";
@@ -27,6 +29,9 @@ export function TeamPage() {
   const { user: me } = useAuth();
   const { data: users, isLoading, error } = useUsers();
   const twoFactor = useTwoFactorTeam();
+  /** `?user=<id>` marks a colleague's row: what a link to a person in the chat goes to (§5.6) */
+  const [params] = useSearchParams();
+  const linked = params.get("user");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [resetting, setResetting] = useState<PublicUser | null>(null);
 
@@ -69,6 +74,7 @@ export function TeamPage() {
                 key={user.id}
                 user={user}
                 isSelf={user.id === me.id}
+                marked={user.id === linked}
                 twoFactorOn={enabled ? enabled.has(user.id) : undefined}
                 onReset={() => setResetting(user)}
               />
@@ -273,11 +279,14 @@ function ResetTwoFactorModal({
 function UserRow({
   user,
   isSelf,
+  marked,
   twoFactorOn,
   onReset,
 }: {
   user: PublicUser;
   isSelf: boolean;
+  /** arrived at through `/team?user=<id>`: the row is marked so the eye finds it */
+  marked?: boolean;
   twoFactorOn: boolean | undefined;
   onReset: () => void;
 }) {
@@ -288,7 +297,7 @@ function UserRow({
   const name = `${user.firstName} ${user.lastName}`.trim() || "—";
 
   return (
-    <tr className="border-b border-divider last:border-0">
+    <tr className={cn("border-b border-divider last:border-0", marked && "bg-primary-soft")}>
       <td className="px-4 py-2.5">
         <span className="flex items-center gap-2.5">
           <UserAvatar user={user} size="sm" />

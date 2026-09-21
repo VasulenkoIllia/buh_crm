@@ -31,6 +31,7 @@ import { Modal } from "@/shared/ui/modal";
 import { InfoHint } from "@/shared/ui/info-hint";
 import { ScrollBox } from "@/shared/ui/scroll-box";
 import { pillCls } from "@/shared/ui/pill";
+import { CopyLink } from "@/shared/ui/copy-link";
 import {
   useAddSubscription,
   usePauseSubscription,
@@ -175,7 +176,14 @@ function DueDaysField({
 }
 
 /** Subscription table inside the client card's Regular section. */
-export function SubscriptionList({ client }: { client: Client }) {
+export function SubscriptionList({
+  client,
+  marked,
+}: {
+  client: Client;
+  /** the one a link is pointing at (`?subscription=<id>`), marked so the eye finds it */
+  marked?: string | null;
+}) {
   const { data: services } = useCatalog();
   const update = useUpdateSubscription();
   const [editing, setEditing] = useState<Subscription | undefined>();
@@ -214,7 +222,12 @@ export function SubscriptionList({ client }: { client: Client }) {
         const cannotPause = sub.isDefault && sub.state === "in_force" && !sub.inForceUntil;
         return (
           <div key={sub.id} className={cn(sub.state !== "in_force" && "opacity-50")}>
-            <div className="flex items-center gap-3 border-b border-divider py-2 text-[13px]">
+            <div
+              className={cn(
+                "flex items-center gap-3 border-b border-divider py-2 text-[13px]",
+                sub.id === marked && "-mx-2 rounded-(--radius-field) bg-primary-soft px-2",
+              )}
+            >
               {taskCount > 0 ? (
                 <button
                   type="button"
@@ -276,6 +289,10 @@ export function SubscriptionList({ client }: { client: Client }) {
                   : `${PERIOD_LABEL[sub.period]} · ${timingLabel(effectiveTiming(sub, service))}`}
               </span>
               {/* same quiet icon strip as the Service catalog rows — one look for row actions */}
+              <CopyLink
+                href={`/clients/${client.id}?tab=services&subscription=${sub.id}`}
+                label="Copy link to this subscription"
+              />
               <IconButton label="Edit service" onClick={() => setEditing(sub)}>
                 <Pencil size={15} />
               </IconButton>
