@@ -9,6 +9,7 @@ import type {
 } from "@shared/schema/chat.js";
 import { buildApp } from "../../app.js";
 import { prisma } from "../../core/db.js";
+import { invalidateAccessCache } from "../../core/access.js";
 import * as repo from "./chat.repository.js";
 import { sweepChatFiles } from "./index.js";
 import { createPeople, removePeople, type Person } from "../../test/people.js";
@@ -831,6 +832,54 @@ describe("what every chat is holding (chat.md §6.5)", () => {
     // and the chat is untouched: the file is still listed where it was sent
     const still = await call(olena, "GET", `/chats/${chatId}/files`);
     expect((still.body as ChatFilesPage).files).toHaveLength(1);
+  });
+
+  it("counts a chat the reader has HIDDEN, which still holds its files", async () => {
+    const chatId = await group(olena, "Hidden but heavy", [petro]);
+    const file = await doc(olena, chatId, "old-and-big.pdf");
+    await say(olena, chatId, { text: "from last year", files: [file] });
+
+    // hiding is a decision about a LIST of conversations, not about what a chat is holding
+    const hid = await call(olena, "PUT", `/chats/${chatId}/settings`, { hidden: true });
+    expect(hid.status, JSON.stringify(hid.body)).toBe(200);
+    const list = (await call(olena, "GET", "/chats")).body as ChatSummary[];
+    expect(
+      list.some((c) => c.id === chatId),
+      "really gone from the sidebar",
+    ).toBe(false);
+
+    const page = await overview(olena);
+    const row = page.chats.find((c) => c.chatId === chatId);
+    expect(row?.files, "and still counted, with its name").toBe(1);
+    expect(row?.title).toBe("Hidden but heavy");
+  });
+
+  it("refuses to keep a file where the LIBRARY is not open to the reader", async () => {
+    const chatId = await group(olena, "Nowhere to put it", [petro]);
+    const file = await doc(olena, chatId, "homeless.pdf");
+    await say(olena, chatId, { text: "mine", files: [file] });
+
+    // the route is declared on the CHAT's gate; the library's is checked inside the service, and
+    // nothing in the route inventory or the access matrix can see that (audit, 2026-09-22)
+    await prisma.accessOverride.upsert({
+      where: { userId_gate_action: { userId: olena.id, gate: "files", action: "*" } },
+      update: { state: "read_only" },
+      create: { userId: olena.id, gate: "files", state: "read_only" },
+    });
+    invalidateAccessCache();
+    try {
+      const res = await call(olena, "POST", `/files/${file.fileId}/keep`, {
+        to: { space: "personal" },
+      });
+      expect(res.status, JSON.stringify(res.body)).toBe(403);
+      expect(
+        await prisma.file.count({ where: { name: "homeless.pdf" } }),
+        "and nothing was written",
+      ).toBe(1);
+    } finally {
+      await prisma.accessOverride.deleteMany({ where: { userId: olena.id, gate: "files" } });
+      invalidateAccessCache();
+    }
   });
 
   it("will not keep a file out of a chat somebody is not in", async () => {

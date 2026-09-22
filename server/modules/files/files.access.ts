@@ -12,7 +12,10 @@ import { accessMapFor, ModuleClosedError } from "../../core/access.js";
  * - search, the same way: Files, plus Clients and Tasks for what sits behind them (§13);
  * - Company's Attachments, files on the firm's internal tasks: Files and Tasks;
  * - a move from My files or Company into a client: Files and Clients;
- * - an admin's move out of a client into Company or My files: Clients and Files.
+ * - an admin's move out of a client into Company or My files: Clients and Files;
+ * - **keeping a file sent in a chat** (`copyIntoLibrary`, chat.md §6.5): the route is the CHAT's,
+ *   so this module's gate is checked here and nowhere else — the route inventory and the access
+ *   matrix see only `gate("chat")` and cannot know about it.
  *
  * The caller's map is read the way the activity reader reads it, once per request.
  */

@@ -156,6 +156,32 @@ export async function listChats(user: User): Promise<ChatSummary[]> {
     .sort(byListOrder);
 }
 
+/**
+ * **Every chat the reader is still in, named** — which is not the same as the LIST (§6.5).
+ *
+ * `listed()` hides two kinds from the sidebar: a direct chat nobody has written in, and one the
+ * reader hid until something newer arrives. Both are decisions about a list of CONVERSATIONS, and
+ * neither says anything about what a chat is holding. Naming the Chats pane from the list dropped
+ * a hidden chat's files out of the pane and out of its total, silently — and a big old group that
+ * somebody hid months ago is exactly the one worth cleaning up (audit, 2026-09-22).
+ *
+ * It reads no last messages and counts no unread, so it is cheaper than `listChats` as well.
+ */
+export async function namedChats(
+  user: User,
+): Promise<Pick<ChatSummary, "id" | "kind" | "title" | "peer">[]> {
+  const rows = await repo.membershipsOf(user.id);
+  return rows.map(({ chat }) => ({
+    id: chat.id,
+    kind: chat.kind,
+    title: titleOf(chat),
+    peer:
+      chat.kind === "direct"
+        ? (chat.members.find((x) => x.userId !== user.id)?.user ?? null)
+        : null,
+  }));
+}
+
 /** The reader's membership, or "no such chat": the one check (§4.4). */
 export async function requireMember(chatId: string, userId: string): Promise<Membership> {
   const m = await repo.membershipIn(chatId, userId);

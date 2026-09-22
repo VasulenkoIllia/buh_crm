@@ -239,7 +239,7 @@ export async function send(
         if (!(await repo.claimUploadsTx(tx, chatId, user.id, ids))) {
           throw new ValidationError("That file is not ready to send");
         }
-        await repo.linkFilesTx(tx, id, carried);
+        await repo.linkFilesTx(tx, id, chatId, carried);
       }
       // the words it can be found by, written with it rather than after it (§8)
       await search.indexTx(tx, chatId, id, [text, ...(input.poll?.options ?? [])], at);
@@ -439,7 +439,7 @@ export async function forward(user: User, input: ForwardInput): Promise<void> {
           forwardedFromId: one.source.forwardedFromId ?? one.source.authorId,
           at,
         });
-        if (one.files.length > 0) await repo.copyLinksTx(tx, id, one.files);
+        if (one.files.length > 0) await repo.copyLinksTx(tx, id, chatId, one.files);
         if (one.text !== null) await search.indexTx(tx, chatId, id, [one.text], at);
         await repo.markSentTx(tx, chatId, user.id, seq, []);
         out.push(seq);

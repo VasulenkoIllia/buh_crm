@@ -2262,6 +2262,10 @@ model ChatMessage {
   /// author: "this person's Nth attempt to say this HERE". Without the chat in it, a retry that
   /// reached another chat would be answered with the first chat's message (review, 2026-09-20).
   @@unique([chatId, authorId, clientMessageId])
+  /// Half of the composite key `ChatMessageFile` points at, so a link's denormalised `chatId`
+  /// cannot disagree with its message's — the same shape `Folder (id, scope)` has for a file's
+  /// place (files.md §14.2).
+  @@unique([id, chatId])
 }
 
 /// One emoji from one person on one message; the emoji itself is plain, like every reaction count.
@@ -2329,6 +2333,11 @@ model ChatPollVote {
 /// any chat holding a LIVE message that carries it — which no column could.
 model ChatMessageFile {
   messageId     String  @db.Uuid
+  /// **The message's own chat, copied here** so that "what is every chat of this person holding"
+  /// (chat.md §6.5) can narrow by the reader's chats before it reads anything. Never written by
+  /// hand and never updated: it is half of the foreign key onto `ChatMessage (id, chatId)`, so the
+  /// database refuses a link that names any other chat.
+  chatId        String  @db.Uuid
   fileId        String  @db.Uuid
   /// The small JPEG the browser drew for a photo (§6.2), a file in its own right. Null for
   /// everything that shows as a card, and for a photo the sender's browser could not draw.
@@ -2336,7 +2345,7 @@ model ChatMessageFile {
   /// its place in the message, from 0; at most ten per message, which a CHECK holds
   position      Int
 
-  message ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  message ChatMessage @relation(fields: [messageId, chatId], references: [id, chatId], onDelete: Cascade, onUpdate: Cascade)
   /// Cascade both ways: the purge deletes a file's bytes and its row, and a link to a row that is
   /// gone would say the message still carries something.
   file    File        @relation("ChatMessageFile", fields: [fileId], references: [id], onDelete: Cascade)
@@ -2345,6 +2354,8 @@ model ChatMessageFile {
   @@id([messageId, fileId])
   /// "is this file carried by a live message of a chat I am in": the access read, for every open
   @@index([fileId])
+  /// what one chat is holding, and what all of the reader's are (§6.5)
+  @@index([chatId])
   @@index([previewFileId])
 }
 

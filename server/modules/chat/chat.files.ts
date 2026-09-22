@@ -28,7 +28,7 @@ import {
   viewOf,
 } from "../files/index.js";
 import * as repo from "./chat.repository.js";
-import { listChats, requireMember, requireWriter } from "./chat.service.js";
+import { namedChats, requireMember, requireWriter } from "./chat.service.js";
 
 /**
  * **Files in chats** (chat.md §6): the upload, who may open one, and the sweep for uploads nobody
@@ -292,7 +292,12 @@ export async function openPreview(user: User, fileId: string) {
  * chat somebody is not in is not merely hidden from this list — it is not in the answer at all.
  */
 export async function filesOverview(user: User): Promise<ChatFilesOverview> {
-  const [rows, chats] = await Promise.all([repo.fileTotalsByChat(user.id), listChats(user)]);
+  const [rows, chats] = await Promise.all([
+    repo.fileTotalsByChat(user.id),
+    // every chat they are IN, not every chat their sidebar shows: a hidden one still holds its
+    // files, and dropping it here would take them out of the total too (audit, 2026-09-22)
+    namedChats(user),
+  ]);
   const named = new Map(chats.map((c) => [c.id, c]));
 
   const byChat = new Map<string, Map<FileKind, { files: number; bytes: number }>>();
@@ -308,7 +313,7 @@ export async function filesOverview(user: User): Promise<ChatFilesOverview> {
 
   const out: ChatFilesRow[] = [];
   for (const [chatId, kinds] of byChat) {
-    // a chat the list does not name is one this reader has left between the two reads
+    // a chat that is not named is one this reader has LEFT between the two reads
     const chat = named.get(chatId);
     if (!chat) continue;
     const byKind = [...kinds.entries()]

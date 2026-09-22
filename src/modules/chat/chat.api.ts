@@ -24,6 +24,7 @@ import type {
 } from "@shared/schema/chat";
 import type { FileRow, PlaceInput } from "@shared/schema/files";
 import { api } from "@/shared/lib/api";
+import { FILES_KEY } from "@/shared/lib/query-keys";
 import { CHAT_KEY, CHAT_LIST_KEY } from "@/shared/lib/query-keys";
 import { realtime } from "@/shared/lib/realtime";
 
@@ -115,7 +116,7 @@ export function useKeepChatFile() {
         method: "POST",
         body: { to: input.to, ...(input.folderId ? { folderId: input.folderId } : {}) },
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["files"] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: FILES_KEY }),
   });
 }
 

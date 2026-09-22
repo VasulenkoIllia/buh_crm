@@ -126,6 +126,30 @@ describe("code splitting cannot be undone by accident", () => {
     ).toBe(false);
   });
 
+  /**
+   * The fifth, and the one that holds by luck rather than by design today.
+   *
+   * `src/modules/files` now imports the CHAT barrel — the Files screen shows how much each chat is
+   * holding (chat.md §6.5). It costs nothing at the moment because everything that barrel reaches
+   * is either tiny or already eager: `chat.api.ts` is pulled into the first chunk anyway by
+   * `ChatWatch`, which the shell renders on every page. Measured 2026-09-22: the first chunk moved
+   * by 0.15 kB gzip and the Files chunk reaches no chat code at all.
+   *
+   * What would break it is publishing anything HEAVY from that barrel — a screen, the composer, the
+   * emoji data, the message row — because Files, Settings and the shell would then share it. So the
+   * barrel is held to hooks and the one component the shell already mounts.
+   */
+  it("the chat barrel publishes nothing a screen would be sorry to share", async () => {
+    const barrel = await readFile(new URL("../modules/chat/index.ts", import.meta.url), "utf8");
+    const from = [...barrel.matchAll(/from\s+["']\.\/([^"']+)["']/g)].map((m) => m[1]);
+    expect(
+      from.filter((f) => !["chat.api", "chat-watch", "use-realtime"].includes(f)),
+      "The Files screen imports this barrel. Publishing a screen, the composer, the message row or " +
+        "the emoji picker from it puts that code in a chunk every one of them shares — publish it " +
+        "through lazy(), or leave it inside the module.",
+    ).toEqual([]);
+  });
+
   it("the router loads every screen on demand", async () => {
     const router = await readFile(new URL("./router.tsx", import.meta.url), "utf8");
     // every Page component the router names must arrive through lazy(), not a static import

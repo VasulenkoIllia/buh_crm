@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { ChatFilesRow } from "@shared/schema/chat";
-import { FILE_KIND_LABEL, fileKind, type FileKind } from "@shared/file-kind";
+import { FILE_KIND_LABEL, fileKind } from "@shared/file-kind";
+import { useCanEdit } from "@/app/auth";
 import { useChatFiles, useChatFilesOverview } from "@/modules/chat";
 import { cn } from "@/shared/lib/cn";
 import { fmtBytes, fmtDate } from "@/shared/lib/format";
@@ -82,9 +83,7 @@ export function ChatsPane() {
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-medium">{chatName(row)}</span>
                 <span className="block truncate text-[11.5px] text-muted">
-                  {row.byKind
-                    .map((k) => `${FILE_KIND_LABEL[k.kind as FileKind] ?? k.kind} ${k.files}`)
-                    .join(" · ")}
+                  {row.byKind.map((k) => `${FILE_KIND_LABEL[k.kind]} ${k.files}`).join(" · ")}
                 </span>
               </span>
               <span className="flex-none text-[11.5px] text-muted-400 tabular-nums">
@@ -127,6 +126,17 @@ export function ChatsPane() {
  */
 export function ChatFilesPane({ chatId }: { chatId: string }) {
   const [keeping, setKeeping] = useState<{ fileId: string; name: string } | null>(null);
+  /**
+   * Keeping a file writes into the LIBRARY, and the library can be read-only. Without somewhere to
+   * put it the button is a control that can only fail, which is worse than no button.
+   *
+   * The chat's own gate is `ON_OFF` and can never be read-only, so being here at all is enough for
+   * that half — the branch is not drawn when it is closed (audit, 2026-09-22, correcting a first
+   * version of this that guarded against a state the gate cannot be in).
+   */
+  const filesOpen = useCanEdit("files");
+  const clientsOpen = useCanEdit("clients");
+  const canKeep = filesOpen || clientsOpen;
   const overview = useChatFilesOverview();
   const row = overview.data?.chats.find((c) => c.chatId === chatId);
   const { data, error, isLoading } = useChatFiles(chatId, {}, true);
@@ -166,13 +176,15 @@ export function ChatFilesPane({ chatId }: { chatId: string }) {
             </span>
             {/* keeping it is the one thing done HERE; deleting it is done where it lives, by
                 deleting the message that carries it (chat.md §6.3) */}
-            <IconButton
-              label="Keep this in Files"
-              size="sm"
-              onClick={() => setKeeping({ fileId: file.fileId, name: file.name })}
-            >
-              <IconFileInto />
-            </IconButton>
+            {canKeep && (
+              <IconButton
+                label="Keep this in Files"
+                size="sm"
+                onClick={() => setKeeping({ fileId: file.fileId, name: file.name })}
+              >
+                <IconFileInto />
+              </IconButton>
+            )}
             <Link
               to={`/chat/${chatId}?m=${file.seq}`}
               title="Go to the message it came in"
@@ -196,9 +208,7 @@ export function ChatFilesPane({ chatId }: { chatId: string }) {
           <p className="text-[12px] text-muted">
             {row.files} files · {fmtBytes(row.bytes)} ·{" "}
             {row.byKind
-              .map(
-                (k) => `${FILE_KIND_LABEL[k.kind as FileKind] ?? k.kind} ${fmtBytes(k.bytes)}`,
-              )
+              .map((k) => `${FILE_KIND_LABEL[k.kind]} ${fmtBytes(k.bytes)}`)
               .join(" · ")}
           </p>
         ) : undefined

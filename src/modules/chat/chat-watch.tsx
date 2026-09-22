@@ -3,9 +3,39 @@ import { useLocation, useNavigate } from "react-router-dom";
 import type { ChatSummary } from "@shared/schema/chat";
 import { useAuth } from "@/app/auth";
 import { playChime } from "@/modules/notifications";
-import { useChatPeople, useChats } from "./chat.api";
+import { useQueryClient } from "@tanstack/react-query";
+import { realtime } from "@/shared/lib/realtime";
+import { chatKeys, useChatPeople, useChats } from "./chat.api";
 import { chatSettings } from "./notify-settings";
 import { useRealtime } from "./use-realtime";
+
+/**
+ * **What every chat is holding, kept true from anywhere** (chat.md §6.5).
+ *
+ * The Chats pane lives on the FILES screen, which never opens a conversation — so the chat page's
+ * own listener, which refreshes a chat's files only while that chat is open, could not reach it.
+ * With a thirty-second stale time and no other signal, a colleague deleting a message with a file
+ * left the pane showing a larger number for as long as it stayed on screen: silently wrong
+ * accounting, in the one place built to make the accounting trustworthy (audit, 2026-09-22).
+ *
+ * It lives here because this is the one listener the whole CRM already has open. Marking a query
+ * nobody has mounted as stale costs nothing.
+ */
+function useChatFilesLive() {
+  const client = useQueryClient();
+  useEffect(() => {
+    const connection = realtime();
+    const touched = (chatId: string) => {
+      void client.invalidateQueries({ queryKey: chatKeys.files("overview") });
+      void client.invalidateQueries({ queryKey: chatKeys.files(chatId) });
+    };
+    const off = [
+      connection.on("chat_message", (e) => touched(e.chatId)),
+      connection.on("chat_message_changed", (e) => touched(e.chatId)),
+    ];
+    return () => off.forEach((stop) => stop());
+  }, [client]);
+}
 
 /**
  * **Being told about a message while looking at something else** (chat.md §10.1).
@@ -99,6 +129,7 @@ export function ChatWatch() {
   const { user } = useAuth();
   // holds the live connection for the whole CRM, not only for the Chat screen
   useRealtime();
+  useChatFilesLive();
   const chats = useChats();
   const people = useChatPeople();
   const telling = useIsTellingTab();

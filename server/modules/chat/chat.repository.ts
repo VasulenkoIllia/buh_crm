@@ -808,10 +808,13 @@ export function unsentUploads(chatId: string, uploaderId: string, ids: readonly 
 export function linkFilesTx(
   tx: Tx,
   messageId: string,
+  chatId: string,
   files: readonly { fileId: string; previewFileId: string | null; position: number }[],
 ) {
+  // `chatId` is the message's own, and the composite foreign key onto `ChatMessage (id, chatId)`
+  // refuses it if it is not: the denormalisation cannot drift (§6.5)
   return tx.chatMessageFile.createMany({
-    data: files.map((f) => ({ messageId, ...f })),
+    data: files.map((f) => ({ messageId, chatId, ...f })),
   });
 }
 
@@ -993,9 +996,10 @@ export async function deleteFileRowIfLive(fileId: string): Promise<boolean> {
 export function copyLinksTx(
   tx: Tx,
   messageId: string,
+  chatId: string,
   links: readonly { fileId: string; previewFileId: string | null; position: number }[],
 ) {
-  return linkFilesTx(tx, messageId, links);
+  return linkFilesTx(tx, messageId, chatId, links);
 }
 
 /**
@@ -1067,9 +1071,12 @@ export async function filesOfChat(
  * however many of that chat's messages carry it — forwarding inside a chat is ordinary, and
  * counting a file twice would make the figure the pane exists for wrong.
  *
- * It starts from `ChatMessageFile`, the smallest relation here, and every join from there is on an
- * index: the message by its primary key, the membership by `(userId, leftAt)`, the file by its own.
- * The cost follows the number of FILES, not the number of messages said around them.
+ * **It narrows by the reader's own chats before it reads anything.** The first shape of this
+ * joined the link table outward to the memberships, which sounds the same and is not: the link
+ * table carried no chat, so the planner had no way to restrict it and scanned the whole FIRM's
+ * links on every call, for every reader (EXPLAIN ANALYZE against a synthetic year of one group,
+ * audit 2026-09-22). `ChatMessageFile.chatId` exists for this, and the composite key onto
+ * `ChatMessage (id, chatId)` keeps it honest.
  *
  * Previews are left out on purpose: a photo's thumbnail is not a thing anybody sent, and this
  * figure is about what the reader can see and act on. The firm's own figure on Settings → System
@@ -1079,17 +1086,19 @@ export async function fileTotalsByChat(userId: string) {
   return prisma.$queryRaw<
     { chat: string; mime: string | null; files: number; bytes: bigint }[]
   >`
-    WITH carried AS (
+    WITH mine AS (
+      SELECT "chatId" FROM "ChatMember"
+      WHERE "userId" = ${userId}::uuid AND "leftAt" IS NULL
+    ), carried AS (
       SELECT DISTINCT
-        m."chatId"                                  AS chat,
+        cmf."chatId"                                AS chat,
         f.id                                        AS file,
         f.size                                      AS size,
         coalesce(f."detectedMime", f.mime)          AS mime
       FROM "ChatMessageFile" cmf
+      JOIN mine ON mine."chatId" = cmf."chatId"
       JOIN "ChatMessage" m
         ON m.id = cmf."messageId" AND m."deletedAt" IS NULL
-      JOIN "ChatMember" cm
-        ON cm."chatId" = m."chatId" AND cm."userId" = ${userId}::uuid AND cm."leftAt" IS NULL
       JOIN "File" f
         ON f.id = cmf."fileId" AND f."deletedAt" IS NULL
     )

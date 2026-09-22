@@ -221,7 +221,12 @@ export function Conversation({
       : goTo
         ? { key: `${goTo.id}#${goTo.nth}`, of: (m: ChatMessage) => m.id === goTo.id }
         : goToSeq !== null
-          ? { key: `seq:${goToSeq}`, of: (m: ChatMessage) => m.seq === goToSeq }
+          ? // the CHAT in the key, because `seq` counts from 1 inside each one. This component
+            // does not remount between chats, and `wentTo` remembers what it has already gone to:
+            // without the chat, a link to message 5 of one chat made a link to message 5 of the
+            // next one do nothing at all, silently. A file's link out of the Chats pane is exactly
+            // that shape, and an early file has a low seq (audit, 2026-09-22).
+            { key: `${chat.id}#seq:${goToSeq}`, of: (m: ChatMessage) => m.seq === goToSeq }
           : null;
     /**
      * **Nothing is decided before the first page is in.** With no messages yet, `rows` is empty AND
@@ -279,11 +284,27 @@ export function Conversation({
      * back down. It only showed when the messages were already in the cache: arriving cold, the
      * jump ran after the measuring rather than before it, which is why `?m=` looked right for two
      * days (found from the Chats pane, 2026-09-22).
+     *
+     * Only when the target is NOT the last row. Landing on the newest message does not move the
+     * scroll at all, so no scroll event fires and nothing would put `atBottom` back — the "go to
+     * the newest" chevron would sit there pointing at where the reader already is.
      */
-    setAtBottom(false);
+    if (at < rows.length - 1) setAtBottom(false);
     virtual.scrollToIndex(at, { align: "center" });
     if (!asked) onWent?.();
-  }, [asked, goTo, goToSeq, rows, virtual, onWent, more, loading, loadingMore, onLoadMore]);
+  }, [
+    asked,
+    chat.id,
+    goTo,
+    goToSeq,
+    rows,
+    virtual,
+    onWent,
+    more,
+    loading,
+    loadingMore,
+    onLoadMore,
+  ]);
 
   useLayoutEffect(() => {
     const el = box.current;

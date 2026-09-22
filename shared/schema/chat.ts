@@ -2,6 +2,7 @@ import { z } from "zod";
 import { uuid } from "./common.js";
 import { userStatus } from "./enums.js";
 import { placeInput } from "./files.js";
+import { FILE_KINDS } from "../file-kind.js";
 
 /**
  * The chat: what crosses the wire (docs/modules/chat.md). The live connection's events are
@@ -209,7 +210,13 @@ export const chatFilesRowSchema = z.object({
   bytes: z.number().int(),
   /** what those bytes are, by kind, largest first; kinds holding nothing are left out */
   byKind: z.array(
-    z.object({ kind: z.string(), files: z.number().int(), bytes: z.number().int() }),
+    z.object({
+      // the enum, not a string: with a string the screen's lookup needed a fallback, and a
+      // fallback that can never fire reads as dead code to whoever tidies up next
+      kind: z.enum(FILE_KINDS),
+      files: z.number().int(),
+      bytes: z.number().int(),
+    }),
   ),
 });
 export type ChatFilesRow = z.infer<typeof chatFilesRowSchema>;
