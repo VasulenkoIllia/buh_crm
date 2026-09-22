@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { BellOff, LogOut, Pin, UserPlus } from "lucide-react";
+import { BellOff, LogOut, UserPlus } from "lucide-react";
 import type { ChatDetail, ChatFileItem, ChatPeople, MuteFor } from "@shared/schema/chat";
 import { useAuth } from "@/app/auth";
 import { cn } from "@/shared/lib/cn";
 import { UserAvatar } from "@/shared/ui/avatar";
 import { Button, IconButton } from "@/shared/ui/button";
 import { Modal } from "@/shared/ui/modal";
-import { IconClose } from "@/shared/ui/icons";
+import { IconClose, IconPin } from "@/shared/ui/icons";
 import { ChatFilesTab } from "./chat-files-tab";
 import {
   useAddMembers,
@@ -47,6 +47,7 @@ export function ChatPanel({
   people,
   online,
   onOpenFile,
+  onGoToMessage,
   onClose,
   onLeft,
   openOn = "details",
@@ -57,6 +58,8 @@ export function ChatPanel({
   online: Set<string>;
   /** opens the CRM's viewer on a file from the Files tab (§6.4) */
   onOpenFile: (files: ChatFileItem[], index: number) => void;
+  /** goes to the message a file came in, from the Files tab (§6.4) */
+  onGoToMessage: (messageId: string) => void;
   /** which tab to stand on when it opens; the header's two buttons choose */
   openOn?: PanelTab;
   /** bumped by the caller to say "open on that tab again", even if it is the same tab */
@@ -183,7 +186,7 @@ export function ChatPanel({
               variant="secondary"
               onClick={() => settings.mutate({ pinned: !chat.pinnedAt })}
             >
-              <Pin className="size-3.5" />
+              <IconPin />
               {chat.pinnedAt ? "Unpin" : "Pin"}
             </Button>
             {chat.kind !== "announcements" && (
@@ -265,7 +268,13 @@ export function ChatPanel({
 
       {tab === "files" && (
         <div className="flex-1 overflow-y-auto px-3 py-3">
-          <ChatFilesTab chatId={chat.id} members={chat.members} open onOpen={onOpenFile} />
+          <ChatFilesTab
+            chatId={chat.id}
+            members={chat.members}
+            open
+            onOpen={onOpenFile}
+            onGoToMessage={onGoToMessage}
+          />
         </div>
       )}
 

@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Info, Search } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { ChatFile, ChatFileItem, ChatMessage } from "@shared/schema/chat";
@@ -91,10 +91,22 @@ export function ChatPage() {
    * messages and search hits does (audit, 2026-09-20).
    */
   const [goTo, setGoTo] = useState<{ id: string; nth: number } | null>(null);
-  const goToMessage = useCallback(
-    (id: string) => setGoTo((was) => ({ id, nth: (was?.nth ?? 0) + 1 })),
-    [],
-  );
+  /**
+   * Going to a message also MARKS it. Landing in the middle of a conversation with nothing
+   * pointed at leaves the reader hunting for what they were sent to, which is the whole point of
+   * the jump — from a pinned line, from a file in the Files tab (owner, 2026-09-21).
+   *
+   * The mark FADES for those, and STAYS for the search: the search keeps the hit ringed while you
+   * read around it, and clears it itself when it closes or steps on.
+   */
+  const fade = useRef<number | undefined>(undefined);
+  const goToMessage = useCallback((id: string, mark: "fades" | "stays" = "fades") => {
+    setGoTo((was) => ({ id, nth: (was?.nth ?? 0) + 1 }));
+    setStandingOn(id);
+    window.clearTimeout(fade.current);
+    if (mark === "fades") fade.current = window.setTimeout(() => setStandingOn(null), 2500);
+  }, []);
+  useEffect(() => () => window.clearTimeout(fade.current), []);
   /**
    * `?m=<place>` — a link to one message, which is what "Copy link" puts on the clipboard. The
    * conversation loads older pages until it has that place and scrolls to it.
@@ -112,9 +124,24 @@ export function ChatPage() {
     if (items.length > 0) setViewing({ items, index: Math.max(0, from) });
   };
 
+  /**
+   * **Everything on this screen that belongs to ONE chat is put down when another is opened.**
+   *
+   * The router maps `/chat` and `/chat/:chatId` to the same element, so this page does not remount
+   * between chats — and the search state that stayed behind was not merely untidy. The bar kept
+   * its words, asked them of the NEW chat, and its answer jumped and ringed a message nobody had
+   * gone looking for; the marks from the old query stayed lit on any word of the new conversation
+   * that happened to match; and a jump left over from the old chat sent the hunt twenty pages up
+   * the new one before saying the message was not there (audit, 2026-09-21).
+   */
   useEffect(() => {
     setReplyTo(null);
     setEditing(null);
+    setSearchHere(false);
+    setFoundWords([]);
+    setStandingOn(null);
+    setGoTo(null);
+    window.clearTimeout(fade.current);
   }, [chatId]);
 
   const online = useMemo(() => new Set(presence.data?.online ?? []), [presence.data]);
@@ -218,8 +245,8 @@ export function ChatPage() {
                 chatId={chat.data.id}
                 people={chat.data.members}
                 onGo={(messageId) => {
-                  setStandingOn(messageId);
-                  if (messageId) goToMessage(messageId);
+                  if (messageId) goToMessage(messageId, "stays");
+                  else setStandingOn(null);
                 }}
                 onWords={takeWords}
                 onClose={() => {
@@ -320,6 +347,7 @@ export function ChatPage() {
           onOpenFile={(files: ChatFileItem[], index: number) =>
             openFiles(files, index, files[index]?.at ?? new Date().toISOString())
           }
+          onGoToMessage={(messageId) => goToMessage(messageId)}
           onClose={() => setPanel(false)}
           onLeft={() => {
             setPanel(false);

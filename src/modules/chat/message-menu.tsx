@@ -240,6 +240,7 @@ export function MessageMenu({
           ))}
           <button
             type="button"
+            data-menu-item
             aria-label="More emoji"
             onClick={() => setAll(true)}
             className="ml-auto rounded-full px-1.5 text-[13px] text-muted hover:bg-divider hover:text-ink"
@@ -285,7 +286,12 @@ export function MessageMenu({
         </button>
       )}
       {can.delete && (
-        <button type="button" className={cn(item, "text-danger-text")} onClick={act(on.remove)}>
+        <button
+          type="button"
+          data-menu-item
+          className={cn(item, "text-danger-text")}
+          onClick={act(on.remove)}
+        >
           <Trash2 className="size-3.5" />
           Delete
         </button>

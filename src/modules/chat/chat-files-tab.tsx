@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { FileText, Search } from "lucide-react";
 import type { ChatFileItem, ChatMember } from "@shared/schema/chat";
-import { cn } from "@/shared/lib/cn";
 import { fmtBytes, fmtDate } from "@/shared/lib/format";
 import { useDebounced } from "@/shared/lib/use-debounced";
 import { chatFileUrl } from "./attachments";
 import { useChatFiles } from "./chat.api";
+import { IconButton } from "@/shared/ui/button";
+import { IconGoTo } from "@/shared/ui/icons";
 import { RowButton } from "@/shared/ui/row-button";
 
 /**
@@ -20,12 +21,19 @@ export function ChatFilesTab({
   members,
   open,
   onOpen,
+  onGoToMessage,
 }: {
   chatId: string;
   members: ChatMember[];
   /** asked for only while the tab is on screen */
   open: boolean;
   onOpen: (files: ChatFileItem[], index: number) => void;
+  /**
+   * **To the message the file came in** (owner, 2026-09-21: "можливість від файлу перейти до
+   * повідомлення… як в телеграмі"). A file in this tab is out of its context; this is how somebody
+   * gets back to what was being said when it was sent.
+   */
+  onGoToMessage: (messageId: string) => void;
 }) {
   const [typed, setTyped] = useState("");
   const [senderId, setSenderId] = useState("");
@@ -79,20 +87,29 @@ export function ChatFilesTab({
           <p className="mb-1 text-[11px] font-semibold text-muted uppercase">Photos</p>
           <div className="grid grid-cols-3 gap-1">
             {photos.map((file) => (
-              <button
-                key={file.fileId}
-                type="button"
-                title={`${file.name} · ${fmtBytes(file.size)}`}
-                onClick={() => onOpen(rows, rows.indexOf(file))}
-                className="aspect-square overflow-hidden rounded-(--radius-field) border border-border"
-              >
-                <img
-                  src={chatFileUrl(file.previewFileId!, "preview")}
-                  alt={file.name}
-                  loading="lazy"
-                  className="size-full object-cover"
-                />
-              </button>
+              <span key={file.fileId} className="group relative">
+                <RowButton
+                  title={`${file.name} · ${fmtBytes(file.size)}`}
+                  onClick={() => onOpen(rows, rows.indexOf(file))}
+                  className="aspect-square overflow-hidden rounded-(--radius-field) border border-border"
+                >
+                  <img
+                    src={chatFileUrl(file.previewFileId!, "preview")}
+                    alt={file.name}
+                    loading="lazy"
+                    className="size-full object-cover"
+                  />
+                </RowButton>
+                <span className="absolute top-0.5 right-0.5 rounded-(--radius-btn-sm) bg-surface/85 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                  <IconButton
+                    label="Go to the message it came in"
+                    size="sm"
+                    onClick={() => onGoToMessage(file.messageId)}
+                  >
+                    <IconGoTo />
+                  </IconButton>
+                </span>
+              </span>
             ))}
           </div>
         </section>
@@ -103,12 +120,15 @@ export function ChatFilesTab({
           <p className="mb-1 text-[11px] font-semibold text-muted uppercase">Documents</p>
           <ul className="flex flex-col gap-1">
             {documents.map((file) => (
-              <li key={file.fileId}>
+              // the row opens the file and the button beside it goes to the message, so the
+              // button stands OUTSIDE the row: a button inside a button is not a control
+              <li
+                key={file.fileId}
+                className="group flex items-center rounded-(--radius-field) border border-border pr-1"
+              >
                 <RowButton
                   onClick={() => onOpen(rows, rows.indexOf(file))}
-                  className={cn(
-                    "rounded-(--radius-field) border border-border px-2 py-1.5 text-[12.5px]",
-                  )}
+                  className="min-w-0 flex-1 px-2 py-1.5 text-[12.5px]"
                 >
                   <FileText className="size-4 shrink-0 text-muted" />
                   <span className="min-w-0 flex-1">
@@ -118,6 +138,15 @@ export function ChatFilesTab({
                     </span>
                   </span>
                 </RowButton>
+                <span className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                  <IconButton
+                    label="Go to the message it came in"
+                    size="sm"
+                    onClick={() => onGoToMessage(file.messageId)}
+                  >
+                    <IconGoTo />
+                  </IconButton>
+                </span>
               </li>
             ))}
           </ul>

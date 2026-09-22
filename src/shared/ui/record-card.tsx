@@ -1,25 +1,25 @@
 import { useQuery } from "@tanstack/react-query";
-import {
-  CalendarDays,
-  CircleSlash,
-  FileSignature,
-  FileText,
-  Folder as FolderIcon,
-  KeyRound,
-  Layers,
-  ListTodo,
-  Lock,
-  Mail,
-  Megaphone,
-  MessageSquare,
-  Receipt,
-  Sparkles,
-  UserRound,
-} from "lucide-react";
 import { Link } from "react-router-dom";
 import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
 import { kindOf, type CrmKind, type CrmLink } from "@/shared/lib/crm-links";
+import {
+  IconCampaign,
+  IconChat,
+  IconClient,
+  IconFile,
+  IconFolder,
+  IconInvoice,
+  IconLead,
+  IconLetter,
+  IconLocked,
+  IconMeeting,
+  IconSecret,
+  IconService,
+  IconTask,
+  IconTemplate,
+  IconUnavailable,
+} from "@/shared/ui/icons";
 
 /**
  * **A link into this CRM, drawn as the record it points at** — one card for every kind, so a task,
@@ -36,21 +36,23 @@ import { kindOf, type CrmKind, type CrmLink } from "@/shared/lib/crm-links";
  * card is the only thing on screen, which makes that the only way.
  */
 
-const ICONS: Record<CrmKind, typeof ListTodo> = {
-  task: ListTodo,
-  client: UserRound,
-  lead: Sparkles,
-  invoice: Receipt,
-  meeting: CalendarDays,
-  file: FileText,
-  secret: KeyRound,
-  chat: MessageSquare,
-  mailout: Mail,
-  campaign: Megaphone,
-  service: Layers,
-  template: FileSignature,
-  person: UserRound,
-  folder: FolderIcon,
+// the meanings, not the pictures: `shared/ui/icons.ts` is the vocabulary, and a card that drew its
+// own would drift away from the rest of the CRM the first time one of them changed (audit, 2026-09-21)
+const ICONS: Record<CrmKind, typeof IconTask> = {
+  task: IconTask,
+  client: IconClient,
+  lead: IconLead,
+  invoice: IconInvoice,
+  meeting: IconMeeting,
+  file: IconFile,
+  secret: IconSecret,
+  chat: IconChat,
+  mailout: IconLetter,
+  campaign: IconCampaign,
+  service: IconService,
+  template: IconTemplate,
+  person: IconClient,
+  folder: IconFolder,
 };
 
 /**
@@ -58,11 +60,11 @@ const ICONS: Record<CrmKind, typeof ListTodo> = {
  * things to a reader, and a server that is simply down is neither: all three used to read "You do
  * not have access", which sent people asking for permissions they already had (audit, 2026-09-20).
  */
-function trouble(error: unknown): { note: string; icon: typeof Lock } {
+function trouble(error: unknown): { note: string; icon: typeof IconLocked } {
   const status = error instanceof ApiError ? error.status : 0;
-  if (status === 403) return { note: "You do not have access", icon: Lock };
-  if (status === 404) return { note: "Not found, or not open to you", icon: Lock };
-  return { note: "Could not be loaded", icon: CircleSlash };
+  if (status === 403) return { note: "You do not have access", icon: IconLocked };
+  if (status === 404) return { note: "Not found, or not open to you", icon: IconLocked };
+  return { note: "Could not be loaded", icon: IconUnavailable };
 }
 
 export function RecordCard({

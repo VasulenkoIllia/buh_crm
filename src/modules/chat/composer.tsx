@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BarChart3, Paperclip, Send, Smile } from "lucide-react";
+import { BarChart3, Smile } from "lucide-react";
 import {
   CHAT_FILES_MAX,
   MESSAGE_LIMIT,
@@ -8,7 +8,7 @@ import {
 } from "@shared/schema/chat";
 import { cn } from "@/shared/lib/cn";
 import { Button, IconButton } from "@/shared/ui/button";
-import { IconClose } from "@/shared/ui/icons";
+import { IconAttach, IconClose, IconSend } from "@/shared/ui/icons";
 import { AttachmentStrip, useAttachments } from "./attachments";
 import { EmojiPicker } from "./emoji-picker";
 import {
@@ -345,7 +345,7 @@ export function Composer({
               onClick={() => picker.current?.click()}
               className="mb-1 text-muted hover:text-ink"
             >
-              <Paperclip className="size-[18px]" />
+              <IconAttach className="size-[18px]" />
             </button>
           </>
         )}
@@ -378,7 +378,7 @@ export function Composer({
           }
           onClick={() => void submit()}
         >
-          <Send className="size-3.5" />
+          <IconSend />
           {editing ? "Save" : attached.busy ? "Uploading…" : sending ? "Sending…" : "Send"}
         </Button>
       </div>

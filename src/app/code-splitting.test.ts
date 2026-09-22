@@ -47,12 +47,10 @@ describe("code splitting cannot be undone by accident", () => {
    * The same failure one level down: a barrel is shared, so what it reaches statically travels to
    * every module that imports it — screens are simply the loudest case, not the only one.
    *
-   * `modules/tasks/index.ts` publishes `ClientLeadSearch` out of `task-modals.tsx`, which makes
-   * that file a chunk the board, leads, the client card and the calendar all share. The task form
-   * needs the client's "Add service" modal, and exporting it from the clients barrel with a plain
-   * `export … from` moved the whole subscription screen into that shared chunk — measured
-   * 2026-09-04: task-modals 9.66 → 14.27 kB gzip, and opening the CALENDAR downloaded billing
-   * pills. Through `lazy()` it is its own 6.59 kB chunk and task-modals moves by 0.34 kB.
+   * The task form needs the client's "Add service" modal, and exporting it from the clients barrel
+   * with a plain `export … from` moved the whole subscription screen into that shared chunk —
+   * measured 2026-09-04: task-modals 9.66 → 14.27 kB gzip, and opening the CALENDAR downloaded
+   * billing pills. Through `lazy()` it is its own 6.59 kB chunk and task-modals moves by 0.34 kB.
    */
   it("the clients barrel reaches the subscription screen only through lazy()", async () => {
     const barrel = await readFile(
@@ -106,6 +104,26 @@ describe("code splitting cannot be undone by accident", () => {
         "and what it reaches travels with every card.",
     ).toBe(false);
     expect(barrel).toMatch(/lazy\(\s*\(\)\s*=>\s*import\("\.\/client-secrets"\)/);
+  });
+
+  /**
+   * The same rule, and the case this file described for a fortnight without checking: the tasks
+   * barrel published `ClientLeadSearch` out of `task-modals.tsx`, so the calendar's meeting form —
+   * which wants one combobox — reached the task form, the details modal, subtasks, files, comments
+   * and the time log. Measured 2026-09-21, after moving it to a file of its own: the meeting modal
+   * imports a 2.84 kB chunk instead of a 34.78 kB one, and its own size does not move.
+   */
+  it("the tasks barrel does not reach the task modals", async () => {
+    const barrel = await readFile(
+      new URL("../modules/tasks/index.ts", import.meta.url),
+      "utf8",
+    );
+    expect(
+      /from\s+["']\.\/task-modals["']/.test(barrel),
+      "The tasks barrel is imported by the calendar, the client card and leads. Reaching " +
+        "task-modals from it puts all of it in a chunk they share — publish the one thing they " +
+        "need from a file of its own, as ./client-lead-search does.",
+    ).toBe(false);
   });
 
   it("the router loads every screen on demand", async () => {

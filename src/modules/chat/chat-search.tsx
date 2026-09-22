@@ -300,6 +300,16 @@ export function ChatSearchBar({
   const [at, setAt] = useState(0);
   const [listOpen, setListOpen] = useState(false);
   const field = useRef<HTMLInputElement>(null);
+  /**
+   * Who had the focus when this opened — the magnifier in the header — so that closing hands it
+   * back rather than dropping it on the body, which leaves a keyboard with nowhere to be. The
+   * message menu has done this since it was built; the bar did not (audit, 2026-09-21).
+   */
+  const opener = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    opener.current = document.activeElement as HTMLElement | null;
+    return () => opener.current?.focus?.();
+  }, []);
 
   const q = useDebounced(typed.trim(), 300);
   const enough = q.length >= SEARCH_MIN_WORD;
@@ -315,18 +325,24 @@ export function ChatSearchBar({
   }, [asked, onWords]);
 
   /**
-   * A new answer opens the list and steps onto its newest match. `dataUpdatedAt` rather than the
-   * hits themselves: it moves once per answer, so this does not re-run as the conversation around
-   * it re-renders.
+   * A new QUESTION opens the list and steps onto its newest match — once, and not again while the
+   * question stands. This used to run on `dataUpdatedAt`, which moves on every answer including a
+   * background refetch: coming back to the tab after thirty seconds re-asked the same thing, and
+   * the answer threw the reader from the hit they had stepped to back to the newest one
+   * (audit, 2026-09-21).
    */
+  const question = `${chatId}\u0000${q}\u0000${senderId}`;
+  const jumped = useRef<string | null>(null);
   const answered = found.dataUpdatedAt;
   useEffect(() => {
+    if (!answered || jumped.current === question) return;
+    jumped.current = question;
     const first = found.data?.hits[0] ?? null;
     setAt(0);
     setListOpen(!!first);
     onGo(first?.messageId ?? null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per answer, by design
-  }, [answered]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per question, by design
+  }, [answered, question]);
 
   /** Stepping is what the arrows do, and it puts the list away: the conversation is what matters. */
   /**

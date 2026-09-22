@@ -74,7 +74,7 @@ export default tseslint.config(
      *
      *     {/* eslint-disable-next-line no-restricted-syntax -- <why this is not a Button> *\/}
      *
-     * **`ignores` is the migration, written down.** 55 files still hold one on 2026-09-21,
+     * **`ignores` is the migration, written down.** 54 files still hold one on 2026-09-21,
      * and each wave takes some off this list — a shrinking list is a visible diff, where a
      * warning nobody counts is not. A file NOT on it is held to the rule from its first line,
      * which is the half that matters: what is already clean cannot drift back, and nothing new
@@ -91,7 +91,6 @@ export default tseslint.config(
       "src/modules/catalog/services.page.tsx",
       "src/modules/catalog/task-rhythm-fields.tsx",
       "src/modules/chat/attachments.tsx",
-      "src/modules/chat/chat-files-tab.tsx",
       "src/modules/chat/chat-list.tsx",
       "src/modules/chat/chat-panel.tsx",
       "src/modules/chat/chat-search.tsx",

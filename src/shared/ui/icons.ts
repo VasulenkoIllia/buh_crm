@@ -30,6 +30,7 @@ export {
   Mail as IconLetter,
   Megaphone as IconCampaign,
   Layers as IconService,
+  FileSignature as IconTemplate,
   Users as IconTeam,
   Building2 as IconCompany,
   Bell as IconNotification,
@@ -62,6 +63,8 @@ export {
   ChevronUp as IconUp,
   ChevronLeft as IconBack,
   ExternalLink as IconOpen,
+  /** back to where a thing came from: the message a file was sent in, the row a hit is on */
+  ArrowRightToLine as IconGoTo,
   // ── how a thing is ────────────────────────────────────────────────────────
   Lock as IconLocked,
   AlertTriangle as IconWarning,

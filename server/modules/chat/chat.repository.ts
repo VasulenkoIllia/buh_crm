@@ -1213,9 +1213,14 @@ export function searchMessages(
         OR EXISTS (SELECT 1 FROM "ChatMessageFile" mf WHERE mf."messageId" = m.id)
       )
     GROUP BY m.id, p."messageId"
-    -- the TOKEN's own time, not the message's, so the index on (token, createdAt DESC) can answer
-    -- in this order. They are the same instant: the column is the message's, copied onto the token
-    -- when it is written (§8; audit, 2026-09-20).
+    -- the TOKEN's own time, not the message's. They are the same instant: the column is the
+    -- message's, copied onto the token when it is written (§8; audit, 2026-09-20). Ordering by it
+    -- keeps this query and the single-token one below answering in the same order.
+    --
+    -- The index on (token, createdAt DESC) does NOT give this order for free: the grouping and the
+    -- HAVING have to run first, and max() is an aggregate. What the index gives here is the seek
+    -- per token; the order is bought with a sort. Only the single-token query walks the index in
+    -- the order it answers in, and that is the one this column was added for (audit, 2026-09-21).
     --
     -- The id as well: two messages written in the same millisecond have no order of their own, and
     -- a page boundary inside such a pair would repeat one and skip the other (review, 2026-09-20).

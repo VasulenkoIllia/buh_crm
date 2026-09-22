@@ -11,14 +11,20 @@ import { cn } from "@/shared/lib/cn";
  * the field it is in.
  *
  * `label` says what goes away, not "close": a screen reader hears "Remove Petrenko" and not "×".
+ * `title` is for the rarer case where what goes away is not the whole story — where the same ×
+ * un-files one thing and bins another, and the difference has to be readable before the click
+ * (audit, 2026-09-21: the task's file list said it, and the sweep to this component lost it).
  */
 export function ClearButton({
   label,
+  title,
   onClick,
   className,
   disabled,
 }: {
   label: string;
+  /** the consequence, when the label alone does not carry it; defaults to `label` */
+  title?: string;
   onClick: () => void;
   className?: string;
   disabled?: boolean;
@@ -26,7 +32,7 @@ export function ClearButton({
   return (
     <button
       type="button"
-      title={label}
+      title={title ?? label}
       aria-label={label}
       onClick={onClick}
       disabled={disabled}

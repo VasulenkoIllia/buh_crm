@@ -193,6 +193,13 @@ export function Conversation({
   const HUNT = 20;
   const hunted = useRef(0);
   /**
+   * WHICH target the pages above were loaded for. The budget belongs to one target, and without
+   * this it was shared: asking for a second message while the first was still being hunted let the
+   * second inherit what the first had spent and give up early on a message twenty pages up
+   * (audit, 2026-09-21).
+   */
+  const hunting = useRef<string | null>(null);
+  /**
    * **Older messages arrive above, and the reader stays where they were.** A prepended page grows
    * everything below it, so without putting the scroll back by exactly that much the conversation
    * jumps on every "scroll up for more" (review, 2026-09-20). Armed by whoever asks for a page:
@@ -215,7 +222,12 @@ export function Conversation({
           : null;
     if (!target || wentTo.current === target.key) {
       hunted.current = 0;
+      hunting.current = null;
       return;
+    }
+    if (hunting.current !== target.key) {
+      hunting.current = target.key;
+      hunted.current = 0;
     }
     const at = rows.findIndex((r) => r.kind === "message" && target.of(r.message));
     if (at < 0) {
@@ -236,12 +248,14 @@ export function Conversation({
       // (audit, 2026-09-20)
       wentTo.current = target.key;
       hunted.current = 0;
+      hunting.current = null;
       setMissing(true);
       if (!asked) onWent?.();
       return;
     }
     wentTo.current = target.key;
     hunted.current = 0;
+    hunting.current = null;
     setMissing(false);
     virtual.scrollToIndex(at, { align: "center" });
     if (!asked) onWent?.();

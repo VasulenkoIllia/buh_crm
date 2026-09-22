@@ -8,6 +8,13 @@
 --
 -- Additive. The default fills existing rows with `now()`, and the UPDATE below then puts the real
 -- instant on them, so the ordering is right for everything already written.
+--
+-- The backfill is ONE statement and the index is built in the same transaction, which is safe here
+-- because the table this deploys onto is empty: the chat's own tables ship in this same batch
+-- (20260918200000_chat), so there is nothing to rewrite and nothing to block. Re-running this
+-- shape against a populated ChatSearchToken would lock it for the length of the UPDATE and the
+-- build; that version wants CREATE INDEX CONCURRENTLY outside a transaction and a batched
+-- backfill, for which scripts/reindex-chat-search.ts is already the pattern (audit, 2026-09-21).
 ALTER TABLE "ChatSearchToken" ADD COLUMN "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
 UPDATE "ChatSearchToken" t

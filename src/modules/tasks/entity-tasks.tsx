@@ -12,7 +12,8 @@ import { RowButton } from "@/shared/ui/row-button";
 import { CopyLink } from "@/shared/ui/copy-link";
 import { fmtBizDate } from "@/shared/lib/format";
 import { isOverdue, TaskKindChip } from "./lib";
-import { TaskDetailsModal, TaskFormModal, type Target } from "./task-modals";
+import { type Target } from "./client-lead-search";
+import { TaskDetailsModal, TaskFormModal } from "./task-modals";
 import { TrackedTime } from "./timer";
 import { useAssignees, useTasksFor } from "./tasks.api";
 
@@ -159,55 +160,59 @@ function TaskRow({
 }) {
   const overdue = isOverdue(task);
   return (
-    <RowButton
-      onClick={onOpen}
+    // the row opens the task and the copy button stands BESIDE it, never inside: a row is a
+    // button, and a button inside a button is not a control (audit, 2026-09-21). The two other
+    // lists this copy button went into on the same day — meetings and invoices — had it right.
+    <div
       style={
         !overdue && priorityColor ? { borderLeft: `3px solid ${priorityColor}` } : undefined
       }
       className={cn(
-        "mb-1.5 rounded-(--radius-card) border border-border bg-surface px-3 py-2 text-[13px]",
+        "mb-1.5 flex items-center rounded-(--radius-card) border border-border bg-surface pr-2",
         overdue && "border-2 border-danger",
         (task.done || task.cancelledAt) && "opacity-70",
       )}
     >
-      {task.cancelledAt ? (
-        <span className="text-[#b5651d]">⊘</span>
-      ) : (
-        task.done && <span className="text-success">✓</span>
-      )}
-      <span
-        className={cn(
-          "min-w-0 truncate font-medium",
-          (task.done || task.cancelledAt) && "text-muted line-through",
+      <RowButton onClick={onOpen} className="min-w-0 flex-1 px-3 py-2 text-[13px]">
+        {task.cancelledAt ? (
+          <span className="text-[#b5651d]">⊘</span>
+        ) : (
+          task.done && <span className="text-success">✓</span>
         )}
-      >
-        {task.title}
-      </span>
-      {serviceName && <ServiceChip name={serviceName.name} color={serviceName.color} />}
-      {task.kind === "sub" && (
-        <Chip tone="blue" size="sm">
-          📅 auto
-        </Chip>
-      )}
-      {task.invoice && <InvoiceStatusPill status={task.invoice.status} prefix="💰" size="sm" />}
-      <TaskKindChip task={task} size="sm" />
-      <span className="ml-auto flex-none text-[12px] text-muted">
-        {assigneeNames || "unassigned"}
-      </span>
-      <TrackedTime seconds={task.trackedSeconds} className="flex-none text-[12px]" />
-      <span
-        className={cn(
-          "flex-none text-[12px]",
-          overdue ? "font-semibold text-danger" : "text-muted-400",
+        <span
+          className={cn(
+            "min-w-0 truncate font-medium",
+            (task.done || task.cancelledAt) && "text-muted line-through",
+          )}
+        >
+          {task.title}
+        </span>
+        {serviceName && <ServiceChip name={serviceName.name} color={serviceName.color} />}
+        {task.kind === "sub" && (
+          <Chip tone="blue" size="sm">
+            📅 auto
+          </Chip>
         )}
-      >
-        {task.deadline ? fmtBizDate(task.deadline) : "—"}
-      </span>
+        {task.invoice && (
+          <InvoiceStatusPill status={task.invoice.status} prefix="💰" size="sm" />
+        )}
+        <TaskKindChip task={task} size="sm" />
+        <span className="ml-auto flex-none text-[12px] text-muted">
+          {assigneeNames || "unassigned"}
+        </span>
+        <TrackedTime seconds={task.trackedSeconds} className="flex-none text-[12px]" />
+        <span
+          className={cn(
+            "flex-none text-[12px]",
+            overdue ? "font-semibold text-danger" : "text-muted-400",
+          )}
+        >
+          {task.deadline ? fmtBizDate(task.deadline) : "—"}
+        </span>
+      </RowButton>
       {/* the same copy button every record has, in the row rather than only in the modal
           (owner, 2026-09-21) */}
-      <span onClick={(e) => e.stopPropagation()}>
-        <CopyLink href={`/tasks?task=${task.id}`} label="Copy link to this task" />
-      </span>
-    </RowButton>
+      <CopyLink href={`/tasks?task=${task.id}`} label="Copy link to this task" />
+    </div>
   );
 }
