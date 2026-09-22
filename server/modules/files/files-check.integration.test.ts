@@ -17,6 +17,7 @@ let app: Awaited<ReturnType<typeof buildApp>>;
 let admin: { id: string; cookie: string };
 const people: string[] = [];
 const clientIds: string[] = [];
+const chatIds: string[] = [];
 
 beforeAll(async () => {
   app = await buildApp();
@@ -45,6 +46,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await prisma.file.deleteMany({ where: { uploadedById: { in: people } } });
+  await prisma.chat.deleteMany({ where: { id: { in: chatIds } } });
   await prisma.client.deleteMany({ where: { id: { in: clientIds } } });
   await prisma.session.deleteMany({ where: { userId: { in: people } } });
   await prisma.user.deleteMany({ where: { id: { in: people } } });
@@ -124,6 +126,43 @@ describe("the check before and after a deploy (files.md §15.3)", () => {
     expect(
       report.places.find((p) => p.label.startsWith("Client documents"))?.count,
     ).toBeGreaterThan(0);
+  });
+
+  /**
+   * A file sent in a chat belongs nowhere in the library ON PURPOSE — the CHECK
+   * `File_chat_stands_alone` holds that — so the judgement had nothing to match and every one of
+   * them fell through to "belongs to nothing: no client, no task, no place, not a logo". Nobody saw
+   * it because production has no chat files yet; a year of chats would have buried this whole
+   * report (found by the owner asking where chat files are cleaned up, 2026-09-22).
+   */
+  it("counts a file sent in a chat as a place, not as a file belonging to nothing", async () => {
+    // Saved messages: the one kind that needs no sealed title (a CHECK ties the two together)
+    const chat = await prisma.chat.create({
+      data: { kind: "saved", uniqueKey: `saved:${admin.id}` },
+    });
+    chatIds.push(chat.id);
+    const sent = (
+      await prisma.file.create({
+        data: {
+          name: "screenshot.png",
+          size: 9,
+          mime: "image/png",
+          path: `test/${TAG}-chat`,
+          chatId: chat.id,
+          uploadedById: admin.id,
+        },
+      })
+    ).id;
+
+    const report = await filesReport();
+    expect(
+      report.places.find((p) => p.label === "Sent in a chat")?.count,
+      "a chat's file has a place of its own in the report",
+    ).toBeGreaterThan(0);
+    expect(
+      [...report.problems, ...report.notes].flatMap((p) => p.ids),
+      "and is neither a problem nor worth a look",
+    ).not.toContain(sent);
   });
 
   it("opens every stored file, and names the one that does not open by its id", async () => {

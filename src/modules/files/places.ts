@@ -19,6 +19,14 @@ export type View =
   | { type: "client"; clientId: string }
   /** a client's task files, or Company's (the firm's internal tasks) when `clientId` is null */
   | { type: "attachments"; clientId: string | null }
+  /**
+   * Files sent in chats (chat.md §6.5), which have no place in the library at all: the reader's
+   * own chats, largest first, and one chat's files when it is opened. It is a view on somebody
+   * else's records, as Attachments is on a task's — nothing here is a `UiPlace`, and nothing in
+   * it can be moved, renamed or filed.
+   */
+  | { type: "chats" }
+  | { type: "chat"; chatId: string }
   | { type: "trash" }
   /** what the search box finds, the Files screen's alone (§13) */
   | { type: "search" };
@@ -91,5 +99,6 @@ export function sameView(a: View, b: View): boolean {
   }
   if (a.type === "client" && b.type === "client") return a.clientId === b.clientId;
   if (a.type === "attachments" && b.type === "attachments") return a.clientId === b.clientId;
+  if (a.type === "chat" && b.type === "chat") return a.chatId === b.chatId;
   return true;
 }

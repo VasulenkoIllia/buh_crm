@@ -1060,6 +1060,45 @@ export async function filesOfChat(
   return { rows: rows.slice(0, opts.limit), more: rows.length > opts.limit };
 }
 
+/**
+ * **What every chat of one reader is holding**, by chat and by media type (§6.5).
+ *
+ * Raw, for the one thing Prisma cannot say: the DISTINCT that makes a file count ONCE in a chat
+ * however many of that chat's messages carry it — forwarding inside a chat is ordinary, and
+ * counting a file twice would make the figure the pane exists for wrong.
+ *
+ * It starts from `ChatMessageFile`, the smallest relation here, and every join from there is on an
+ * index: the message by its primary key, the membership by `(userId, leftAt)`, the file by its own.
+ * The cost follows the number of FILES, not the number of messages said around them.
+ *
+ * Previews are left out on purpose: a photo's thumbnail is not a thing anybody sent, and this
+ * figure is about what the reader can see and act on. The firm's own figure on Settings → System
+ * counts them, and says so.
+ */
+export async function fileTotalsByChat(userId: string) {
+  return prisma.$queryRaw<
+    { chat: string; mime: string | null; files: number; bytes: bigint }[]
+  >`
+    WITH carried AS (
+      SELECT DISTINCT
+        m."chatId"                                  AS chat,
+        f.id                                        AS file,
+        f.size                                      AS size,
+        coalesce(f."detectedMime", f.mime)          AS mime
+      FROM "ChatMessageFile" cmf
+      JOIN "ChatMessage" m
+        ON m.id = cmf."messageId" AND m."deletedAt" IS NULL
+      JOIN "ChatMember" cm
+        ON cm."chatId" = m."chatId" AND cm."userId" = ${userId}::uuid AND cm."leftAt" IS NULL
+      JOIN "File" f
+        ON f.id = cmf."fileId" AND f."deletedAt" IS NULL
+    )
+    SELECT chat, mime, count(*)::int AS files, sum(size)::bigint AS bytes
+    FROM carried
+    GROUP BY chat, mime
+  `;
+}
+
 // ── the word search (chat.md §8) ───────────────────────────────────────────────
 
 export type { Tx };

@@ -332,6 +332,11 @@
     "access": "gate:chat"
   },
   {
+    "method": "POST",
+    "url": "/api/chat/files/:fileId/keep",
+    "access": "gate:chat"
+  },
+  {
     "method": "GET",
     "url": "/api/chat/files/:fileId/preview",
     "access": "gate:chat"
@@ -346,6 +351,17 @@
     "method": "GET",
     "url": "/api/chat/files/:fileId/view",
     "access": "gate:chat"
+  },
+  {
+    "method": "GET",
+    "url": "/api/chat/files/overview",
+    "access": "gate:chat"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/chat/files/overview",
+    "access": "gate:chat",
+    "derived": true
   },
   {
     "method": "POST",

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { uuid } from "./common.js";
 import { userStatus } from "./enums.js";
+import { placeInput } from "./files.js";
 
 /**
  * The chat: what crosses the wire (docs/modules/chat.md). The live connection's events are
@@ -190,6 +191,42 @@ export const chatFilesPageSchema = z.object({
   more: z.boolean(),
 });
 export type ChatFilesPage = z.infer<typeof chatFilesPageSchema>;
+
+/**
+ * **How much every chat is holding** (chat.md §6.5), for the Chats pane in Files and for the tree's
+ * own totals. One row per chat the reader is in that still carries a file, largest first.
+ *
+ * A file forwarded into three chats is in all three: each chat DOES hold it, and the reader deletes
+ * it in each. So these do not sum to what the bucket holds, and the firm's own figure on
+ * Settings → System counts each file once (and its photos' thumbnails, which this leaves out).
+ */
+export const chatFilesRowSchema = z.object({
+  chatId: uuid,
+  kind: chatKind,
+  title: z.string().nullable(),
+  peer: chatPersonSchema.nullable(),
+  files: z.number().int(),
+  bytes: z.number().int(),
+  /** what those bytes are, by kind, largest first; kinds holding nothing are left out */
+  byKind: z.array(
+    z.object({ kind: z.string(), files: z.number().int(), bytes: z.number().int() }),
+  ),
+});
+export type ChatFilesRow = z.infer<typeof chatFilesRowSchema>;
+
+/** Where a chat's file is being kept (§6.5): a place in the library, and a folder inside it. */
+export const keepFileInput = z.object({
+  to: placeInput,
+  folderId: uuid.optional(),
+});
+export type KeepFileInput = z.infer<typeof keepFileInput>;
+
+export const chatFilesOverviewSchema = z.object({
+  chats: z.array(chatFilesRowSchema),
+  /** every chat of this reader together: what the tree's "Chats" node shows */
+  all: z.object({ files: z.number().int(), bytes: z.number().int() }),
+});
+export type ChatFilesOverview = z.infer<typeof chatFilesOverviewSchema>;
 
 /** The tab's box over names, and its "from" filter (§6.4). */
 export const chatFilesQuery = z.object({

@@ -286,6 +286,12 @@ export interface FirmStorage {
     branding: FileTotals;
     /** attached to free-form secrets in the vault, its Trash included (secrets.md §21) */
     secrets: FileTotals;
+    /**
+     * Sent in a chat (chat.md §6.3), each photo's small preview counted with it. These are in no
+     * library place, so no other part holds them: without this one the parts silently did not add
+     * up to `all`, and after a year of chats that gap would have been most of the bucket.
+     */
+    chats: FileTotals;
   };
   /** where the bytes are: the files bucket, or still the server's disk */
   where: { bucket: FileTotals; disk: FileTotals };

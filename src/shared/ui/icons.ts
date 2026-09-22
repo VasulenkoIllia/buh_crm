@@ -44,6 +44,8 @@ export {
   Link2 as IconLink,
   Download as IconDownload,
   Upload as IconUpload,
+  /** put this into a folder in Files: a task's file filed, a chat's file kept */
+  FolderInput as IconFileInto,
   Paperclip as IconAttach,
   Search as IconSearch,
   SlidersHorizontal as IconFilter,

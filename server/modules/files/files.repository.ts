@@ -385,6 +385,7 @@ export function everyFileForCheck() {
       scope: true,
       clientId: true,
       secretId: true,
+      chatId: true,
       deletedAt: true,
       client: { select: { archivedAt: true } },
       task: {
@@ -548,6 +549,7 @@ export async function firmStorage() {
     trash,
     branding,
     secrets,
+    chats,
     byStore,
   ] = await Promise.all([
     totals({}),
@@ -570,6 +572,9 @@ export async function firmStorage() {
     }),
     // a secret's files, whether the secret is live or in the vault's Trash (secrets.md §21)
     totals({ secretId: { not: null } }),
+    // sent in a chat (chat.md §6.3), previews included: they are bytes in the bucket like any
+    // other. Without this the parts did not add up to `all` and nobody could see why
+    totals({ chatId: { not: null }, deletedAt: null }),
     prisma.file.groupBy({ by: ["storage"], _count: { _all: true }, _sum: { size: true } }),
   ]);
   const kept = (storage: "local" | "s3"): FileTotals => {
@@ -578,7 +583,17 @@ export async function firmStorage() {
   };
   return {
     all,
-    parts: { mine, company, clients, archivedClients, unfiled, trash, branding, secrets },
+    parts: {
+      mine,
+      company,
+      clients,
+      archivedClients,
+      unfiled,
+      trash,
+      branding,
+      secrets,
+      chats,
+    },
     where: { bucket: kept("s3"), disk: kept("local") },
   };
 }

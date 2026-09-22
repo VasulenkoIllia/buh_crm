@@ -38,6 +38,7 @@ const PLACES = [
   "My files, everyone's together",
   "Logos and avatars, outside the library",
   "Attached to secrets, in the vault",
+  "Sent in a chat",
 ] as const;
 type PlaceLabel = (typeof PLACES)[number];
 
@@ -55,6 +56,10 @@ function judge(f: repo.FileForCheck): Verdict {
   if (f.folder?.deletedAt) return { problem: "live inside a folder that is in the Trash" };
   // a CHECK keeps a secret's file out of everything else, so this only names where it is
   if (f.secretId) return { place: "Attached to secrets, in the vault" };
+  // and the same CHECK for a chat's (File_chat_stands_alone). Without this branch every file ever
+  // sent in a chat fell through to "belongs to nothing" at the bottom, which would have turned a
+  // report meant to be empty into a list of thousands the first year (owner's question, 2026-09-22)
+  if (f.chatId) return { place: "Sent in a chat" };
   if (f.avatarOfUser || f.logoOfProfile || f.mailLogoOfProfile) {
     return f.scope
       ? { problem: "a logo or an avatar inside the library" }

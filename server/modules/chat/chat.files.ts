@@ -1,24 +1,34 @@
 import type {
   ChatFile,
+  ChatFilesOverview,
   ChatFilesPage,
   ChatFilesQuery,
+  ChatFilesRow,
   ChatUpload,
 } from "@shared/schema/chat.js";
 import { CHAT_FILES_MAX } from "@shared/schema/chat.js";
+import type { FileRow, PlaceInput } from "@shared/schema/files.js";
+import { fileKind, type FileKind } from "@shared/file-kind.js";
 import { A_CHAT_FILE } from "@shared/activity.js";
 import type { User } from "../../generated/prisma/client.js";
 import { record } from "../../core/activity.js";
 import { NotFoundError, ValidationError } from "../../core/errors.js";
-import { MAX_FILE_SIZE, deleteStoredFile, storeFile } from "../../core/files.js";
+import {
+  MAX_FILE_SIZE,
+  deleteStoredFile,
+  readStoredFile,
+  storeFile,
+} from "../../core/files.js";
 import {
   NOT_VIEWABLE,
+  copyIntoLibrary,
   detectType,
   refuseProgram,
   uploadedFileName,
   viewOf,
 } from "../files/index.js";
 import * as repo from "./chat.repository.js";
-import { requireMember, requireWriter } from "./chat.service.js";
+import { listChats, requireMember, requireWriter } from "./chat.service.js";
 
 /**
  * **Files in chats** (chat.md §6): the upload, who may open one, and the sweep for uploads nobody
@@ -269,6 +279,89 @@ export async function openPreview(user: User, fileId: string) {
  *
  * A deleted message's files are not here, and neither is one already in the Trash.
  */
+/**
+ * **How much each of the reader's chats is holding** (§6.5) — the Chats pane in Files, and the
+ * total on its node in the tree.
+ *
+ * The chats are NAMED by the ordinary chat list rather than by anything of this module's own: a
+ * group's title is sealed and a direct chat is named by the other person, and there is one place
+ * that already knows both. A chat with no files at all is left out, so the pane is a list of what
+ * is actually taking room.
+ *
+ * Nothing here widens who sees what: the totals come from the reader's own live memberships, so a
+ * chat somebody is not in is not merely hidden from this list — it is not in the answer at all.
+ */
+export async function filesOverview(user: User): Promise<ChatFilesOverview> {
+  const [rows, chats] = await Promise.all([repo.fileTotalsByChat(user.id), listChats(user)]);
+  const named = new Map(chats.map((c) => [c.id, c]));
+
+  const byChat = new Map<string, Map<FileKind, { files: number; bytes: number }>>();
+  for (const row of rows) {
+    const kinds = byChat.get(row.chat) ?? new Map<FileKind, { files: number; bytes: number }>();
+    const kind = fileKind(row.mime);
+    const at = kinds.get(kind) ?? { files: 0, bytes: 0 };
+    at.files += row.files;
+    at.bytes += Number(row.bytes);
+    kinds.set(kind, at);
+    byChat.set(row.chat, kinds);
+  }
+
+  const out: ChatFilesRow[] = [];
+  for (const [chatId, kinds] of byChat) {
+    // a chat the list does not name is one this reader has left between the two reads
+    const chat = named.get(chatId);
+    if (!chat) continue;
+    const byKind = [...kinds.entries()]
+      .map(([kind, t]) => ({ kind, files: t.files, bytes: t.bytes }))
+      .sort((a, b) => b.bytes - a.bytes);
+    out.push({
+      chatId,
+      kind: chat.kind,
+      title: chat.title,
+      peer: chat.peer,
+      files: byKind.reduce((n, k) => n + k.files, 0),
+      bytes: byKind.reduce((n, k) => n + k.bytes, 0),
+      byKind,
+    });
+  }
+  out.sort((a, b) => b.bytes - a.bytes);
+  return {
+    chats: out,
+    all: {
+      files: out.reduce((n, c) => n + c.files, 0),
+      bytes: out.reduce((n, c) => n + c.bytes, 0),
+    },
+  };
+}
+
+/**
+ * **Keeping a file that was sent in a chat** (§6.5, owner 2026-09-22: "Зберегти у Files").
+ *
+ * The one way a document out of a conversation becomes a document of the firm's — with the Trash,
+ * the thirty days, the search and the folders that a chat file deliberately has none of. Without
+ * it the only way to keep something was to download it and upload it again by hand, which is why
+ * §18 listed "filing a chat file into Files" as not built.
+ *
+ * Two checks, each by whoever owns it: this module says the reader may open the chat file at all,
+ * and the library says they may write where they are putting it. It is a COPY — see
+ * `copyIntoLibrary` for why the row cannot simply be moved.
+ */
+export async function keep(
+  user: User,
+  fileId: string,
+  to: PlaceInput,
+  folderId?: string,
+): Promise<FileRow> {
+  const file = await repo.openableChatFile(fileId, user.id);
+  if (!file) throw new NotFoundError("File not found");
+  const buffer = await readStoredFile(file);
+  return copyIntoLibrary(user, to, folderId, {
+    buffer,
+    filename: file.name,
+    mimetype: file.mime,
+  });
+}
+
 export async function listFiles(
   user: User,
   chatId: string,

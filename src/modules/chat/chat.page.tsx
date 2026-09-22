@@ -269,6 +269,7 @@ export function ChatPage() {
               messages={messages.data?.messages ?? []}
               people={messages.data?.people ?? new Map()}
               more={messages.hasNextPage}
+              loading={messages.isPending}
               loadingMore={messages.isFetchingNextPage}
               onLoadMore={() => void messages.fetchNextPage()}
               onRead={markRead}

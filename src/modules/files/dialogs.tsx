@@ -3,6 +3,8 @@ import { Folder, FolderOpen, Info } from "lucide-react";
 import { clientCode } from "@shared/schema/client";
 import { FILE_ZONES, ZONE_LABEL, type FileZone } from "@shared/library";
 import { plural } from "@shared/text";
+import { useCanEdit } from "@/app/auth";
+import { useKeepChatFile } from "@/modules/chat";
 import { cn } from "@/shared/lib/cn";
 import { fmtBytes } from "@/shared/lib/format";
 import { Button } from "@/shared/ui/button";
@@ -15,7 +17,15 @@ import { childrenOf, errorText } from "./file-bits";
 import { useClientNodes, useFileToFolder, useFolderTree } from "./files.api";
 import { pickedFacts, useLibrary, type Picked, type Target } from "./library-context";
 import { checkMove } from "./move-rules";
-import { COMPANY, MY, clientSees, placeLabel, samePlace, type UiPlace } from "./places";
+import {
+  COMPANY,
+  MY,
+  clientSees,
+  placeInput,
+  placeLabel,
+  samePlace,
+  type UiPlace,
+} from "./places";
 
 /** The library's dialogs: where to move, where to file, and whether to delete or upload. */
 
@@ -276,6 +286,146 @@ export function MoveDialog({
             {l.text}
           </Line>
         ))}
+      </div>
+    </Modal>
+  );
+}
+
+// ── Keeping a chat's file (chat.md §6.5) ─────────────────────────────────────
+
+/**
+ * **A file sent in a chat, kept as the firm's** (owner, 2026-09-22). A chat is a conversation, and
+ * what it carries goes with the message; a document the firm means to hold on to belongs in the
+ * library, which has the Trash, the thirty days, the search and the folders.
+ *
+ * It is a COPY, and the dialog says so: the chat keeps its own. The place picker is the move
+ * dialog's, because there is no reason for a second one — My files, Company, or a client's zone,
+ * and then a folder inside it.
+ */
+export function KeepChatFileDialog({
+  file,
+  onClose,
+}: {
+  file: { fileId: string; name: string };
+  onClose: () => void;
+}) {
+  const toast = useToast();
+  const keep = useKeepChatFile();
+  const clientsOpen = useCanEdit("clients");
+  const [space, setSpace] = useState<Space>("my");
+  const [clientId, setClientId] = useState("");
+  const [zone, setZone] = useState<FileZone>("internal");
+  const [folderId, setFolderId] = useState<string | null | undefined>(null);
+  const [error, setError] = useState<string | null>(null);
+  const clients = useClientNodes(clientsOpen);
+
+  const to: UiPlace | null =
+    space === "my"
+      ? MY
+      : space === "company"
+        ? COMPANY
+        : clientId
+          ? { kind: "client", clientId, zone }
+          : null;
+  const { data: tree } = useFolderTree(to);
+  const reset = () => setFolderId(null);
+  const label = folderId
+    ? (tree?.find((f) => f.id === folderId)?.name ?? "the folder")
+    : to
+      ? placeLabel(
+          to,
+          to.kind === "client"
+            ? clients.data?.find((c) => c.id === clientId)?.label
+            : undefined,
+        )
+      : "";
+
+  async function submit() {
+    if (!to || folderId === undefined) return;
+    setError(null);
+    try {
+      const kept = await keep.mutateAsync({
+        fileId: file.fileId,
+        to: placeInput(to),
+        folderId: folderId ?? undefined,
+      });
+      toast({
+        text:
+          kept.name === file.name
+            ? `Kept in ${label} — the chat still has its own`
+            : `Kept in ${label} as “${kept.name}”, the name was taken`,
+      });
+      onClose();
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+
+  return (
+    <Modal
+      open
+      size="md"
+      title={`Keep “${file.name}” in Files`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button disabled={!to || keep.isPending} onClick={() => void submit()}>
+            {to ? `Keep in ${label}` : "Keep"}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3 text-[13px] text-ink-700">
+        <span>
+          A copy goes into the library, where it has the Trash and its thirty days. The chat
+          keeps its own, and deleting the message will not touch this one.
+        </span>
+        <Segmented<Space>
+          value={space}
+          onChange={(v) => {
+            setSpace(v);
+            setFolderId(null);
+          }}
+          options={SPACES.filter((s) => s.value !== "client" || clientsOpen)}
+        />
+        {space === "client" && (
+          <SearchSelect
+            value={clientId}
+            options={(clients.data ?? []).map((c) => ({
+              value: c.id,
+              label: c.label,
+              hint: clientCode(c.code),
+            }))}
+            placeholder="Find a client…"
+            ariaLabel="Client"
+            onChange={(v) => {
+              setClientId(v);
+              reset();
+            }}
+          />
+        )}
+        {space === "client" && clientId && (
+          <Segmented<FileZone>
+            value={zone}
+            onChange={(z) => {
+              setZone(z);
+              reset();
+            }}
+            options={ZONES}
+          />
+        )}
+        {to && (
+          <FolderPicker
+            place={to}
+            rootLabel={to.kind === "client" ? ZONE_LABEL[to.zone] : placeLabel(to)}
+            value={folderId}
+            onChange={setFolderId}
+          />
+        )}
+        {error && <Line tone="warn">{error}</Line>}
       </div>
     </Modal>
   );

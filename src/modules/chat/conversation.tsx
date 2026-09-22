@@ -22,6 +22,7 @@ export function Conversation({
   messages,
   people,
   more,
+  loading,
   loadingMore,
   onLoadMore,
   onRead,
@@ -47,6 +48,8 @@ export function Conversation({
   messages: ChatMessage[];
   people: Map<string, ChatPerson>;
   more: boolean;
+  /** the first page has not arrived yet: nothing about where to scroll can be decided */
+  loading: boolean;
   loadingMore: boolean;
   onLoadMore: () => void;
   onRead: (seq: number) => void;
@@ -220,6 +223,18 @@ export function Conversation({
         : goToSeq !== null
           ? { key: `seq:${goToSeq}`, of: (m: ChatMessage) => m.seq === goToSeq }
           : null;
+    /**
+     * **Nothing is decided before the first page is in.** With no messages yet, `rows` is empty AND
+     * `more` is false — the query has simply not answered — and the branch below read that as "the
+     * message is not here", marked the target done and cleared `?m=` from the address. The page
+     * then arrived and the effect returned at once, because the target was already spent: the jump
+     * was lost, once and for ever, with no way to ask again but a reload.
+     *
+     * It showed on a link followed from ANOTHER screen, where the chat itself is cached and its
+     * messages are not, which is how the Chats pane in Files found it (2026-09-22). The same race
+     * was always there for `?m=` links; arriving cold just usually lost it.
+     */
+    if (loading) return;
     if (!target || wentTo.current === target.key) {
       hunted.current = 0;
       hunting.current = null;
@@ -257,9 +272,18 @@ export function Conversation({
     hunted.current = 0;
     hunting.current = null;
     setMissing(false);
+    /**
+     * **Going somewhere is leaving the bottom.** The effect above sticks to the newest message
+     * whenever the total height moves, and a photo's row is an estimate until the picture decodes
+     * — so a jump landed, the picture unfolded a moment later, and the reader was pulled straight
+     * back down. It only showed when the messages were already in the cache: arriving cold, the
+     * jump ran after the measuring rather than before it, which is why `?m=` looked right for two
+     * days (found from the Chats pane, 2026-09-22).
+     */
+    setAtBottom(false);
     virtual.scrollToIndex(at, { align: "center" });
     if (!asked) onWent?.();
-  }, [asked, goTo, goToSeq, rows, virtual, onWent, more, loadingMore, onLoadMore]);
+  }, [asked, goTo, goToSeq, rows, virtual, onWent, more, loading, loadingMore, onLoadMore]);
 
   useLayoutEffect(() => {
     const el = box.current;

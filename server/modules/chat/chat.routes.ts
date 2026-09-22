@@ -10,6 +10,7 @@ import {
   chatPingInput,
   chatSettingsInput,
   createGroupInput,
+  keepFileInput,
   openDirectInput,
   updateGroupInput,
   type ChatPingResult,
@@ -296,6 +297,40 @@ export async function registerRoutes(instance: FastifyInstance) {
   // Three doors, all of them a member's: one in, and two out. Who may open a file is the messages
   // that carry it (§6.3), so the routes that serve one name the FILE and not a chat — a forwarded
   // file is one file in several chats.
+
+  /**
+   * **Keeping a file the firm means to hold on to** (§6.5). A copy into the library, so the chat
+   * keeps its own and the document gets the Trash, the thirty days and the folders.
+   *
+   * Declared on the CHAT's gate because the file it reads is a chat's; the library's own gate is
+   * checked inside `copyIntoLibrary`, which is what that door exists for. The activity row is the
+   * library's ordinary `file.uploaded`: what happened is that a file arrived in the library, and
+   * nothing at all happened to the chat.
+   */
+  app.post(
+    "/files/:fileId/keep",
+    { config: chat, schema: { params: fileParams, body: keepFileInput } },
+    async (request, reply) => {
+      const file = await attachments.keep(
+        request.currentUser!,
+        request.params.fileId,
+        request.body.to,
+        request.body.folderId,
+      );
+      return reply.status(201).send(file);
+    },
+  );
+
+  /**
+   * **What every chat is holding** (§6.5): the Chats pane in Files, and the total on its node in
+   * the tree. One route, the reader's own chats only — it names no chat they are not in, so it
+   * opens nothing that the chat list does not already.
+   *
+   * It is a read of the reader's own memberships, so it writes no row of its own.
+   */
+  app.get("/files/overview", { config: chat }, async (request) =>
+    attachments.filesOverview(request.currentUser!),
+  );
 
   /**
    * **The chat's own Files tab** (§6.4): what it still carries, newest first, with a box over the

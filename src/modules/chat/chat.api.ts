@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 import type {
   ChatDetail,
+  ChatFilesOverview,
   ChatFilesPage,
   ChatMessage,
   ChatSearchPage,
@@ -21,6 +22,7 @@ import type {
   SendMessageInput,
   UpdateGroupInput,
 } from "@shared/schema/chat";
+import type { FileRow, PlaceInput } from "@shared/schema/files";
 import { api } from "@/shared/lib/api";
 import { CHAT_KEY, CHAT_LIST_KEY } from "@/shared/lib/query-keys";
 import { realtime } from "@/shared/lib/realtime";
@@ -88,6 +90,35 @@ export function useChatSearch(query: ChatSearchQuery, enabled: boolean) {
  * **A chat's Files tab** (§6.4): what it still carries, filtered by a word in the name and by who
  * sent it. Asked for only while the tab is open, and refetched when a message arrives or goes.
  */
+/**
+ * **What every chat is holding** (§6.5), for the Chats pane on the Files screen. Asked for by a
+ * screen that is not the chat's, which is why it comes through the barrel — but the answer is the
+ * chat's own: only chats the reader is in, and it is the server that decides that.
+ */
+export function useChatFilesOverview(enabled = true) {
+  return useQuery({
+    queryKey: [...chatKeys.files("overview")],
+    queryFn: () => api<ChatFilesOverview>("/api/chat/files/overview"),
+    enabled,
+  });
+}
+
+/**
+ * **Keeping a chat's file in the library** (§6.5). It creates a file somewhere else entirely, so it
+ * clears the FILES caches, not the chat's — nothing about the chat changes.
+ */
+export function useKeepChatFile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { fileId: string; to: PlaceInput; folderId?: string }) =>
+      api<FileRow>(`/api/chat/files/${input.fileId}/keep`, {
+        method: "POST",
+        body: { to: input.to, ...(input.folderId ? { folderId: input.folderId } : {}) },
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["files"] }),
+  });
+}
+
 export function useChatFiles(
   chatId: string | null,
   query: { q?: string; senderId?: string },

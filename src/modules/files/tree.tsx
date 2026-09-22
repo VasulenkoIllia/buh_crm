@@ -19,6 +19,10 @@ import { ZoneDot, childrenOf, totalsText } from "./file-bits";
 import { useClientDetail, useClientNodes, useFolderTree, useOverview } from "./files.api";
 import { clientNodeKey, folderNodeKey, useLibrary, type Target } from "./library-context";
 import { COMPANY, MY, placeKey, placeLabel, sameView, type UiPlace, type View } from "./places";
+import { useCanOpen } from "@/app/auth";
+import { IconChat } from "@/shared/ui/icons";
+import { useChatFilesOverview } from "@/modules/chat";
+import { chatName } from "./chats-pane";
 
 /**
  * **The tree** (files.md §4): the fixed levels first (My files, Company, Clients, Trash), then
@@ -296,6 +300,16 @@ function ClientsBranch({ totals }: { totals: FileTotals }) {
 /** The Files screen's tree: everything the reader may open. */
 export function FirmTree() {
   const { data: overview } = useOverview();
+  /**
+   * **Chats are a branch of their own** (chat.md §6.5), not part of the library: a chat's file has
+   * no place in it, and cannot be moved into one. It is here because this is the screen people
+   * come to when they ask where the space went (owner, 2026-09-22).
+   *
+   * Behind the CHAT gate, not the Files one. Somebody whose chat is closed has no chats to total,
+   * and asking would be a read they may not make — so the branch is simply not drawn for them.
+   */
+  const hasChat = useCanOpen("chat");
+  const { data: chats } = useChatFilesOverview(hasChat);
   const attachments = overview?.companyAttachments ? (
     <Node
       nodeKey="att:company"
@@ -326,6 +340,32 @@ export function FirmTree() {
         after={attachments}
       />
       {overview?.clients && <ClientsBranch totals={overview.clients} />}
+      {hasChat && (
+        <Node
+          nodeKey="chats"
+          depth={0}
+          icon={<IconChat size={15} className={ICON} />}
+          label={<span className="truncate">Chats</span>}
+          title="Files sent in your chats"
+          totals={chats?.all}
+          view={{ type: "chats" }}
+          hasKids={(chats?.chats.length ?? 0) > 0}
+        >
+          {chats?.chats.map((row) => (
+            <Node
+              key={row.chatId}
+              nodeKey={`chat:${row.chatId}`}
+              depth={1}
+              icon={<IconChat size={15} className={ICON} />}
+              label={<span className="truncate">{chatName(row)}</span>}
+              title={chatName(row)}
+              totals={{ files: row.files, bytes: row.bytes }}
+              view={{ type: "chat", chatId: row.chatId }}
+              hasKids={false}
+            />
+          ))}
+        </Node>
+      )}
       <div className="h-1.5" />
       <Node
         nodeKey="trash"

@@ -17,6 +17,7 @@ import {
   type AttachmentGroup,
   type ClientFilesDetail,
   type FileCard,
+  type PlaceInput,
   type FolderCard,
   type ClientFilesNode,
   type EnsuredFolder,
@@ -586,6 +587,41 @@ export interface Incoming {
   buffer: Buffer;
   filename: string;
   mimetype: string;
+}
+
+/**
+ * **A copy of somebody else's bytes, into a place in the library** — today, a file sent in a chat
+ * that the firm means to keep (chat.md §6.5, owner 2026-09-22).
+ *
+ * It is a COPY and not a move, on purpose. A chat file's access is "a member of any chat holding a
+ * live message that carries it", and a library file's is its place: one row cannot answer to both,
+ * and moving the row would either take the file out of the conversation or open a private chat's
+ * photo to whoever can see the folder. So the bytes are read and written afresh, under a key of
+ * their own, and the two lives are separate from that moment on.
+ *
+ * **The gate is checked HERE**, because the route that calls this is the chat's and declares
+ * `gate("chat")`. Writing into the library is the library's to allow, and `requireOpen` refuses it
+ * the way the hook would (files.md §11.3).
+ *
+ * Everything else is an ordinary upload: the name cleaned and made unique in its folder, the type
+ * read from the bytes, a program refused, and the same `file.uploaded` row in the activity log —
+ * which is the honest record, because what happened is that a file arrived in the library.
+ */
+export async function copyIntoLibrary(
+  user: User,
+  to: PlaceInput,
+  folderId: string | undefined,
+  file: Incoming,
+): Promise<FileRow> {
+  const reader = await readerOf(user);
+  requireOpen(reader, to.space === "client" ? "clients" : "files");
+  const place: Place =
+    to.space === "personal"
+      ? myPlace(user)
+      : to.space === "company"
+        ? COMPANY
+        : await clientPlace(to.clientId, to.zone);
+  return upload(place, folderId, user, file);
 }
 
 /** A file lands where it is dropped. A taken name becomes `(2)`; nothing is overwritten. */

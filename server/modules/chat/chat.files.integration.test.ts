@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type {
+  ChatFilesOverview,
   ChatFilesPage,
   ChatMessage,
   ChatMessagePage,
@@ -705,5 +706,156 @@ describe("two things at once", () => {
       data: { deletedAt: new Date(), deletedById: olena.id, trashBatchId: randomUUID() },
     });
     expect((await repo.sourceForForward(live.id))?.files).toHaveLength(0);
+  });
+});
+
+/**
+ * **What every chat is holding** (§6.5): the read behind the Chats pane in Files, which exists so
+ * that a firm can see where a year of conversation went and clean it up (owner, 2026-09-22).
+ *
+ * The three things it has to get right are all about COUNTING, and every one of them would be
+ * invisible on a screen: a file counted twice makes the figure the pane exists for wrong.
+ */
+describe("what every chat is holding (chat.md §6.5)", () => {
+  /** A document: no preview, which the server refuses on anything but a photo. */
+  async function doc(who: Person, chatId: string, name: string) {
+    const res = await upload(who, chatId, name, PDF);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    return res.body as { fileId: string; previewFileId: string | null };
+  }
+
+  async function overview(who: Person) {
+    const res = await call(who, "GET", "/files/overview");
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    return res.body as ChatFilesOverview;
+  }
+  const of = (page: ChatFilesOverview, chatId: string) =>
+    page.chats.find((c) => c.chatId === chatId);
+
+  it("names a chat with its size, and says nothing about a chat you are not in", async () => {
+    const chatId = await group(olena, "Holding files", [petro]);
+    const file = await doc(olena, chatId, "report.pdf");
+    await say(olena, chatId, { text: "the report", files: [file] });
+
+    const mine = of(await overview(olena), chatId);
+    expect(mine?.title).toBe("Holding files");
+    expect(mine?.files).toBe(1);
+    expect(mine?.bytes).toBe(PDF.length);
+
+    // the outsider is in no such chat, so it is not hidden from their answer — it is not in it
+    expect(of(await overview(outsider), chatId)).toBeUndefined();
+    // and a member sees it, which is the other half of the same rule
+    expect(of(await overview(petro), chatId)?.files).toBe(1);
+  });
+
+  it("counts a file ONCE however many of that chat's messages carry it", async () => {
+    const chatId = await group(olena, "Forwarded within", [petro]);
+    const file = await doc(olena, chatId, "twice.pdf");
+    const first = await say(olena, chatId, { text: "here", files: [file] });
+    // forwarded back into the same chat: one file, two live messages carrying it
+    const res = await call(olena, "POST", "/forward", {
+      messageIds: [first.id],
+      toChatIds: [chatId],
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(
+      await prisma.chatMessageFile.count({ where: { fileId: file.fileId } }),
+      "the forward really did make a second link to the one file",
+    ).toBe(2);
+
+    const row = of(await overview(olena), chatId);
+    expect(row?.files, "one file, not two").toBe(1);
+    expect(row?.bytes, "and its bytes counted once").toBe(PDF.length);
+  });
+
+  it("counts a file in EVERY chat that holds it, because each one holds it", async () => {
+    const here = await group(olena, "Forward source", [petro]);
+    const there = await group(olena, "Forward destination", [petro]);
+    const file = await doc(olena, here, "shared.pdf");
+    const message = await say(olena, here, { text: "passing this on", files: [file] });
+    const res = await call(olena, "POST", "/forward", {
+      messageIds: [message.id],
+      toChatIds: [there],
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+
+    const page = await overview(olena);
+    expect(of(page, here)?.files).toBe(1);
+    expect(of(page, there)?.files).toBe(1);
+  });
+
+  it("leaves out a photo's thumbnail, and a file whose message is gone", async () => {
+    const chatId = await group(olena, "Thumbnails and deletes", [petro]);
+    const photo = await sent(olena, chatId, "photo.png", PNG, PNG);
+    expect(photo.previewFileId, "this photo really has a preview").not.toBeNull();
+    const message = await say(olena, chatId, { text: "a photo", files: [photo] });
+
+    expect(of(await overview(olena), chatId)?.files, "the photo, not its thumbnail").toBe(1);
+
+    await call(olena, "DELETE", `/messages/${message.id}`);
+    expect(
+      of(await overview(olena), chatId),
+      "nothing carries it any more, so the chat holds nothing",
+    ).toBeUndefined();
+  });
+
+  it("keeps a file into the library as a COPY, leaving the chat's own alone", async () => {
+    const chatId = await group(olena, "Worth keeping", [petro]);
+    const file = await doc(olena, chatId, "contract.pdf");
+    await say(olena, chatId, { text: "the signed one", files: [file] });
+
+    const res = await call(olena, "POST", `/files/${file.fileId}/keep`, {
+      to: { space: "personal" },
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const kept = res.body as { id: string; name: string };
+    expect(kept.id, "a new row, not the chat's").not.toBe(file.fileId);
+    expect(kept.name).toBe("contract.pdf");
+
+    const inLibrary = await prisma.file.findUniqueOrThrow({
+      where: { id: kept.id },
+      select: { scope: true, chatId: true, path: true, size: true },
+    });
+    expect(inLibrary.scope, "it is in the keeper's own place").toBe(`personal:${olena.id}`);
+    expect(inLibrary.chatId, "and out of the chat entirely").toBeNull();
+
+    const original = await prisma.file.findUniqueOrThrow({
+      where: { id: file.fileId },
+      select: { chatId: true, path: true, deletedAt: true },
+    });
+    expect(original.chatId, "the chat still has its own").toBe(chatId);
+    expect(original.deletedAt).toBeNull();
+    expect(inLibrary.path, "its own bytes, under its own key").not.toBe(original.path);
+    expect(inLibrary.size).toBe(PDF.length);
+
+    // and the chat is untouched: the file is still listed where it was sent
+    const still = await call(olena, "GET", `/chats/${chatId}/files`);
+    expect((still.body as ChatFilesPage).files).toHaveLength(1);
+  });
+
+  it("will not keep a file out of a chat somebody is not in", async () => {
+    const chatId = await group(olena, "Not yours to keep", [petro]);
+    const file = await doc(olena, chatId, "private.pdf");
+    await say(olena, chatId, { text: "ours", files: [file] });
+
+    const res = await call(outsider, "POST", `/files/${file.fileId}/keep`, {
+      to: { space: "personal" },
+    });
+    expect(res.status, "not 403: the file is not theirs to know about").toBe(404);
+    expect(await prisma.file.count({ where: { name: "private.pdf" } })).toBe(1);
+  });
+
+  it("says what the bytes are, by kind", async () => {
+    const chatId = await group(olena, "Two kinds", [petro]);
+    const pdf = await doc(olena, chatId, "paper.pdf");
+    await say(olena, chatId, { text: "a pdf", files: [pdf] });
+    const photo = await sent(olena, chatId, "picture.png", PNG, PNG);
+    await say(olena, chatId, { text: "a photo", files: [photo] });
+
+    const row = of(await overview(olena), chatId);
+    expect(row?.files).toBe(2);
+    expect(new Set(row?.byKind.map((k) => k.kind))).toEqual(new Set(["pdf", "photo"]));
+    // largest first, which is what the pane draws
+    expect(row!.byKind[0].bytes).toBeGreaterThanOrEqual(row!.byKind[1].bytes);
   });
 });

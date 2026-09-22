@@ -147,10 +147,15 @@ describe("route inventory", () => {
       // +1 and its HEAD on 2026-09-21: a card for one FOLDER (files.md §22), the read behind a
       // `/files?folder=…` link. `shared()` like the file card beside it, and for the same reason:
       // a client's folder belongs to Clients, and the folder's own place decides in the service.
-      total: 392,
-      derivedHead: 98,
-      real: 294,
-      api: 293, // everything but /health
+      // +1 and its HEAD on 2026-09-22: what every chat is holding (chat.md §6.5), for the Chats
+      // pane in Files. `gate("chat")`, and it answers only about the reader's OWN memberships —
+      // the Files screen shows it, the chat's rules decide it. +1 the same day: keeping one of
+      // those files, a COPY into the library. Also on the chat's gate, because the file it reads
+      // is a chat's; the library's own gate is checked inside `copyIntoLibrary`.
+      total: 395,
+      derivedHead: 99,
+      real: 296,
+      api: 295, // everything but /health
       anonymous: 9, // 6 credential routes, 2 unsubscribe pages, /health
       // `POST /tasks/timer/start` moved to the `tasks` gate during the 2026-09-07 audit. It takes a
       // taskId and writes against somebody else's module, so it was never really "the caller's own
@@ -158,7 +163,7 @@ describe("route inventory", () => {
       // second factor and name nobody else.
       own: 15,
       shared: 12,
-      gated: 258,
+      gated: 260,
       adminOnly: 20,
     });
   });

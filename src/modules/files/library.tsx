@@ -63,6 +63,7 @@ import {
   type Target,
 } from "./library-context";
 import { checkMove } from "./move-rules";
+import { ChatFilesPane, ChatsPane } from "./chats-pane";
 import { AttachmentsPane, ClientPane, ClientsPane, TrashPane } from "./other-panes";
 import {
   COMPANY,
@@ -105,6 +106,9 @@ function keysFor(view: View): string[] {
       return ["clients", clientNodeKey(view.clientId)];
     case "attachments":
       return view.clientId ? ["clients", clientNodeKey(view.clientId)] : ["company"];
+    case "chat":
+      return ["chats"];
+    case "chats":
     case "trash":
     case "search":
       return [];
@@ -708,6 +712,12 @@ export function Library({ mode }: { mode: LibraryMode }) {
       break;
     case "attachments":
       pane = <AttachmentsPane key={view.clientId ?? "company"} clientId={view.clientId} />;
+      break;
+    case "chats":
+      pane = <ChatsPane />;
+      break;
+    case "chat":
+      pane = <ChatFilesPane key={view.chatId} chatId={view.chatId} />;
       break;
     case "trash":
       pane = <TrashPane />;

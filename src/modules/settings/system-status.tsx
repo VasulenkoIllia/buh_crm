@@ -178,6 +178,11 @@ function StoragePanel() {
           note: "the vault's Trash included",
           totals: data.parts.secrets,
         },
+        {
+          label: "Sent in chats",
+          note: "photos' thumbnails included",
+          totals: data.parts.chats,
+        },
       ]
     : [];
 
