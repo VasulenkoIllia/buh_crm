@@ -62,6 +62,21 @@ const draw = (bitmap: ImageBitmap, max: number, quality: number): Promise<Blob |
   const ctx = canvas.getContext("2d");
   if (!ctx) return Promise.resolve(null);
   ctx.imageSmoothingQuality = "high";
+  /**
+   * **White under it, because a JPEG has no transparency.**
+   *
+   * A fresh canvas is transparent black, and `toBlob(…, "image/jpeg")` has nowhere to put an alpha
+   * channel — so every transparent pixel came out BLACK. A logo on a transparent background, which
+   * is what most logos are, arrived in the chat as a black rectangle while the full-size picture
+   * opened perfectly in the viewer. Found on the first day in production, on the firm's own logo
+   * (owner, 2026-09-24).
+   *
+   * White rather than the page's colour: it is what the viewer shows a picture on, what a
+   * screenshot of a document assumes, and the only choice that does not change when somebody
+   * turns on a dark theme.
+   */
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
   ctx.drawImage(bitmap, 0, 0, width, height);
   return new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
 };

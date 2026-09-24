@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PREVIEW_MAX, fitInto, looksLikeAPhoto } from "./photo-preview";
+import { PREVIEW_MAX, drawPreview, fitInto, looksLikeAPhoto } from "./photo-preview";
 
 /**
  * The arithmetic behind a photo's preview (chat.md §6.2). Drawing one needs a browser; what a test
@@ -30,5 +30,40 @@ describe("a photo's preview", () => {
     expect(looksLikeAPhoto("image/heic")).toBe(true);
     expect(looksLikeAPhoto("application/pdf")).toBe(false);
     expect(looksLikeAPhoto("image/svg+xml")).toBe(false);
+  });
+
+  /**
+   * A JPEG has no alpha channel, so a transparent pixel drawn onto a fresh canvas — which is
+   * transparent BLACK — encodes as black. Every logo sent into the chat arrived as a black
+   * rectangle while its full-size picture opened perfectly in the viewer (production, 2026-09-24).
+   *
+   * The environment here is Node, so the browser is faked down to the one thing that matters: the
+   * order of the two calls. White must be laid down BEFORE the picture, or it paints over it.
+   */
+  it("paints white under the picture, before drawing it", async () => {
+    const calls: string[] = [];
+    const ctx = {
+      imageSmoothingQuality: "",
+      fillStyle: "",
+      fillRect: () => calls.push("fill"),
+      drawImage: () => calls.push("draw"),
+    };
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext: () => ctx,
+      toBlob: (done: (b: Blob | null) => void) => done(new Blob(["x"])),
+    };
+    const globals = globalThis as unknown as Record<string, unknown>;
+    globals.document = { createElement: () => canvas };
+    globals.createImageBitmap = () => Promise.resolve({ width: 100, height: 50, close() {} });
+    try {
+      await drawPreview({ type: "image/png" } as File);
+      expect(calls, "white first, then the picture on top of it").toEqual(["fill", "draw"]);
+      expect(ctx.fillStyle, "and the white is white").toBe("#ffffff");
+    } finally {
+      delete globals.document;
+      delete globals.createImageBitmap;
+    }
   });
 });

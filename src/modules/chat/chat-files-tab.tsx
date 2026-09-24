@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { FileText, Search } from "lucide-react";
 import type { ChatFileItem, ChatMember } from "@shared/schema/chat";
 import { fmtBytes, fmtDate } from "@/shared/lib/format";
@@ -6,8 +6,9 @@ import { useDebounced } from "@/shared/lib/use-debounced";
 import { chatFileUrl } from "./attachments";
 import { useChatFiles } from "./chat.api";
 import { IconButton } from "@/shared/ui/button";
-import { IconGoTo } from "@/shared/ui/icons";
+import { IconDownload, IconFileInto, IconGoTo } from "@/shared/ui/icons";
 import { RowButton } from "@/shared/ui/row-button";
+import { KeepChatFileDialog } from "@/modules/files";
 
 /**
  * **The Files tab of a chat** (chat.md §6.4): the photos as a grid of previews and everything else
@@ -36,6 +37,7 @@ export function ChatFilesTab({
   onGoToMessage: (messageId: string) => void;
 }) {
   const [typed, setTyped] = useState("");
+  const [keeping, setKeeping] = useState<{ fileId: string; name: string } | null>(null);
   const [senderId, setSenderId] = useState("");
   const q = useDebounced(typed.trim(), 300);
   const files = useChatFiles(
@@ -100,14 +102,8 @@ export function ChatFilesTab({
                     className="size-full object-cover"
                   />
                 </RowButton>
-                <span className="absolute top-0.5 right-0.5 rounded-(--radius-btn-sm) bg-surface/85 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                  <IconButton
-                    label="Go to the message it came in"
-                    size="sm"
-                    onClick={() => onGoToMessage(file.messageId)}
-                  >
-                    <IconGoTo />
-                  </IconButton>
+                <span className="absolute top-0.5 right-0.5 flex rounded-(--radius-btn-sm) bg-surface/85 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                  <Actions file={file} onGoToMessage={onGoToMessage} onKeep={setKeeping} />
                 </span>
               </span>
             ))}
@@ -138,14 +134,8 @@ export function ChatFilesTab({
                     </span>
                   </span>
                 </RowButton>
-                <span className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                  <IconButton
-                    label="Go to the message it came in"
-                    size="sm"
-                    onClick={() => onGoToMessage(file.messageId)}
-                  >
-                    <IconGoTo />
-                  </IconButton>
+                <span className="flex opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                  <Actions file={file} onGoToMessage={onGoToMessage} onKeep={setKeeping} />
                 </span>
               </li>
             ))}
@@ -158,6 +148,60 @@ export function ChatFilesTab({
           The newest 60 are shown. Search by name to find an older one.
         </p>
       )}
+
+      {keeping && (
+        <Suspense fallback={null}>
+          <KeepChatFileDialog file={keeping} onClose={() => setKeeping(null)} />
+        </Suspense>
+      )}
     </div>
+  );
+}
+
+/**
+ * **What can be done with a file from here**, the same three for a photo and for a document.
+ *
+ * All three were missing until the owner went looking for them on the first day in production
+ * (2026-09-24): a photo could only be opened, and there was no way at all to get one onto a
+ * computer or into the library without opening the viewer first and knowing to look there.
+ *
+ * Download is a plain link, not a button: it is the browser's own job, it works with a middle
+ * click and "Save link as", and it goes through the door that writes the activity row.
+ */
+function Actions({
+  file,
+  onGoToMessage,
+  onKeep,
+}: {
+  file: ChatFileItem;
+  onGoToMessage: (messageId: string) => void;
+  onKeep: (file: { fileId: string; name: string }) => void;
+}) {
+  return (
+    <>
+      <IconButton
+        label="Keep this in Files"
+        size="sm"
+        onClick={() => onKeep({ fileId: file.fileId, name: file.name })}
+      >
+        <IconFileInto />
+      </IconButton>
+      <a
+        href={chatFileUrl(file.fileId, "download")}
+        download={file.name}
+        title="Download"
+        aria-label={`Download ${file.name}`}
+        className="inline-flex size-6 flex-none items-center justify-center rounded-(--radius-btn-sm) text-muted transition-colors hover:bg-hover hover:text-ink"
+      >
+        <IconDownload className="size-[14px]" />
+      </a>
+      <IconButton
+        label="Go to the message it came in"
+        size="sm"
+        onClick={() => onGoToMessage(file.messageId)}
+      >
+        <IconGoTo />
+      </IconButton>
+    </>
   );
 }

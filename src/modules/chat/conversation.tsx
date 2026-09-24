@@ -193,6 +193,8 @@ export function Conversation({
    * has it, at most this many — twenty pages is a thousand messages, which is further than anybody
    * scrolls and far enough that the search is not a promise the screen breaks.
    */
+  /** How long a jump keeps re-aiming while the rows it passed are measured (see `settling`). */
+  const SETTLE_MS = 1200;
   const HUNT = 20;
   const hunted = useRef(0);
   /**
@@ -291,6 +293,8 @@ export function Conversation({
      */
     if (at < rows.length - 1) setAtBottom(false);
     virtual.scrollToIndex(at, { align: "center" });
+    // and again while the pictures above it decode: see `settling` below
+    settling.current = { index: at, until: Date.now() + SETTLE_MS };
     if (!asked) onWent?.();
   }, [
     asked,
@@ -306,6 +310,31 @@ export function Conversation({
     onLoadMore,
   ]);
 
+  /**
+   * **A jump lands twice, because a photo is 64px until it decodes.**
+   *
+   * The virtualiser estimates every row at 64px and corrects each one as it is measured. A photo's
+   * real row is several hundred, so scrolling to a message with pictures ABOVE it lands at an
+   * offset computed from estimates — and a moment later, as those pictures decode and the rows
+   * above grow, everything slides and the message is nowhere near the middle. The reader sees the
+   * conversation move and end up somewhere else, which reads as "it did not scroll at all"
+   * (owner, 2026-09-24, on the first day in production).
+   *
+   * So the target is held for a moment and re-asked for on every change of the total height. It is
+   * dropped the instant the reader scrolls themselves — being dragged back is worse than landing
+   * badly — and after {@link SETTLE_MS}, by which time everything on the way has been measured.
+   */
+  const settling = useRef<{ index: number; until: number } | null>(null);
+  useLayoutEffect(() => {
+    const aim = settling.current;
+    if (!aim) return;
+    if (Date.now() > aim.until) {
+      settling.current = null;
+      return;
+    }
+    virtual.scrollToIndex(aim.index, { align: "center" });
+  }, [total, virtual]);
+
   useLayoutEffect(() => {
     const el = box.current;
     const was = heldHeight.current;
@@ -314,6 +343,14 @@ export function Conversation({
     const grew = el.scrollHeight - was;
     if (grew > 0) el.scrollTop += grew;
   }, [rows.length, loadingMore]);
+
+  /**
+   * The reader taking over cancels the re-aiming. It cannot be the scroll EVENT that does it: our
+   * own `scrollToIndex` raises one of those too. A wheel or a finger is unambiguously theirs.
+   */
+  const takeOver = useCallback(() => {
+    settling.current = null;
+  }, []);
 
   const onScroll = useCallback(() => {
     const el = box.current;
@@ -341,7 +378,13 @@ export function Conversation({
   }, [atBottom, newest, onRead]);
 
   return (
-    <div ref={box} onScroll={onScroll} className="flex-1 overflow-y-auto px-4 py-3">
+    <div
+      ref={box}
+      onScroll={onScroll}
+      onWheel={takeOver}
+      onTouchMove={takeOver}
+      className="flex-1 overflow-y-auto px-4 py-3"
+    >
       {missing && (
         <p className="mb-2 rounded-(--radius-field) bg-divider px-3 py-2 text-center text-[12px] text-muted">
           That message is not here any more.

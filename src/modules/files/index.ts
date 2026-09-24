@@ -13,6 +13,10 @@ export const ClientFilesBrowser = lazy(() =>
 export const FileToFolderDialog = lazy(() =>
   import("./dialogs").then((m) => ({ default: m.FileToFolderDialog })),
 );
+/** Keeping a file that arrived in a chat (chat.md §6.5): the chat's panel opens this one. */
+export const KeepChatFileDialog = lazy(() =>
+  import("./dialogs").then((m) => ({ default: m.KeepChatFileDialog })),
+);
 /** The viewer (files.md §12), for the task card's own list: opened far less often than the card. */
 export const FileViewer = lazy(() => import("./viewer").then((m) => ({ default: m.Viewer })));
 export type { Viewable } from "./viewer";
