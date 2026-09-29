@@ -28,7 +28,8 @@ export function ClientMailoutModal({
   const { data, isLoading } = useClientLetter(letterId, clientId);
 
   return (
-    <Modal open={!!letterId} onClose={onClose} size="lg" title={data?.subject ?? "Letter"}>
+    // `fit`: a long letter scrolls inside its own box, under the facts about it that stay in view
+    <Modal open={!!letterId} onClose={onClose} size="lg" fit title={data?.subject ?? "Letter"}>
       {isLoading || !data ? (
         <p className="text-[13px] text-muted">Loading…</p>
       ) : (
@@ -55,7 +56,7 @@ export function ClientMailoutModal({
             </p>
           )}
 
-          <div className="rounded-(--radius-field) border border-border bg-surface p-3">
+          <div className="min-h-0 overflow-y-auto rounded-(--radius-field) border border-border bg-surface p-3">
             <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-faint">
               The letter {data.companyName ?? clientName} received
             </p>

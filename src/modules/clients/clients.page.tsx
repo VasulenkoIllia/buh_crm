@@ -7,6 +7,7 @@ import { ServiceChip, useCatalog } from "@/modules/catalog";
 import { cn } from "@/shared/lib/cn";
 import { useDebounced } from "@/shared/lib/use-debounced";
 import { fmtMoney } from "@/shared/lib/money";
+import { readPref, writePref } from "@/shared/lib/local-pref";
 import { Button } from "@/shared/ui/button";
 import { Select } from "@/shared/ui/field";
 import { SearchInput } from "@/shared/ui/search-input";
@@ -39,29 +40,18 @@ const SORTS = Object.keys(SORT_LABELS) as SortKey[];
 const PAGE_SIZES = [25, 50, 100] as const;
 
 /**
- * How many rows the reader wants, remembered between visits.
- *
- * `localStorage` and not the server: this is a property of the screen someone is looking at, not
- * of the account — and the throw a private window or blocked site data produces must not take the
- * clients page down with it, hence the try/catch on both sides.
+ * How many rows the reader wants, remembered between visits in this browser (`shared/lib/local-pref`
+ * says why there, and why a blocked `localStorage` cannot take the page down).
  */
 const PAGE_SIZE_KEY = "clients.pageSize";
 
 function storedPageSize(): number {
-  try {
-    const n = Number(localStorage.getItem(PAGE_SIZE_KEY));
-    return (PAGE_SIZES as readonly number[]).includes(n) ? n : 25;
-  } catch {
-    return 25;
-  }
+  const n = Number(readPref(PAGE_SIZE_KEY));
+  return (PAGE_SIZES as readonly number[]).includes(n) ? n : 25;
 }
 
 function rememberPageSize(n: number): void {
-  try {
-    localStorage.setItem(PAGE_SIZE_KEY, String(n));
-  } catch {
-    // a private window or blocked site data — the choice just will not stick
-  }
+  writePref(PAGE_SIZE_KEY, String(n));
 }
 
 const TAB_HINTS: Record<TabKey, string> = {

@@ -20,9 +20,15 @@ const FOCUS =
  */
 const ICON = "[&_svg]:shrink-0";
 
+/**
+ * **A button's words stay on one line.** Without `whitespace-nowrap` a button in a crowded toolbar
+ * broke into two, and "+ New meeting", "+ New lead" and "New task" stood a line taller than the
+ * controls beside them on a 13-inch MacBook (owner, 2026-09-29). A toolbar that runs out of room
+ * wraps whole buttons instead.
+ */
 const buttonVariants = cva(
   cn(
-    "inline-flex items-center justify-center gap-1.5 rounded-(--radius-field) text-[13px]",
+    "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-(--radius-field) text-[13px]",
     "font-medium transition-colors disabled:pointer-events-none disabled:opacity-50",
     FOCUS,
     ICON,

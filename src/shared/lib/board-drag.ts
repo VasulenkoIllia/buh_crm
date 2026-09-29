@@ -25,6 +25,44 @@ import { resolveDrop } from "./drop-target";
  * What each board still owns: how a card LOOKS, what its lists mean, and what to do when one lands.
  */
 
+/**
+ * **A card scrolled out of sight is not under the pointer.** Since the tasks board's columns scroll
+ * on their own (2026-09-29), a card scrolled above or below its column's visible list keeps a rect
+ * where it would be, over the column's header or its foot. `pointerWithin` reads those rects, so a
+ * card dropped on a scrolled column's header landed beside a card nobody could see. A card counts
+ * only while the pointer is inside the scroll box that shows it.
+ *
+ * The scroll box is found once per card element and remembered: `getComputedStyle` on every
+ * pointer move would be the whole ancestor chain for each candidate.
+ */
+const scrollBoxOf = new WeakMap<Element, Element | null>();
+
+function scrollBox(node: Element): Element | null {
+  if (scrollBoxOf.has(node)) return scrollBoxOf.get(node) ?? null;
+  let box: Element | null = null;
+  for (let el = node.parentElement; el; el = el.parentElement) {
+    const overflow = getComputedStyle(el).overflowY;
+    if (overflow === "auto" || overflow === "scroll") {
+      box = el;
+      break;
+    }
+  }
+  scrollBoxOf.set(node, box);
+  return box;
+}
+
+function inside(
+  point: { x: number; y: number },
+  rect: { left: number; right: number; top: number; bottom: number },
+): boolean {
+  return (
+    point.x >= rect.left &&
+    point.x <= rect.right &&
+    point.y >= rect.top &&
+    point.y <= rect.bottom
+  );
+}
+
 /** every sortable says which of the two things it is; nothing here guesses from the id */
 export const DRAG_CARD = "card";
 export const DRAG_COLUMN = "column";
@@ -126,7 +164,12 @@ export function useBoardDrag<T>({
       const under = pointerWithin(onlyColumns);
       return under.length > 0 ? under : closestCenter(onlyColumns);
     }
-    const within = pointerWithin(args);
+    const within = pointerWithin(args).filter((c) => {
+      if (lists.has(String(c.id)) || !args.pointerCoordinates) return true;
+      const node = args.droppableContainers.find((d) => d.id === c.id)?.node.current;
+      const box = node ? scrollBox(node) : null;
+      return !box || inside(args.pointerCoordinates, box.getBoundingClientRect());
+    });
     const onCard = within.filter((c) => !lists.has(String(c.id)));
     if (onCard.length > 0) return onCard;
     return within.length > 0 ? within : closestCenter(args);

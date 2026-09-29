@@ -221,8 +221,13 @@ export function MoveDialog({
           <Button
             disabled={!target || !check?.allowed || unchanged || lib.movePending}
             onClick={() => void submit()}
+            title={target ? `Move to ${target.label}` : undefined}
           >
-            {target ? `Move to ${target.label}` : "Move"}
+            {/* a button's words never wrap (button.tsx), so a long folder name is cut here,
+                whole in the tooltip, rather than pushing Cancel out of the dialog */}
+            <span className="max-w-[280px] truncate">
+              {target ? `Move to ${target.label}` : "Move"}
+            </span>
           </Button>
         </>
       }
@@ -372,8 +377,13 @@ export function KeepChatFileDialog({
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button disabled={!to || keep.isPending} onClick={() => void submit()}>
-            {to ? `Keep in ${label}` : "Keep"}
+          <Button
+            disabled={!to || keep.isPending}
+            onClick={() => void submit()}
+            title={to ? `Keep in ${label}` : undefined}
+          >
+            {/* cut, whole in the tooltip: see "Move to" above */}
+            <span className="max-w-[280px] truncate">{to ? `Keep in ${label}` : "Keep"}</span>
           </Button>
         </>
       }

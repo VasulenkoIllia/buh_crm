@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import type { EmailTemplate } from "@shared/schema/mailouts";
 import { CLIENT_VARIABLES, FIRM_VARIABLES, renderMailText, sampleVars } from "@shared/mailouts";
 import { Button } from "@/shared/ui/button";
-import { FormField, Input, Select, Textarea } from "@/shared/ui/field";
+import { FieldError, FormField, Input, Select, Textarea } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
+import { InfoHint } from "@/shared/ui/info-hint";
 import { Segmented } from "@/shared/ui/segmented";
 import { CopyLink } from "@/shared/ui/copy-link";
 import { LetterPreviewModal } from "./letter-preview-modal";
@@ -140,34 +141,71 @@ export function TemplateModal({
       )}
 
       <div className="grid gap-4 md:grid-cols-[1fr_300px]">
+        {/*
+          Pairs side by side where the fields are short, so the form is one screen tall: in one
+          column it ran to 730px and scrolled by 190 on a 13-inch MacBook (owner, 2026-09-29).
+          The first pair lines up by the top (both labels are one line), so a name error under its
+          box does not drag the mailbox beside it down. The second lines up by the bottom, because
+          the Heading label wraps; the subject's error is drawn under the pair for the same reason.
+        */}
         <div className="space-y-3">
-          <FormField label="Template name" error={fieldErrors.name}>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Quarterly filing reminder"
-              error={!!fieldErrors.name}
-            />
-          </FormField>
+          <div className="grid items-start gap-3 sm:grid-cols-2">
+            <FormField label="Template name" error={fieldErrors.name}>
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Quarterly filing reminder"
+                error={!!fieldErrors.name}
+              />
+            </FormField>
+            <FormField
+              label={
+                <>
+                  Usually sent from{" "}
+                  <InfoHint label="Where this template sends from">
+                    A send can still override this. Letters about money usually come from a
+                    different address than news does.
+                  </InfoHint>
+                </>
+              }
+            >
+              <Select
+                value={senderAccountId}
+                onChange={(e) => setSenderAccountId(e.target.value)}
+              >
+                <option value="">The default mailbox</option>
+                {(senders.data?.accounts ?? [])
+                  .filter((a) => a.active)
+                  .map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name} — {a.fromEmail ?? "no address"}
+                      {a.isDefault ? " (default)" : ""}
+                    </option>
+                  ))}
+              </Select>
+            </FormField>
+          </div>
 
-          <FormField label="Subject" error={fieldErrors.subject}>
-            <Input
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              onFocus={() => setLastFocused("subject")}
-              placeholder="Your {{company}} filing is ready"
-              error={!!fieldErrors.subject}
-            />
-          </FormField>
-
-          <FormField label="Heading (optional — the subject is used when empty)">
-            <Input
-              value={heading}
-              onChange={(e) => setHeading(e.target.value)}
-              onFocus={() => setLastFocused("heading")}
-              placeholder="Hello {{first_name}}"
-            />
-          </FormField>
+          <div className="grid items-end gap-x-3 gap-y-3 sm:grid-cols-2 sm:gap-y-0">
+            <FormField label="Subject">
+              <Input
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                onFocus={() => setLastFocused("subject")}
+                placeholder="Your {{company}} filing is ready"
+                error={!!fieldErrors.subject}
+              />
+            </FormField>
+            <FormField label="Heading (optional — the subject is used when empty)">
+              <Input
+                value={heading}
+                onChange={(e) => setHeading(e.target.value)}
+                onFocus={() => setLastFocused("heading")}
+                placeholder="Hello {{first_name}}"
+              />
+            </FormField>
+            <FieldError message={fieldErrors.subject} />
+          </div>
 
           <FormField label="Body" error={fieldErrors.body}>
             <Textarea
@@ -175,42 +213,26 @@ export function TemplateModal({
               value={body}
               onChange={(e) => setBody(e.target.value)}
               onFocus={() => setLastFocused("body")}
-              className="h-[220px]"
+              className="h-[160px]"
               placeholder={"Dear {{first_name}},\n\nYour documents are ready for review."}
             />
           </FormField>
 
-          <FormField label="Usually sent from">
-            <Select
-              value={senderAccountId}
-              onChange={(e) => setSenderAccountId(e.target.value)}
-            >
-              <option value="">The default mailbox</option>
-              {(senders.data?.accounts ?? [])
-                .filter((a) => a.active)
-                .map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name} — {a.fromEmail ?? "no address"}
-                    {a.isDefault ? " (default)" : ""}
-                  </option>
-                ))}
-            </Select>
-          </FormField>
-          <p className="-mt-1 text-[12px] leading-relaxed text-muted">
-            A send can still override this. Letters about money usually come from a different
-            address than news does.
-          </p>
-
           <div>
-            <p className="mb-1.5 text-[12px] font-medium text-ink-700">Kind</p>
-            <Segmented
-              value={kind}
-              onChange={(v) => setKind(v as "commercial" | "transactional")}
-              options={[
-                { value: "commercial", label: "Commercial" },
-                { value: "transactional", label: "Transactional" },
-              ]}
-            />
+            {/* the label beside the switch rather than over it: a row back for the error lines a
+                failed save adds, so even then the form does not scroll (audit, 2026-09-29) */}
+            <div className="flex items-center gap-3">
+              <p className="text-[12px] font-medium text-ink-700">Kind</p>
+              <Segmented
+                className="w-auto"
+                value={kind}
+                onChange={(v) => setKind(v as "commercial" | "transactional")}
+                options={[
+                  { value: "commercial", label: "Commercial" },
+                  { value: "transactional", label: "Transactional" },
+                ]}
+              />
+            </div>
             <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
               {kind === "commercial"
                 ? "News and offers. Carries an unsubscribe link and the firm's postal address, and is not sent to clients who unsubscribed — as US law requires."
@@ -219,67 +241,71 @@ export function TemplateModal({
           </div>
         </div>
 
-        <div className="space-y-3">
-          <div>
-            <p className="mb-1.5 text-[12px] font-medium text-ink-700">Insert a variable</p>
-            <p className="mb-2 text-[12px] text-muted">
-              Filled from the client card. A client missing one is skipped, never sent a letter
-              with a gap in it.
-            </p>
-            <div className="flex flex-wrap gap-1">
-              {CLIENT_VARIABLES.map((v) => (
-                <button
-                  key={v.key}
-                  type="button"
-                  onClick={() => insertVariable(v.key)}
-                  title={v.label}
-                  className="rounded-(--radius-chip) border border-border bg-surface px-2 py-1 font-mono text-[11px] text-ink hover:bg-divider"
-                >
-                  {v.key}
-                </button>
-              ))}
-              {FIRM_VARIABLES.map((v) => (
-                <button
-                  key={v.key}
-                  type="button"
-                  onClick={() => insertVariable(v.key)}
-                  title={`${v.label} (from Settings)`}
-                  className="rounded-(--radius-chip) border border-dashed border-border bg-surface px-2 py-1 font-mono text-[12px] text-muted hover:bg-divider"
-                >
-                  {v.key}
-                </button>
-              ))}
+        {/* As tall as the fields beside it and no taller: a long letter scrolls inside the preview
+            rather than stretching the whole form past the window. */}
+        <div className="md:relative">
+          <div className="space-y-3 md:absolute md:inset-0 md:flex md:flex-col">
+            <div className="md:flex-none">
+              <p className="mb-1.5 text-[12px] font-medium text-ink-700">Insert a variable</p>
+              <p className="mb-2 text-[12px] text-muted">
+                Filled from the client card. A client missing one is skipped, never sent a
+                letter with a gap in it.
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {CLIENT_VARIABLES.map((v) => (
+                  <button
+                    key={v.key}
+                    type="button"
+                    onClick={() => insertVariable(v.key)}
+                    title={v.label}
+                    className="rounded-(--radius-chip) border border-border bg-surface px-2 py-1 font-mono text-[11px] text-ink hover:bg-divider"
+                  >
+                    {v.key}
+                  </button>
+                ))}
+                {FIRM_VARIABLES.map((v) => (
+                  <button
+                    key={v.key}
+                    type="button"
+                    onClick={() => insertVariable(v.key)}
+                    title={`${v.label} (from Settings)`}
+                    className="rounded-(--radius-chip) border border-dashed border-border bg-surface px-2 py-1 font-mono text-[12px] text-muted hover:bg-divider"
+                  >
+                    {v.key}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
 
-          <div className="rounded-(--radius-field) border border-border bg-surface p-3">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <p className="text-[12px] font-medium uppercase tracking-wide text-muted">
-                Preview — sample client
-              </p>
-              {/* This panel is instant and updates as you type; the real letter costs a round trip
+            <div className="rounded-(--radius-field) border border-border bg-surface p-3 md:min-h-0 md:flex-1 md:overflow-y-auto">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-[12px] font-medium uppercase tracking-wide text-muted">
+                  Preview — sample client
+                </p>
+                {/* This panel is instant and updates as you type; the real letter costs a round trip
                   and opens full size, where the kind switch and the highlight live. */}
-              <button
-                type="button"
-                onClick={() => setShowingLetter(true)}
-                disabled={!subject.trim() || !body.trim()}
-                className="text-[11px] text-primary-link hover:underline disabled:opacity-40 disabled:hover:no-underline"
-              >
-                See the full letter
-              </button>
-            </div>
-            <p className="mb-1 text-[12px] text-muted">Subject</p>
-            <p className="mb-3 text-[13px] font-medium text-ink">{previewSubject || "—"}</p>
-            <p className="mb-2 text-[15px] font-semibold text-ink">{previewHeading || "—"}</p>
-            <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-ink-700">
-              {previewBody.text || "—"}
-            </p>
-            {previewBody.unknown.length > 0 && (
-              <p className="mt-3 rounded-(--radius-field) bg-danger/10 px-2 py-1.5 text-[11px] text-danger-text">
-                Not a real variable: {previewBody.unknown.map((u) => `{{${u}}}`).join(", ")} —
-                it will appear in the letter exactly as written.
+                <button
+                  type="button"
+                  onClick={() => setShowingLetter(true)}
+                  disabled={!subject.trim() || !body.trim()}
+                  className="text-[11px] text-primary-link hover:underline disabled:opacity-40 disabled:hover:no-underline"
+                >
+                  See the full letter
+                </button>
+              </div>
+              <p className="mb-1 text-[12px] text-muted">Subject</p>
+              <p className="mb-3 text-[13px] font-medium text-ink">{previewSubject || "—"}</p>
+              <p className="mb-2 text-[15px] font-semibold text-ink">{previewHeading || "—"}</p>
+              <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-ink-700">
+                {previewBody.text || "—"}
               </p>
-            )}
+              {previewBody.unknown.length > 0 && (
+                <p className="mt-3 rounded-(--radius-field) bg-danger/10 px-2 py-1.5 text-[11px] text-danger-text">
+                  Not a real variable: {previewBody.unknown.map((u) => `{{${u}}}`).join(", ")} —
+                  it will appear in the letter exactly as written.
+                </p>
+              )}
+            </div>
           </div>
         </div>
       </div>

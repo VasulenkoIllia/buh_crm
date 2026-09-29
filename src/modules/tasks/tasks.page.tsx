@@ -221,9 +221,12 @@ export function TasksPage() {
           )}
           {/* searchable: this lists every client AND lead with live work — a plain dropdown
             stops being usable long before the firm does */}
+          {/* The three pickers give a little width (176 down to 120) before any of them wraps, so
+            the Active view's bar is one row on a 13-inch MacBook; at 176 each it was two
+            (owner, 2026-09-29). */}
           {/* the catalog service the work goes through. "Internal" is not a service — it is the
             absence of one, and without the option every internal task is unreachable here. */}
-          <div className="w-44">
+          <div className="min-w-0 max-w-44 flex-1 basis-[120px]">
             <SearchSelect
               value={serviceFilter}
               onChange={setServiceFilter}
@@ -238,7 +241,7 @@ export function TasksPage() {
               ]}
             />
           </div>
-          <div className="w-44">
+          <div className="min-w-0 max-w-44 flex-1 basis-[120px]">
             <SearchSelect
               value={targetFilter}
               onChange={setTargetFilter}
@@ -250,7 +253,12 @@ export function TasksPage() {
               }))}
             />
           </div>
-          <div className={cn("w-44", mineOnly && "pointer-events-none opacity-50")}>
+          <div
+            className={cn(
+              "min-w-0 max-w-44 flex-1 basis-[120px]",
+              mineOnly && "pointer-events-none opacity-50",
+            )}
+          >
             {/* "Mine" already IS an assignee filter — the picker goes quiet rather than fighting it */}
             <SearchSelect
               value={mineOnly ? "" : assigneeFilter}
@@ -495,7 +503,12 @@ function Board({
       collisionDetection={drag.collisionDetection}
       {...drag.handlers}
     >
-      <div className="flex flex-1 items-start gap-3 overflow-auto p-3.5">
+      {/*
+        The board scrolls sideways; each COLUMN scrolls down on its own. It used to scroll down as
+        one sheet, so scrolling the long New column carried the short ones away, headers and all,
+        and left blank strips where they had been (owner, 2026-09-29).
+      */}
+      <div className="flex min-h-0 flex-1 items-start gap-3 overflow-x-auto overflow-y-hidden p-3.5">
         {/**
          * Horizontal — this board's columns run left to right, unlike every other sortable here.
          *
@@ -591,22 +604,16 @@ function BoardColumn({
       // are animated too, and a scale on a whole column reads as the board flexing
       style={{ transform: CSS.Translate.toString(transform), transition }}
       className={cn(
-        "min-h-[120px] min-w-[230px] flex-[1_0_230px] rounded-[10px] bg-[#f4f6f8] p-[10px_9px]",
+        // `max-h-full` + a flex column: the column is as tall as its cards up to the board's
+        // height, and past that its list scrolls inside it
+        "flex max-h-full min-h-[120px] min-w-[230px] flex-[1_0_230px] flex-col rounded-[10px] bg-[#f4f6f8] p-[10px_9px]",
         isOver && "outline-1 outline-dashed outline-[#b9c1cc]",
         isDragging && "z-10 opacity-60",
       )}
     >
       {/* header + add button stay put at the top of the column: adding tasks must never push
-          the primary action down, and it stays reachable while the cards scroll past */}
-      <div
-        className={cn(
-          "sticky top-0 z-10 -mx-[9px] -mt-[10px] bg-[#f4f6f8] px-[9px] pb-2 pt-[10px]",
-          // a sticky box is already positioned, so the ::before anchors to it — no `relative`
-          // (that would override position:sticky). It masks the board's own top padding, where a
-          // card would otherwise slide through the gap above the pinned header.
-          "before:absolute before:inset-x-0 before:bottom-full before:h-4 before:bg-[#f4f6f8]",
-        )}
-      >
+          the primary action down, and it stays reachable while the cards scroll past under it */}
+      <div className="flex-none pb-2">
         <div className="flex items-center gap-1.5 px-1 pb-2">
           {/**
            * A HANDLE, not the whole column. The header holds a rename field and the body holds
@@ -702,7 +709,9 @@ function BoardColumn({
           `SortableContext` makes possible; the column itself stays droppable so a card can be
           dropped on the empty space below, and into a column that has none */}
       <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
-        <div className="flex min-h-[8px] flex-col gap-2">
+        {/* the column's own scroll. It reaches into the column's side padding and a few pixels
+            above, so an overdue card's red ring is not cut off at the scroll edge */}
+        <div className="-mx-[9px] -mt-1 flex min-h-[8px] flex-col gap-2 overflow-y-auto px-[9px] pb-1 pt-1">
           {tasks.map((task) => (
             <BoardCard key={task.id} task={task} team={team} onOpen={() => onOpen(task)} />
           ))}
@@ -893,24 +902,18 @@ function CardFace({
         className,
       )}
     >
-      <div className="flex items-start justify-between gap-2">
-        {/*
-          `min-w-0` and `break-words` together, and both are load-bearing.
+      {/*
+        The title has the card's whole width. The Done toggle used to stand beside it and took a
+        third of a 280px card, so a generated title ("Client · Service · step · date") broke into
+        five or six lines of two words each, while the row with Track below held one button and
+        nothing else. Done now sits on that row, at the other end from Track (owner, 2026-09-29).
 
-          A flex child defaults to `min-width: auto`, which means it will not shrink below its
-          LONGEST WORD — and the toggle beside it is `flex-none`. Neither yields, so in a narrow
-          column the row simply overflowed the card and the Done button hung outside the border.
-          Measured at the column's 230px floor: "зарегестрировать sales tax" pushed it 2px out,
-          a longer single word 54px (user, 2026-09-04).
-
-          `min-w-0` alone lets the box shrink but the word then spills out of it; `break-words` is
-          what makes the word wrap instead of setting the width.
-        */}
-        <div className="min-w-0 break-words text-[13px] font-semibold leading-[1.3]">
-          {overdue && <span className="mr-1 text-danger-text">⚠</span>}
-          {task.title}
-        </div>
-        <DoneToggle task={task} compact />
+        `min-w-0` and `break-words` stay load-bearing: a single word longer than the card must wrap
+        rather than set its width (user, 2026-09-04; `card-title-layout.test.ts`).
+      */}
+      <div className="min-w-0 break-words text-[13px] font-semibold leading-[1.3]">
+        {overdue && <span className="mr-1 text-danger-text">⚠</span>}
+        {task.title}
       </div>
       {(task.clientId || task.leadId || service) && (
         <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] text-muted">
@@ -918,15 +921,16 @@ function CardFace({
           {service && <ServiceChip name={service.name} color={service.color} />}
         </div>
       )}
-      <div
-        className={cn(
-          "mt-[5px] text-[12px]",
-          overdue ? "font-semibold text-danger" : "text-muted",
-        )}
-      >
-        {task.deadline ? `Due: ${fmtBizDay(task.deadline)}` : "No deadline"}
-      </div>
+      {/* the deadline leads the row of facts rather than taking a line of its own */}
       <div className="mt-2 flex min-h-5 flex-wrap items-center gap-[5px]">
+        <span
+          className={cn(
+            "mr-1 text-[12px]",
+            overdue ? "font-semibold text-danger" : "text-muted",
+          )}
+        >
+          {task.deadline ? `Due: ${fmtBizDay(task.deadline)}` : "No deadline"}
+        </span>
         <AssigneeAvatars
           ids={task.assignees}
           team={team}
@@ -952,8 +956,11 @@ function CardFace({
         )}
         {task.kind === "sub" && <Chip tone="blue">📅 auto</Chip>}
       </div>
-      {/* start/stop the timer straight from the board, with what's already on the clock */}
-      <div className="mt-2 flex items-center justify-end gap-2">
+      {/* the card's two acts on one row: close it, or start/stop the timer with what's on the clock */}
+      <div className="mt-2 flex items-center gap-2">
+        <DoneToggle task={task} compact />
+        {/* a spacer, not `ml-auto` on the time: with nothing tracked yet that renders nothing */}
+        <span className="flex-1" />
         <TrackedTime seconds={task.trackedSeconds} className="text-[11px]" />
         <TaskTimerButton task={task} compact />
       </div>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown, History as HistoryIcon, Pencil, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { Invoice } from "@shared/schema/payment";
@@ -753,8 +753,12 @@ export function NewInvoiceModal({
       title="New invoice"
       open
       onClose={onClose}
-      // a table of positions does not fit a 512px dialog; it grows when you ask for one
-      size={itemised ? "lg" : "md"}
+      // One width whatever is picked, so the dialog never jumps under the click (it used to grow
+      // from 512 when Positions was chosen). The fields pair up: one under another they scrolled
+      // by 260 on a 13-inch MacBook (owner, 2026-09-29). `fit` lets a long list of positions
+      // scroll in place rather than push the form off the screen.
+      size="lg"
+      fit
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
@@ -766,111 +770,127 @@ export function NewInvoiceModal({
         </>
       }
     >
-      <div className="space-y-3.5">
-        <FormField label="Client">
-          <ClientPicker
-            clientId={clientId}
-            onPick={(id) => {
-              setClientId(id);
-              setSubscriptionId("");
-            }}
-          />
-        </FormField>
+      <div className="flex min-h-0 flex-col gap-3.5">
+        <div className="grid gap-3.5 sm:grid-cols-2">
+          <FormField label="Client">
+            <ClientPicker
+              clientId={clientId}
+              onPick={(id) => {
+                setClientId(id);
+                setSubscriptionId("");
+              }}
+            />
+          </FormField>
 
-        <FormField label="Service (optional — pins the company target)">
-          <SearchSelect
-            value={subscriptionId}
-            onChange={setSubscriptionId}
-            disabled={!clientId}
-            placeholder={clientId ? "Search this client's services…" : "Pick a client first"}
-            emptyLabel="No service — a plain charge"
-            options={
-              clientId
-                ? subscriptions.map((s) => ({
-                    value: s.id,
-                    label: s.companyId
-                      ? `${serviceName(s.serviceId)} · ${client.data?.companies.find((c) => c.id === s.companyId)?.name ?? "company"}`
-                      : serviceName(s.serviceId),
-                  }))
-                : []
-            }
-          />
-        </FormField>
+          <FormField label="Service (optional — pins the company target)">
+            <SearchSelect
+              value={subscriptionId}
+              onChange={setSubscriptionId}
+              disabled={!clientId}
+              placeholder={clientId ? "Search this client's services…" : "Pick a client first"}
+              emptyLabel="No service — a plain charge"
+              options={
+                clientId
+                  ? subscriptions.map((s) => ({
+                      value: s.id,
+                      label: s.companyId
+                        ? `${serviceName(s.serviceId)} · ${client.data?.companies.find((c) => c.id === s.companyId)?.name ?? "company"}`
+                        : serviceName(s.serviceId),
+                    }))
+                  : []
+              }
+            />
+          </FormField>
+        </div>
 
-        <FormField label={itemised ? "Note on the invoice" : "Description"}>
-          <Textarea
-            className="h-[60px]"
-            placeholder="What this invoice is for"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </FormField>
+        <div className="grid gap-3.5 sm:grid-cols-2">
+          <FormField label={itemised ? "Note on the invoice" : "Description"}>
+            <Textarea
+              className="h-[60px]"
+              placeholder="What this invoice is for"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </FormField>
 
-        {/* The same choice the editor offers, so an invoice is made the way it is later corrected
-            (user, 2026-08-21). Nothing about the toggle is stored — see InvoiceLine's comment. */}
-        <Segmented
-          value={itemised ? "lines" : "flat"}
-          onChange={(v) => setItemised(v === "lines")}
-          options={[
-            { value: "flat", label: "One amount" },
-            { value: "lines", label: "Positions" },
-          ]}
-        />
-
-        <div className="flex gap-3">
-          {!itemised && (
-            <div className="flex-1">
-              <FormField label="Amount">
-                <Input
-                  inputMode="decimal"
-                  placeholder="0.00"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                />
-              </FormField>
-            </div>
-          )}
-          <div className={itemised ? "flex-1" : "w-[170px]"}>
-            <FormField label="Due date">
+          <div className="flex gap-3">
+            {!itemised && (
+              <div className="flex-1">
+                <FormField label="Amount">
+                  <Input
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                  />
+                </FormField>
+              </div>
+            )}
+            <div className={itemised ? "flex-1" : "w-[190px]"}>
+              {/* the switch sits on the label's line, so the date box lines up with its neighbours */}
+              {/* the label's own classes without its margin: the row carries the one 6px gap,
+                  the same as the Label above each neighbouring box */}
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <label htmlFor="inv-due" className="block text-[12px] font-medium text-ink-700">
+                  Due date
+                </label>
+                <label className="flex items-center gap-1.5 text-[12px] text-muted">
+                  <input
+                    type="checkbox"
+                    checked={noDueDate}
+                    onChange={(e) => {
+                      setNoDueDate(e.target.checked);
+                      if (e.target.checked) setDueDate("");
+                    }}
+                  />
+                  No due date
+                </label>
+              </div>
               <Input
+                id="inv-due"
                 type="date"
                 value={dueDate}
                 disabled={noDueDate}
                 onChange={(e) => setDueDate(e.target.value)}
               />
-            </FormField>
-            <label className="mt-1 flex items-center gap-1.5 text-[12px] text-muted">
-              <input
-                type="checkbox"
-                checked={noDueDate}
-                onChange={(e) => {
-                  setNoDueDate(e.target.checked);
-                  if (e.target.checked) setDueDate("");
-                }}
-              />
-              No due date
-            </label>
-            {!noDueDate && !dueDate && (
-              <p className="mt-1 text-[11px] text-faint">empty = service default</p>
-            )}
+              {!noDueDate && !dueDate && (
+                <p className="mt-1 text-[11px] text-faint">empty = service default</p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* The two choices on one row: how the money is written, and what else gets made. */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* The same choice the editor offers, so an invoice is made the way it is later corrected
+              (user, 2026-08-21). Nothing about the toggle is stored — see InvoiceLine's comment. */}
+          <Segmented
+            className="w-auto"
+            value={itemised ? "lines" : "flat"}
+            onChange={(v) => setItemised(v === "lines")}
+            options={[
+              { value: "flat", label: "One amount" },
+              { value: "lines", label: "Positions" },
+            ]}
+          />
+          <div className="flex items-center gap-2">
+            <span className="text-[12px] font-medium text-ink-700">What to create</span>
+            <Segmented
+              className="w-auto"
+              value={mode}
+              onChange={setMode}
+              options={[
+                { value: "invoice", label: "Invoice only" },
+                { value: "with_task", label: "Invoice + task" },
+              ]}
+            />
           </div>
         </div>
 
         {itemised && <LinesEditor lines={lines} onChange={setLines} />}
 
-        <FormField label="What to create">
-          <Segmented
-            value={mode}
-            onChange={setMode}
-            options={[
-              { value: "invoice", label: "Invoice only" },
-              { value: "with_task", label: "Invoice + task" },
-            ]}
-          />
-        </FormField>
-
         {mode === "with_task" && (
-          <div className="space-y-3 rounded-(--radius-panel) bg-[#f7f8fa] p-3">
+          <div className="grid gap-3 rounded-(--radius-panel) bg-[#f7f8fa] p-3 sm:grid-cols-[240px_1fr]">
             <FormField label="Task name">
               <Input
                 placeholder={description || "What has to be done"}
@@ -889,11 +909,11 @@ export function NewInvoiceModal({
                   )
                 }
               />
-              <p className="mt-1.5 text-[12px] text-faint">
-                The job opens in the New column with this invoice already attached — its price
-                is locked to the invoice.
-              </p>
             </div>
+            <p className="text-[12px] text-faint sm:col-span-2">
+              The job opens in the New column with this invoice already attached — its price is
+              locked to the invoice.
+            </p>
           </div>
         )}
 
@@ -924,8 +944,26 @@ function LinesEditor({
   const set = (i: number, patch: Partial<DraftLine>) =>
     onChange(lines.map((l, n) => (n === i ? { ...l, ...patch } : l)));
 
+  /**
+   * A position just added is at the foot of a list that may be scrolled or clipped: the list
+   * follows it there and the cursor goes into its name. Without this the fifth "+ Position" showed
+   * a sliver and nothing else, and somebody clicking again left blank rows on an invoice
+   * (audit, 2026-09-29).
+   */
+  const list = useRef<HTMLDivElement>(null);
+  const count = useRef(lines.length);
+  useEffect(() => {
+    if (lines.length > count.current) {
+      const row = list.current?.lastElementChild;
+      row?.scrollIntoView({ block: "nearest" });
+      row?.querySelector("input")?.focus({ preventScroll: true });
+    }
+    count.current = lines.length;
+  }, [lines.length]);
+
   return (
-    <div className="space-y-1.5">
+    // a flex column so the rows can give way inside a `fit` modal (see shared/ui/modal.tsx)
+    <div className="flex min-h-0 flex-col gap-1.5">
       <div className="grid grid-cols-[minmax(140px,1fr)_90px_120px_120px_32px] items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-faint">
         <div>Position</div>
         <div className="text-right">Hours</div>
@@ -934,51 +972,59 @@ function LinesEditor({
         <div />
       </div>
 
-      {lines.map((line, i) => {
-        const computed = draftAmount(line);
-        return (
-          <div
-            key={i}
-            className="grid grid-cols-[minmax(140px,1fr)_90px_120px_120px_32px] items-center gap-2"
-          >
-            <Input
-              value={line.description}
-              placeholder="Consultation"
-              onChange={(e) => set(i, { description: e.target.value })}
-            />
-            <Input
-              inputMode="decimal"
-              className="text-right"
-              placeholder="—"
-              value={line.hours}
-              onChange={(e) => set(i, { hours: e.target.value })}
-            />
-            <Input
-              inputMode="decimal"
-              className="text-right"
-              placeholder="—"
-              value={line.rate}
-              onChange={(e) => set(i, { rate: e.target.value })}
-            />
-            {/* read-only the moment hours AND a rate are both there — the number is theirs, and
-                two editable fields that must agree is how they stop agreeing */}
-            <Input
-              inputMode="decimal"
-              className="text-right"
-              value={computed !== null ? moneyInputValue(computed) : line.amount}
-              readOnly={computed !== null}
-              onChange={(e) => set(i, { amount: e.target.value })}
-            />
-            <IconButton
-              label="Remove this position"
-              className="hover:text-danger"
-              onClick={() => onChange(lines.filter((_, n) => n !== i))}
+      {/* up to four rows show; a longer list scrolls in place rather than pushing the form off
+          the screen, and inside a `fit` modal it gives way further, down to one row */}
+      {/* `-mx-1 px-1 py-0.5`: room for a focused field's ring inside the scroll edge */}
+      <div
+        ref={list}
+        className="-mx-1 max-h-[176px] min-h-[46px] space-y-1.5 overflow-y-auto px-1 py-0.5"
+      >
+        {lines.map((line, i) => {
+          const computed = draftAmount(line);
+          return (
+            <div
+              key={i}
+              className="grid grid-cols-[minmax(140px,1fr)_90px_120px_120px_32px] items-center gap-2"
             >
-              <Trash2 size={15} />
-            </IconButton>
-          </div>
-        );
-      })}
+              <Input
+                value={line.description}
+                placeholder="Consultation"
+                onChange={(e) => set(i, { description: e.target.value })}
+              />
+              <Input
+                inputMode="decimal"
+                className="text-right"
+                placeholder="—"
+                value={line.hours}
+                onChange={(e) => set(i, { hours: e.target.value })}
+              />
+              <Input
+                inputMode="decimal"
+                className="text-right"
+                placeholder="—"
+                value={line.rate}
+                onChange={(e) => set(i, { rate: e.target.value })}
+              />
+              {/* read-only the moment hours AND a rate are both there — the number is theirs, and
+                two editable fields that must agree is how they stop agreeing */}
+              <Input
+                inputMode="decimal"
+                className="text-right"
+                value={computed !== null ? moneyInputValue(computed) : line.amount}
+                readOnly={computed !== null}
+                onChange={(e) => set(i, { amount: e.target.value })}
+              />
+              <IconButton
+                label="Remove this position"
+                className="hover:text-danger"
+                onClick={() => onChange(lines.filter((_, n) => n !== i))}
+              >
+                <Trash2 size={15} />
+              </IconButton>
+            </div>
+          );
+        })}
+      </div>
 
       <div className="flex items-center justify-between pt-1">
         <Button size="sm" variant="secondary" onClick={() => onChange([...lines, emptyLine()])}>

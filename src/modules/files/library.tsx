@@ -139,6 +139,9 @@ const besidePointer: Modifier = ({ activatorEvent, draggingNodeRect, transform }
 const pickedIn = (data: unknown): Picked | null =>
   (data as { picked?: Picked } | undefined)?.picked ?? null;
 
+/** the line under "Files"; also its own tooltip, since a narrow window cuts it short */
+const FIRM_SUBTITLE = "Everything the firm keeps — yours, the firm's, and each client's.";
+
 export function Library({ mode }: { mode: LibraryMode }) {
   const { user } = useAuth();
   const admin = user?.role === "admin";
@@ -729,8 +732,13 @@ export function Library({ mode }: { mode: LibraryMode }) {
       {mode.kind === "firm" && (
         <div className="mb-3.5 flex min-h-9 flex-wrap items-center gap-3.5">
           <h1 className="text-[20px] font-semibold">Files</h1>
-          <span className="text-[13px] text-muted-400">
-            {"Everything the firm keeps — yours, the firm's, and each client's."}
+          {/* gives way before the tools do: it shortens rather than pushing them onto a second
+              row on a narrower window (owner, 2026-09-29) */}
+          <span
+            className="min-w-0 flex-1 basis-0 truncate text-[13px] text-muted-400"
+            title={FIRM_SUBTITLE}
+          >
+            {FIRM_SUBTITLE}
           </span>
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <SearchInput

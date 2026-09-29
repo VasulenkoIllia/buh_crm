@@ -171,8 +171,10 @@ export function RecipientPicker({
       )}
 
       {/* `stable`: the search above narrows this list on every keystroke, and a box that resized
-          with it moved the "showing N of M" line and the modal's buttons under the cursor */}
-      <ScrollBox height={330} stable>
+          with it moved the "showing N of M" line and the modal's buttons under the cursor.
+          280, and less under a client's own inboxes: at 330 the mailout and the campaign scrolled
+          on a 13-inch MacBook (owner, 2026-09-29). */}
+      <ScrollBox height={presetTargets?.length ? 200 : 280} stable>
         {clients.isLoading ? (
           <p className="p-3 text-[13px] text-muted">Loading…</p>
         ) : visible.length === 0 ? (

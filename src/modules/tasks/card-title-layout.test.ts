@@ -20,23 +20,26 @@ import { describe, expect, it } from "vitest";
  */
 const CARD = "src/modules/tasks/tasks.page.tsx";
 
-describe("the board card's title row", () => {
-  it("lets the title shrink and wrap beside the Done toggle", async () => {
+describe("the board card's title", () => {
+  /**
+   * Since 2026-09-29 the title has the card's whole width: the Done toggle moved down to the row
+   * with Track (owner: a generated title broke into five lines beside it). The rule above still
+   * holds without a neighbour, because the card itself is the floor: a word longer than a 230px
+   * column must wrap rather than widen the card past its border.
+   */
+  it("can shrink and wrap a word longer than the card", async () => {
     const source = await readFile(CARD, "utf8");
 
-    // the row: title div, then <DoneToggle … compact />
-    const row = source.match(
-      /<div className="flex items-start justify-between gap-2">[\s\S]{0,1400}?<DoneToggle[^>]*compact[^>]*\/>/,
+    // the title div: the one whose children are the overdue mark and `{task.title}`
+    const title = source.match(
+      /<div className="([^"]*font-semibold[^"]*)">\s*\{overdue && [^\n]*\n\s*\{task\.title\}/,
     );
-    expect(row, `no title+DoneToggle row found in ${CARD}`).not.toBeNull();
+    expect(title, `no board-card title found in ${CARD}`).not.toBeNull();
 
-    const titleClass = row![0].match(/<div className="([^"]*font-semibold[^"]*)"/);
-    expect(titleClass, "the title div in that row has no className").not.toBeNull();
-
-    expect(titleClass![1], "the title must be able to shrink below its longest word").toContain(
+    expect(title![1], "the title must be able to shrink below its longest word").toContain(
       "min-w-0",
     );
-    expect(titleClass![1], "a long word must wrap rather than set the width").toMatch(
+    expect(title![1], "a long word must wrap rather than set the width").toMatch(
       /break-words|break-all|wrap-anywhere/,
     );
   });

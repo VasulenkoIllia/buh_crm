@@ -208,23 +208,27 @@ export function CampaignModal({
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-3">
           <p className="text-[12px] font-medium uppercase tracking-wide text-muted">What</p>
-          <FormField label="Name">
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Tax season reminder"
-            />
-          </FormField>
-          <FormField label="Template">
-            <Select value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
-              <option value="">Pick a template…</option>
-              {activeTemplates.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </Select>
-          </FormField>
+          {/* side by side, so the campaign fits a 13-inch MacBook without scrolling
+              (owner, 2026-09-29) */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <FormField label="Name">
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Tax season reminder"
+              />
+            </FormField>
+            <FormField label="Template">
+              <Select value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
+                <option value="">Pick a template…</option>
+                {activeTemplates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </Select>
+            </FormField>
+          </div>
           <FormField label="Mailbox">
             <Select
               value={senderAccountId}

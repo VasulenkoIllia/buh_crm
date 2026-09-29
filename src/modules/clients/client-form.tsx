@@ -108,7 +108,13 @@ export function ClientFormModal({
       title={client ? "Edit client" : "New client"}
       open={open}
       onClose={close}
-      size="lg"
+      // Three short fields to a row, the description under them and the people last, one row
+      // each: the people are the one part with no fixed length, so under `fit` their list scrolls
+      // in place and the fields stay put. One field under another, and every person, pushed the
+      // form down a 13-inch MacBook; a column of its own for the people stood half empty
+      // (owner, 2026-09-29).
+      size="xl"
+      fit
       footer={
         <>
           <Button variant="secondary" onClick={close}>
@@ -120,8 +126,13 @@ export function ClientFormModal({
         </>
       }
     >
-      <form id="client-form" onSubmit={onSubmit} className="space-y-3" noValidate>
-        <div className="grid grid-cols-2 gap-3">
+      <form
+        id="client-form"
+        onSubmit={onSubmit}
+        className="flex min-h-0 flex-col gap-3"
+        noValidate
+      >
+        <div className="grid gap-3 sm:grid-cols-3">
           <FormField label="First name" htmlFor="c-first" error={errors.firstName?.message}>
             <Input
               id="c-first"
@@ -135,13 +146,16 @@ export function ClientFormModal({
           <FormField label="Last name" htmlFor="c-last">
             <Input id="c-last" placeholder="e.g. Petrenko" {...register("lastName")} />
           </FormField>
+          <FormField label="Company (label)" htmlFor="c-company">
+            <Input
+              id="c-company"
+              placeholder="e.g. Romashka LLC"
+              {...register("companyName")}
+            />
+          </FormField>
         </div>
 
-        <FormField label="Company (label)" htmlFor="c-company">
-          <Input id="c-company" placeholder="e.g. Romashka LLC" {...register("companyName")} />
-        </FormField>
-
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid gap-3 sm:grid-cols-3">
           <FormField label="Phone" htmlFor="c-phone">
             <Input id="c-phone" placeholder="+380 67 123 4567" {...register("phone")} />
           </FormField>
@@ -154,16 +168,6 @@ export function ClientFormModal({
               {...register("email")}
             />
           </FormField>
-        </div>
-        <FormField label="Address" htmlFor="c-address">
-          <Input
-            id="c-address"
-            placeholder="City, street, building, office"
-            {...register("address")}
-          />
-        </FormField>
-
-        <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Companies</Label>
             {/* names only here — phone / email / description are filled in on the card's
@@ -173,6 +177,18 @@ export function ClientFormModal({
               onChange={setCompanyNames}
               placeholder="Name + Enter…"
             />
+          </div>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="sm:col-span-2">
+            <FormField label="Address" htmlFor="c-address">
+              <Input
+                id="c-address"
+                placeholder="City, street, building, office"
+                {...register("address")}
+              />
+            </FormField>
           </div>
           <FormField label="Source" htmlFor="c-source">
             <Select id="c-source" {...register("sourceId")}>
@@ -188,13 +204,6 @@ export function ClientFormModal({
           </FormField>
         </div>
 
-        {!client && (
-          <div>
-            <Label>People</Label>
-            <PeopleEditor value={people} onChange={setPeople} />
-          </div>
-        )}
-
         <FormField label="Description" htmlFor="c-desc">
           <textarea
             id="c-desc"
@@ -204,6 +213,13 @@ export function ClientFormModal({
             {...register("description")}
           />
         </FormField>
+
+        {!client && (
+          <div className="flex min-h-0 flex-col">
+            <Label>People</Label>
+            <PeopleEditor value={people} onChange={setPeople} inline />
+          </div>
+        )}
         {serverError && <p className="text-[12px] text-danger-text">{serverError}</p>}
       </form>
     </Modal>
@@ -227,7 +243,8 @@ function TagInput({
     setInput("");
   };
   return (
-    <div className="flex flex-wrap items-center gap-1.5 rounded-(--radius-field) border border-border bg-surface px-2 py-1.5 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/30">
+    // `min-h-9` and `py-1`: the height of the field beside it, so the two boxes line up
+    <div className="flex min-h-9 flex-wrap items-center gap-1.5 rounded-(--radius-field) border border-border bg-surface px-2 py-1 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/30">
       {value.map((name) => (
         <span
           key={name}

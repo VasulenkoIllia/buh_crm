@@ -7,12 +7,12 @@ import {
   contactsInLetter,
   type MailSenderAccountDto,
 } from "@shared/schema/mailouts";
-import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { FormField, Input, Textarea } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
 import { InfoHint } from "@/shared/ui/info-hint";
 import { Segmented } from "@/shared/ui/segmented";
+import { Tabs } from "@/shared/ui/tabs";
 import { useCreateSender, useUpdateSender } from "./mailouts.api";
 import { encryptionFor, encryptionLabel, secureFor } from "./port-encryption";
 
@@ -90,17 +90,17 @@ export function SenderAccountModal({
   /** Almost every host wants the same credentials for both protocols; asking twice invites a typo. */
   const [imapOwnAuth, setImapOwnAuth] = useState(false);
   /**
-   * Whether the delivery half is open.
+   * Whether the Delivery tab is the one showing (it was a fold until 2026-09-29).
    *
    * Mail is configured once and then works; what people come back for is the signature and the
-   * contact buttons (user, 2026-08-31). So the twelve fields that carry SMTP and IMAP fold into
-   * one line — and open themselves for a NEW mailbox, which must be filled, or for one carrying an
+   * contact buttons (user, 2026-08-31). So the twelve fields that carry SMTP and IMAP sit on their
+   * own tab — which opens first for a NEW mailbox, which must be filled, or for one carrying an
    * ERROR, so an incomplete setup can never hide behind a tidy summary.
    *
    * Errors only, not warnings: the two warnings a working mailbox can carry are advice, not faults
    * — "this one borrows the server's account" and "bounces are not read" — and opening twelve
    * fields for advice would defeat the point in the commonest case. Both are visible anyway, in
-   * the summary line right beside the arrow.
+   * the summary line beside the tabs.
    */
   const [deliveryOpen, setDeliveryOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -165,7 +165,10 @@ export function SenderAccountModal({
 
   async function save() {
     setError(null);
-    if (!form.name.trim()) return setError("Give the mailbox a name");
+    if (!form.name.trim()) {
+      setDeliveryOpen(false); // the name is on the Letter tab: show it rather than an error alone
+      return setError("Give the mailbox a name");
+    }
 
     const input = {
       name: form.name.trim(),
@@ -224,7 +227,7 @@ export function SenderAccountModal({
     <Modal
       open={open}
       onClose={onClose}
-      size="lg"
+      size="xl"
       title={account ? `Mailbox — ${account.name}` : "New mailbox"}
       footer={
         <div className="flex justify-end gap-2">
@@ -243,104 +246,131 @@ export function SenderAccountModal({
         </p>
       )}
 
-      <div className="space-y-3">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <FormField label="Name — what you call it here">
-            <Input
-              value={form.name}
-              onChange={(e) => set("name")(e.target.value)}
-              placeholder="Newsletters"
-            />
-          </FormField>
-          <FormField label="From name — what the client sees">
-            <Input
-              value={form.fromName}
-              onChange={(e) => set("fromName")(e.target.value)}
-              placeholder="ILLION Tax & Accounting"
-            />
-          </FormField>
-        </div>
+      {/*
+        Two tabs, two columns each. In one column the letter and the delivery ran to 1,030px, and
+        on a 13-inch MacBook a new mailbox scrolled by 490 (owner, 2026-09-29). The summary that
+        stood beside the fold's arrow stands beside the tabs, so a tidy Letter tab still says how
+        the mail goes out.
+      */}
+      <div className="relative mb-3">
+        <Tabs
+          value={deliveryOpen ? "delivery" : "letter"}
+          onChange={(v) => setDeliveryOpen(v === "delivery")}
+          options={[
+            { value: "letter", label: "Letter" },
+            { value: "delivery", label: "Delivery" },
+          ]}
+        />
+        {!deliveryOpen && (
+          <span className="absolute right-0 top-1.5 max-w-[60%] truncate font-mono text-[12px] text-muted">
+            {deliverySummary({ transport, form, reads, server })}
+          </span>
+        )}
+      </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <FormField label="From address">
-            <Input
-              value={form.fromEmail}
-              onChange={(e) => set("fromEmail")(e.target.value)}
-              placeholder="info@illion.tax"
-            />
-          </FormField>
-          <FormField label="Reply-To (optional)">
-            <Input
-              value={form.replyTo}
-              onChange={(e) => set("replyTo")(e.target.value)}
-              placeholder="If replies should land elsewhere"
-            />
-          </FormField>
-        </div>
+      {!deliveryOpen ? (
+        <div className="grid gap-x-6 gap-y-3 md:grid-cols-2">
+          <div className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FormField label="Name — what you call it here">
+                <Input
+                  value={form.name}
+                  onChange={(e) => set("name")(e.target.value)}
+                  placeholder="Newsletters"
+                />
+              </FormField>
+              <FormField label="From name — what the client sees">
+                <Input
+                  value={form.fromName}
+                  onChange={(e) => set("fromName")(e.target.value)}
+                  placeholder="ILLION Tax & Accounting"
+                />
+              </FormField>
+            </div>
 
-        <FormField label="Signature — the contact block at the foot of letters from here">
-          <Textarea
-            value={form.signature}
-            onChange={(e) => set("signature")(e.target.value)}
-            className="h-[110px] font-mono text-[12px]"
-            placeholder={
-              "Maryna Onyshchenko, EA, MBA\nAccountant | Tax & Accounting Services\n…"
-            }
-          />
-        </FormField>
-        <div className="border-t border-divider pt-3">
-          <p className="text-[13px] font-semibold">Contact buttons</p>
-          <p className="mt-1 text-[12px] leading-relaxed text-muted">
-            One button per filled field, in this order. Leave a field empty and its button does
-            not appear — nothing is guessed from the signature above.
-          </p>
-        </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FormField label="From address">
+                <Input
+                  value={form.fromEmail}
+                  onChange={(e) => set("fromEmail")(e.target.value)}
+                  placeholder="info@illion.tax"
+                />
+              </FormField>
+              <FormField label="Reply-To (optional)">
+                <Input
+                  value={form.replyTo}
+                  onChange={(e) => set("replyTo")(e.target.value)}
+                  placeholder="If replies should land elsewhere"
+                />
+              </FormField>
+            </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <FormField label="Email">
-            <Input
-              value={form.contactEmail}
-              onChange={(e) => set("contactEmail")(e.target.value)}
-              placeholder="info@illion.tax"
-            />
-          </FormField>
-          <FormField label="Phone">
-            <Input
-              value={form.contactPhone}
-              onChange={(e) => set("contactPhone")(e.target.value)}
-              placeholder="+1 (704) 726-6994"
-            />
-          </FormField>
-          <FormField label="Telegram — @username or a number">
-            <Input
-              value={form.contactTelegram}
-              onChange={(e) => set("contactTelegram")(e.target.value)}
-              placeholder="@illion_tax"
-            />
-          </FormField>
-          <FormField label="WhatsApp">
-            <Input
-              value={form.contactWhatsapp}
-              onChange={(e) => set("contactWhatsapp")(e.target.value)}
-              placeholder="+1 (704) 726-6994"
-            />
-          </FormField>
-          <FormField label="Viber">
-            <Input
-              value={form.contactViber}
-              onChange={(e) => set("contactViber")(e.target.value)}
-              placeholder="+1 (704) 726-6994"
-            />
-          </FormField>
-          <FormField label="Website">
-            <Input
-              value={form.contactWebsite}
-              onChange={(e) => set("contactWebsite")(e.target.value)}
-              placeholder="illion.tax"
-            />
-          </FormField>
-        </div>
-        {/*
+            <FormField label="Signature — the contact block at the foot of letters from here">
+              <Textarea
+                value={form.signature}
+                onChange={(e) => set("signature")(e.target.value)}
+                className="h-[172px] font-mono text-[12px]"
+                placeholder={
+                  "Maryna Onyshchenko, EA, MBA\nAccountant | Tax & Accounting Services\n…"
+                }
+              />
+            </FormField>
+          </div>
+
+          <div className="space-y-3 md:border-l md:border-divider md:pl-6">
+            <div>
+              <p className="text-[13px] font-semibold">Contact buttons</p>
+              <p className="mt-1 text-[12px] leading-relaxed text-muted">
+                One button per filled field, in this order. Leave a field empty and its button
+                does not appear — nothing is guessed from the signature above.
+              </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FormField label="Email">
+                <Input
+                  value={form.contactEmail}
+                  onChange={(e) => set("contactEmail")(e.target.value)}
+                  placeholder="info@illion.tax"
+                />
+              </FormField>
+              <FormField label="Phone">
+                <Input
+                  value={form.contactPhone}
+                  onChange={(e) => set("contactPhone")(e.target.value)}
+                  placeholder="+1 (704) 726-6994"
+                />
+              </FormField>
+              <FormField label="Telegram — @username or a number">
+                <Input
+                  value={form.contactTelegram}
+                  onChange={(e) => set("contactTelegram")(e.target.value)}
+                  placeholder="@illion_tax"
+                />
+              </FormField>
+              <FormField label="WhatsApp">
+                <Input
+                  value={form.contactWhatsapp}
+                  onChange={(e) => set("contactWhatsapp")(e.target.value)}
+                  placeholder="+1 (704) 726-6994"
+                />
+              </FormField>
+              <FormField label="Viber">
+                <Input
+                  value={form.contactViber}
+                  onChange={(e) => set("contactViber")(e.target.value)}
+                  placeholder="+1 (704) 726-6994"
+                />
+              </FormField>
+              <FormField label="Website">
+                <Input
+                  value={form.contactWebsite}
+                  onChange={(e) => set("contactWebsite")(e.target.value)}
+                  placeholder="illion.tax"
+                />
+              </FormField>
+            </div>
+            {/*
           The rule, applied to THIS mailbox rather than described.
 
           It used to be a footnote — "four fit; the rest are dropped, website first" — which a
@@ -348,52 +378,31 @@ export function SenderAccountModal({
           going out. Now it names the buttons the letter will carry, and the one it will not
           (user, 2026-08-31). `contactsInLetter` is the SERVER's rule, imported, not a second copy.
         */}
-        <p className="flex gap-1.5 text-[11px] leading-relaxed text-muted-400">
-          <Info size={13} className="mt-0.5 shrink-0" />
-          <span>
-            In the letter:{" "}
-            <span className="font-medium text-ink-700">
-              {inLetter.length
-                ? inLetter.map((k) => CONTACT_LABELS[k]).join(" · ")
-                : "no buttons"}
-            </span>
-            {dropped.length > 0 && (
-              <>
-                {" — "}
-                {dropped.map((k) => CONTACT_LABELS[k]).join(" and ")}{" "}
-                {dropped.length === 1 ? "does" : "do"} not fit. Only {MAX_CONTACT_PILLS} fit
-                across a letter, and the website goes last because the signature already links
-                it.
-              </>
-            )}
-          </span>
-        </p>
-
-        <div className="border-t border-divider pt-3">
-          <button
-            type="button"
-            onClick={() => setDeliveryOpen((v) => !v)}
-            className="flex w-full items-center gap-2 text-left"
-          >
-            <span
-              className={cn(
-                "text-[11px] text-muted transition-transform",
-                deliveryOpen && "rotate-90",
-              )}
-            >
-              ▶
-            </span>
-            <span className="text-[13px] font-semibold">Delivery</span>
-            {!deliveryOpen && (
-              <span className="truncate font-mono text-[12px] text-muted">
-                {deliverySummary({ transport, form, reads, server })}
+            <p className="flex gap-1.5 text-[11px] leading-relaxed text-muted-400">
+              <Info size={13} className="mt-0.5 shrink-0" />
+              <span>
+                In the letter:{" "}
+                <span className="font-medium text-ink-700">
+                  {inLetter.length
+                    ? inLetter.map((k) => CONTACT_LABELS[k]).join(" · ")
+                    : "no buttons"}
+                </span>
+                {dropped.length > 0 && (
+                  <>
+                    {" — "}
+                    {dropped.map((k) => CONTACT_LABELS[k]).join(" and ")}{" "}
+                    {dropped.length === 1 ? "does" : "do"} not fit. Only {MAX_CONTACT_PILLS} fit
+                    across a letter, and the website goes last because the signature already
+                    links it.
+                  </>
+                )}
               </span>
-            )}
-          </button>
+            </p>
+          </div>
         </div>
-
-        {deliveryOpen && (
-          <>
+      ) : (
+        <div className="grid gap-x-6 gap-y-3 md:grid-cols-2">
+          <div className="space-y-3">
             <p className="text-[13px] font-semibold">Sends over</p>
 
             {/*
@@ -491,8 +500,10 @@ export function SenderAccountModal({
                 </div>
               </>
             )}
+          </div>
 
-            <div className="border-t border-divider pt-3">
+          <div className="space-y-3 md:border-l md:border-divider md:pl-6">
+            <div>
               <p className="text-[13px] font-semibold">Reading bounces</p>
               <p className="mt-1 text-[12px] leading-relaxed text-muted">
                 A server that refuses a letter after taking it says so by email, to this
@@ -586,9 +597,9 @@ export function SenderAccountModal({
                 )}
               </>
             )}
-          </>
-        )}
-      </div>
+          </div>
+        </div>
+      )}
     </Modal>
   );
 }

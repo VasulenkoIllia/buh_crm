@@ -28,36 +28,41 @@ export function MailoutDetailModal({
     <Modal
       open={!!id}
       onClose={onClose}
-      size="lg"
+      // the letter and the people it went to side by side, each scrolling on its own: one under
+      // the other, a long letter pushed the list off a 13-inch MacBook (owner, 2026-09-29)
+      size="xl"
+      fit
       title={data?.subject ?? "Mailout"}
       actions={id ? <CopyLink href={`/mailouts?tab=log&mailout=${id}`} /> : undefined}
     >
       {isLoading || !data ? (
         <p className="text-[13px] text-muted">Loading…</p>
       ) : (
-        <>
-          <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted">
-            <span>{data.templateName ?? "One-off letter"}</span>
-            <span>{data.kind === "commercial" ? "Commercial" : "Transactional"}</span>
-            <span>Sent by {data.createdByName ?? "—"}</span>
-            <span>{fmtDateTime(data.createdAt)}</span>
+        <div className="grid min-h-0 gap-x-6 gap-y-4 md:grid-cols-2 md:grid-rows-[minmax(0,1fr)]">
+          <div className="flex min-h-0 flex-col">
+            <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted">
+              <span>{data.templateName ?? "One-off letter"}</span>
+              <span>{data.kind === "commercial" ? "Commercial" : "Transactional"}</span>
+              <span>Sent by {data.createdByName ?? "—"}</span>
+              <span>{fmtDateTime(data.createdAt)}</span>
+            </div>
+
+            <DeliveryCounts counts={data.counts} className="mb-4" />
+
+            <div className="min-h-0 overflow-y-auto rounded-(--radius-field) border border-border bg-surface p-3">
+              <p className="mb-1 text-[12px] uppercase tracking-wide text-muted">
+                The letter, as saved when it was sent
+              </p>
+              {data.heading && (
+                <p className="mb-1 text-[13px] font-medium text-ink">{data.heading}</p>
+              )}
+              <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-ink-700">
+                {data.body}
+              </p>
+            </div>
           </div>
 
-          <DeliveryCounts counts={data.counts} className="mb-4" />
-
-          <div className="mb-4 rounded-(--radius-field) border border-border bg-surface p-3">
-            <p className="mb-1 text-[12px] uppercase tracking-wide text-muted">
-              The letter, as saved when it was sent
-            </p>
-            {data.heading && (
-              <p className="mb-1 text-[13px] font-medium text-ink">{data.heading}</p>
-            )}
-            <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-ink-700">
-              {data.body}
-            </p>
-          </div>
-
-          <div className="max-h-[300px] overflow-y-auto rounded-(--radius-field) border border-border">
+          <div className="max-h-[300px] overflow-y-auto rounded-(--radius-field) border border-border md:max-h-none md:min-h-0">
             {data.recipients.map((r) => (
               <div
                 key={r.id}
@@ -93,7 +98,7 @@ export function MailoutDetailModal({
               </div>
             ))}
           </div>
-        </>
+        </div>
       )}
     </Modal>
   );

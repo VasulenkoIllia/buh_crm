@@ -342,7 +342,7 @@ export function MeetingModal({
       title={editing ? "Meeting" : "New meeting"}
       open
       onClose={onClose}
-      size="lg"
+      size="2xl"
       actions={existing ? <CopyLink href={`/calendar?meeting=${existing.id}`} /> : undefined}
       footer={
         <>
@@ -402,303 +402,313 @@ export function MeetingModal({
           </p>
         )}
 
-        <FormField label="Title" htmlFor="m-title" error={titleError ?? undefined}>
-          <Input
-            id="m-title"
-            value={title}
-            onChange={(e) => {
-              setTitle(e.target.value);
-              if (titleError) setTitleError(null);
-            }}
-            placeholder="e.g. Quarterly review"
-            aria-invalid={!!titleError}
-          />
-        </FormField>
-
-        <div className="grid grid-cols-2 gap-3.5">
-          <FormField label="Client or lead" htmlFor="m-target">
-            {editing ? (
-              // re-targeting is not supported: a linked task would be left pointing elsewhere
-              <Input value={target?.label ?? "Internal"} disabled readOnly />
-            ) : (
-              <ClientLeadSearch
-                value={target}
-                onPick={(t) => {
-                  setTarget(t);
-                  setPersonId(null); // a contact belongs to one client; a new target voids it
+        {/*
+          Three columns, so the whole meeting is on one screen: what it is and with whom, when and
+          how people are reminded, who from the firm is coming and the task it makes. In one column
+          it ran to 700px, 780 for a client with people, and on a 13-inch MacBook it scrolled by up
+          to 235 (owner, 2026-09-29).
+        */}
+        <div className="grid gap-x-6 gap-y-3.5 lg:grid-cols-3">
+          <div className="space-y-3.5">
+            <FormField label="Title" htmlFor="m-title" error={titleError ?? undefined}>
+              <Input
+                id="m-title"
+                value={title}
+                onChange={(e) => {
+                  setTitle(e.target.value);
+                  if (titleError) setTitleError(null);
                 }}
-                onNewClient={() => setClientFormOpen(true)}
-                onNewLead={() => setLeadFormOpen(true)}
-                onClear={() => {
-                  setTarget(null);
-                  setPersonId(null);
-                  setSubscriptionId("");
-                  setTaskMode("internal");
-                }}
-                placeholder="Search — or leave empty for an internal meeting"
+                placeholder="e.g. Quarterly review"
+                aria-invalid={!!titleError}
               />
+            </FormField>
+            <FormField label="Client or lead" htmlFor="m-target">
+              {editing ? (
+                // re-targeting is not supported: a linked task would be left pointing elsewhere
+                <Input value={target?.label ?? "Internal"} disabled readOnly />
+              ) : (
+                <ClientLeadSearch
+                  value={target}
+                  onPick={(t) => {
+                    setTarget(t);
+                    setPersonId(null); // a contact belongs to one client; a new target voids it
+                  }}
+                  onNewClient={() => setClientFormOpen(true)}
+                  onNewLead={() => setLeadFormOpen(true)}
+                  onClear={() => {
+                    setTarget(null);
+                    setPersonId(null);
+                    setSubscriptionId("");
+                    setTaskMode("internal");
+                  }}
+                  placeholder="Search — or leave empty for an internal meeting"
+                />
+              )}
+            </FormField>
+            {/**
+             * WHO, and then how to reach them — one block, because they are one question.
+             *
+             * It sits here rather than under the target field, where the number first went: there it
+             * landed beneath the "+ New client / + New lead" links and read as belonging to them, and
+             * it repeated a name the pill underneath was already showing (user, 2026-08-28).
+             *
+             * The name is deliberately NOT in the line. Whoever the number belongs to is already on
+             * screen — the selected pill when there are contacts, the target field when there are not.
+             *
+             * The pills appear only for a client that HAS contacts, so a firm with an empty People tab
+             * sees the number and nothing else. "Contact", not "Who's coming": that row below is the
+             * firm's own side of the table.
+             */}
+            {contact && (
+              <FormField label="Contact">
+                {hasPeople && (
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      className={pillCls(!personId)}
+                      onClick={() => setPersonId(null)}
+                    >
+                      The client
+                    </button>
+                    {client.people.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className={pillCls(personId === p.id)}
+                        onClick={() => setPersonId(p.id)}
+                      >
+                        {p.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {/**
+                 * Both ways of reaching them (user, 2026-08-28). Only the phone was shown at first,
+                 * with the email standing in when there was none — that was a width argument, and it
+                 * stopped applying the moment this line moved out of a half-width column.
+                 *
+                 * The phone is a `tel:` link because a Mac hands the call to the phone in your pocket.
+                 * The email is plain selectable text: this firm's mail goes out through Mailouts, so a
+                 * `mailto:` would open the wrong thing on a misclick.
+                 */}
+                <p className={cn("text-[12px] leading-snug text-muted", hasPeople && "mt-1.5")}>
+                  {contact.phone && (
+                    <a
+                      className="text-primary-link hover:underline"
+                      href={`tel:${contact.phone.replace(/[^\d+]/g, "")}`}
+                    >
+                      {contact.phone}
+                    </a>
+                  )}
+                  {contact.phone && contact.email && " · "}
+                  {contact.email && <span>{contact.email}</span>}
+                  {!contact.phone && !contact.email && (
+                    <span className="text-faint">no phone or email on file</span>
+                  )}
+                </p>
+              </FormField>
             )}
-          </FormField>
-          <FormField label={`Starts (${firmZoneAbbr()})`} htmlFor="m-date">
-            <div className="flex gap-2">
-              <Input
-                id="m-date"
-                type="date"
-                className="flex-1"
-                value={start.date}
-                onChange={(e) => setStart((p) => ({ ...p, date: e.target.value }))}
-              />
-              <Input
-                type="time"
-                aria-label={`Start time (${firmZoneAbbr()})`}
-                className="w-[110px]"
-                step={TIME_STEP_SECONDS}
-                value={start.time}
-                onChange={(e) => setStart((p) => ({ ...p, time: e.target.value }))}
-              />
-            </div>
-          </FormField>
-        </div>
 
-        {/**
-         * WHO, and then how to reach them — one block, because they are one question.
-         *
-         * It sits here rather than under the target field, where the number first went: there it
-         * landed beneath the "+ New client / + New lead" links and read as belonging to them, and
-         * it repeated a name the pill underneath was already showing (user, 2026-08-28).
-         *
-         * The name is deliberately NOT in the line. Whoever the number belongs to is already on
-         * screen — the selected pill when there are contacts, the target field when there are not.
-         *
-         * The pills appear only for a client that HAS contacts, so a firm with an empty People tab
-         * sees the number and nothing else. "Contact", not "Who's coming": that row below is the
-         * firm's own side of the table.
-         */}
-        {contact && (
-          <FormField label="Contact">
-            {hasPeople && (
-              <div className="flex flex-wrap gap-1.5">
+            <FormField label="Link" htmlFor="m-link">
+              <Input
+                id="m-link"
+                value={link}
+                onChange={(e) => setLink(e.target.value)}
+                placeholder="e.g. a video-call URL"
+              />
+            </FormField>
+            <FormField label="Notes" htmlFor="m-desc">
+              <Textarea
+                id="m-desc"
+                rows={2}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+              />
+            </FormField>
+          </div>
+
+          <div className="space-y-3.5 lg:border-l lg:border-divider lg:pl-6">
+            <FormField label={`Starts (${firmZoneAbbr()})`} htmlFor="m-date">
+              <div className="flex gap-2">
+                <Input
+                  id="m-date"
+                  type="date"
+                  className="flex-1"
+                  value={start.date}
+                  onChange={(e) => setStart((p) => ({ ...p, date: e.target.value }))}
+                />
+                <Input
+                  type="time"
+                  aria-label={`Start time (${firmZoneAbbr()})`}
+                  className="w-[110px]"
+                  step={TIME_STEP_SECONDS}
+                  value={start.time}
+                  onChange={(e) => setStart((p) => ({ ...p, time: e.target.value }))}
+                />
+              </div>
+            </FormField>
+            <FormField label="Duration">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {MEETING_DURATION_PRESETS.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    className={pillCls(duration === p)}
+                    onClick={() => setDuration(p)}
+                  >
+                    {p} min
+                  </button>
+                ))}
+                <Input
+                  type="number"
+                  min={5}
+                  max={1440}
+                  aria-label="Duration in minutes"
+                  className="w-24"
+                  value={duration}
+                  onChange={(e) => setDuration(Number(e.target.value) || 0)}
+                />
+                {startAt && duration > 0 && (
+                  <span className="text-[12px] text-muted-400">
+                    {fmtRange(startAt, duration)}
+                  </span>
+                )}
+              </div>
+            </FormField>
+            {/*
+              Under Duration because both are about the clock, and above "Who's coming" because that is
+              who it reaches. Pills rather than a select: four choices and an off, all visible at once,
+              the same shape the duration presets above already use.
+            */}
+            <FormField label="Remind whoever is coming">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <button
                   type="button"
-                  className={pillCls(!personId)}
-                  onClick={() => setPersonId(null)}
+                  className={pillCls(remind === null)}
+                  onClick={() => setRemind(null)}
                 >
-                  The client
+                  No reminder
                 </button>
-                {client.people.map((p) => (
+                {REMINDER_CHOICES.map((m) => (
                   <button
-                    key={p.id}
+                    key={m}
                     type="button"
-                    className={pillCls(personId === p.id)}
-                    onClick={() => setPersonId(p.id)}
+                    className={pillCls(remind === m)}
+                    onClick={() => setRemind(m)}
                   >
-                    {p.name}
+                    {m} min before
                   </button>
                 ))}
               </div>
-            )}
-            {/**
-             * Both ways of reaching them (user, 2026-08-28). Only the phone was shown at first,
-             * with the email standing in when there was none — that was a width argument, and it
-             * stopped applying the moment this line moved out of a half-width column.
-             *
-             * The phone is a `tel:` link because a Mac hands the call to the phone in your pocket.
-             * The email is plain selectable text: this firm's mail goes out through Mailouts, so a
-             * `mailto:` would open the wrong thing on a misclick.
-             */}
-            <p className={cn("text-[12px] leading-snug text-muted", hasPeople && "mt-1.5")}>
-              {contact.phone && (
-                <a
-                  className="text-primary-link hover:underline"
-                  href={`tel:${contact.phone.replace(/[^\d+]/g, "")}`}
-                >
-                  {contact.phone}
-                </a>
+              {remind !== null && (
+                <p className="mt-1.5 text-[12px] text-muted-400">
+                  Everyone coming gets a notification {remind} minutes before — unless they have
+                  turned this off in their own profile.
+                </p>
               )}
-              {contact.phone && contact.email && " · "}
-              {contact.email && <span>{contact.email}</span>}
-              {!contact.phone && !contact.email && (
-                <span className="text-faint">no phone or email on file</span>
-              )}
-            </p>
-          </FormField>
-        )}
-
-        <FormField label="Duration">
-          <div className="flex flex-wrap items-center gap-1.5">
-            {MEETING_DURATION_PRESETS.map((p) => (
-              <button
-                key={p}
-                type="button"
-                className={pillCls(duration === p)}
-                onClick={() => setDuration(p)}
-              >
-                {p} min
-              </button>
-            ))}
-            <Input
-              type="number"
-              min={5}
-              max={1440}
-              aria-label="Duration in minutes"
-              className="w-24"
-              value={duration}
-              onChange={(e) => setDuration(Number(e.target.value) || 0)}
-            />
-            {startAt && duration > 0 && (
-              <span className="text-[12px] text-muted-400">{fmtRange(startAt, duration)}</span>
-            )}
+            </FormField>
           </div>
-        </FormField>
 
-        {/*
-          Under Duration because both are about the clock, and above "Who's coming" because that is
-          who it reaches. Pills rather than a select: four choices and an off, all visible at once,
-          the same shape the duration presets above already use.
-        */}
-        <FormField label="Remind whoever is coming">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <button
-              type="button"
-              className={pillCls(remind === null)}
-              onClick={() => setRemind(null)}
-            >
-              No reminder
-            </button>
-            {REMINDER_CHOICES.map((m) => (
-              <button
-                key={m}
-                type="button"
-                className={pillCls(remind === m)}
-                onClick={() => setRemind(m)}
-              >
-                {m} min before
-              </button>
-            ))}
-          </div>
-          {remind !== null && (
-            <p className="mt-1.5 text-[12px] text-muted-400">
-              Everyone coming gets a notification {remind} minutes before — unless they have
-              turned this off in their own profile.
-            </p>
-          )}
-        </FormField>
-
-        <FormField label="Who's coming">
-          <AssigneePicker
-            users={team ?? []}
-            selected={(id) => participants.includes(id)}
-            onToggle={(id) =>
-              setParticipants((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))
-            }
-          />
-        </FormField>
-
-        {!!conflicts?.length && (
-          <div className="rounded-(--radius-card) border border-[#e8d3a8] bg-[#fdf8ee] px-3 py-2 text-[13px] text-[#8a5a12]">
-            <div className="flex items-center gap-1.5 font-medium">
-              <AlertTriangle size={14} strokeWidth={2} />
-              Someone is already booked
-            </div>
-            <ul className="mt-1 space-y-0.5">
-              {conflicts.map((c) => (
-                <li key={c.meetingId}>
-                  {c.userIds.map(nameOf).join(", ")} — “{c.title}”,{" "}
-                  {fmtRange(c.startAt, c.durationMinutes)}
-                </li>
-              ))}
-            </ul>
-            <p className="mt-1 text-[12px] opacity-80">
-              You can book it anyway — this is a heads-up, not a block.
-            </p>
-          </div>
-        )}
-
-        {!existing?.taskId && (
-          <div className="rounded-(--radius-card) border border-[#e9edf2] bg-[#fbfcfd] p-3">
-            {/* One checkbox, always the same shape. The TYPE question appears underneath only when
-                there is actually a choice to make — a client's meeting. Before, the control itself
-                grew a third option when a client was picked, so a form opened without one looked
-                like the feature was missing (user, 2026-08-06). */}
-            <label className="flex cursor-pointer items-center gap-2 text-[13px] font-medium">
-              <input
-                type="checkbox"
-                checked={withTask}
-                onChange={(e) => setWithTask(e.target.checked)}
+          <div className="space-y-3.5 lg:border-l lg:border-divider lg:pl-6">
+            <FormField label="Who's coming">
+              <AssigneePicker
+                users={team ?? []}
+                selected={(id) => participants.includes(id)}
+                onToggle={(id) =>
+                  setParticipants((p) =>
+                    p.includes(id) ? p.filter((x) => x !== id) : [...p, id],
+                  )
+                }
               />
-              Create a task for this meeting
-            </label>
-
-            {withTask && (
-              <div className="mt-2.5 space-y-2 border-t border-[#eef1f5] pt-2.5">
-                {clientId ? (
-                  <>
-                    <Segmented
-                      value={taskMode}
-                      onChange={(v) => setTaskMode(v)}
-                      options={[
-                        { value: "internal" as const, label: "Internal" },
-                        { value: "service" as const, label: "Through a service" },
-                      ]}
-                    />
-                    {taskMode === "internal" ? (
-                      <p className="text-[12px] text-faint">
-                        The firm's own time, attributed to this client. Bills nothing.
-                      </p>
-                    ) : (
-                      <>
-                        <SearchSelect
-                          value={subscriptionId}
-                          options={serviceOptions}
-                          placeholder={
-                            serviceOptions.length === 0
-                              ? "This client has no running service"
-                              : "Which service does the work go through?"
-                          }
-                          emptyLabel="—"
-                          ariaLabel="Service"
-                          disabled={serviceOptions.length === 0}
-                          onChange={setSubscriptionId}
-                        />
-                        <p className="text-[12px] text-faint">
-                          Billed exactly like any other job on that service — a one-time service
-                          will issue its invoice on its own trigger.
-                        </p>
-                      </>
-                    )}
-                  </>
-                ) : (
-                  <p className="text-[12px] text-faint">
-                    {target?.kind === "lead"
-                      ? "Work on this lead — free, because a lead holds no services yet."
-                      : "The firm's own time. Pick a client above if it should go through a service."}
-                  </p>
-                )}
-                <p className="text-[12px] text-faint">
-                  Due on the day of the meeting, assigned to you and everyone invited.
+            </FormField>
+            {!!conflicts?.length && (
+              <div className="rounded-(--radius-card) border border-[#e8d3a8] bg-[#fdf8ee] px-3 py-2 text-[13px] text-[#8a5a12]">
+                <div className="flex items-center gap-1.5 font-medium">
+                  <AlertTriangle size={14} strokeWidth={2} />
+                  Someone is already booked
+                </div>
+                <ul className="mt-1 space-y-0.5">
+                  {conflicts.map((c) => (
+                    <li key={c.meetingId}>
+                      {c.userIds.map(nameOf).join(", ")} — “{c.title}”,{" "}
+                      {fmtRange(c.startAt, c.durationMinutes)}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1 text-[12px] opacity-80">
+                  You can book it anyway — this is a heads-up, not a block.
                 </p>
               </div>
             )}
-          </div>
-        )}
 
-        <div className="grid grid-cols-2 gap-3.5">
-          <FormField label="Link" htmlFor="m-link">
-            <Input
-              id="m-link"
-              value={link}
-              onChange={(e) => setLink(e.target.value)}
-              placeholder="e.g. a video-call URL"
-            />
-          </FormField>
-          <FormField label="Notes" htmlFor="m-desc">
-            <Textarea
-              id="m-desc"
-              rows={2}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </FormField>
+            {!existing?.taskId && (
+              <div className="rounded-(--radius-card) border border-[#e9edf2] bg-[#fbfcfd] p-3">
+                {/* One checkbox, always the same shape. The TYPE question appears underneath only when
+                    there is actually a choice to make — a client's meeting. Before, the control itself
+                    grew a third option when a client was picked, so a form opened without one looked
+                    like the feature was missing (user, 2026-08-06). */}
+                <label className="flex cursor-pointer items-center gap-2 text-[13px] font-medium">
+                  <input
+                    type="checkbox"
+                    checked={withTask}
+                    onChange={(e) => setWithTask(e.target.checked)}
+                  />
+                  Create a task for this meeting
+                </label>
+
+                {withTask && (
+                  <div className="mt-2.5 space-y-2 border-t border-[#eef1f5] pt-2.5">
+                    {clientId ? (
+                      <>
+                        <Segmented
+                          value={taskMode}
+                          onChange={(v) => setTaskMode(v)}
+                          options={[
+                            { value: "internal" as const, label: "Internal" },
+                            { value: "service" as const, label: "Through a service" },
+                          ]}
+                        />
+                        {taskMode === "internal" ? (
+                          <p className="text-[12px] text-faint">
+                            The firm's own time, attributed to this client. Bills nothing.
+                          </p>
+                        ) : (
+                          <>
+                            <SearchSelect
+                              value={subscriptionId}
+                              options={serviceOptions}
+                              placeholder={
+                                serviceOptions.length === 0
+                                  ? "This client has no running service"
+                                  : "Which service does the work go through?"
+                              }
+                              emptyLabel="—"
+                              ariaLabel="Service"
+                              disabled={serviceOptions.length === 0}
+                              onChange={setSubscriptionId}
+                            />
+                            <p className="text-[12px] text-faint">
+                              Billed exactly like any other job on that service — a one-time
+                              service will issue its invoice on its own trigger.
+                            </p>
+                          </>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-[12px] text-faint">
+                        {target?.kind === "lead"
+                          ? "Work on this lead — free, because a lead holds no services yet."
+                          : "The firm's own time. Pick a client above if it should go through a service."}
+                      </p>
+                    )}
+                    <p className="text-[12px] text-faint">
+                      Due on the day of the meeting, assigned to you and everyone invited.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </Modal>

@@ -321,7 +321,7 @@ export function SecretForm({
           secret ? `Edit ${secret.label}` : `New ${TEMPLATE_COPY[template].label.toLowerCase()}`
         }
         open
-        size="lg"
+        size="xl"
         onClose={onClose}
         footer={
           <>
@@ -337,75 +337,82 @@ export function SecretForm({
           </>
         }
       >
-        <div className="space-y-3">
-          <div className="flex items-center gap-2.5 text-[12.5px] text-muted">
-            <TemplateIcon template={template} />
-            <span>
-              {TEMPLATE_COPY[template].label} · in {where}
-            </span>
+        {/*
+          Two columns: what everybody who sees this place reads on the left, the sealed values on
+          the right. In one column a login ran to 840px and scrolled by 300 on a 13-inch MacBook
+          (owner, 2026-09-29); side by side the taller column is the whole form.
+        */}
+        <div className="grid gap-x-6 gap-y-3 md:grid-cols-2">
+          <div className="space-y-3">
+            <div className="flex items-center gap-2.5 text-[12.5px] text-muted">
+              <TemplateIcon template={template} />
+              <span>
+                {TEMPLATE_COPY[template].label} · in {where}
+              </span>
+            </div>
+
+            <FormField label="Title" htmlFor="secret-title">
+              <Input
+                id="secret-title"
+                autoFocus
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+              />
+            </FormField>
+
+            <FormField label="Description" htmlFor="secret-description">
+              <Textarea
+                id="secret-description"
+                className="h-[60px]"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+              />
+              {/* the one note this form needs: a description is open, so a password in it is not */}
+              <p className="mt-1 text-[12px] text-muted">
+                Everyone who sees this place reads it. Never put a password here.
+              </p>
+            </FormField>
+
+            {openFields.length > 0 && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {openFields.map((field) => (
+                  <FormField
+                    key={field.key}
+                    label={labelOfField(field.key)}
+                    htmlFor={`open-${field.key}`}
+                  >
+                    {field.kind === "select" ? (
+                      <select
+                        id={`open-${field.key}`}
+                        className="h-9 w-full rounded-(--radius-field) border border-[#d9dde3] bg-surface px-2 text-[13px]"
+                        value={open[field.key] ?? field.options[0]?.value ?? ""}
+                        onChange={(e) =>
+                          setOpen((was) => ({ ...was, [field.key]: e.target.value }))
+                        }
+                      >
+                        {field.options.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <Input
+                        id={`open-${field.key}`}
+                        placeholder={"placeholder" in field ? field.placeholder : undefined}
+                        value={open[field.key] ?? ""}
+                        onChange={(e) =>
+                          setOpen((was) => ({ ...was, [field.key]: e.target.value }))
+                        }
+                      />
+                    )}
+                  </FormField>
+                ))}
+              </div>
+            )}
           </div>
 
-          <FormField label="Title" htmlFor="secret-title">
-            <Input
-              id="secret-title"
-              autoFocus
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-            />
-          </FormField>
-
-          <FormField label="Description" htmlFor="secret-description">
-            <Textarea
-              id="secret-description"
-              className="h-[60px]"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-            {/* the one note this form needs: a description is open, so a password in it is not */}
-            <p className="mt-1 text-[12px] text-muted">
-              Everyone who sees this place reads it. Never put a password here.
-            </p>
-          </FormField>
-
-          {openFields.length > 0 && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {openFields.map((field) => (
-                <FormField
-                  key={field.key}
-                  label={labelOfField(field.key)}
-                  htmlFor={`open-${field.key}`}
-                >
-                  {field.kind === "select" ? (
-                    <select
-                      id={`open-${field.key}`}
-                      className="h-9 w-full rounded-(--radius-field) border border-[#d9dde3] bg-surface px-2 text-[13px]"
-                      value={open[field.key] ?? field.options[0]?.value ?? ""}
-                      onChange={(e) =>
-                        setOpen((was) => ({ ...was, [field.key]: e.target.value }))
-                      }
-                    >
-                      {field.options.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <Input
-                      id={`open-${field.key}`}
-                      placeholder={"placeholder" in field ? field.placeholder : undefined}
-                      value={open[field.key] ?? ""}
-                      onChange={(e) =>
-                        setOpen((was) => ({ ...was, [field.key]: e.target.value }))
-                      }
-                    />
-                  )}
-                </FormField>
-              ))}
-            </div>
-          )}
-
-          <div className="space-y-3 border-t border-divider pt-3">
+          <div className="space-y-3 border-t border-divider pt-3 md:border-l md:border-t-0 md:pl-6 md:pt-0">
             <p className="text-[11px] font-semibold uppercase tracking-[.04em] text-muted-400">
               Secret fields
             </p>
@@ -482,14 +489,20 @@ export function SecretForm({
                       )}
                     </div>
                     {generating === field.key && (
-                      <Generator
-                        onClose={() => setGenerating(null)}
-                        onUse={(generated) => {
-                          set(generated);
-                          setVisible((was) => new Set(was).add(field.key));
-                          setGenerating(null);
-                        }}
-                      />
+                      // floats over the fields below rather than pushing them down: in the flow it
+                      // made a login 107px taller than a 13-inch window (owner, 2026-09-29)
+                      <div className="relative">
+                        <div className="absolute inset-x-0 top-0 z-10">
+                          <Generator
+                            onClose={() => setGenerating(null)}
+                            onUse={(generated) => {
+                              set(generated);
+                              setVisible((was) => new Set(was).add(field.key));
+                              setGenerating(null);
+                            }}
+                          />
+                        </div>
+                      </div>
                     )}
                   </FormField>
                 );
@@ -500,17 +513,17 @@ export function SecretForm({
                 Leave them empty to keep a reference only.
               </p>
             )}
+
+            {takesFiles && (
+              <AttachmentsField
+                files={secret?.files ?? []}
+                changes={fileChanges}
+                onChange={setFileChanges}
+              />
+            )}
           </div>
 
-          {takesFiles && (
-            <AttachmentsField
-              files={secret?.files ?? []}
-              changes={fileChanges}
-              onChange={setFileChanges}
-            />
-          )}
-
-          {error && <p className="text-[12.5px] text-danger-text">{error}</p>}
+          {error && <p className="text-[12.5px] text-danger-text md:col-span-2">{error}</p>}
         </div>
       </Modal>
       {asking && (

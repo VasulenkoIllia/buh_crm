@@ -264,20 +264,24 @@ export function ComposeModal({
               </>
             ) : (
               <>
-                <FormField label="Subject">
-                  <Input
-                    value={subject}
-                    onChange={(e) => setSubject(e.target.value)}
-                    placeholder="Your {{company}} filing is ready"
-                  />
-                </FormField>
-                <FormField label="Heading (optional)">
-                  <Input
-                    value={heading}
-                    onChange={(e) => setHeading(e.target.value)}
-                    placeholder="Hello {{first_name}}"
-                  />
-                </FormField>
+                {/* side by side, so a one-off letter fits a 13-inch MacBook without scrolling
+                    (owner, 2026-09-29) */}
+                <div className="grid items-end gap-3 sm:grid-cols-[3fr_2fr]">
+                  <FormField label="Subject">
+                    <Input
+                      value={subject}
+                      onChange={(e) => setSubject(e.target.value)}
+                      placeholder="Your {{company}} filing is ready"
+                    />
+                  </FormField>
+                  <FormField label="Heading (optional)">
+                    <Input
+                      value={heading}
+                      onChange={(e) => setHeading(e.target.value)}
+                      placeholder="Hello {{first_name}}"
+                    />
+                  </FormField>
+                </div>
                 <FormField label="Body">
                   <Textarea
                     value={body}

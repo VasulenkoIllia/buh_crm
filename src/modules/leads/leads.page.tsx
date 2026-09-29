@@ -179,8 +179,10 @@ export function LeadsPage() {
           collisionDetection={drag.collisionDetection}
           {...drag.handlers}
         >
-          {/* a fixed six-column grid no longer fits: the firm decides how many stages there are */}
-          <div className="flex flex-1 items-start gap-3 overflow-auto p-3.5">
+          {/* a fixed six-column grid no longer fits: the firm decides how many stages there are.
+              Sideways only: each stage scrolls down on its own, as the tasks board's columns do
+              (2026-09-29), so a long stage no longer carries the short ones out of view. */}
+          <div className="flex min-h-0 flex-1 items-start gap-3 overflow-x-auto overflow-y-hidden p-3.5">
             <SortableContext
               items={stages.map((s) => s.id)}
               strategy={horizontalListSortingStrategy}
@@ -290,12 +292,12 @@ function StageColumn({
       ref={setNodeRef}
       style={{ transform: CSS.Translate.toString(transform), transition }}
       className={cn(
-        "min-h-[120px] min-w-[230px] flex-[1_0_230px] rounded-[10px] bg-[#f4f6f8] p-[10px_9px]",
+        "flex max-h-full min-h-[120px] min-w-[230px] flex-[1_0_230px] flex-col rounded-[10px] bg-[#f4f6f8] p-[10px_9px]",
         isOver && "outline-1 outline-dashed outline-[#b9c1cc]",
         isDragging && "z-10 opacity-60",
       )}
     >
-      <div className="flex items-center gap-1.5 px-1 pb-2">
+      <div className="flex flex-none items-center gap-1.5 px-1 pb-2">
         {/* a HANDLE, not the whole column: the header renames and the body holds draggable cards */}
         {isAdmin && (
           <button
@@ -360,7 +362,8 @@ function StageColumn({
         )}
       </div>
       <SortableContext items={leads.map((l) => l.id)} strategy={verticalListSortingStrategy}>
-        <div className="flex min-h-[8px] flex-col gap-2">
+        {/* the stage's own scroll, reaching into the column's padding so a card's ring is not cut */}
+        <div className="-mx-[9px] -mt-1 flex min-h-[8px] flex-col gap-2 overflow-y-auto px-[9px] pb-1 pt-1">
           {leads.map((lead) => (
             <LeadCard key={lead.id} lead={lead} onOpen={() => onOpen(lead)} />
           ))}
@@ -549,7 +552,8 @@ function LeadDetails({ lead: initial, onClose }: { lead: Lead; onClose: () => vo
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="flex max-h-[88vh] w-full max-w-[560px] flex-col overflow-hidden rounded-[12px] bg-surface shadow-(--shadow-modal)">
+      {/* as tall as the window allows, like every other modal (`shared/ui/modal.tsx`) */}
+      <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-[560px] flex-col overflow-hidden rounded-[12px] bg-surface shadow-(--shadow-modal)">
         <div className="flex items-start gap-3 border-b border-[#eef0f3] px-5 py-4">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">

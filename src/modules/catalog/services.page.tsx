@@ -655,6 +655,9 @@ function ServiceEditorModal({
       }
       open={open}
       onClose={onClose}
+      // wide enough for the name and the type to share a row and the billing box's sentences to
+      // stop wrapping: at 448 the form scrolled on a 13-inch MacBook (owner, 2026-09-29)
+      size={isInternal ? "sm" : "lg"}
       actions={service ? <CopyLink href={`/services?service=${service.id}`} /> : undefined}
       footer={
         <>
@@ -668,41 +671,47 @@ function ServiceEditorModal({
       }
     >
       <form id="service-form" onSubmit={onSubmit} className="space-y-3.5" noValidate>
-        <FormField
-          label={isInternal ? "Category name" : "Service name"}
-          htmlFor="s-name"
-          error={errors.name?.message}
-        >
-          <Input
-            id="s-name"
-            // the name is the first thing you type — open the modal and start typing
-            autoFocus
-            placeholder={isInternal ? "e.g. Compliance" : "e.g. Bookkeeping"}
-            error={!!errors.name}
-            {...register("name")}
-          />
-        </FormField>
-
-        {!isInternal && (
-          <div>
-            <Label>Type</Label>
-            <Segmented
-              value={type === "internal" ? "subscription" : type}
-              onChange={(v) => {
-                setValue("type", v as ServiceFormValues["type"], { shouldDirty: true });
-                // billing options differ per type — snap to that type's default
-                setValue("invoiceTrigger", v === "one_time" ? "on_create" : "on_period_start", {
-                  shouldDirty: true,
-                });
-                setValue("invoiceDay", null, { shouldDirty: true });
-              }}
-              options={[
-                { value: "subscription", label: "Subscription" },
-                { value: "one_time", label: "One-time" },
-              ]}
+        <div className={cn(!isInternal && "grid items-start gap-3.5 sm:grid-cols-2")}>
+          <FormField
+            label={isInternal ? "Category name" : "Service name"}
+            htmlFor="s-name"
+            error={errors.name?.message}
+          >
+            <Input
+              id="s-name"
+              // the name is the first thing you type — open the modal and start typing
+              autoFocus
+              placeholder={isInternal ? "e.g. Compliance" : "e.g. Bookkeeping"}
+              error={!!errors.name}
+              {...register("name")}
             />
-          </div>
-        )}
+          </FormField>
+
+          {!isInternal && (
+            <div>
+              <Label>Type</Label>
+              <Segmented
+                value={type === "internal" ? "subscription" : type}
+                onChange={(v) => {
+                  setValue("type", v as ServiceFormValues["type"], { shouldDirty: true });
+                  // billing options differ per type — snap to that type's default
+                  setValue(
+                    "invoiceTrigger",
+                    v === "one_time" ? "on_create" : "on_period_start",
+                    {
+                      shouldDirty: true,
+                    },
+                  );
+                  setValue("invoiceDay", null, { shouldDirty: true });
+                }}
+                options={[
+                  { value: "subscription", label: "Subscription" },
+                  { value: "one_time", label: "One-time" },
+                ]}
+              />
+            </div>
+          )}
+        </div>
 
         {isInternal && (
           <p className="rounded-(--radius-field) bg-[#f7f8fa] px-3 py-2 text-[12px] text-muted">
@@ -964,6 +973,9 @@ function TaskTemplateModal({
       title={`${template ? "Edit" : "New"} ${isOneTime ? "job preset" : "task template"} — “${service.name}”`}
       open={open}
       onClose={onClose}
+      // an internal template also carries a description and assignees: side by side with the
+      // rhythm rather than under it, or it scrolled on a 13-inch MacBook (owner, 2026-09-29)
+      size={isInternal ? "lg" : "sm"}
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
@@ -975,71 +987,82 @@ function TaskTemplateModal({
         </>
       }
     >
-      <form id="template-form" onSubmit={onSubmit} className="space-y-3.5" noValidate>
-        <FormField label="Task name" htmlFor="t-name" error={errors.name?.message}>
-          <Input
-            id="t-name"
-            placeholder="e.g. Bank reconciliation"
-            error={!!errors.name}
-            {...register("name")}
-          />
-        </FormField>
-
-        <TaskRhythmFields
-          value={rhythm}
-          onChange={applyRhythm}
-          dayError={errors.dayOfPeriod?.message}
-          plannedHint="the default; per-client override lives on the client's subscription"
-          oneTime={isOneTime}
-        />
-
-        {isInternal && (
-          <div>
-            <Label>Description (seeded onto each generated task)</Label>
-            <Textarea
-              className="h-[70px]"
-              placeholder="What this internal task is about…"
-              {...register("description")}
+      <form
+        id="template-form"
+        onSubmit={onSubmit}
+        className={isInternal ? "grid gap-x-6 gap-y-3.5 sm:grid-cols-2" : "space-y-3.5"}
+        noValidate
+      >
+        <div className="space-y-3.5">
+          <FormField label="Task name" htmlFor="t-name" error={errors.name?.message}>
+            <Input
+              id="t-name"
+              placeholder="e.g. Bank reconciliation"
+              error={!!errors.name}
+              {...register("name")}
             />
-          </div>
-        )}
+          </FormField>
 
-        <div>
-          <div className="mb-1.5 block text-[12px] font-medium text-ink-700">
-            Default checklist{" "}
-            <span className="font-normal text-muted">
-              {isInternal
-                ? "— seeded onto each generated task"
-                : "— seeded onto each task; per-client override on the subscription"}
-            </span>
-          </div>
-          <ChecklistEditor
-            value={watch("defaultChecklist")}
-            onChange={(next) => setValue("defaultChecklist", next, { shouldDirty: true })}
+          <TaskRhythmFields
+            value={rhythm}
+            onChange={applyRhythm}
+            dayError={errors.dayOfPeriod?.message}
+            plannedHint="the default; per-client override lives on the client's subscription"
+            oneTime={isOneTime}
           />
         </div>
 
-        {isInternal && (
+        <div className="space-y-3.5">
+          {isInternal && (
+            <div>
+              <Label>Description (seeded onto each generated task)</Label>
+              <Textarea
+                className="h-[70px]"
+                placeholder="What this internal task is about…"
+                {...register("description")}
+              />
+            </div>
+          )}
+
           <div>
-            <Label>Assignees (optional — who these tasks go to)</Label>
-            <AssigneePicker
-              users={users ?? []}
-              selected={(id) => watch("defaultAssigneeIds").includes(id)}
-              onToggle={(id) => {
-                const cur = watch("defaultAssigneeIds");
-                setValue(
-                  "defaultAssigneeIds",
-                  cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id],
-                  { shouldDirty: true },
-                );
-              }}
+            <div className="mb-1.5 block text-[12px] font-medium text-ink-700">
+              Default checklist{" "}
+              <span className="font-normal text-muted">
+                {isInternal
+                  ? "— seeded onto each generated task"
+                  : "— seeded onto each task; per-client override on the subscription"}
+              </span>
+            </div>
+            <ChecklistEditor
+              value={watch("defaultChecklist")}
+              onChange={(next) => setValue("defaultChecklist", next, { shouldDirty: true })}
             />
-            {(users ?? []).length === 0 && (
-              <span className="text-[12px] text-faint">No team members yet.</span>
-            )}
           </div>
+
+          {isInternal && (
+            <div>
+              <Label>Assignees (optional — who these tasks go to)</Label>
+              <AssigneePicker
+                users={users ?? []}
+                selected={(id) => watch("defaultAssigneeIds").includes(id)}
+                onToggle={(id) => {
+                  const cur = watch("defaultAssigneeIds");
+                  setValue(
+                    "defaultAssigneeIds",
+                    cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id],
+                    { shouldDirty: true },
+                  );
+                }}
+              />
+              {(users ?? []).length === 0 && (
+                <span className="text-[12px] text-faint">No team members yet.</span>
+              )}
+            </div>
+          )}
+        </div>
+        {serverError && (
+          <p className="text-[12px] text-danger-text sm:col-span-2">{serverError}</p>
         )}
-        {serverError && <p className="text-[12px] text-danger-text">{serverError}</p>}
       </form>
     </Modal>
   );

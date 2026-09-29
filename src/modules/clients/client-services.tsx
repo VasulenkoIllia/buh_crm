@@ -1022,6 +1022,9 @@ export function AddServiceModal({
       title="Add service to client"
       open={open}
       onClose={onClose}
+      // the catalog list gives up height to the price panel once a service is picked, rather than
+      // the panel pushing the form past a 13-inch MacBook's window (owner, 2026-09-29)
+      fit
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
@@ -1038,7 +1041,7 @@ export function AddServiceModal({
         </>
       }
     >
-      <div className="space-y-3">
+      <div className="flex min-h-0 flex-col gap-3">
         {/* The date and the service filter share a row: one is narrow by nature and left a hand's
             width of nothing beside it, and the two together are simply "what, and from when". */}
         <div className="flex items-end gap-3">
@@ -1082,7 +1085,7 @@ export function AddServiceModal({
         </div>
         {/* `stable` exactly when the filter is there: without it every keystroke resized the box
             and the price panel below jumped up and down while you were still typing */}
-        <ScrollBox height={224} stable={searchable}>
+        <ScrollBox height={224} stable={searchable} className="min-h-[112px]">
           {active.length === 0 && (
             <p className="px-3 py-4 text-[13px] text-muted">
               The catalog is empty — create services on the Services page first.

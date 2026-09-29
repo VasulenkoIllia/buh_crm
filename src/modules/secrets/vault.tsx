@@ -261,8 +261,11 @@ export function Vault() {
       <VaultBar onUnlock={() => setAsking(true)} />
 
       <div className="grid items-start gap-4 lg:grid-cols-[250px_minmax(0,1fr)]">
+        {/* The tree scrolls inside its own panel, as Files' does: with every client listed it made
+            the page 5,000px tall and the sidebar scrolled away with it (owner, 2026-09-29). The
+            height leaves room for the title and the vault bar above it on the first screen. */}
         <nav
-          className="rounded-(--radius-panel) border border-border bg-surface p-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
+          className="rounded-(--radius-panel) border border-border bg-surface p-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.04)] lg:sticky lg:top-4 lg:max-h-[calc(100dvh-202px)] lg:overflow-y-auto"
           aria-label="Places"
         >
           <TreeNode

@@ -1,5 +1,5 @@
 import { Suspense, useCallback } from "react";
-import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
+import { Link, Outlet, useNavigate } from "react-router-dom";
 import {
   Archive,
   BarChart3,
@@ -21,14 +21,15 @@ import type { GateKey } from "@shared/access";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAccess, useAuth, useLogout, ME_QUERY_KEY } from "./auth";
 import { useModuleClosedWatch } from "@/shared/lib/module-closed";
-import { cn } from "@/shared/lib/cn";
 import { UserAvatar } from "@/shared/ui/avatar";
 import { ToastProvider } from "@/shared/ui/toast";
-import { SETTINGS_GATES, useSettings } from "@/modules/settings";
+import { SETTINGS_GATES } from "@/modules/settings";
 import { NotificationTray } from "@/modules/notifications";
 import { ChatWatch, useChatUnread } from "@/modules/chat";
 import { TimerBar } from "@/modules/tasks";
 import { FirmClock } from "./firm-clock";
+import { Sidebar, type SidebarItem } from "./sidebar";
+import { WhenCleared } from "./when-cleared";
 
 /**
  * Dashboard has no gate — everybody has somewhere to land. Every other item names one, and a
@@ -39,14 +40,10 @@ import { FirmClock } from "./firm-clock";
  * the firm can change, which is the whole point of the module: those two are now `team` (fixed
  * admin, so nothing moved) and `settings` (seeded closed for a user, so nothing moved either).
  */
-const NAV: {
-  to: string;
-  label: string;
-  icon: typeof Kanban;
-  end?: boolean;
+const NAV: (SidebarItem & {
   /** several gates = the item stays while ANY of them is open — see `RequireGate` */
   gate?: GateKey | GateKey[];
-}[] = [
+})[] = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/tasks", label: "Tasks", icon: Kanban, gate: "tasks" },
   { to: "/clients", label: "Clients", icon: Users, gate: "clients" },
@@ -97,32 +94,7 @@ export function AppLayout() {
     // the Undo after a delete (files.md §9) is one line at the bottom, on whichever screen
     <ToastProvider>
       <div className="flex min-h-screen">
-        <aside className="flex w-56 shrink-0 flex-col bg-sidebar text-white">
-          <SidebarBrand />
-          <nav className="flex-1 space-y-0.5 px-2">
-            {nav.map(({ to, label, icon: Icon, end }) => (
-              <NavLink
-                key={to}
-                to={to}
-                end={end}
-                className={({ isActive }) =>
-                  cn(
-                    "flex items-center gap-2.5 rounded-(--radius-field) px-3 py-2 text-[13px] text-white/70 transition-colors hover:bg-white/5 hover:text-white",
-                    isActive && "bg-primary text-white",
-                  )
-                }
-              >
-                <Icon size={16} />
-                {label}
-                {to === "/chat" && chatUnread > 0 && (
-                  <span className="ml-auto rounded-full bg-primary px-1.5 text-[11px] font-semibold text-white">
-                    {chatUnread}
-                  </span>
-                )}
-              </NavLink>
-            ))}
-          </nav>
-        </aside>
+        <Sidebar items={nav} chatUnread={chatUnread} />
 
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="flex h-14 items-center justify-between border-b border-border bg-surface px-6">
@@ -151,46 +123,6 @@ export function AppLayout() {
         </div>
       </div>
     </ToastProvider>
-  );
-}
-
-/**
- * **The shell's own data is the firm's data.** The timer, the tray, the firm's name and logo all
- * come from routes the firm's two-factor rule refuses to somebody it is holding back
- * (two-factor.md §6.4), so for them these are not mounted, rather than mounted to fail.
- */
-function WhenCleared({
-  children,
-  fallback = null,
-}: {
-  children: React.ReactNode;
-  fallback?: React.ReactNode;
-}) {
-  const { user } = useAuth();
-  return <>{user?.twoFactor?.mustEnrol ? fallback : children}</>;
-}
-
-function SidebarBrand() {
-  return (
-    <WhenCleared fallback={<BrandMark />}>
-      <FirmBrand />
-    </WhenCleared>
-  );
-}
-
-function FirmBrand() {
-  const { data } = useSettings();
-  return <BrandMark name={data?.firm.name} logo={Boolean(data?.firm.logoFileId)} />;
-}
-
-function BrandMark({ name, logo = false }: { name?: string; logo?: boolean }) {
-  return (
-    <div className="flex items-center gap-2.5 px-5 py-5">
-      {logo && (
-        <img src="/api/settings/firm/logo" alt="" className="h-6 w-6 rounded object-contain" />
-      )}
-      <span className="text-[15px] font-semibold tracking-wide">{name ?? "buh_crm"}</span>
-    </div>
   );
 }
 

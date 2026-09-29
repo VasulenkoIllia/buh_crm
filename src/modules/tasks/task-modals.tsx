@@ -690,6 +690,8 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
       size="xl"
       open
       onClose={onClose}
+      // the activity column below scrolls on its own, so the fields beside it stay in view
+      fit
       actions={<CopyLink href={`/tasks?task=${task.id}`} />}
       footer={
         <>
@@ -738,7 +740,7 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
         </>
       }
     >
-      <div className="space-y-4">
+      <div className="flex min-h-0 flex-col gap-3">
         {/* title (inline) + done / completed control */}
         <div className="flex items-start gap-3">
           <InlineTitle
@@ -813,10 +815,14 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
           </span>
         </div>
 
-        {/* two columns: left = task fields, right = activity (timer / checklist / log) */}
-        <div className="grid gap-x-8 gap-y-6 md:grid-cols-[1.5fr_1fr]">
+        {/* two columns: left = task fields, right = activity (timer / checklist / log).
+            Each scrolls on its own when the window is shorter than it, and the right one is the
+            one that grows: a checklist, a work log and a thread have no fixed length, and in one
+            scrolling body they pushed the task's own fields off a 13-inch MacBook's screen
+            (owner, 2026-09-29). */}
+        <div className="grid min-h-0 gap-x-8 gap-y-6 md:grid-cols-[1.5fr_1fr] md:grid-rows-[minmax(0,1fr)]">
           {/* LEFT — task fields */}
-          <div className="space-y-4">
+          <div className="space-y-4 md:-mx-1 md:min-h-0 md:overflow-y-auto md:px-1">
             {/* inline meta grid */}
             <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-[13px]">
               <Field label="Column">
@@ -955,7 +961,7 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
           </div>
 
           {/* RIGHT — activity: timer, checklist, work log */}
-          <div className="space-y-5 md:border-l md:border-divider md:pl-6">
+          <div className="space-y-4 md:-mr-1 md:min-h-0 md:overflow-y-auto md:border-l md:border-divider md:pl-6 md:pr-1">
             {locked ? (
               <p className="rounded-(--radius-field) bg-[#f7f8fa] px-3 py-2.5 text-[13px] text-muted">
                 {/* both states lock the task, but they are not the same fact — say which one */}
@@ -1464,18 +1470,18 @@ function CommentsSection({
         ))}
       </div>
       {!disabled && (
-        <div className="mt-2 space-y-1.5">
+        // the button beside the box rather than under it: a row saved in a column that is short
+        // of height on a 13-inch MacBook (owner, 2026-09-29)
+        <div className="mt-2 flex items-end gap-2">
           <Textarea
-            className="h-[52px]"
+            className="h-[52px] flex-1"
             placeholder="Add a note for yourself or the team…"
             value={body}
             onChange={(e) => setBody(e.target.value)}
           />
-          <div className="flex justify-end">
-            <Button size="sm" disabled={!body.trim() || addComment.isPending} onClick={post}>
-              Post note
-            </Button>
-          </div>
+          <Button size="sm" disabled={!body.trim() || addComment.isPending} onClick={post}>
+            Post note
+          </Button>
         </div>
       )}
     </div>

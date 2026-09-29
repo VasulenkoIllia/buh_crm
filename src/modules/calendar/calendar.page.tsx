@@ -166,6 +166,27 @@ export function CalendarPage() {
         </div>
         <span className="whitespace-nowrap text-[13px] font-medium text-muted">{title}</span>
         <div className="ml-auto flex items-center gap-3">
+          {/* Real toggles with counts, not a legend. They used to be two dots and a caption in the
+              far corner, which reads as decoration — nobody realised a lane could be switched off,
+              and nothing on the screen said how much was on it (user, 2026-08-06). They sit up
+              here, beside the view switch, so the people's row below keeps to one line on a
+              13-inch MacBook (owner, 2026-09-29). */}
+          <div className="flex items-center gap-2">
+            <LaneToggle
+              on={lanes.meetings}
+              swatch="bg-[#c3cdf3]"
+              label="Meetings"
+              count={data?.meetings.length}
+              onClick={() => setLanes((l) => ({ ...l, meetings: !l.meetings }))}
+            />
+            <LaneToggle
+              on={lanes.deadlines}
+              swatch="bg-[#e8c99a]"
+              label="Deadlines"
+              count={data?.deadlines.length}
+              onClick={() => setLanes((l) => ({ ...l, deadlines: !l.deadlines }))}
+            />
+          </div>
           <Segmented value={mode} onChange={setMode} options={VIEWS} />
           <Button onClick={() => setFormOpen({})}>+ New meeting</Button>
         </div>
@@ -180,25 +201,6 @@ export function CalendarPage() {
             ...(team ?? []).map((u) => ({ value: u.id, label: userLabel(u) })),
           ]}
         />
-        {/* Real toggles with counts, not a legend. They used to be two dots and a caption in the
-            far corner, which reads as decoration — nobody realised a lane could be switched off,
-            and nothing on the screen said how much was on it (user, 2026-08-06). */}
-        <div className="ml-auto flex items-center gap-2">
-          <LaneToggle
-            on={lanes.meetings}
-            swatch="bg-[#c3cdf3]"
-            label="Meetings"
-            count={data?.meetings.length}
-            onClick={() => setLanes((l) => ({ ...l, meetings: !l.meetings }))}
-          />
-          <LaneToggle
-            on={lanes.deadlines}
-            swatch="bg-[#e8c99a]"
-            label="Deadlines"
-            count={data?.deadlines.length}
-            onClick={() => setLanes((l) => ({ ...l, deadlines: !l.deadlines }))}
-          />
-        </div>
       </div>
 
       {error && <p className="text-[13px] text-danger-text">Couldn't load the calendar.</p>}
@@ -551,8 +553,11 @@ function TimeGrid({
 
       {/* The hour grid scrolls inside the panel. A full day is 24 rows; the view opens on the
           working hours so the ordinary case looks ordinary, and anything early or late is a scroll
-          away rather than clamped to an edge or off the bottom of the page. */}
-      <div ref={scrollRef} className="max-h-[62vh] overflow-y-auto">
+          away rather than clamped to an edge or off the bottom of the page.
+          Its height is what the window leaves under the bars above it (about 300px of them), not
+          a share of the window: 62% left the page 30px taller than a 13-inch MacBook's window
+          and wasted a taller one (owner, 2026-09-29). */}
+      <div ref={scrollRef} className="max-h-[max(300px,calc(100dvh-300px))] overflow-y-auto">
         <div
           className="relative grid"
           style={{ gridTemplateColumns: `56px repeat(${days.length}, minmax(0,1fr))` }}
