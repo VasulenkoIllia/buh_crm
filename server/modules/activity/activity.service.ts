@@ -88,6 +88,7 @@ export async function list(
       clientLabel: clientsVisible ? row.clientLabel : null,
       changes: row.changes ?? null,
       outcome: row.outcome,
+      statusCode: row.statusCode,
       refusalCode: row.refusalCode,
       method: row.method,
       route: row.route,

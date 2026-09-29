@@ -233,6 +233,7 @@ describe("refusals, which the permissions module never recorded", () => {
     // three different 403s reach the SPA and they mean three different things — the log has to
     // keep them apart too (`permissions.md` §20.3)
     expect(row?.refusalCode).toBe("module_closed");
+    expect(row?.statusCode).toBe(403);
     expect(row?.gate).toBe("clients");
     expect(row?.actorLabel).toBe("Ulf User");
 
@@ -364,6 +365,63 @@ describe("refusals, which the permissions module never recorded", () => {
     // would answer neither
     expect(row?.outcome).toBe("failed");
     expect(row?.action).toBe("system.request");
+    /**
+     * **And the number, because `failed` is two different things.** It covers everything from 400
+     * up that is not 401 or 403 — a rejected form and a server that broke wear the same word. Asked
+     * in production what fourteen failed writes to the vault had been, the table could not say and
+     * the application log had gone with the container a deploy replaced (2026-09-29).
+     */
+    expect(row?.statusCode).toBe(400);
+  });
+
+  /**
+   * **A row that named its own failure does not wear the request's success.**
+   *
+   * Creating a subscription generates its first invoice as a best effort
+   * (`generateForSubscriptionInvoices(...).catch(() => {})`). When that fails for one subscription
+   * it records `subscription.generation_failed` into the request's still-open store — and the
+   * request then answers 201. Stamping 201 onto a row whose own outcome says `failed` would make
+   * the log contradict itself, which is the whole reason `outcome` is settable per event
+   * (audit, 2026-09-29).
+   */
+  it("does not stamp a request's success on an event that named its own failure", async () => {
+    const tag = `Side effect ${randomUUID().slice(0, 8)}`;
+    await runWithActivity(
+      {
+        actor: { kind: "user", userId: null, label: "Sidey" },
+        method: "POST",
+        route: "/api/clients/:id/subscriptions",
+      },
+      async () => {
+        record("subscription.generation_failed", {
+          outcome: "failed",
+          subjectLabel: tag,
+          // the registry declares `error`, and an event with declared keys and no changes is
+          // dropped — exactly as the real call site passes it
+          changes: { error: "the ledger said no" },
+        });
+        // and the act that DID succeed, in the same gesture — the subscription was created
+        record("client.created", { subjectLabel: tag });
+        // exactly what `onResponse` does for a request that went on to succeed
+        await flushActivity({ outcome: "ok", tier1: true, statusCode: 201 });
+      },
+    );
+
+    const failure = await prisma.activityEvent.findFirst({
+      where: { action: "subscription.generation_failed", subjectLabel: tag },
+      select: { outcome: true, statusCode: true },
+    });
+    expect(failure?.outcome).toBe("failed");
+    expect(failure?.statusCode, "201 beside 'failed' is a lie").toBeNull();
+
+    // …while its neighbour in the very same flush, which named no outcome of its own, keeps the
+    // status the request really answered
+    const succeeded = await prisma.activityEvent.findFirst({
+      where: { action: "client.created", subjectLabel: tag },
+      select: { outcome: true, statusCode: true },
+    });
+    expect(succeeded?.outcome).toBe("ok");
+    expect(succeeded?.statusCode).toBe(201);
   });
 });
 

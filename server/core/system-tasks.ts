@@ -36,6 +36,24 @@ export async function raiseSystemTask(
   ]);
   if (!priority || !column) return false; // bootstrap hasn't run yet — nothing to hang a task on
 
+  /**
+   * **Asked before it is attempted**, although the index below would refuse it anyway.
+   *
+   * Letting the insert fail is correct and was deliberate — but Prisma logs a rejected statement at
+   * ERROR level before this function ever sees it, so every morning the sweep left two
+   * `prisma:error … Unique constraint failed` lines in the application log for nothing. Twelve a
+   * week, all meaningless, in the one place somebody greps when something is actually wrong
+   * (found while reading production logs, 2026-09-29).
+   *
+   * The `catch` below stays: two sweeps at once would still race past this read, and the database
+   * is what settles that. This only stops asking a question whose answer is already known.
+   */
+  const already = await prisma.task.findFirst({
+    where: { subscriptionId: target.subscriptionId, periodKey, systemKind: { not: null } },
+    select: { id: true },
+  });
+  if (already) return false;
+
   try {
     const task = await prisma.task.create({
       data: {

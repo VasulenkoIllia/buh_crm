@@ -49,6 +49,12 @@ export const activityRow = z.object({
   clientLabel: z.string().nullable(),
   changes: z.unknown().nullable(),
   outcome: z.enum(["ok", "refused", "failed"]),
+  /**
+   * What the request answered. `failed` is everything from 400 up that is not 401 or 403, so the
+   * word alone cannot tell a rejected form from a server that broke — and the screen is where
+   * somebody asks. Null for a row no request produced, and for a row that named its own outcome.
+   */
+  statusCode: z.number().int().nullable(),
   refusalCode: z.string().nullable(),
   method: z.string().nullable(),
   route: z.string().nullable(),

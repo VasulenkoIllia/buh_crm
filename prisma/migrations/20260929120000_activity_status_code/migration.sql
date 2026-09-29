@@ -1,0 +1,13 @@
+-- What the request actually answered, on the row that records it.
+--
+-- `outcome` has three values, and `failed` means "anything at or above 400 that is not 401 or 403"
+-- (`server/app.ts`). So a server that broke and a form that said no are the SAME word in the log.
+-- Asked on 2026-09-29 what fourteen failed writes to the vault had been — a crash or a rejected
+-- name — the answer was: the table cannot say, and the container holding the application log had
+-- been replaced by a deploy a week earlier. The status was computed, passed into the writer, used
+-- to spot a 403, and thrown away.
+--
+-- Nullable, because most rows have no HTTP status to carry: a background job's, and any row
+-- written before this column existed. Additive and catalog-only — PostgreSQL records a nullable
+-- column with no default in the catalogue and rewrites nothing, whatever the table's size.
+ALTER TABLE "ActivityEvent" ADD COLUMN "statusCode" INTEGER;

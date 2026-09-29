@@ -2084,6 +2084,10 @@ model ActivityEvent {
   method      String?
   route       String?
   outcome     ActivityOutcome @default(ok)
+  /// What the request answered. `outcome` sorts into three buckets and `failed` covers a rejected
+  /// form and a broken server alike; this says which. Null for a row no request produced — a
+  /// background job's — and for every row written before 2026-09-29.
+  statusCode  Int?
   /// `module_closed` · `admin_only` · `forbidden` … — the code the SPA was given
   refusalCode String?
 

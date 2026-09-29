@@ -318,7 +318,11 @@ function Entry({
         */}
         {problem && (
           <Chip tone="amber" size="sm" title={outcomeHint(problem)}>
-            {problem.outcome === "refused" ? (problem.refusalCode ?? "refused") : "failed"}
+            {problem.outcome === "refused"
+              ? (problem.refusalCode ?? "refused")
+              : // the number beside the word: "failed" covers a rejected form and a server that
+                // broke, and a reader cannot act on the two the same way (2026-09-29)
+                `failed${problem.statusCode ? ` · ${problem.statusCode}` : ""}`}
           </Chip>
         )}
         <span
@@ -365,8 +369,20 @@ function Entry({
 }
 
 function outcomeHint(row: ActivityRow): string {
-  return row.outcome === "refused"
-    ? "A gate or a role said no — this person was not allowed to do it"
+  if (row.outcome === "refused") {
+    return "A gate or a role said no — this person was not allowed to do it";
+  }
+  /**
+   * Below 500 the request reached the app and the app turned it down: a name already taken, a
+   * field the form would not accept. At 500 and above the app itself broke, which is somebody
+   * else's problem to fix. Without the number both read as "failed", and in production fourteen
+   * of these in five minutes could not be told apart from an outage (owner's question, 2026-09-29).
+   */
+  if (row.statusCode && row.statusCode >= 500) {
+    return `The app broke on it (${row.statusCode}) — nobody did anything wrong`;
+  }
+  return row.statusCode
+    ? `The app turned it down (${row.statusCode}) — it was allowed, but not accepted`
     : "The app or the database said no — the request was allowed but did not go through";
 }
 

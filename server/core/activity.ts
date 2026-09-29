@@ -683,6 +683,19 @@ async function writeEvents(
         method: store.method ?? null,
         route: store.route ?? null,
         outcome: event.outcome ?? outcome,
+        /**
+         * **The number behind the word**: `failed` is everything from 400 up that is not 401 or
+         * 403, so without this the log cannot tell a rejected form from a server that broke.
+         *
+         * **Null when the event named its OWN outcome**, for the same reason `outcome` is settable
+         * per event at all (see `RecordDetails.outcome`): such an event is describing something
+         * other than the request's fate — a best-effort side task that failed inside a request
+         * that went on to succeed. Creating a subscription generates its first invoice with
+         * `.catch(() => {})`; when that fails it records `subscription.generation_failed` into the
+         * still-open store, and the request then answers 201. Stamping 201 on a row that says
+         * `failed` would make the log contradict itself (audit, 2026-09-29).
+         */
+        statusCode: event.outcome ? null : (options?.statusCode ?? null),
         refusalCode: store.refusalCode ?? null,
         correlationId: store.correlationId,
       });
