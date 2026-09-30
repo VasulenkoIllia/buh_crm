@@ -47,7 +47,9 @@ export function TrackedTime({
     <span
       title={over ? "Tracked time is over the planned estimate" : "Time tracked so far"}
       className={cn(
-        "inline-flex items-center gap-1 tabular-nums",
+        // `whitespace-nowrap`: the clock and its digits are one thing; in a tight row they broke
+        // into the clock over the time (owner, production, 2026-09-30)
+        "inline-flex items-center gap-1 whitespace-nowrap tabular-nums",
         over ? "font-semibold text-danger-text" : "text-muted",
         className,
       )}

@@ -955,13 +955,14 @@ function CardFace({
           <Chip tone="amber">⏳ unbilled</Chip>
         )}
         {task.kind === "sub" && <Chip tone="blue">📅 auto</Chip>}
-      </div>
-      {/* the card's two acts on one row: close it, or start/stop the timer with what's on the clock */}
-      <div className="mt-2 flex items-center gap-2">
-        <DoneToggle task={task} compact />
-        {/* a spacer, not `ml-auto` on the time: with nothing tracked yet that renders nothing */}
-        <span className="flex-1" />
+        {/* The time already on the clock is a fact like the rest of this row. Beside Done and Track
+            it had no room in a column five of which share a 13-inch screen, and broke into the
+            clock over the digits (owner, production, 2026-09-30); here the row simply wraps. */}
         <TrackedTime seconds={task.trackedSeconds} className="text-[11px]" />
+      </div>
+      {/* the card's two acts on one row: close it, or start/stop the timer */}
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <DoneToggle task={task} compact />
         <TaskTimerButton task={task} compact />
       </div>
     </div>
