@@ -7,6 +7,7 @@ import type {
 } from "react";
 import { createPortal } from "react-dom";
 import { MoreHorizontal } from "lucide-react";
+import { IconConfirm } from "./icons";
 import { cn } from "@/shared/lib/cn";
 import { IconButton } from "./button";
 
@@ -18,6 +19,12 @@ export interface MenuItem {
   disabled?: boolean;
   /** why it is disabled — a disabled action still says why not (design-system.md) */
   hint?: string;
+  /**
+   * The one already chosen, for a menu that picks rather than acts — who a task is assigned to.
+   * A tick in a reserved column, so the labels line up whether or not anything is ticked, and
+   * `aria-checked` with `menuitemradio` so it is a CHOICE to a screen reader and not a command.
+   */
+  checked?: boolean;
 }
 
 /**
@@ -59,10 +66,13 @@ export function Menu({
   const button = useRef<HTMLButtonElement>(null);
   const list = useRef<HTMLDivElement>(null);
 
+  // both roles: an item that PICKS is a `menuitemradio`, and leaving it out of this would have
+  // left the whole menu without arrow keys or an opening focus the moment one appeared
   const actions = () =>
     Array.from(
-      list.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ??
-        [],
+      list.current?.querySelectorAll<HTMLButtonElement>(
+        '[role="menuitem"]:not(:disabled),[role="menuitemradio"]:not(:disabled)',
+      ) ?? [],
     );
   const close = (refocus: boolean) => {
     setOpen(false);
@@ -95,9 +105,19 @@ export function Menu({
     });
   }, [open]);
 
-  // once it stands where it belongs, the focus goes to the first action
+  /**
+   * Once it stands where it belongs, the focus goes in — to the one already CHOSEN when the menu
+   * picks, and to the first action otherwise.
+   *
+   * A menu that picks opens with "Unassigned" at the top, so landing on the first item and
+   * pressing Enter, which is what a keyboard does, took the person off the job. The chosen one is
+   * the only safe place to start: Enter on it changes nothing.
+   */
   useEffect(() => {
-    if (open && at) actions()[0]?.focus({ preventScroll: true });
+    if (!open || !at) return;
+    const all = actions();
+    const chosen = all.find((a) => a.getAttribute("aria-checked") === "true");
+    (chosen ?? all[0])?.focus({ preventScroll: true });
   }, [open, at]);
 
   const buttonProps: MenuButtonProps = {
@@ -111,6 +131,9 @@ export function Menu({
       setOpen((o) => !o);
     },
   };
+
+  /** a menu that picks keeps the tick's column on every row, so the labels do not shift */
+  const picks = items.some((i) => i !== "divider" && i.checked !== undefined);
 
   return (
     <>
@@ -130,6 +153,16 @@ export function Menu({
             style={{ top: at?.top ?? -9999, left: at?.left ?? -9999 }}
             className="fixed z-40 min-w-[200px] rounded-(--radius-card) border border-border bg-surface p-1 shadow-(--shadow-modal)"
             onPointerDown={(e) => e.stopPropagation()}
+            /*
+              The CLICK as well as the pointer, and on the LIST rather than only on its items.
+
+              A portal moves the DOM and not the React tree, so every event here still bubbles to
+              whatever rendered the menu. The items stopped their own clicks; the `p-1` padding,
+              the divider and the border did not — so a click 3px off a name reached the board
+              card's `onClick` and opened the task, with the menu left standing behind the modal.
+              Found the first time a `Menu` was put inside something clickable (audit, 2026-10-03).
+            */
+            onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
               const all = actions();
               const i = all.indexOf(document.activeElement as HTMLButtonElement);
@@ -154,9 +187,11 @@ export function Menu({
                 <hr key={`divider-${i}`} className="mx-0.5 my-1 border-divider" />
               ) : (
                 <button
-                  key={item.label}
+                  // not the label: two teammates can be called the same thing
+                  key={`${i}-${item.label}`}
                   type="button"
-                  role="menuitem"
+                  role={item.checked === undefined ? "menuitem" : "menuitemradio"}
+                  aria-checked={item.checked}
                   disabled={item.disabled}
                   title={item.hint}
                   onClick={(e) => {
@@ -174,6 +209,12 @@ export function Menu({
                       "text-danger-text hover:bg-danger-soft hover:text-danger-text focus-visible:bg-danger-soft focus-visible:text-danger-text",
                   )}
                 >
+                  {picks && (
+                    <IconConfirm
+                      size={14}
+                      className={cn("flex-none", item.checked ? "text-primary" : "invisible")}
+                    />
+                  )}
                   {item.icon}
                   {item.label}
                 </button>

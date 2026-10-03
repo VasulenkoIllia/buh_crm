@@ -2,8 +2,9 @@ import { useState } from "react";
 import * as Icons from "@/shared/ui/icons";
 import { ICON_SIZE } from "@/shared/ui/icons";
 import { Button, IconButton } from "@/shared/ui/button";
-import { Chip } from "@/shared/ui/chip";
+import { Chip, ChipButton } from "@/shared/ui/chip";
 import { ClearButton } from "@/shared/ui/clear-button";
+import { Menu } from "@/shared/ui/menu";
 import { CopyLink } from "@/shared/ui/copy-link";
 import { RowButton } from "@/shared/ui/row-button";
 import { Segmented } from "@/shared/ui/segmented";
@@ -23,6 +24,7 @@ import { FilterChips } from "@/shared/ui/tabs";
 export function UiCataloguePage() {
   const [tab, setTab] = useState("all");
   const [picked, setPicked] = useState("one");
+  const [owner, setOwner] = useState("Olena Koval");
   const icons = Object.entries(Icons).filter(([name]) => name.startsWith("Icon")) as [
     string,
     React.ComponentType<{ size?: number }>,
@@ -124,7 +126,7 @@ export function UiCataloguePage() {
 
       <Section
         title="Choosing"
-        note="A filter strip, a segmented switch, a chip that is only a label."
+        note="A filter strip, a segmented switch, a chip that is only a label, and a chip you can press to change the value it states."
       >
         <Row>
           <FilterChips
@@ -152,6 +154,56 @@ export function UiCataloguePage() {
           <Chip tone="gray" size="sm">
             Another
           </Chip>
+        </Row>
+        <Row>
+          <ChipButton tone="amber" strong onClick={() => {}}>
+            <Icons.IconAdd size={11} strokeWidth={3} />
+            Assign
+          </ChipButton>
+          <ChipButton onClick={() => {}}>Olena Petrenko</ChipButton>
+          <ChipButton tone="blue" disabled>
+            Saving…
+          </ChipButton>
+        </Row>
+      </Section>
+
+      <Section
+        title="Menu"
+        note="A row's ⋯, or a button of your own. Drawn in a portal so nothing clips it, walked with the arrow keys, and safe inside a row that drags or opens: it stops the pointer and the click at itself. Items that pick carry `checked`, and the menu opens on the chosen one."
+      >
+        <Row>
+          <Menu
+            label="Actions for this row"
+            items={[
+              { label: "Edit", icon: <Icons.IconEdit size={15} />, onSelect: () => {} },
+              { label: "Copy link", icon: <Icons.IconLink size={15} />, onSelect: () => {} },
+              "divider",
+              {
+                label: "Delete",
+                icon: <Icons.IconDelete size={15} />,
+                danger: true,
+                onSelect: () => {},
+              },
+            ]}
+          />
+          <Menu
+            label="Who owns this"
+            items={["Unassigned", "Iryna Shevchuk", "Olena Koval", "Petro Marchenko"].map(
+              (who) => ({ label: who, checked: owner === who, onSelect: () => setOwner(who) }),
+            )}
+            button={(props) => (
+              <ChipButton {...props} tone={owner === "Unassigned" ? "amber" : undefined}>
+                {owner === "Unassigned" ? (
+                  <>
+                    <Icons.IconAdd size={11} strokeWidth={3} />
+                    Assign
+                  </>
+                ) : (
+                  owner
+                )}
+              </ChipButton>
+            )}
+          />
         </Row>
       </Section>
 

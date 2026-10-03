@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -19,10 +20,36 @@ import { describe, expect, it } from "vitest";
  * The fix is always the same: make the row a flex container, give `RowButton` `flex-1`, and stand
  * the other control next to it.
  */
-const INTERACTIVE = /<(button|a|RowButton|IconButton|Button|CopyLink|ClearButton|Link)[\s>]/;
+
+/** Pressing it does something, so it must not be inside something else you press. */
+const CONTROL = new Set([
+  "button",
+  "a",
+  "input",
+  "select",
+  "textarea",
+  "Button",
+  "IconButton",
+  "RowButton",
+  "ChipButton",
+  "ClearButton",
+  "CopyLink",
+  "Link",
+  "Menu",
+  "DoneToggle",
+  "TaskTimerButton",
+  "AssignMenu",
+]);
+
+/**
+ * All of them except `Menu`, which is not itself pressable: its `button` prop renders the trigger
+ * IN ITS PLACE, so what looks nested in the source stands on its own on the screen. A `Menu` found
+ * inside one of the others is still an offence — that trigger really would be nested.
+ */
+const HOLDS = new Set([...CONTROL].filter((tag) => tag !== "Menu"));
 
 /** The source of every screen and component, from git so that nothing untracked is judged. */
-async function tsxFiles(): Promise<string[]> {
+function tsxFiles(): string[] {
   const listed = execFileSync("git", ["ls-files", "src"], {
     cwd: new URL("../../", import.meta.url).pathname,
     encoding: "utf8",
@@ -31,37 +58,60 @@ async function tsxFiles(): Promise<string[]> {
 }
 
 describe("nothing pressable is nested inside something pressable", () => {
-  it("no RowButton has another control among its children", async () => {
+  /**
+   * Read with the compiler's own parser rather than by matching text.
+   *
+   * The scan this replaces looked for the first `>` after an opening tag, which lands inside
+   * `onClick={() => …}` — so it judged the wrong span of a file and was as likely to miss a real
+   * one as to invent it. It also only ever looked at `RowButton`, and the shape is not about
+   * `RowButton`: the tasks table was one `<button>` wrapping a whole row until 2026-10-03, when an
+   * assignee that can be CHANGED from the row had to go into it.
+   *
+   * What it cannot see, and both are worth knowing:
+   *
+   * - **A tag chosen at runtime.** The tasks row was exactly that
+   *   (`const Row = selectable ? "div" : "button"`), so this would not have caught the one that
+   *   prompted it. Write the tag.
+   * - **A component not in the list.** `CONTROL` is kept by hand, so a new wrapper that renders a
+   *   `<button>` is invisible until somebody adds it — `AssignMenu` was, for an afternoon. Add
+   *   the name in the same change that adds the component.
+   */
+  it("no control has another control among its children", async () => {
     const root = new URL("../../", import.meta.url);
     const offenders: string[] = [];
 
-    for (const file of await tsxFiles()) {
-      const source = await readFile(new URL(file, root), "utf8");
-      let at = source.indexOf("<RowButton");
-      while (at !== -1) {
-        const openEnds = source.indexOf(">", at);
-        // `<RowButton … />` holds nothing, so it can hold nothing wrong
-        const selfClosing = source
-          .slice(at, openEnds + 1)
-          .trimEnd()
-          .endsWith("/>");
-        if (!selfClosing) {
-          const closeAt = source.indexOf("</RowButton>", openEnds);
-          const children = source.slice(openEnds + 1, closeAt === -1 ? undefined : closeAt);
-          const found = INTERACTIVE.exec(children);
-          if (found) {
-            const line = source.slice(0, openEnds + 1 + (found.index ?? 0)).split("\n").length;
-            offenders.push(`${file}:${line} — <${found[1]}> inside a RowButton`);
+    for (const file of tsxFiles()) {
+      const source = ts.createSourceFile(
+        file,
+        await readFile(new URL(file, root), "utf8"),
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TSX,
+      );
+      const walk = (node: ts.Node, inside: string | null) => {
+        let next = inside;
+        const open = ts.isJsxElement(node)
+          ? node.openingElement
+          : ts.isJsxSelfClosingElement(node)
+            ? node
+            : null;
+        if (open) {
+          const tag = open.tagName.getText();
+          if (inside && CONTROL.has(tag)) {
+            const { line } = source.getLineAndCharacterOfPosition(open.getStart());
+            offenders.push(`${file}:${line + 1} — <${tag}> inside <${inside}>`);
           }
+          if (HOLDS.has(tag)) next = tag;
         }
-        at = source.indexOf("<RowButton", openEnds);
-      }
+        node.forEachChild((child) => walk(child, next));
+      };
+      walk(source, null);
     }
 
     expect(
       offenders,
       "Stand the other control BESIDE the row, not inside it: wrap both in a flex container and " +
-        "give the RowButton flex-1. See src/modules/calendar/entity-meetings.tsx for the shape.",
+        "give the row flex-1. See src/modules/calendar/entity-meetings.tsx for the shape.",
     ).toEqual([]);
   });
 

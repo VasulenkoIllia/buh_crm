@@ -6,9 +6,10 @@ import { cn } from "@/shared/lib/cn";
  * **The one focus ring.** Until 2026-09-20 `focus-visible` appeared three times in the whole of
  * `src/`, and neither of these two components had it: somebody moving through the CRM with a
  * keyboard could not see where they were. It is here, once, so every control that goes through
- * these gets it and nothing has to remember.
+ * these gets it and nothing has to remember — `ChipButton` next door imports it rather than
+ * writing its own, which is the whole point of there being one.
  */
-const FOCUS =
+export const FOCUS =
   "outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-1";
 
 /**

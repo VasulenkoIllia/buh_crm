@@ -25,7 +25,7 @@ import { fmtBizDay, fmtDate } from "@/shared/lib/format";
 import { AssigneeAvatars, userLabel } from "@/shared/ui/avatar";
 import { ClearButton } from "@/shared/ui/clear-button";
 import { isOverdue, TaskKindChip } from "./lib";
-import { DoneToggle, TaskTimerButton } from "./task-controls";
+import { AssignMenu, DoneToggle, TaskTimerButton } from "./task-controls";
 import { TrackedTime } from "./timer";
 import { TaskDetailsModal, TaskFormModal } from "./task-modals";
 import {
@@ -931,15 +931,8 @@ function CardFace({
         >
           {task.deadline ? `Due: ${fmtBizDay(task.deadline)}` : "No deadline"}
         </span>
-        <AssigneeAvatars
-          ids={task.assignees}
-          team={team}
-          empty={
-            <Chip tone="amber" strong>
-              Unassigned
-            </Chip>
-          }
-        />
+        {/* a fact that is also the way to change it: 15 of 37 open tasks had nobody on them */}
+        <AssignMenu task={task} team={team} look="faces" />
         {priority && !priority.isDefault && <PriorityTag priority={priority} />}
         {task.subtasks.length > 0 && (
           <Chip tone="gray">
@@ -1166,15 +1159,23 @@ function TaskTable({
           const overdue = isOverdue(t);
           const priority = settings?.priorities.find((p) => p.id === t.priorityId);
           const column = columns.find((c) => c.id === t.statusColumnId);
-          const assignee = team.find((u) => u.id === t.assignees[0]);
-          const Row = selectable ? "div" : "button";
           return (
-            <Row
+            /*
+              The row is a div with a real button on the title, in both views.
+
+              On the Active table the whole row WAS one `<button>`, and an assignee that can be
+              changed from the row cannot live inside one: a control inside a button is invalid
+              HTML, and what browsers do with it is not something to build on. Clicking anywhere
+              still opens the task, which is what people use; the title now carries the keyboard
+              and the accessible name, which beats a button whose name was the entire row read out.
+            */
+            <div
               key={t.id}
-              {...(selectable ? {} : { type: "button" as const, onClick: () => onOpen(t) })}
+              {...(selectable ? {} : { onClick: () => onOpen(t) })}
               className={cn(
                 grid,
                 "w-full border-b border-[#f2f4f6] px-3.5 py-[11px] text-left text-[13px] last:border-0 hover:bg-divider/30",
+                !selectable && "cursor-pointer",
                 overdue && "bg-[#fdf5f5]",
                 ticked.includes(t.id) && "bg-[#eef1fb]",
               )}
@@ -1196,23 +1197,21 @@ function TaskTable({
                   }}
                 />
               )}
-              {selectable ? (
-                <button
-                  type="button"
-                  className="min-w-0 truncate text-left font-medium hover:underline"
-                  onClick={() => onOpen(t)}
-                >
-                  {t.title}
-                </button>
-              ) : (
-                <span className="min-w-0 truncate font-medium">{t.title}</span>
-              )}
+              <button
+                type="button"
+                className="min-w-0 truncate text-left font-medium hover:underline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpen(t);
+                }}
+              >
+                {t.title}
+              </button>
               <span className="min-w-0 truncate text-muted">
                 <TargetName task={t} />
               </span>
-              <span className="min-w-0 truncate text-muted">
-                {assignee ? userLabel(assignee) : "—"}
-                {t.assignees.length > 1 && ` +${t.assignees.length - 1}`}
+              <span className="min-w-0">
+                <AssignMenu task={t} team={team} look="name" />
               </span>
               <span>{priority && <PriorityTag priority={priority} />}</span>
               <span>
@@ -1231,7 +1230,7 @@ function TaskTable({
               <span className="text-right">
                 <TrackedTime seconds={t.trackedSeconds} emptyAs="dash" />
               </span>
-            </Row>
+            </div>
           );
         })}
       </div>
