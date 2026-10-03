@@ -222,9 +222,10 @@ function StoragePanel() {
               </span>
             </div>
             <p className="border-t border-divider px-3.5 py-2.5 text-[12px] text-muted">
-              In the files bucket: {totalsOf(data.where.bucket)}
-              {data.where.disk.files > 0 &&
-                ` · still on the server's disk: ${totalsOf(data.where.disk)}`}
+              {data.where.disk.files > 0
+                ? `In the files bucket: ${totalsOf(data.where.bucket)} · still on the server's ` +
+                  `disk: ${totalsOf(data.where.disk)}`
+                : `Every file is in the files bucket: ${totalsOf(data.where.bucket)}`}
             </p>
             <DiskRow disk={data.disk} />
           </>
@@ -234,7 +235,12 @@ function StoragePanel() {
   );
 }
 
-/** The server's disk: the files are in the bucket, but the database and the backup copy grow here. */
+/**
+ * The server's disk. No client file is on it: they are in the bucket, and what the nightly backup
+ * keeps here is a mirror of that bucket, still encrypted. What grows here is the database, the
+ * backup's working copies and the last few deploy dumps — and, since this is the firm's whole
+ * machine, whatever else runs on it. The only place that says the disk is filling up.
+ */
 function DiskRow({ disk }: { disk: FirmStorage["disk"] }) {
   if (!disk) {
     return (
@@ -252,7 +258,7 @@ function DiskRow({ disk }: { disk: FirmStorage["disk"] }) {
         <span className="text-[13px] text-ink">
           Server disk
           <span className="ml-2 text-[12px] text-muted">
-            the database and the backup copy grow here
+            the database, the backups and the deploy dumps; the files are in the bucket
           </span>
         </span>
         <span
