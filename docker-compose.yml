@@ -54,14 +54,13 @@ services:
       db:
         condition: service_healthy
     volumes:
-      # client files + avatars. Backed up nightly by scripts/backup/ ONCE IT IS INSTALLED ON THE
-      # HOST (RESTORE.md) — whether it is, and when it last ran, is the "Nightly backups" row on
-      # Settings → System, never this comment. A comment here once claimed a backup that did not
-      # exist, and that is most of the reason nobody built one.
-      - ./data/uploads:/app/uploads
-      # What the host's backup scripts report — READ-ONLY, and deliberately not under ./data/uploads:
-      # the app can write there, and prune-uploads.ts deletes files no row names. The host side is a
-      # variable only so this file can be brought up on a machine without /var/lib/buh_crm.
+      # No uploads mount: every client file, avatar and logo lives in the files bucket, encrypted
+      # before it leaves the app (files.md §14.1, §14.4), and the nightly backup mirrors the bucket.
+      # `./data/uploads` was retired on 2026-10-03, with its plaintext copies (files.md §15.0 step
+      # 7). FILES_STORAGE stays `s3` in production: with `local` a new file would be written inside
+      # the container and go with the next deploy, which the app says at boot.
+      # What the host's backup scripts report — READ-ONLY. The host side is a variable only so this
+      # file can be brought up on a machine without /var/lib/buh_crm.
       - ${BACKUP_STATUS_HOST_DIR:-/var/lib/buh_crm/backup-status}:/app/backup-status:ro
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro

@@ -123,6 +123,23 @@ const envSchema = z
    * it (files.md §14.4), so a bucket without the key would refuse every upload. Refused at boot
    * rather than at the first upload, because FILES_STORAGE=s3 is only ever set on purpose.
    */
+  /**
+   * Production keeps its files in the bucket, and has mounted no uploads directory since
+   * 2026-10-03 (files.md §15.0 step 7). On `local` a new file would be written inside the
+   * container and go with the next deploy, so the server refuses to start rather than lose one.
+   * Development and the tests are untouched.
+   */
+  .superRefine((env, ctx) => {
+    if (env.NODE_ENV === "production" && env.FILES_STORAGE === "local") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["FILES_STORAGE"],
+        message:
+          "must be s3 in production: nothing mounts a local store, so a new file would be lost " +
+          "on the next deploy",
+      });
+    }
+  })
   .superRefine((env, ctx) => {
     if (env.FILES_STORAGE !== "s3") return;
     const needed = [

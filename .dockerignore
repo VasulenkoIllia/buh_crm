@@ -28,5 +28,5 @@ pnpm-debug.log*
 
 /data
 backup-status
-# the development server's uploads: dev and test files no image should carry (production mounts ./data/uploads)
+# the development server's uploads: dev and test files no image should carry (production keeps its files in the bucket)
 /uploads

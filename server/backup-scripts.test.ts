@@ -381,7 +381,7 @@ describe("the storage checks", () => {
 describe("where the CRM reads the status", () => {
   const compose = read("docker-compose.yml");
 
-  it("is a read-only mount, and not under the uploads directory the app writes and prunes", () => {
+  it("is a read-only mount of its own, never under a directory the app itself writes", () => {
     const line = compose.split("\n").find((l) => l.includes(":/app/backup-status"));
     expect(line).toBeDefined();
     expect(line?.trim()).toMatch(/:ro$/);
@@ -402,7 +402,6 @@ describe("growing with future modules", () => {
     postgres:
       "not copied as files: a running database copied file by file is not a database — the " +
       "nightly dump is the copy",
-    uploads: "backed up: backup.sh takes BACKUP_UPLOADS_DIR, which defaults to data/uploads",
   };
 
   it("has decided, for every ./data directory, whether it is backed up", () => {
@@ -411,6 +410,10 @@ describe("growing with future modules", () => {
     );
     expect(mounts.length).toBeGreaterThan(0);
     expect(mounts.filter((m) => !Object.hasOwn(DATA_MOUNTS, m))).toEqual([]);
+    // retired 2026-10-03, when every file was proven to be in the bucket (files.md §15.0 step 7):
+    // a file written inside the container would go with the next deploy, so the mount stays gone
+    expect(mounts).not.toContain("uploads");
+    // the default survives for a server still on disk, and for a restore that puts files back
     expect(code(LIB)).toContain("BACKUP_UPLOADS_DIR:-$BK_PROJECT/data/uploads");
   });
 });

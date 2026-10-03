@@ -123,12 +123,21 @@ is fetched from an earlier snapshot. Files no database row names are listed, nev
 Once the client files live in the files bucket, the bucket itself usually needs nothing: it keeps
 every deleted object for 30 days as a hidden version. When objects are gone from it, the ones the
 database keeps there go back from that directory. Only what the bucket lacks goes back; nothing is
-overwritten or deleted, and a file kept on disk is never uploaded. It asks for the CRM's key:
+overwritten or deleted, and a file the database says is on disk is never uploaded. It asks for the
+CRM's key:
 
 ```bash
 ./scripts/backup/put-back-files.sh /tmp/files-restore --dry-run
 ./scripts/backup/put-back-files.sh /tmp/files-restore
 ```
+
+**A dump from before 2026-09-15** names its files as `local`, because that is where they were
+then. Nothing reads them on a server with no uploads directory, and the nightly check goes red the
+same night. Bring that snapshot's `uploads` copy back with `--files-to`, mount it at `/app/uploads`
+for as long as it takes (one line in `docker-compose.yml`), run
+`docker compose exec -T app npx tsx scripts/move-files-to-bucket.ts` so every row says `s3`, then
+take the mount out again. `check-files.ts --bytes` has to read "On the server's disk: 0" before the
+directory goes.
 
 Then this command opens every file the database names, and names by id any that still does not:
 
@@ -161,18 +170,21 @@ and whichever wrote last each night would be the copy a restore brings back.
    If it is not there yet, `docker network create proxy` lets the app start and answer on the server
    itself.
 2. Clone this repository into the project directory, put the `.env` from the password manager in it,
-   and `mkdir -p data/postgres data/uploads`. That `.env` carries `SECRETS_KEY` — without it no
-   client file opens — and, once the files live in the bucket, the CRM's key to it (`FILES_S3_*`).
+   and `mkdir -p data/postgres`. The files need no directory: they live in the bucket, and
+   `./data/uploads` was retired on 2026-10-03. That `.env` carries `SECRETS_KEY` — without it no
+   client file opens — the CRM's key to the bucket (`FILES_S3_*`), and `FILES_STORAGE=s3`. Without
+   that line the server refuses to start, rather than write a file where nothing is mounted.
 3. The tools (§8), then `sudo ./scripts/backup/install.sh` — or, without sudo, §7's first two lines
    (the status directory and its line in `.env`) and `./scripts/backup/install.sh --user`.
    **Replace the restic password it generated with the saved one** —
    `sudo nano /etc/buh_crm/restic.pass` — and fill in `/etc/buh_crm/backup.env` with the backup key
    (a new one, if §2 applies).
 4. The database container alone: `docker compose up -d db`. It starts with an empty `buh_crm`.
-5. `sudo ./scripts/backup/restore.sh --into buh_crm_restore --files-to ./data/uploads`. Once the
-   client files live in the bucket, they were never on that server and the bucket still has them:
-   `--into buh_crm_restore` alone brings the database back to them. `--files-to` is then only for
-   files the bucket lacks — into an empty directory, and back with `put-back-files.sh` (§4).
+5. `sudo ./scripts/backup/restore.sh --into buh_crm_restore`. The client files live in the bucket
+   and were never on that server, so the database alone comes back to them. `--files-to` is only
+   for files the bucket lacks: give it an empty directory of its own
+   (`--files-to ./data/restored-files`), and put them back with `put-back-files.sh` (§4). Since
+   2026-10-03 there is no `./data/uploads` to restore into.
 6. `./scripts/backup/restore.sh --swap buh_crm_restore` — the empty database is kept as
    `buh_crm_replaced_<time>`; drop it.
 7. `./scripts/deploy.sh`, and point the DNS at the new server. Then run

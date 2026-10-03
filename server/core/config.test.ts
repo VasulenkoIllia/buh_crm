@@ -50,6 +50,12 @@ describe("loadConfig: where files go", () => {
     expect(loadConfig(baseEnv as NodeJS.ProcessEnv).FILES_STORAGE).toBe("local");
   });
 
+  it("refuses production on the local store, which nothing mounts any more", () => {
+    expect(() =>
+      loadConfig({ ...baseEnv, NODE_ENV: "production" } as NodeJS.ProcessEnv),
+    ).toThrow(/FILES_STORAGE: must be s3 in production/);
+  });
+
   it("refuses the bucket without its settings", () => {
     expect(() => loadConfig({ ...baseEnv, FILES_STORAGE: "s3" } as NodeJS.ProcessEnv)).toThrow(
       /FILES_S3_BUCKET: required when FILES_STORAGE=s3/,

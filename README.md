@@ -98,9 +98,9 @@ holds the reset script to every table the database has, so a migration cannot si
 stale.
 
 It runs BEFORE the pull on purpose: migrations then land on an empty database instead of migrating
-rows you are about to discard. Because avatars and logos now survive the wipe, the uploads
-directory is no longer emptied wholesale — `prune-uploads.ts` runs after the rebuild and removes
-only files no database row references.
+rows you are about to discard. Because avatars and logos now survive the wipe, the stored files
+are no longer removed wholesale — `prune-uploads.ts` runs after the rebuild and removes only what
+no database row references, in whichever store the server keeps its files.
 
 `scripts/import-clients.ts` loads a CSV of an existing client sheet into a freshly reset install.
 It reads stdin, so a file of personal data need never be committed or left on a server, and it
