@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Download, FileText, RotateCcw, X } from "lucide-react";
+import { FileText, RotateCcw, X } from "lucide-react";
 import { CHAT_FILES_MAX, type ChatFile } from "@shared/schema/chat";
 import type { Viewable } from "@/modules/files";
+import { IconDownload, IconFileInto } from "@/shared/ui/icons";
 import { MAX_UPLOAD_BYTES, isRefusedFile } from "@shared/library";
 import { cn } from "@/shared/lib/cn";
 import { fmtBytes } from "@/shared/lib/format";
@@ -312,12 +313,18 @@ export const viewableOf = (file: ChatFile, at: string): Viewable => ({
   view: file.view,
   viewUrl: chatFileUrl(file.fileId, "view"),
   downloadUrl: chatFileUrl(file.fileId, "download"),
+  // it lives with its message, not in the library, so the viewer offers to copy it there (§6.5)
+  keepable: true,
 });
 
-/** A file card, in a bubble that is the reader's own or somebody else's. */
+/**
+ * A file card, in a bubble that is the reader's own or somebody else's. The PADDING is not here:
+ * it belongs to the control inside, so that no part of the card highlights on hover and then does
+ * nothing when clicked (audit, 2026-10-03).
+ */
 const card = (mine: boolean) =>
   cn(
-    "flex w-full items-center gap-2 rounded-(--radius-field) border px-2 py-1.5 text-[12.5px]",
+    "flex w-full items-center rounded-(--radius-field) border text-[12.5px]",
     mine ? "border-white/40 hover:bg-white/10" : "border-border hover:bg-divider",
   );
 
@@ -330,11 +337,22 @@ export function MessageFiles({
   files,
   mine,
   onOpen,
+  onKeep,
 }: {
   files: ChatFile[];
   mine: boolean;
   /** opens the CRM's viewer on this message's files; what it cannot show is a download */
   onOpen: (files: ChatFile[], index: number) => void;
+  /**
+   * Asks the page to offer keeping this file in the library. **The page owns the dialog**, not the
+   * message: this row lives in a virtualised list, so a dialog mounted here dies the moment the
+   * reader scrolls far enough for the row to be recycled — and, portal or not, its events still
+   * bubble up the REACT tree into the row, where a double-click is a heart and a right-click is
+   * the message menu (audit, 2026-10-03).
+   *
+   * Absent when there is nowhere to put a file, which is how the button knows not to be there.
+   */
+  onKeep?: (file: { fileId: string; name: string }) => void;
 }) {
   if (files.length === 0) return null;
   const photos = files.filter((f) => f.previewFileId !== null);
@@ -344,63 +362,157 @@ export function MessageFiles({
       {photos.length > 0 && (
         <div className={cn("grid gap-1", photos.length > 1 ? "grid-cols-2" : "grid-cols-1")}>
           {photos.map((file) => (
-            <button
+            // the picture opens the viewer and the two actions stand BESIDE it, never inside:
+            // a button within a button is not a control (nested-controls.test.ts)
+            // M3: a single photo's span must hug the picture, or the overlay anchors to the
+            // whole bubble and lands beside a wider caption instead of on the corner
+            <span
               key={file.fileId}
-              type="button"
-              onClick={() => onOpen(files, files.indexOf(file))}
-              title={`${file.name} · ${fmtBytes(file.size)}`}
-              className={photos.length > 1 ? "min-w-0" : "flex min-w-0 justify-start"}
+              className={cn("group/file relative min-w-0", photos.length === 1 && "w-fit")}
             >
-              <img
-                src={chatFileUrl(file.previewFileId!, "preview")}
-                alt={file.name}
-                loading="lazy"
-                decoding="async"
-                // one photo keeps its own shape and is never stretched past the preview's own size
-                // (owner, 2026-09-20: a stretched 320 px preview was the blur); several share a
-                // grid, where a square cell reads better than four different shapes
-                className={cn(
-                  "rounded-(--radius-field)",
-                  photos.length > 1
-                    ? "aspect-square w-full object-cover"
-                    : "max-h-[320px] w-auto max-w-full object-contain",
-                )}
-              />
-            </button>
+              <button
+                type="button"
+                onClick={() => onOpen(files, files.indexOf(file))}
+                title={`${file.name} · ${fmtBytes(file.size)}`}
+                className={
+                  photos.length > 1 ? "block w-full min-w-0" : "flex min-w-0 justify-start"
+                }
+              >
+                <img
+                  src={chatFileUrl(file.previewFileId!, "preview")}
+                  alt={file.name}
+                  loading="lazy"
+                  decoding="async"
+                  // one photo keeps its own shape and is never stretched past the preview's own
+                  // size (owner, 2026-09-20: a stretched 320 px preview was the blur); several
+                  // share a grid, where a square cell reads better than four different shapes
+                  className={cn(
+                    "rounded-(--radius-field)",
+                    photos.length > 1
+                      ? "aspect-square w-full object-cover"
+                      : "max-h-[320px] w-auto max-w-full object-contain",
+                  )}
+                />
+              </button>
+              <FileActions file={file} onKeep={onKeep} overlay />
+            </span>
           ))}
         </div>
       )}
-      {rest.map((file) =>
-        file.view ? (
-          <button
-            key={file.fileId}
-            type="button"
-            onClick={() => onOpen(files, files.indexOf(file))}
-            className={card(mine)}
-          >
-            <FileText className="size-4 shrink-0" />
-            <span className="min-w-0 flex-1 truncate text-left">{file.name}</span>
-            <span className={cn("text-[11px]", mine ? "text-white/80" : "text-muted")}>
-              {fmtBytes(file.size)}
-            </span>
-          </button>
-        ) : (
-          <a
-            key={file.fileId}
-            href={chatFileUrl(file.fileId, "download")}
-            target="_blank"
-            rel="noreferrer"
-            className={card(mine)}
-          >
-            <FileText className="size-4 shrink-0" />
-            <span className="min-w-0 flex-1 truncate">{file.name}</span>
-            <span className={cn("text-[11px]", mine ? "text-white/80" : "text-muted")}>
-              {fmtBytes(file.size)}
-            </span>
-            <Download className="size-3.5 shrink-0" />
-          </a>
-        ),
-      )}
+      {rest.map((file) => (
+        // the card opens it (or, for what the CRM cannot show, downloads it) and the actions sit
+        // beside the card rather than inside it — the same rule the photos follow above
+        // M4, the shape `chat-files-tab.tsx` already uses: the wrapper keeps the border and the
+        // hover, the CONTROL keeps the padding. With the padding on the wrapper a 6px strip above
+        // and below the row highlighted on hover, did nothing when clicked, and — being outside
+        // any `a` or `button` — answered a double click with a heart (audit, 2026-10-03)
+        <span key={file.fileId} className={cn("group/file flex items-center pr-1", card(mine))}>
+          {file.view ? (
+            <button
+              type="button"
+              onClick={() => onOpen(files, files.indexOf(file))}
+              className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left"
+            >
+              <FileText className="size-4 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">{file.name}</span>
+              <span className={cn("text-[11px]", mine ? "text-white/80" : "text-muted")}>
+                {fmtBytes(file.size)}
+              </span>
+            </button>
+          ) : (
+            // nothing in the CRM can show it, so the name itself is the download
+            <a
+              href={chatFileUrl(file.fileId, "download")}
+              download={file.name}
+              className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5"
+            >
+              <FileText className="size-4 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">{file.name}</span>
+              <span className={cn("text-[11px]", mine ? "text-white/80" : "text-muted")}>
+                {fmtBytes(file.size)}
+              </span>
+            </a>
+          )}
+          <FileActions file={file} onKeep={onKeep} mine={mine} />
+        </span>
+      ))}
     </div>
+  );
+}
+
+/**
+ * **Getting a file out of the conversation**, the two ways somebody wants it: onto their computer,
+ * or into the firm's library where it has the Trash, its thirty days, folders and search.
+ *
+ * Per FILE and not per message, because a message carries up to ten of them and a menu on the
+ * message could not say which (owner, 2026-10-03: "винести кнопки збереження і скачування… або на
+ * комп або на диск системи"). Until now the only file in a conversation with a visible way out was
+ * the one the CRM could NOT open — everything previewable hid its download in the viewer's footer.
+ *
+ * Shown under the pointer on a desktop and ALWAYS below 768px, where there is no pointer to hover
+ * with: a control that only appears on hover does not exist on a phone.
+ *
+ * Download is a plain link on purpose — a middle click opens it, and it goes through the door
+ * that writes `file.downloaded` like every other read of a chat file (§6.2). NOT "Save link as":
+ * the message row answers every right-click with its own menu (audit, 2026-10-03).
+ */
+function FileActions({
+  file,
+  onKeep,
+  overlay,
+  mine,
+}: {
+  file: ChatFile;
+  /** absent when the reader has nowhere in the library to put it */
+  onKeep?: (file: { fileId: string; name: string }) => void;
+  /** over a picture, which needs its own backdrop to read against the photo */
+  overlay?: boolean;
+  /** inside one's own bubble, which is blue */
+  mine?: boolean;
+}) {
+  const button = cn(
+    "inline-flex size-6 flex-none items-center justify-center rounded-(--radius-btn-sm)",
+    "transition-colors outline-none focus-visible:ring-2 focus-visible:ring-primary/45",
+    overlay || !mine
+      ? "text-muted hover:bg-hover hover:text-ink"
+      : "text-white/80 hover:bg-white/15 hover:text-white",
+  );
+  return (
+    <span
+      className={cn(
+        "flex flex-none gap-0.5 transition-opacity",
+        /**
+         * Hover or focus, the same as the chat's own Files tab and every other row action in the
+         * CRM. **Not yet adapted for touch**: a control that only appears under a pointer does not
+         * exist on a phone, and the honest answer is the phone pass that is next on the list — one
+         * decision for every hover affordance in the app, rather than this one component guessing
+         * (2026-10-03). A first attempt with `md:` behaved correctly in an isolated probe and not
+         * on the real element, and shipping a rule I could not explain was the worse option.
+         */
+        "opacity-0 group-hover/file:opacity-100 focus-within:opacity-100",
+        overlay && "absolute top-1 right-1 rounded-(--radius-btn-sm) bg-surface/85 p-0.5",
+      )}
+    >
+      {onKeep && (
+        <button
+          type="button"
+          title="Keep this in Files"
+          aria-label={`Keep ${file.name} in Files`}
+          onClick={() => onKeep({ fileId: file.fileId, name: file.name })}
+          className={button}
+        >
+          <IconFileInto className="size-[14px]" />
+        </button>
+      )}
+      <a
+        href={chatFileUrl(file.fileId, "download")}
+        download={file.name}
+        title="Download"
+        aria-label={`Download ${file.name}`}
+        className={button}
+      >
+        <IconDownload className="size-[14px]" />
+      </a>
+    </span>
   );
 }

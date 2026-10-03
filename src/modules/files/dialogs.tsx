@@ -316,8 +316,11 @@ export function KeepChatFileDialog({
 }) {
   const toast = useToast();
   const keep = useKeepChatFile();
+  const filesOpen = useCanEdit("files");
   const clientsOpen = useCanEdit("clients");
-  const [space, setSpace] = useState<Space>("my");
+  // My files and Company both need FILES open; a reader with only Clients can still keep one, but
+  // not there — so the picker starts where they can actually write (audit, 2026-10-03)
+  const [space, setSpace] = useState<Space>(() => (filesOpen ? "my" : "client"));
   const [clientId, setClientId] = useState("");
   const [zone, setZone] = useState<FileZone>("internal");
   const [folderId, setFolderId] = useState<string | null | undefined>(null);
@@ -399,7 +402,7 @@ export function KeepChatFileDialog({
             setSpace(v);
             setFolderId(null);
           }}
-          options={SPACES.filter((s) => s.value !== "client" || clientsOpen)}
+          options={SPACES.filter((s) => (s.value === "client" ? clientsOpen : filesOpen))}
         />
         {space === "client" && (
           <SearchSelect

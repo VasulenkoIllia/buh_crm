@@ -2,9 +2,9 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { Info, Search } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { ChatFile, ChatFileItem, ChatMessage } from "@shared/schema/chat";
-import { useAuth } from "@/app/auth";
+import { useAuth, useCanEdit } from "@/app/auth";
 import { cn } from "@/shared/lib/cn";
-import { FileViewer, type Viewable } from "@/modules/files";
+import { FileViewer, KeepChatFileDialog, type Viewable } from "@/modules/files";
 import { useChatPresence, useRealtime } from "./use-realtime";
 import {
   useChat,
@@ -115,6 +115,20 @@ export function ChatPage() {
   const linkedSeq = Number(params.get("m")) || null;
   /** the CRM's own viewer, over the chat's files (§6.2) */
   const [viewing, setViewing] = useState<{ items: Viewable[]; index: number } | null>(null);
+  /**
+   * **Keeping a file in the library (§6.5) is the PAGE's dialog, never the message's.**
+   *
+   * A message row lives in a virtualised list: a dialog mounted inside one dies the moment the
+   * reader scrolls far enough for that row to be recycled, taking a half-filled form with it. And
+   * a portal moves only the DOM — its events still bubble up the REACT tree into the row, where a
+   * double click is a heart reaction and a right click is the message menu, so selecting a word of
+   * the file name in the dialog reacted to the message (audit, 2026-10-03).
+   */
+  const [keeping, setKeeping] = useState<{ fileId: string; name: string } | null>(null);
+  /** nowhere to put a file means no button at all, rather than one that can only be refused */
+  const filesOpen = useCanEdit("files");
+  const clientsOpen = useCanEdit("clients");
+  const canKeep = filesOpen || clientsOpen;
 
   const openFiles = (files: ChatFile[], index: number, at: string) => {
     // it steps through what the CRM can show; a file it cannot is a download, never a blank window
@@ -294,6 +308,7 @@ export function ChatPage() {
                   : 0
               }
               onOpenFile={openFiles}
+              onKeepFile={canKeep ? setKeeping : undefined}
               found={foundWords}
               standingOn={standingOn}
               goTo={goTo}
@@ -406,6 +421,12 @@ export function ChatPage() {
             onIndex={(index) => setViewing((was) => (was ? { ...was, index } : was))}
             onClose={() => setViewing(null)}
           />
+        </Suspense>
+      )}
+
+      {keeping && (
+        <Suspense fallback={null}>
+          <KeepChatFileDialog file={keeping} onClose={() => setKeeping(null)} />
         </Suspense>
       )}
     </div>

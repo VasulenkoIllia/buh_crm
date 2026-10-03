@@ -53,6 +53,7 @@ export function MessageRow({
   onForward,
   firmAdmin,
   onOpenFile,
+  onKeepFile,
   mentionNames,
   found = [],
   standingOn = false,
@@ -75,6 +76,8 @@ export function MessageRow({
   firmAdmin: boolean;
   /** opens the CRM's viewer on a file this message carries (§6.2) */
   onOpenFile: (files: ChatFile[], index: number, at: string) => void;
+  /** the page offers to keep a file in the library; absent when there is nowhere to put one */
+  onKeepFile?: (file: { fileId: string; name: string }) => void;
   /** the names `@` may be marking in this chat */
   mentionNames: string[];
   /** the words this chat's search is looking for (§8) */
@@ -173,6 +176,7 @@ export function MessageRow({
               files={message.files}
               mine={mine}
               onOpen={(files, index) => onOpenFile(files, index, message.createdAt)}
+              onKeep={onKeepFile}
             />
           )}
           {message.poll && !message.deletedAt && (

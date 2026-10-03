@@ -37,6 +37,7 @@ export function Conversation({
   onForward,
   firstUnread,
   onOpenFile,
+  onKeepFile,
   found = [],
   standingOn = null,
   goTo,
@@ -66,6 +67,7 @@ export function Conversation({
   firstUnread: number;
   /** opens the CRM's viewer on a file a message carries (§6.2) */
   onOpenFile: (files: ChatFile[], index: number, at: string) => void;
+  onKeepFile?: (file: { fileId: string; name: string }) => void;
   /** a message to scroll to, from the pinned bar or a reply's quote */
   /** the words this chat's search is looking for, marked inside the messages (§8) */
   found?: readonly string[];
@@ -444,6 +446,7 @@ export function Conversation({
                   onForward={onForward}
                   firmAdmin={firmAdmin}
                   onOpenFile={onOpenFile}
+                  onKeepFile={onKeepFile}
                   mentionNames={mentionNames}
                 />
               )}

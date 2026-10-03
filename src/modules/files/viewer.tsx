@@ -1,12 +1,23 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Suspense, lazy, useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight, Download, ExternalLink, Pencil, X } from "lucide-react";
 import type { FileView } from "@shared/schema/files";
 import { extensionOf } from "@shared/library";
 import { api } from "@/shared/lib/api";
 import { fmtBytes, fmtDate } from "@/shared/lib/format";
 import { Button, IconButton } from "@/shared/ui/button";
+import { useCanEdit } from "@/app/auth";
 import { CopyLink } from "@/shared/ui/copy-link";
+import { IconFileInto } from "@/shared/ui/icons";
 import { Modal } from "@/shared/ui/modal";
+/**
+ * Only a file that lives somewhere else offers this, and most viewers never do — the task card's
+ * and the vault's cannot. Measured: the dialogs chunk is 6.9 kB gzip, fetched by every one of them
+ * when the import is static (audit, 2026-10-03).
+ */
+const KeepChatFileDialog = lazy(() =>
+  import("./dialogs").then((m) => ({ default: m.KeepChatFileDialog })),
+);
+
 import { parseCsv } from "./csv";
 import { ExtBadge, download, errorText } from "./file-bits";
 
@@ -26,6 +37,11 @@ export interface Viewable {
   updatedAt?: string | null;
   /** where its text is saved again, when the reader may write where it sits */
   saveUrl?: string;
+  /**
+   * This file lives somewhere OTHER than the library and can be copied into it — today only a
+   * chat's (chat.md §6.5). A library file is already here, so it says nothing and gets no button.
+   */
+  keepable?: boolean;
 }
 
 const TEXT_CAP = 512 * 1024;
@@ -64,6 +80,14 @@ export function Viewer({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [leaving, setLeaving] = useState<{ run: () => void } | null>(null);
+  /**
+   * Keeping a file that lives elsewhere (chat.md §6.5). It holds the FILE, not a boolean: read off
+   * the viewer on submit it would follow whatever the viewer had stepped to in the meantime.
+   */
+  const [keeping, setKeeping] = useState<{ fileId: string; name: string } | null>(null);
+  const filesOpen = useCanEdit("files");
+  const clientsOpen = useCanEdit("clients");
+  const canKeep = filesOpen || clientsOpen;
   const fileId = file?.id;
   const dirty = draft !== null && draft !== loaded;
   const editable =
@@ -105,6 +129,14 @@ export function Viewer({
   // no dependency list: the handler is rebound each render, so it never reads a stale draft
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      /**
+       * **The dialog on top owns the keyboard**, the same rule the unsaved-text question below
+       * follows. This handler is on `document` and `Modal`'s is on `window`, so without this the
+       * viewer ran first: Escape closed the VIEWER and took the dialog with it, and the arrows
+       * stepped to the next file behind the dialog — which then kept the wrong one, because its
+       * target is rebuilt from whatever the viewer is showing (audit, 2026-10-03).
+       */
+      if (keeping) return;
       // the question about unsaved text owns the keyboard while it stands
       if (leaving) {
         if (e.key === "Escape") {
@@ -203,7 +235,8 @@ export function Viewer({
             onLoaded={setLoaded}
           />
         </div>
-        <div className="flex items-center gap-2 border-t border-border px-3.5 py-3">
+        {/* wraps: the footer gained a button, and on a phone the row already overflowed */}
+        <div className="flex flex-wrap items-center gap-2 border-t border-border px-3.5 py-3">
           <span className="flex-1 text-[12px] text-muted">
             {saveError ? (
               <span className="text-danger-text">{saveError}</span>
@@ -241,6 +274,18 @@ export function Viewer({
             </>
           )}
           <CopyLink href={`/files?file=${file.id}`} />
+          {/* looked at it, decided to keep it: the moment somebody wants this is right here
+              (owner, 2026-10-03). A library file is already in Files and says nothing. */}
+          {file.keepable && canKeep && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setKeeping({ fileId: file.id, name: file.name })}
+            >
+              <IconFileInto />
+              Keep in Files
+            </Button>
+          )}
           <Button variant="secondary" size="sm" onClick={() => download([file.downloadUrl])}>
             <Download size={14} />
             Download
@@ -286,6 +331,11 @@ export function Viewer({
             The changes to “{file.name}” have not been saved.
           </p>
         </Modal>
+      )}
+      {keeping && (
+        <Suspense fallback={null}>
+          <KeepChatFileDialog file={keeping} onClose={() => setKeeping(null)} />
+        </Suspense>
       )}
     </div>
   );
