@@ -141,6 +141,9 @@ export async function listInvoices(query: InvoiceListQuery) {
           ],
         },
       },
+      // the company the invoice is ON. The client's `companyName` above is only a label, and a
+      // client with three companies is found by any of them (owner, 2026-10-07)
+      { company: { name: contains } },
     ];
   }
 

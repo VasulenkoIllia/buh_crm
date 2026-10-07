@@ -9,11 +9,13 @@ import { useDebounced } from "@/shared/lib/use-debounced";
 import { fmtBizDate, fmtDate } from "@/shared/lib/format";
 import { fmtMoney } from "@/shared/lib/money";
 import { Button } from "@/shared/ui/button";
+import { Select } from "@/shared/ui/field";
 import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
 import { SearchInput } from "@/shared/ui/search-input";
 import { FilterChips } from "@/shared/ui/tabs";
 import { ClearButton } from "@/shared/ui/clear-button";
 import { InvoiceModal, NewInvoiceModal } from "./invoice-modals";
+import { invoiceDetail, invoiceSubject } from "./row-detail";
 import {
   useBulkTidy,
   useBulkDelivery,
@@ -66,6 +68,14 @@ export function BillingPage() {
   // ?client=<id> narrows the list to one client (drill-through from the client card's Invoices tab)
   const [searchParams, setSearchParams] = useSearchParams();
   const clientParam = searchParams.get("client");
+  // one of that client's companies, as on the card. Kept WITH the client it was picked for, so it
+  // can never narrow another client's list once the chip is cleared or the address changes.
+  const [companyPick, setCompanyPick] = useState<{
+    clientId: string;
+    companyId: string;
+  } | null>(null);
+  const companyId =
+    companyPick && companyPick.clientId === clientParam ? companyPick.companyId : "";
 
   const {
     data,
@@ -76,6 +86,7 @@ export function BillingPage() {
     filter,
     search: settledSearch || undefined,
     clientId: clientParam ?? undefined,
+    companyId: companyId || undefined,
     page,
   });
   const client = useClient(clientParam ?? undefined);
@@ -132,7 +143,9 @@ export function BillingPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[960px]">
+    // as wide as Clients: at 960px the client and service columns had 101px each, and a company
+    // under the client read "BE1 BARO Equi…" on a 13-inch screen (owner, 2026-10-07)
+    <div className="mx-auto max-w-[1320px]">
       <div className="mb-3.5 flex flex-wrap items-center gap-3.5">
         <h1 className="text-[20px] font-semibold">Billing</h1>
         {data && (
@@ -147,14 +160,35 @@ export function BillingPage() {
               label="Show all clients"
               onClick={() => {
                 setSearchParams({}, { replace: true });
+                setCompanyPick(null);
                 resetView();
               }}
             />
           </span>
         )}
+        {clientParam && client.data && client.data.companies.length > 0 && (
+          <Select
+            className="h-9 w-auto max-w-[260px] text-[13px]"
+            aria-label="Filter by company"
+            value={companyId}
+            onChange={(e) => {
+              setCompanyPick({ clientId: clientParam, companyId: e.target.value });
+              resetView();
+            }}
+          >
+            <option value="">All companies</option>
+            {/* "root" = billed to the client directly, with no company involved */}
+            <option value="root">No company (the client)</option>
+            {client.data.companies.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </Select>
+        )}
         <SearchInput
           className="ml-2 w-64"
-          placeholder="🔍 Search: number, client…"
+          placeholder="🔍 Search: number, client, company…"
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);
@@ -407,6 +441,8 @@ function InvoiceRow({
   const setDelivery = useSetDelivery();
   const overdue = invoice.status === "overdue";
   const sent = invoice.delivery === "sent";
+  const subject = invoiceSubject(invoice);
+  const detail = invoiceDetail(invoice);
 
   return (
     <div
@@ -430,27 +466,42 @@ function InvoiceRow({
         {overdue && <span className="mr-1 text-danger-text">⚠</span>}
         {invoice.number}
       </div>
-      <div className="flex min-w-0 items-center gap-1.5">
-        <span className="truncate font-medium">{invoice.clientName}</span>
-        {invoice.clientArchived && (
-          <span
-            className="flex-none text-[11px] text-faint"
-            title="Client archived — still owed"
-          >
-            🗄
+      {/* the company under the client: one client's invoices for the same service on several
+          companies otherwise read as duplicates (owner, 2026-10-07) */}
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate font-medium" title={invoice.clientName}>
+            {invoice.clientName}
           </span>
+          {invoice.clientArchived && (
+            <span
+              className="flex-none text-[11px] text-faint"
+              title="Client archived — still owed"
+            >
+              🗄
+            </span>
+          )}
+        </div>
+        {invoice.companyName && (
+          <div className="truncate text-[12px] text-muted" title={invoice.companyName}>
+            {invoice.companyName}
+          </div>
         )}
       </div>
-      <div
-        className="truncate text-ink-700"
-        title={invoice.serviceName ?? invoice.description ?? ""}
-      >
-        {invoice.serviceName ?? invoice.description ?? "—"}
-        {invoice.periodKey && <span className="text-faint"> · {invoice.periodKey}</span>}
+      <div className="min-w-0 text-ink-700">
+        <div className="truncate" title={subject ?? ""}>
+          {subject ?? "—"}
+        </div>
+        {detail && (
+          <div className="truncate text-[12px] text-muted" title={detail}>
+            {detail}
+          </div>
+        )}
       </div>
-      {/* `fmtDate`, not `fmtBizDate`: `issuedAt` is an INSTANT and is read on the firm's clock,
-          while `dueDate` below is a calendar day and is read in UTC */}
-      <div className="text-[12px] text-muted">{fmtDate(invoice.issuedAt)}</div>
+      {/* `fmtBizDate` for both: `issuedAt` is a calendar day stamped at UTC midnight
+          (`invoiceRow` in invoicing.ts), like `dueDate`. Read on the firm's clock it showed the
+          day before, so a 1 October invoice read 30/09 (2026-10-07) */}
+      <div className="text-[12px] text-muted">{fmtBizDate(invoice.issuedAt)}</div>
       <div className={cn("text-[12px]", overdue ? "text-danger-text" : "text-muted")}>
         {invoice.dueDate ? fmtBizDate(invoice.dueDate) : "—"}
       </div>

@@ -1361,3 +1361,71 @@ describe("billing — finding a client's invoices by their code", () => {
     expect(res.json().items.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+/**
+ * A company's name finds its invoices (owner, 2026-10-07).
+ *
+ * The search used to read only the client's `companyName`, a free-text label that names no row, so
+ * typing "BARO Equipment" found nothing although three invoices were on that company. One client
+ * with the same service on several companies is exactly the case that needs it.
+ */
+describe("billing — finding an invoice by its company", () => {
+  it("finds the invoices on that company, and not the client's other ones", async () => {
+    const client = await app.inject({
+      method: "POST",
+      url: "/api/clients",
+      headers: { cookie: adminCookie },
+      payload: {
+        firstName: "Companysearch",
+        lastName: "Owner",
+        companies: [{ name: "Findme Equipment LLC" }, { name: "Elsewhere Service LLC" }],
+        people: [],
+      },
+    });
+    expect(client.statusCode).toBe(201);
+    const clientId = client.json().id as string;
+    const findme = client
+      .json()
+      .companies.find((c: { name: string }) => c.name === "Findme Equipment LLC").id as string;
+
+    const service = await app.inject({
+      method: "POST",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+      payload: { name: "Companysearch support", type: "one_time", defaultAmount: 0 },
+    });
+    expect(service.statusCode).toBe(201);
+    // the same service twice on one client is allowed for different companies: here the company
+    // and the client itself
+    const subscriptionOn = async (companyId: string | null) => {
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/clients/${clientId}/subscriptions`,
+        headers: { cookie: adminCookie },
+        payload: { serviceId: service.json().id, amount: 5_000, companyId },
+      });
+      expect(res.statusCode).toBe(201);
+      return res
+        .json()
+        .subscriptions.find((s: { companyId: string | null }) => s.companyId === companyId)
+        .id as string;
+    };
+    const onCompany = await makeInvoice(clientId, 5_000, {
+      subscriptionId: await subscriptionOn(findme),
+    });
+    const onClient = await makeInvoice(clientId, 5_000, {
+      subscriptionId: await subscriptionOn(null),
+    });
+    expect(onCompany.companyName).toBe("Findme Equipment LLC");
+    expect(onClient.companyName).toBeNull();
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/invoices?search=${encodeURIComponent("findme equip")}`,
+      headers: { cookie: userCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const ids = res.json().items.map((i: { id: string }) => i.id);
+    expect(ids).toEqual([onCompany.id]);
+  });
+});

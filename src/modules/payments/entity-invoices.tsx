@@ -265,8 +265,9 @@ function InvoiceRow({ invoice, onOpen }: { invoice: Invoice; onOpen: () => void 
           </span>
         )}
       </div>
-      {/* `fmtDate` for an INSTANT on the firm's clock; `fmtBizDate` below for a calendar day */}
-      <div className="text-[12px] text-muted">{fmtDate(invoice.issuedAt)}</div>
+      {/* `fmtBizDate`: `issuedAt` is a calendar day stamped at UTC midnight, like `dueDate`
+          (see billing.page.tsx) */}
+      <div className="text-[12px] text-muted">{fmtBizDate(invoice.issuedAt)}</div>
       <div className={cn("text-[12px]", overdue ? "text-danger-text" : "text-muted")}>
         {invoice.dueDate ? fmtBizDate(invoice.dueDate) : <span className="text-faint">—</span>}
       </div>
