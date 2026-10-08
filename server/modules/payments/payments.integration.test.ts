@@ -1429,3 +1429,215 @@ describe("billing — finding an invoice by its company", () => {
     expect(ids).toEqual([onCompany.id]);
   });
 });
+
+/**
+ * A period changed under a subscription does not bill the same days twice (found 2026-10-07).
+ *
+ * Through the real sweep and the real rows, so the wiring is tested as well as the rule: the
+ * quarter's invoice is read back from the database as days, and the month inside it is not billed
+ * again. Without the guard the month is a new key and the sweep invoices it. Whatever today is, the
+ * current month lies inside the current quarter, so this does not depend on the date it runs.
+ */
+describe("billing — a subscription that changes its period", () => {
+  it("does not bill a month the quarter already covers", async () => {
+    const clientId = await makeClient("Rhythm");
+    const service = await app.inject({
+      method: "POST",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+      payload: {
+        name: "Rhythm bookkeeping",
+        type: "subscription",
+        invoiceTrigger: "on_period_start",
+        defaultAmount: 90_000,
+      },
+    });
+    expect(service.statusCode).toBe(201);
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions`,
+      headers: { cookie: adminCookie },
+      payload: { serviceId: service.json().id, amount: 90_000, period: "month" },
+    });
+    expect(created.statusCode).toBe(201);
+    const subId = created.json().subscriptions[0].id as string;
+    await startAtPeriodStart(subId);
+
+    // it was quarterly until now, and this quarter is invoiced
+    const { y, m, monthKey } = today();
+    const quarterKey = `${y}-Q${Math.floor((m - 1) / 3) + 1}`;
+    await prisma.invoice.create({
+      data: {
+        number: `TEST-RHYTHM-${Date.now()}`,
+        clientId,
+        serviceId: service.json().id,
+        subscriptionId: subId,
+        periodKey: quarterKey,
+        amount: 270_000,
+      },
+    });
+
+    await generatePeriodInvoices();
+    const keys = (
+      await prisma.invoice.findMany({
+        where: { subscriptionId: subId },
+        select: { periodKey: true },
+      })
+    ).map((i) => i.periodKey);
+    expect(keys).toEqual([quarterKey]);
+    expect(keys).not.toContain(monthKey);
+  });
+});
+
+/** Every week and twice a month, through the API and the real sweep (owner, 2026-10-07). */
+describe("billing — every week and twice a month", () => {
+  async function serviceFor(name: string) {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+      payload: { name, type: "subscription", invoiceTrigger: "on_period_start" },
+    });
+    expect(res.statusCode).toBe(201);
+    return res.json().id as string;
+  }
+  const subscribe = (clientId: string, payload: Record<string, unknown>) =>
+    app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions`,
+      headers: { cookie: adminCookie },
+      payload,
+    });
+
+  it("takes a day of the week for a week, and no day twice a month", async () => {
+    const clientId = await makeClient("Weekly");
+    const serviceId = await serviceFor("Weekly payroll");
+
+    const notADay = await subscribe(clientId, {
+      serviceId,
+      amount: 20_000,
+      period: "week",
+      invoiceTrigger: "on_period_start",
+      invoiceDay: 9,
+    });
+    expect(notADay.statusCode).toBe(400);
+    expect(notADay.body).toMatch(/day of the week/);
+
+    const friday = await subscribe(clientId, {
+      serviceId,
+      amount: 20_000,
+      period: "week",
+      invoiceTrigger: "on_period_start",
+      invoiceDay: 5,
+    });
+    expect(friday.statusCode).toBe(201);
+    expect(friday.json().subscriptions[0]).toMatchObject({ period: "week", invoiceDay: 5 });
+
+    const halves = await subscribe(await makeClient("Halves"), {
+      serviceId,
+      amount: 90_000,
+      period: "half_month",
+      invoiceTrigger: "on_period_start",
+      invoiceDay: 5,
+    });
+    expect(halves.statusCode).toBe(400);
+    expect(halves.body).toMatch(/15th and the last day/);
+  });
+
+  it("refuses a rhythm changed without its day: day 20 of a month is no day of a week", async () => {
+    const clientId = await makeClient("Switch");
+    const created = await subscribe(clientId, {
+      serviceId: await serviceFor("Switch bookkeeping"),
+      amount: 90_000,
+      period: "month",
+      invoiceTrigger: "on_period_start",
+      invoiceDay: 20,
+    });
+    expect(created.statusCode).toBe(201);
+    const subId = created.json().subscriptions[0].id as string;
+    const patch = (payload: Record<string, unknown>) =>
+      app.inject({
+        method: "PATCH",
+        url: `/api/clients/${clientId}/subscriptions/${subId}`,
+        headers: { cookie: adminCookie },
+        payload,
+      });
+
+    expect((await patch({ period: "week" })).statusCode).toBe(400);
+    expect((await patch({ period: "half_month" })).statusCode).toBe(400);
+    const moved = await patch({ period: "week", invoiceDay: 1 });
+    expect(moved.statusCode).toBe(200);
+    expect(
+      moved.json().subscriptions.find((s: { id: string }) => s.id === subId),
+    ).toMatchObject({ period: "week", invoiceDay: 1 });
+    expect((await patch({ period: "half_month", invoiceDay: null })).statusCode).toBe(200);
+  });
+
+  it("bills twice a month in halves of the monthly price, on the 15th and the last day", async () => {
+    const clientId = await makeClient("Twice");
+    const created = await subscribe(clientId, {
+      serviceId: await serviceFor("Twice payroll"),
+      amount: 90_001,
+      period: "half_month",
+    });
+    expect(created.statusCode).toBe(201);
+    const subId = created.json().subscriptions[0].id as string;
+    await startAtPeriodStart(subId);
+    await generatePeriodInvoices();
+
+    // what is due depends on the day this runs: the first half from the 15th, the second on the last
+    const { y, m, d, monthKey } = today();
+    const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const expected = [
+      ...(d >= 15 ? [{ periodKey: `${monthKey}-H1`, amount: 45_000, day: 15 }] : []),
+      ...(d >= last ? [{ periodKey: `${monthKey}-H2`, amount: 45_001, day: last }] : []),
+    ];
+    const invoices = await prisma.invoice.findMany({
+      where: { subscriptionId: subId },
+      orderBy: { periodKey: "asc" },
+    });
+    expect(
+      invoices.map((i) => ({
+        periodKey: i.periodKey,
+        amount: i.amount,
+        day: i.issuedAt.getUTCDate(),
+      })),
+    ).toEqual(expected);
+  });
+});
+
+/** The day a rhythm took over is recorded by a period change, and only by one (2026-10-07). */
+describe("billing — the day a rhythm took over", () => {
+  it("is set when the period changes, kept when it is saved unchanged, absent at first", async () => {
+    const clientId = await makeClient("Since");
+    const service = await app.inject({
+      method: "POST",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+      payload: { name: "Since bookkeeping", type: "subscription" },
+    });
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/clients/${clientId}/subscriptions`,
+      headers: { cookie: adminCookie },
+      payload: { serviceId: service.json().id, amount: 50_000, period: "month" },
+    });
+    expect(created.statusCode).toBe(201);
+    const subId = created.json().subscriptions[0].id as string;
+    const since = async () =>
+      (await prisma.subscription.findUniqueOrThrow({ where: { id: subId } })).periodSince;
+    const patch = (payload: Record<string, unknown>) =>
+      app.inject({
+        method: "PATCH",
+        url: `/api/clients/${clientId}/subscriptions/${subId}`,
+        headers: { cookie: adminCookie },
+        payload,
+      });
+
+    expect(await since()).toBeNull();
+    expect((await patch({ period: "month", amount: 55_000 })).statusCode).toBe(200);
+    expect(await since()).toBeNull();
+    expect((await patch({ period: "quarter" })).statusCode).toBe(200);
+    expect((await since())?.toISOString().slice(0, 10)).toBe(today().iso);
+  });
+});

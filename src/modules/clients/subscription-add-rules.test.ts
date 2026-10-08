@@ -5,6 +5,10 @@ import {
   addStateFor,
   assignableServices,
   billingNote,
+  fitTiming,
+  priceUnit,
+  retime,
+  timingLabel,
   existingFor,
 } from "./subscription-add-rules";
 
@@ -132,5 +136,68 @@ describe("billingNote", () => {
       day: 10,
     });
     expect(note).toContain("day 10");
+  });
+});
+
+describe("the new rhythms in the form (2026-10-07)", () => {
+  const vat = svc({ id: "vat", type: "subscription" });
+
+  it("says when a week or twice a month bills", () => {
+    expect(billingNote(vat, { trigger: "on_period_start", day: 5 }, "week")).toContain(
+      "every Friday",
+    );
+    expect(billingNote(vat, { trigger: "on_period_start", day: null }, "half_month")).toContain(
+      "the 15th and the last day",
+    );
+  });
+
+  it("holds twice a month at the end of the period, with no day", () => {
+    expect(fitTiming({ trigger: "on_period_start", day: 5 }, "half_month")).toEqual({
+      trigger: "on_period_end",
+      day: null,
+    });
+  });
+
+  it("keeps a week's day only if it is a day of the week", () => {
+    expect(fitTiming({ trigger: "on_period_start", day: 5 }, "week")).toEqual({
+      trigger: "on_period_start",
+      day: 5,
+    });
+    expect(fitTiming({ trigger: "on_period_start", day: 20 }, "week")).toEqual({
+      trigger: "on_period_start",
+      day: null,
+    });
+    expect(fitTiming({ trigger: "on_period_end", day: null }, "month")).toEqual({
+      trigger: "on_period_end",
+      day: null,
+    });
+  });
+
+  it("names the day in the words of the rhythm", () => {
+    const start = { trigger: "on_period_start" as const, day: null };
+    expect(timingLabel(start, "week")).toBe("Monday");
+    expect(timingLabel({ trigger: "on_period_end", day: null }, "week")).toBe("Sunday");
+    expect(timingLabel({ trigger: "on_period_start", day: 5 }, "week")).toBe("Friday");
+    expect(timingLabel(start, "half_month")).toBe("15th and last day");
+    expect(timingLabel({ trigger: "on_period_start", day: 10 }, "month")).toBe("day 10");
+    expect(timingLabel(start, "quarter")).toBe("start of period");
+  });
+
+  it("prices twice a month by the month", () => {
+    expect(priceUnit("half_month")).toBe("month");
+    expect(priceUnit("week")).toBe("week");
+  });
+
+  it("drops the day when the rhythm crosses between a week and the rest", () => {
+    const fifth = { trigger: "on_period_start" as const, day: 5 };
+    // the 5th is not Friday, and Friday is not the 5th
+    expect(retime(fifth, "month", "week")).toEqual({ trigger: "on_period_start", day: null });
+    expect(retime(fifth, "week", "month")).toEqual({ trigger: "on_period_start", day: null });
+    // between calendar rhythms the day of the month means the same thing
+    expect(retime(fifth, "month", "quarter")).toEqual(fifth);
+    expect(retime(fifth, "month", "half_month")).toEqual({
+      trigger: "on_period_end",
+      day: null,
+    });
   });
 });

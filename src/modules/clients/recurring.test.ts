@@ -99,4 +99,19 @@ describe("recurringByPeriod", () => {
     };
     expect(recurringByPeriod(client, catalog)).toEqual([]);
   });
+
+  it("adds twice a month into the month, and keeps a week apart", () => {
+    // twice a month is a MONTHLY price billed in halves; a week has no common total with a month
+    const client = {
+      subscriptions: [
+        sub({ serviceId: "recurring", amount: 60_000, period: "month" }),
+        sub({ serviceId: "recurring2", amount: 90_000, period: "half_month" }),
+        sub({ serviceId: "recurring", amount: 20_000, period: "week" }),
+      ],
+    };
+    expect(recurringByPeriod(client, catalog)).toEqual([
+      ["week", 20_000],
+      ["month", 150_000],
+    ]);
+  });
 });

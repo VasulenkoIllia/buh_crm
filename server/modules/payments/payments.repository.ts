@@ -165,7 +165,7 @@ export function cancelInvoice(id: string, userId: string) {
 export function listPeriodKeys(subscriptionIds: string[]) {
   return prisma.invoice.findMany({
     where: { subscriptionId: { in: subscriptionIds } },
-    select: { subscriptionId: true, periodKey: true },
+    select: { subscriptionId: true, periodKey: true, cancelledAt: true },
   });
 }
 
@@ -196,6 +196,8 @@ const billableSubscription = () =>
       invoiceDay: true,
       dueDays: true,
       createdAt: true,
+      // the day the current rhythm took over: earlier periods are a person's call (dueInvoices)
+      periodSince: true,
       // the served periods ARE the billing window now — a period is invoiced only when the
       // subscription was in force continuously from its first day through the trigger day
       periods: { select: { startsOn: true, endsBefore: true }, orderBy: { startsOn: "asc" } },

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, History as HistoryIcon, Pencil, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
+import { periodLabel } from "@shared/billing-periods";
 import type { Invoice } from "@shared/schema/payment";
 import { lineAmount } from "@shared/schema/payment";
 import { useAuth } from "@/app/auth";
@@ -166,7 +167,7 @@ export function InvoiceModal({
                 · due {fmtBizDate(invoice.dueDate)}
               </span>
             )}
-            {invoice.periodKey && <span>· period {invoice.periodKey}</span>}
+            {invoice.periodKey && <span>· for {periodLabel(invoice.periodKey)}</span>}
           </div>
 
           {invoice.tidiedAt && (

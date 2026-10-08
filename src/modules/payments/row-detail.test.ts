@@ -12,10 +12,13 @@ describe("a Billing row's Service cell", () => {
     expect(invoiceSubject(base)).toBeNull();
   });
 
-  it("names the period of a subscription's invoice", () => {
+  it("names the period of a subscription's invoice, as dates", () => {
     expect(
       invoiceDetail({ ...base, serviceName: "Payroll", periodKey: "2026-10", taskTitle: "x" }),
-    ).toBe("2026-10");
+    ).toBe("Oct 2026");
+    expect(invoiceDetail({ ...base, serviceName: "Payroll", periodKey: "2026-10-H1" })).toBe(
+      "1–15 Oct 2026",
+    );
     // a blank period says nothing, so the job still gets its line
     expect(
       invoiceDetail({

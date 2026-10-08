@@ -4,6 +4,7 @@ import type { Client, Subscription } from "@shared/schema/client";
 import { billsPerJob } from "@shared/schema/catalog";
 import type { Service, TaskOverride, TaskTemplate } from "@shared/schema/catalog";
 import type { BillingPeriod } from "@shared/schema/enums";
+import { billingDayProblem, halvesOf } from "@shared/billing-periods";
 import {
   ServiceChip,
   TaskRhythmFields,
@@ -18,10 +19,15 @@ import { fmtMoney } from "@/shared/lib/money";
 import { Button, IconButton } from "@/shared/ui/button";
 import { PERIOD_LABEL } from "./recurring";
 import {
+  WEEKDAYS,
   addStateFor,
   assignableServices,
   billingNote,
   existingFor,
+  fitTiming,
+  priceUnit,
+  retime,
+  timingLabel,
 } from "./subscription-add-rules";
 import type { BillingTiming } from "./subscription-add-rules";
 import { Chip } from "@/shared/ui/chip";
@@ -66,12 +72,25 @@ const rhythmEdited = (o?: TaskOverride) =>
 
 // the one definition lives with the rules that read it — see subscription-add-rules.ts
 
-/** The service preset, normalized to a subscription-shaped timing. */
-function presetTiming(service?: Service): BillingTiming {
+/**
+ * The service preset, normalized to a subscription-shaped timing.
+ *
+ * A preset's custom day is a day of the MONTH, so a week does not take it (day 5 would turn into a
+ * Friday nobody chose), and twice a month takes no timing at all; the server reads it the same way.
+ */
+function presetTiming(
+  service: Service | undefined,
+  period: BillingPeriod | null,
+): BillingTiming {
+  if (period === "half_month")
+    return fitTiming({ trigger: "on_period_end", day: null }, period);
   if (!service || service.invoiceTrigger !== "on_period_end") {
     return {
       trigger: "on_period_start",
-      day: service?.invoiceTrigger === "on_period_start" ? (service.invoiceDay ?? null) : null,
+      day:
+        service?.invoiceTrigger === "on_period_start" && period !== "week"
+          ? (service.invoiceDay ?? null)
+          : null,
     };
   }
   return { trigger: "on_period_end", day: null };
@@ -79,27 +98,54 @@ function presetTiming(service?: Service): BillingTiming {
 
 /** What actually applies to this subscription (its own value, else the preset). */
 function effectiveTiming(sub: Subscription, service?: Service): BillingTiming {
+  if (sub.period === "half_month")
+    return fitTiming({ trigger: "on_period_end", day: null }, "half_month");
   if (sub.invoiceTrigger === "on_period_end") return { trigger: "on_period_end", day: null };
   if (sub.invoiceTrigger === "on_period_start")
     return { trigger: "on_period_start", day: sub.invoiceDay ?? null };
-  return presetTiming(service);
+  return presetTiming(service, sub.period);
 }
 
-const timingLabel = (t: BillingTiming) =>
-  t.trigger === "on_period_end"
-    ? "end of period"
-    : t.day != null
-      ? `day ${t.day}`
-      : "start of period";
+/** The rhythms a subscription can bill on, in one place for the add and the edit form. */
+function PeriodOptions() {
+  return (
+    <>
+      <option value="week">per week</option>
+      <option value="half_month">per month, 2 invoices</option>
+      <option value="month">per month</option>
+      <option value="quarter">per quarter</option>
+      <option value="year">per year</option>
+    </>
+  );
+}
+
+/** Twice a month: what each of its two invoices bills, so the monthly price is not read as each. */
+function HalvesNote({ amount }: { amount: number | null }) {
+  if (amount == null) return null;
+  const [first, second] = halvesOf(amount);
+  return (
+    <p className="mt-1.5 text-[12px] text-muted">
+      {fmtMoney(first)} on the 15th and {fmtMoney(second)} on the last day
+    </p>
+  );
+}
 
 /** Start / End / Custom-day pills — the same rule editor for add + edit. */
 function BillingPills({
   value,
   onChange,
+  period,
 }: {
   value: BillingTiming;
   onChange: (v: BillingTiming) => void;
+  period: BillingPeriod;
 }) {
+  // twice a month has no choice to make: each half bills on its last day (owner, 2026-10-07)
+  if (period === "half_month") {
+    return (
+      <p className="text-[13px] text-ink-700">On the 15th and the last day of the month</p>
+    );
+  }
   return (
     <div>
       <div className="flex flex-wrap gap-1.5">
@@ -124,21 +170,38 @@ function BillingPills({
         >
           Custom day
         </button>
-        {value.trigger === "on_period_start" && value.day != null && (
-          <Input
-            className="w-14"
-            type="number"
-            min={1}
-            max={31}
-            value={value.day}
-            onChange={(e) =>
-              onChange({
-                trigger: "on_period_start",
-                day: e.target.value ? Number(e.target.value) : 1,
-              })
-            }
-          />
-        )}
+        {value.trigger === "on_period_start" &&
+          value.day != null &&
+          (period === "week" ? (
+            <Select
+              className="h-8 w-32"
+              aria-label="Day of the week"
+              value={Math.min(value.day, 7)}
+              onChange={(e) =>
+                onChange({ trigger: "on_period_start", day: Number(e.target.value) })
+              }
+            >
+              {WEEKDAYS.map((name, i) => (
+                <option key={name} value={i + 1}>
+                  {name}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <Input
+              className="w-14"
+              type="number"
+              min={1}
+              max={31}
+              value={value.day}
+              onChange={(e) =>
+                onChange({
+                  trigger: "on_period_start",
+                  day: e.target.value ? Number(e.target.value) : 1,
+                })
+              }
+            />
+          ))}
       </div>
     </div>
   );
@@ -286,7 +349,7 @@ export function SubscriptionList({
                 {/* a one-time service has no period at all — `sub.period` is null there */}
                 {sub.period === null
                   ? "per job" // container for manual jobs — period/billing don't apply
-                  : `${PERIOD_LABEL[sub.period]} · ${timingLabel(effectiveTiming(sub, service))}`}
+                  : `${PERIOD_LABEL[sub.period]} · ${timingLabel(effectiveTiming(sub, service), sub.period)}`}
               </span>
               {/* same quiet icon strip as the Service catalog rows — one look for row actions */}
               <CopyLink
@@ -773,9 +836,22 @@ function EditSubscriptionModal({
     sub.dueDays ?? service?.dueDays ?? null,
   );
   const isOneTime = service ? billsPerJob(service) : false;
+  const [dayError, setDayError] = useState<string | null>(null);
+  const choosePeriod = (next: BillingPeriod) => {
+    setPeriod(next);
+    setTiming((t) => retime(t, period, next));
+    setDayError(null);
+  };
+  // the price stays as typed when the rhythm changes, so a monthly $900 would become $900 a WEEK
+  const unitChanged = sub.period !== null && priceUnit(sub.period) !== priceUnit(period);
 
   const save = async () => {
     if (amount == null) return;
+    const problem = isOneTime ? null : billingDayProblem(period, timing.trigger, timing.day);
+    if (problem) {
+      setDayError(problem);
+      return;
+    }
     try {
       await update.mutateAsync({
         clientId: client.id,
@@ -831,13 +907,11 @@ function EditSubscriptionModal({
             />
             {!isOneTime && (
               <Select
-                className="w-32"
+                className="w-auto"
                 value={period}
-                onChange={(e) => setPeriod(e.target.value as BillingPeriod)}
+                onChange={(e) => choosePeriod(e.target.value as BillingPeriod)}
               >
-                <option value="month">per month</option>
-                <option value="quarter">per quarter</option>
-                <option value="year">per year</option>
+                <PeriodOptions />
               </Select>
             )}
             {client.companies.length > 0 && (
@@ -855,11 +929,18 @@ function EditSubscriptionModal({
               </Select>
             )}
           </div>
+          {!isOneTime && period === "half_month" && <HalvesNote amount={amount} />}
+          {!isOneTime && unitChanged && (
+            <p className="mt-1.5 text-[12px] text-[#b5651d]">
+              Check the price: it is now per {priceUnit(period)}.
+            </p>
+          )}
         </div>
         {!isOneTime && (
           <div>
             <Label>Invoice — when in the period</Label>
-            <BillingPills value={timing} onChange={setTiming} />
+            <BillingPills value={timing} onChange={setTiming} period={period} />
+            {dayError && <p className="mt-1 text-[12px] text-danger-text">{dayError}</p>}
           </div>
         )}
         <DueDaysField value={dueDays} onChange={setDueDays} />
@@ -966,12 +1047,22 @@ export function AddServiceModal({
   );
   // one-time service = container for manual jobs: no billing period, bills per job
   const isOneTime = selected ? billsPerJob(selected) : false;
+  const choosePeriod = (next: BillingPeriod) => {
+    setPeriod(next);
+    // a new service has a preset to go back to: leaving a week or twice a month restores it,
+    // instead of a blank day or the halves' forced end of period
+    setTiming((t) =>
+      period === "week" || period === "half_month" || next === "week"
+        ? presetTiming(selected, next)
+        : fitTiming(t, next),
+    );
+  };
 
   const pick = (id: string) => {
     setServiceId(id);
     const svc = active.find((s) => s.id === id);
     setAmount(svc?.defaultAmount ?? null); // expected price prefills, editable per client
-    setTiming(presetTiming(svc)); // billing preset copies in, editable per client
+    setTiming(presetTiming(svc, "month")); // billing preset copies in, editable per client
     setDueDays(svc?.dueDays ?? null); // overdue preset copies in, editable per client
     // the catalog has no period to preset, so this resets rather than carrying the last service's
     // choice across — "per year" survived a switch and silently billed the next one that way
@@ -1151,13 +1242,11 @@ export function AddServiceModal({
               />
               {!isOneTime && (
                 <Select
-                  className="w-32"
+                  className="w-auto"
                   value={period}
-                  onChange={(e) => setPeriod(e.target.value as BillingPeriod)}
+                  onChange={(e) => choosePeriod(e.target.value as BillingPeriod)}
                 >
-                  <option value="month">per month</option>
-                  <option value="quarter">per quarter</option>
-                  <option value="year">per year</option>
+                  <PeriodOptions />
                 </Select>
               )}
               {client.companies.length > 0 && (
@@ -1175,18 +1264,26 @@ export function AddServiceModal({
                 </Select>
               )}
             </div>
+            {!isOneTime && period === "half_month" && <HalvesNote amount={amount} />}
+            {/* the price is prefilled from the catalog, which has no period: nothing else would
+                say that it now bills every week (review, 2026-10-08) */}
+            {!isOneTime && period === "week" && (
+              <p className="mt-1.5 text-[12px] text-[#b5651d]">
+                Check the price: it is now per week.
+              </p>
+            )}
             {!isOneTime && (
               <div className="mt-2.5">
                 <Label>Invoice — when in the period</Label>
-                <BillingPills value={timing} onChange={setTiming} />
+                <BillingPills value={timing} onChange={setTiming} period={period} />
               </div>
             )}
             <div className="mt-2.5">
               <DueDaysField value={dueDays} onChange={setDueDays} />
             </div>
-            {billingNote(selected, timing) && (
+            {billingNote(selected, timing, period) && (
               <p className="mt-2.5 text-[12px] text-muted">
-                💰 {billingNote(selected, timing)}
+                💰 {billingNote(selected, timing, period)}
               </p>
             )}
           </div>

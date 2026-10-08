@@ -1,6 +1,7 @@
 import { isClientFacing } from "@shared/schema/catalog";
 import type { Service } from "@shared/schema/catalog";
 import type { Subscription } from "@shared/schema/client";
+import type { BillingPeriod } from "@shared/schema/enums";
 
 /**
  * Whether a catalog service can be added to a client — and if not, why.
@@ -85,13 +86,78 @@ export function addStateFor(
  * hand instead of issuing one, and that rule lives on the server. The form's own "Service starts
  * on" hint already spells that out.
  */
-export function billingNote(service: Service, timing: BillingTiming): string | null {
+export function billingNote(
+  service: Service,
+  timing: BillingTiming,
+  period: BillingPeriod = "month",
+): string | null {
   if (service.type !== "subscription") return null;
   const when =
-    timing.trigger === "on_period_end"
-      ? "the first invoice comes at the end of the first period"
-      : timing.day != null
-        ? `invoices are issued on day ${timing.day} of each period`
-        : "the first invoice is issued as soon as the period starts";
+    period === "half_month"
+      ? "invoices are issued on the 15th and the last day of each month"
+      : timing.trigger === "on_period_end"
+        ? "the first invoice comes at the end of the first period"
+        : timing.day != null
+          ? period === "week"
+            ? `invoices are issued every ${WEEKDAYS[timing.day - 1] ?? "week"}`
+            : `invoices are issued on day ${timing.day} of each period`
+          : "the first invoice is issued as soon as the period starts";
   return `Adding this starts billing — ${when}.`;
 }
+
+/** A week's custom day is a day of the week, Monday = 1, as for the task rhythms. */
+export const WEEKDAYS = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday",
+] as const;
+
+/**
+ * The timing a subscription keeps when its rhythm changes in the form.
+ *
+ * Twice a month has no choice: each half bills on its last day, so it is held at the end of the
+ * period with no day. A week keeps a custom day only if it is a day of the week; day 20 of a month
+ * falls back to the week's start rather than reaching the server as a day that does not exist.
+ */
+export function fitTiming(timing: BillingTiming, period: BillingPeriod): BillingTiming {
+  if (period === "half_month") return { trigger: "on_period_end", day: null };
+  if (period === "week" && timing.day != null && timing.day > 7) {
+    return { trigger: "on_period_start", day: null };
+  }
+  return timing;
+}
+
+/**
+ * The timing when the form's rhythm changes from one to another.
+ *
+ * A day of the week and a day of the month share a column and nothing else: Friday is 5 and so is
+ * the 5th. Carried across, a preset's 5th would bill every Friday and a Friday every 5th, neither of
+ * them chosen by anybody, so crossing between a week and the rest drops the day for a person to pick.
+ */
+export function retime(
+  timing: BillingTiming,
+  from: BillingPeriod,
+  to: BillingPeriod,
+): BillingTiming {
+  const crosses = (from === "week") !== (to === "week");
+  return fitTiming(crosses ? { trigger: timing.trigger, day: null } : timing, to);
+}
+
+/** When in its period a subscription bills, in the words of its rhythm. */
+export function timingLabel(timing: BillingTiming, period: BillingPeriod | null): string {
+  if (period === "half_month") return "15th and last day";
+  if (period === "week") {
+    if (timing.trigger === "on_period_end") return "Sunday";
+    return timing.day != null ? (WEEKDAYS[timing.day - 1] ?? "Monday") : "Monday";
+  }
+  if (timing.trigger === "on_period_end") return "end of period";
+  return timing.day != null ? `day ${timing.day}` : "start of period";
+}
+
+/** What one price is for, in a word: "week", "month", "quarter", "year". */
+export const priceUnit = (period: BillingPeriod) =>
+  period === "half_month" ? "month" : period;

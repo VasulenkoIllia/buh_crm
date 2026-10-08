@@ -1,4 +1,5 @@
 import type { ClientListQuery } from "@shared/schema/client.js";
+import type { BillingPeriod } from "@shared/schema/enums.js";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { notEndedWhere } from "../../core/coverage.js";
 import { prisma } from "../../core/db.js";
@@ -500,7 +501,7 @@ export function createSubscription(
     serviceId: string;
     companyId: string | null;
     amount: number;
-    period: "month" | "quarter" | "year" | null; // null = one-time service, which has no period
+    period: BillingPeriod | null; // null = one-time service, which has no period
     invoiceTrigger: "on_period_start" | "on_period_end" | null;
     invoiceDay: number | null;
     dueDays: number | null;

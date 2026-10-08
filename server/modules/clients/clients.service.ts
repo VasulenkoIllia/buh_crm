@@ -9,6 +9,8 @@ import type {
   ResumeSubscriptionInput,
 } from "@shared/schema/client.js";
 import { codeInSearch } from "@shared/schema/client.js";
+import { billingDayProblem } from "@shared/billing-periods.js";
+import type { BillingPeriod } from "@shared/schema/enums.js";
 import {
   billsPerJob,
   rhythmOverridesSchema,
@@ -671,8 +673,8 @@ export function countPeopleChanges(
  */
 function periodFor(
   service: { type: "subscription" | "one_time" | "internal" },
-  requested: "month" | "quarter" | "year" | undefined,
-): "month" | "quarter" | "year" | null {
+  requested: BillingPeriod | undefined,
+): BillingPeriod | null {
   return billsPerJob(service) ? null : (requested ?? "month");
 }
 
@@ -698,6 +700,10 @@ export async function addSubscription(clientId: string, input: CreateSubscriptio
       "This service is already assigned to the same target — edit the existing subscription or pick another company",
     );
   }
+  const period = periodFor(service, input.period);
+  // a day of the month, of the week, or none at all, depending on the rhythm (billing-periods.ts)
+  const dayProblem = billingDayProblem(period, input.invoiceTrigger, input.invoiceDay);
+  if (dayProblem) throw new ValidationError(dayProblem);
   const startsOn = input.startsOn ? dateToUtc(input.startsOn) : toUtc(todayInTz(config.TZ));
   assertNotBackdated(startsOn, "start");
   const created = await repo.createSubscription(
@@ -706,7 +712,7 @@ export async function addSubscription(clientId: string, input: CreateSubscriptio
       serviceId: input.serviceId,
       companyId: input.companyId ?? null,
       amount: input.amount,
-      period: periodFor(service, input.period),
+      period,
       invoiceTrigger: input.invoiceTrigger ?? null,
       invoiceDay: input.invoiceDay ?? null,
       dueDays: input.dueDays ?? null,
@@ -779,15 +785,16 @@ export async function updateSubscription(
   if (input.companyId && !company) {
     throw new ValidationError("Company does not belong to this client");
   }
-  // billing timing must stay valid against the MERGED row (partial PATCH skips the Zod refine)
+  // billing timing must stay valid against the MERGED row (partial PATCH skips the Zod refine).
+  // The rhythm is part of it since 2026-10-07: day 20 of a month is no day of a week, so a period
+  // changed without its day is refused rather than billed on a day nobody chose.
   const trigger =
     input.invoiceTrigger !== undefined ? input.invoiceTrigger : sub.invoiceTrigger;
   const day = input.invoiceDay !== undefined ? input.invoiceDay : sub.invoiceDay;
-  if (day != null && trigger !== "on_period_start") {
-    throw new ValidationError(
-      "A custom day only applies when billing at the start of the period",
-    );
-  }
+  const billedEvery =
+    input.period !== undefined ? periodFor(sub.service, input.period) : sub.period;
+  const dayProblem = billingDayProblem(billedEvery, trigger, day);
+  if (dayProblem) throw new ValidationError(dayProblem);
   // duplicate-target rule also holds when the company changes
   if (input.companyId !== undefined) {
     const duplicate = await repo.findDuplicateSubscription(
@@ -826,7 +833,10 @@ export async function updateSubscription(
   // exactly the placeholder migration 20260826200000 removed.
   await repo.updateSubscription(subscriptionId, {
     ...fields,
-    ...(fields.period !== undefined ? { period: periodFor(sub.service, fields.period) } : {}),
+    ...(fields.period !== undefined ? { period: billedEvery } : {}),
+    // a new rhythm applies from today: what began before it is a person's call, not the sweep's
+    // (`Subscription.periodSince`). Saving the same rhythm again changes nothing.
+    ...(billedEvery !== sub.period ? { periodSince: toUtc(todayInTz(config.TZ)) } : {}),
   });
   // moving the flag clears the previous holder in the same transaction (one default per client)
   if (isDefault === true) {

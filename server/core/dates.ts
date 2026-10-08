@@ -55,26 +55,8 @@ export const addDays = (day: Day, n: number): Day => {
   return { y: date.getUTCFullYear(), m: date.getUTCMonth() + 1, d: date.getUTCDate() };
 };
 
-/** ISO-8601 week (year + number) of a date. */
-export function isoWeek(day: Day): { year: number; week: number } {
-  const date = toUtc(day);
-  const dow = date.getUTCDay() || 7; // Mon=1..Sun=7
-  const thursday = new Date(date);
-  thursday.setUTCDate(date.getUTCDate() + 4 - dow);
-  const year = thursday.getUTCFullYear();
-  const jan1 = new Date(Date.UTC(year, 0, 1));
-  const week = Math.ceil(((thursday.getTime() - jan1.getTime()) / 86_400_000 + 1) / 7);
-  return { year, week };
-}
-
-/** Monday of an ISO week. */
-export function isoWeekMonday(year: number, week: number): Day {
-  const jan4 = new Date(Date.UTC(year, 0, 4)); // always in week 1
-  const dow = jan4.getUTCDay() || 7;
-  const monday = new Date(jan4);
-  monday.setUTCDate(jan4.getUTCDate() - dow + 1 + (week - 1) * 7);
-  return { y: monday.getUTCFullYear(), m: monday.getUTCMonth() + 1, d: monday.getUTCDate() };
-}
+/** ISO-8601 weeks: one definition, in `shared/dates.ts`, for the task rhythms and the billing sweep. */
+export { isoWeek, isoWeekMonday } from "@shared/dates.js";
 
 /** DD.MM.YYYY — the label format used in generated titles. */
 export const dayLabel = ({ y, m, d }: Day) =>

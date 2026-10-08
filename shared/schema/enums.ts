@@ -22,7 +22,12 @@ export const invoiceTrigger = z.enum([
 ]);
 export type InvoiceTrigger = z.infer<typeof invoiceTrigger>;
 
-export const billingPeriod = z.enum(["month", "quarter", "year"]);
+/**
+ * How often a subscription bills. `week` (Monday to Sunday) and `half_month` (the 15th and the last
+ * day, a monthly price in halves) joined the calendar ones on 2026-10-07; see
+ * `shared/billing-periods.ts` for what each one means for a key, a day and an amount.
+ */
+export const billingPeriod = z.enum(["week", "half_month", "month", "quarter", "year"]);
 export type BillingPeriod = z.infer<typeof billingPeriod>;
 
 export const periodicity = z.enum(["weekly", "monthly", "quarterly", "yearly", "once"]);

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { Client } from "@shared/schema/client";
+import { periodLabel } from "@shared/billing-periods";
 import type { Invoice, InvoiceListQuery } from "@shared/schema/payment";
 import { cn } from "@/shared/lib/cn";
 import { fmtBizDate, fmtDate } from "@/shared/lib/format";
@@ -237,7 +238,9 @@ function InvoiceRow({ invoice, onOpen }: { invoice: Invoice; onOpen: () => void 
       </div>
       <div className="min-w-0 truncate">
         {invoice.serviceName ?? invoice.description ?? "—"}
-        {invoice.periodKey && <span className="text-faint"> · {invoice.periodKey}</span>}
+        {invoice.periodKey && (
+          <span className="text-faint"> · {periodLabel(invoice.periodKey)}</span>
+        )}
         {invoice.companyName && <span className="text-faint"> · {invoice.companyName}</span>}
         {invoice.tidiedAt && <span className="ml-1.5 text-faint">📦</span>}
       </div>

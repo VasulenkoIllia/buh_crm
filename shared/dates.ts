@@ -104,3 +104,36 @@ export function fmtTimeInTz(at: Date, tz: string): string {
     hour12: false,
   }).format(at);
 }
+
+/** A calendar day. The server's `Day` is the same shape. */
+export interface CalendarDay {
+  y: number;
+  m: number; // 1-12
+  d: number; // 1-31
+}
+
+/**
+ * ISO-8601 week (year + number) of a date: weeks start on Monday, and week 1 holds 4 January.
+ *
+ * Here rather than in `server/core/dates.ts`, which re-exports it, since 2026-10-07: the task
+ * rhythms, the billing sweep and the screens that print a billed week must count weeks one way.
+ */
+export function isoWeek(day: CalendarDay): { year: number; week: number } {
+  const date = new Date(Date.UTC(day.y, day.m - 1, day.d));
+  const dow = date.getUTCDay() || 7; // Mon=1..Sun=7
+  const thursday = new Date(date);
+  thursday.setUTCDate(date.getUTCDate() + 4 - dow);
+  const year = thursday.getUTCFullYear();
+  const jan1 = new Date(Date.UTC(year, 0, 1));
+  const week = Math.ceil(((thursday.getTime() - jan1.getTime()) / 86_400_000 + 1) / 7);
+  return { year, week };
+}
+
+/** Monday of an ISO week. */
+export function isoWeekMonday(year: number, week: number): CalendarDay {
+  const jan4 = new Date(Date.UTC(year, 0, 4)); // always in week 1
+  const dow = jan4.getUTCDay() || 7;
+  const monday = new Date(jan4);
+  monday.setUTCDate(jan4.getUTCDate() - dow + 1 + (week - 1) * 7);
+  return { y: monday.getUTCFullYear(), m: monday.getUTCMonth() + 1, d: monday.getUTCDate() };
+}

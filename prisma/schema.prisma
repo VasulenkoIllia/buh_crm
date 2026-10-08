@@ -58,6 +58,8 @@ enum BillingPeriod {
   month
   quarter
   year
+  week // Monday to Sunday, priced per week (2026-10-07)
+  half_month // the 15th and the last day, a MONTHLY price billed in halves (2026-10-07)
 }
 
 enum Periodicity {
@@ -895,6 +897,13 @@ model Subscription {
   /// (partial unique index `Subscription_one_default_per_client`, raw SQL); a default can't be
   /// stopped until the flag is cleared.
   isDefault       Boolean         @default(false)
+  /// The day the subscription's CURRENT rhythm took over: set when `period` changes, null while it
+  /// has billed on one rhythm only (2026-10-07). A period that began before it, and that no live
+  /// invoice covers, goes to a person instead of being billed by the sweep: Saida Akhbayeva's
+  /// Payroll, moved from quarterly to monthly on 6 October, was billed for September the next night,
+  /// a month the quarterly rhythm had never billed. A cancelled invoice of the old rhythm does not
+  /// hold back a period of the new one. See `dueInvoices` in payments.generation.ts.
+  periodSince     DateTime?       @db.Date
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
