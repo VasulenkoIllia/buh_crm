@@ -76,6 +76,9 @@ export function toTaskDto(task: repo.TaskRecord, todayMs: number = todayBusiness
     companyId: task.companyId,
     leadId: task.leadId,
     serviceId: task.serviceId,
+    stage: task.stage
+      ? { id: task.stage.id, name: task.stage.name, order: task.stage.order }
+      : null,
     kind: task.kind,
     priorityId: task.priorityId,
     statusColumnId: task.statusColumnId,
@@ -230,6 +233,17 @@ const BOARD_LIMIT = 500;
  * - everything else — the table, a card's rollup: newest first, the ordinary list order.
  */
 function orderFor(query: TaskListQuery): Prisma.TaskOrderByWithRelationInput[] {
+  // By the stage's POSITION in its service, then its name: each service has its own list, so the
+  // first stages of every service come first, and the same stage of two services sits together.
+  // Ahead of the Done order below, which used to win: on Done the header's arrow turned and no row
+  // moved (review, 2026-10-08). A task with no stage goes last both ways (`stagedFirst`).
+  if (query.sort === "stage" && query.view !== "board") {
+    return [
+      { stage: { order: query.dir } },
+      { stage: { name: query.dir } },
+      query.status === "done" ? { completedAt: "desc" } : { createdAt: "desc" },
+    ];
+  }
   if (query.status === "done") {
     return [{ completedAt: "desc" }, { createdAt: "desc" }]; // legacy rows have no stamp
   }
@@ -239,6 +253,33 @@ function orderFor(query: TaskListQuery): Prisma.TaskOrderByWithRelationInput[] {
     return [{ statusColumn: { order: "asc" } }, { boardOrder: "asc" }, { createdAt: "desc" }];
   }
   return [{ createdAt: "desc" }];
+}
+
+/**
+ * A descending sort by stage that still puts the tasks with no stage LAST. PostgreSQL sorts NULLs
+ * first on DESC and Prisma cannot say otherwise through a relation, so ↓ on a firm whose few staged
+ * tasks were the point showed a first page of "—" (review, 2026-10-08). Two reads, paged as one
+ * list: the staged tasks in order, then the rest from where the page still has room.
+ */
+async function stagedFirst(
+  where: Prisma.TaskWhereInput,
+  skip: number,
+  take: number,
+  orderBy: Prisma.TaskOrderByWithRelationInput[],
+) {
+  const staged = await repo.listTasks({
+    where: { AND: [where, { stageId: { not: null } }] },
+    skip,
+    take,
+    orderBy,
+  });
+  const rest = await repo.listTasks({
+    where: { AND: [where, { stageId: null }] },
+    skip: Math.max(0, skip - staged.total),
+    take: take - staged.items.length,
+    orderBy,
+  });
+  return { items: [...staged.items, ...rest.items], total: staged.total + rest.total };
 }
 
 export async function listTasks(query: TaskListQuery) {
@@ -310,6 +351,7 @@ export async function listTasks(query: TaskListQuery) {
     and.push(query.serviceId === "none" ? { serviceId: null } : { serviceId: query.serviceId });
   }
   if (query.leadId) and.push({ leadId: query.leadId });
+  if (query.stage) and.push({ stage: { name: { equals: query.stage, mode: "insensitive" } } });
   // "overdue" is answered by SQL, not by filtering the page in the browser — otherwise the
   // filter would only ever search the rows the board happened to load. Same business-date rule
   // as `isTaskOverdue`: the whole deadline day must have passed. Overdue is open work by
@@ -334,12 +376,12 @@ export async function listTasks(query: TaskListQuery) {
 
   const paged = query.view === "table";
   const take = paged ? query.pageSize : BOARD_LIMIT;
-  const { items, total } = await repo.listTasks({
-    where,
-    skip: paged ? (query.page - 1) * query.pageSize : 0,
-    take,
-    orderBy: orderFor(query),
-  });
+  const skip = paged ? (query.page - 1) * query.pageSize : 0;
+  const orderBy = orderFor(query);
+  const { items, total } =
+    query.sort === "stage" && query.dir === "desc" && query.view !== "board"
+      ? await stagedFirst(where, skip, take, orderBy)
+      : await repo.listTasks({ where, skip, take, orderBy });
   return {
     // one "today" for the whole page — every row's invoice status is decided against the same day
     items: items.map((task) => toTaskDto(task, today)),
@@ -586,6 +628,12 @@ export async function updateTask(id: string, input: UpdateTaskInput, actor: User
   if (input.priorityId && !priority) throw new ValidationError("Unknown priority");
   const column = input.statusColumnId ? await repo.findColumn(input.statusColumnId) : null;
   if (input.statusColumnId && !column) throw new ValidationError("Unknown column");
+  // a stage of THIS task's service, never another's: the task form offers only those, and a stage
+  // of another service would read as progress on work it is not part of
+  const stage = input.stageId ? await repo.findStage(input.stageId) : null;
+  if (input.stageId && (!stage || stage.serviceId !== task.serviceId)) {
+    throw new ValidationError("That stage is not one of this task's service");
+  }
   if (input.assignees) {
     await assertAssignable(input.assignees, new Set(task.assignees.map((a) => a.userId)));
   }
@@ -619,6 +667,7 @@ export async function updateTask(id: string, input: UpdateTaskInput, actor: User
     ...(input.title !== undefined ? { title: input.title } : {}),
     ...(input.priorityId !== undefined ? { priorityId: input.priorityId } : {}),
     ...(input.statusColumnId !== undefined ? { statusColumnId: input.statusColumnId } : {}),
+    ...(input.stageId !== undefined ? { stageId: input.stageId } : {}),
     // stamp WHEN it was finished (the Done view filters on it); reopening clears the stamp,
     // so it always describes the current completion rather than an old one
     ...(input.done !== undefined
@@ -641,7 +690,7 @@ export async function updateTask(id: string, input: UpdateTaskInput, actor: User
   if (input.assignees) await repo.setAssignees(id, input.assignees);
 
   await notifyTaskChanges(task, updated, input, actor);
-  await recordTaskChanges(task, updated, input, { priority, column });
+  await recordTaskChanges(task, updated, input, { priority, column, stage });
 
   // one-time job billed on completion: issue the invoice the moment it's marked done
   if (input.done === true && task.kind === "once" && !hasLiveInvoice(task) && task.clientId) {
@@ -693,7 +742,11 @@ async function recordTaskChanges(
   after: repo.TaskRecord,
   input: UpdateTaskInput,
   // the two reference rows `updateTask` already validated: passed in rather than read again
-  moving: { priority: { name: string } | null; column: { name: string } | null },
+  moving: {
+    priority: { name: string } | null;
+    column: { name: string } | null;
+    stage: { name: string } | null;
+  },
 ) {
   const subject = {
     subjectId: after.id,
@@ -747,6 +800,13 @@ async function recordTaskChanges(
           to: after.deadline ? isoDay(after.deadline) : null,
         },
       },
+    });
+  }
+  if (input.stageId !== undefined && input.stageId !== before.stageId) {
+    // by NAME: both rows are at hand, the old one on the task and the new one just validated
+    record("task.stage_changed", {
+      ...subject,
+      changes: { stage: { from: before.stage?.name ?? null, to: moving.stage?.name ?? null } },
     });
   }
   if (input.done === true && !before.done) record("task.completed", subject);

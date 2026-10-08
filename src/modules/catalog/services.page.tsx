@@ -52,6 +52,8 @@ import {
   useUpdateTemplate,
 } from "./catalog.api";
 import { ServiceChip } from "./service-chip";
+import { StagesEditor } from "./stages-editor";
+import { type StageRow, rowsOf, stageProblems, stagesToSend } from "./stages";
 import { TaskRhythmFields, rhythmSummary, type RhythmValue } from "./task-rhythm-fields";
 
 /**
@@ -587,6 +589,20 @@ function ServiceEditorModal({
   const create = useCreateService();
   const update = useUpdateService();
   const billing = normalizedBilling(service);
+  // the stages are saved with the service, whole, and are kept here rather than in the form schema:
+  // a row's identity (a saved stage's id) has to survive a rename and a move
+  const [stages, setStages] = useState<StageRow[]>(() => rowsOf(service?.stages ?? []));
+  // ...and what they were when the form opened, which is what a save compares with. Not the live
+  // `service.stages`: a refetch on returning to the tab refreshes that prop under an open form, and
+  // then rows from before it differed from it and wiped a stage a colleague had just added
+  // (review, 2026-10-08).
+  const [openedWith] = useState(() => service?.stages ?? []);
+  // a nameless row is not an error while it is being typed into, only once a save meets it
+  const [stagesChecked, setStagesChecked] = useState(false);
+  const { data: catalog } = useCatalog();
+  const stageSources = (catalog ?? []).filter(
+    (s) => s.id !== service?.id && s.stages.length > 0,
+  );
   // internal = firm-internal recurring tasks (no client, no billing) → a stripped-down editor
   const isInternal = service?.type === "internal" || presetType === "internal";
 
@@ -616,10 +632,21 @@ function ServiceEditorModal({
   const dueDays = watch("dueDays");
 
   const onSubmit = handleSubmit(async (values) => {
+    // a nameless or repeated stage is marked beside it; nothing is sent until it is fixed
+    if (stageProblems(stages).size > 0) {
+      setStagesChecked(true);
+      return;
+    }
+    const stagesInput = stagesToSend(stages, openedWith);
     // internal services never bill — send only identity fields
     if (isInternal) {
       try {
-        const input = { name: values.name, color: values.color, type: "internal" as const };
+        const input = {
+          name: values.name,
+          color: values.color,
+          type: "internal" as const,
+          stages: stagesInput,
+        };
         if (service) await update.mutateAsync({ id: service.id, input });
         else await create.mutateAsync(input);
         onClose();
@@ -631,8 +658,9 @@ function ServiceEditorModal({
     // the catalog default is set from the row (Make/Clear default), never from this editor —
     // one way to change it, and saving unrelated fields can never re-assert or steal it
     try {
-      if (service) await update.mutateAsync({ id: service.id, input: values });
-      else await create.mutateAsync(values);
+      const input = { ...values, stages: stagesInput };
+      if (service) await update.mutateAsync({ id: service.id, input });
+      else await create.mutateAsync(input);
       onClose();
     } catch {
       /* surfaced via serverError below */
@@ -862,6 +890,13 @@ function ServiceEditorModal({
             </p>
           </div>
         )}
+
+        <StagesEditor
+          rows={stages}
+          onChange={setStages}
+          others={stageSources}
+          showEmpty={stagesChecked}
+        />
 
         {serverError && <p className="text-[12px] text-danger-text">{serverError}</p>}
       </form>
@@ -1100,7 +1135,7 @@ function SortableServiceRow({
           aria-label="Drag to reorder"
           {...attributes}
           {...listeners}
-          className="absolute top-3.5 left-1 z-10 cursor-grab text-faint hover:text-muted active:cursor-grabbing"
+          className="absolute top-3.5 left-1 z-10 cursor-grab touch-none text-faint hover:text-muted active:cursor-grabbing"
         >
           <GripVertical size={14} />
         </button>

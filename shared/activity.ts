@@ -1787,6 +1787,21 @@ const EVENTS = {
     changeKeys: ["column"],
     enabledByDefault: true,
   },
+  /**
+   * A task moved along its service's stages (owner, 2026-10-08): "Docs Received → Contract Signed".
+   * Its own event, like the column move, because "where did this return get stuck" is answered by
+   * nothing else. No notification: a step of ordinary work, dozens a day.
+   */
+  "task.stage_changed": {
+    subject: "task",
+    title: "{actor} moved {subject} to another stage",
+    when: "a task's stage changes",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["stage"],
+    enabledByDefault: true,
+  },
   "task.commented": {
     subject: "task",
     title: "{actor} commented on {subject}",
@@ -2644,13 +2659,13 @@ const EVENTS = {
     granularity: "item",
     actorKinds: ["user"],
     retention: "ordinary",
-    changeKeys: ["type", "defaultAmount"],
+    changeKeys: ["type", "defaultAmount", "stages"],
     enabledByDefault: true,
   },
   "service.updated": {
     subject: "service",
     title: "{actor} changed the service {subject}",
-    when: "a service's name, price, billing rule or colour changes",
+    when: "a service's name, price, billing rule, colour or stages change",
     granularity: "item",
     actorKinds: ["user"],
     retention: "ordinary",
@@ -2662,6 +2677,7 @@ const EVENTS = {
       "invoiceDay",
       "dueDays",
       "color",
+      "stages",
     ],
     enabledByDefault: true,
   },

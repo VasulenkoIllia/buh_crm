@@ -2366,3 +2366,178 @@ describe("tasks — files", () => {
     expect(res.statusCode).toBe(404);
   });
 });
+
+/**
+ * A task on its service's stages (owner, 2026-10-08): set by a person, one of THIS service's,
+ * logged by name, filtered by name across services, sorted by position.
+ */
+describe("a task's stage", () => {
+  async function serviceWithStages(name: string, stages: string[]) {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+      payload: {
+        name,
+        type: "one_time",
+        invoiceTrigger: "on_complete",
+        stages: stages.map((n) => ({ name: n })),
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    return res.json() as { id: string; stages: { id: string; name: string }[] };
+  }
+  async function jobOn(clientId: string, serviceId: string, title: string) {
+    // one subscription per service and client: a second job on the same service reuses it
+    const client = await app.inject({
+      method: "GET",
+      url: `/api/clients/${clientId}`,
+      headers: { cookie: adminCookie },
+    });
+    let subscriptionId = client
+      .json()
+      .subscriptions.find((s: { serviceId: string }) => s.serviceId === serviceId)?.id as
+      string | undefined;
+    if (!subscriptionId) {
+      const sub = await app.inject({
+        method: "POST",
+        url: `/api/clients/${clientId}/subscriptions`,
+        headers: { cookie: adminCookie },
+        payload: { serviceId, amount: 50_000 },
+      });
+      expect(sub.statusCode).toBe(201);
+      subscriptionId = sub
+        .json()
+        .subscriptions.find((s: { serviceId: string }) => s.serviceId === serviceId).id;
+    }
+    const task = await app.inject({
+      method: "POST",
+      url: "/api/tasks",
+      headers: { cookie: adminCookie },
+      payload: { title, clientId, subscriptionId, assignees: [] },
+    });
+    expect(task.statusCode).toBe(201);
+    return task.json() as { id: string; stage: unknown };
+  }
+  const setStage = (id: string, stageId: string | null) =>
+    app.inject({
+      method: "PATCH",
+      url: `/api/tasks/${id}`,
+      headers: { cookie: userCookie },
+      payload: { stageId },
+    });
+  async function logged(action: string, subjectId: string) {
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const row = await prisma.activityEvent.findFirst({
+        where: { action, subjectId },
+        orderBy: { occurredAt: "desc" },
+      });
+      if (row) return row;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw new Error(`no ${action} row for ${subjectId}`);
+  }
+
+  it("starts with none, takes one of its service's stages, and logs the move by name", async () => {
+    const personal = await serviceWithStages("Personal return (task stages)", [
+      "Invite Sent",
+      "Docs Received",
+      "Filed",
+    ]);
+    const clientId = await makeClient("Stagey");
+    const job = await jobOn(clientId, personal.id, "Tax return 2025");
+    expect(job.stage).toBeNull();
+
+    const set = await setStage(job.id, personal.stages[1].id);
+    expect(set.statusCode).toBe(200);
+    expect(set.json().stage).toEqual({ ...personal.stages[1], order: 1 });
+    const row = await logged("task.stage_changed", job.id);
+    expect(row.changes).toEqual({ stage: { from: null, to: "Docs Received" } });
+
+    const cleared = await setStage(job.id, null);
+    expect(cleared.json().stage).toBeNull();
+  });
+
+  it("refuses a stage of another service, and any stage on a task of a service without", async () => {
+    const one = await serviceWithStages("Stages A (tasks)", ["Start"]);
+    const two = await serviceWithStages("Stages B (tasks)", ["Begin"]);
+    const plain = await serviceWithStages("No stages (tasks)", []);
+    const clientId = await makeClient("Strict");
+    const onOne = await jobOn(clientId, one.id, "On one");
+    const onPlain = await jobOn(clientId, plain.id, "On plain");
+    expect((await setStage(onOne.id, two.stages[0].id)).statusCode).toBe(400);
+    expect((await setStage(onPlain.id, one.stages[0].id)).statusCode).toBe(400);
+  });
+
+  it("filters by the stage's name across services, and sorts by its position", async () => {
+    const personal = await serviceWithStages("Personal (filter)", [
+      "Invite",
+      "Docs In",
+      "Filed",
+    ]);
+    const business = await serviceWithStages("Business (filter)", [
+      "Invite",
+      "Docs In",
+      "Filed",
+    ]);
+    const clientId = await makeClient("Filtered");
+    const p = await jobOn(clientId, personal.id, "Personal job");
+    const b = await jobOn(clientId, business.id, "Business job");
+    const late = await jobOn(clientId, personal.id, "Personal filed");
+    await setStage(p.id, personal.stages[1].id);
+    await setStage(b.id, business.stages[1].id);
+    await setStage(late.id, personal.stages[2].id);
+
+    const list = (query: string) =>
+      app.inject({
+        method: "GET",
+        url: `/api/tasks?view=table&clientId=${clientId}&${query}`,
+        headers: { cookie: userCookie },
+      });
+    const docs = await list("stage=docs%20in");
+    expect(docs.statusCode).toBe(200);
+    expect(
+      docs
+        .json()
+        .items.map((t: { title: string }) => t.title)
+        .sort(),
+    ).toEqual(["Business job", "Personal job"]);
+
+    const loose = await jobOn(clientId, personal.id, "No stage yet");
+    const titles = async (query: string) =>
+      (await list(query)).json().items.map((t: { title: string }) => t.title) as string[];
+
+    // the task with no stage is last BOTH ways, which PostgreSQL alone does not do descending
+    const descending = await titles("sort=stage&dir=desc");
+    expect(descending[0]).toBe("Personal filed");
+    expect(descending.at(-1)).toBe("No stage yet");
+    const ascending = await titles("sort=stage");
+    expect(ascending.at(-2)).toBe("Personal filed");
+    expect(ascending.at(-1)).toBe("No stage yet");
+
+    // paged, the two reads join up: page 2 of 2 rows is the last staged task and the loose one
+    const page2 = await titles("sort=stage&dir=desc&page=2&pageSize=2");
+    expect(page2).toEqual([descending[2], "No stage yet"]);
+    expect((await list("sort=stage&dir=desc&page=2&pageSize=2")).json().total).toBe(4);
+
+    // Done sorts by stage too: its own order used to win and the arrow moved nothing
+    for (const id of [p.id, late.id, loose.id]) {
+      await app.inject({
+        method: "PATCH",
+        url: `/api/tasks/${id}`,
+        headers: { cookie: userCookie },
+        payload: { done: true },
+      });
+    }
+    expect(await titles("status=done&sort=stage&dir=desc")).toEqual([
+      "Personal filed",
+      "Personal job",
+      "No stage yet",
+    ]);
+    expect(await titles("status=done&sort=stage")).toEqual([
+      "Personal job",
+      "Personal filed",
+      "No stage yet",
+    ]);
+  });
+});

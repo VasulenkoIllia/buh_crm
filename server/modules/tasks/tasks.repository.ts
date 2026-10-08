@@ -12,6 +12,7 @@ const taskInclude = {
   cancelledBy: { select: { firstName: true, lastName: true } },
   company: { select: { name: true } },
   lead: { select: { name: true, archivedAt: true } },
+  stage: { select: { id: true, name: true, order: true } },
   assignees: { select: { userId: true } },
   subtasks: { orderBy: { order: "asc" } },
   timeEntries: { orderBy: { startedAt: "asc" } },
@@ -253,6 +254,14 @@ export function listDeadlinesInRange(args: {
       lead: { select: { name: true } },
       assignees: { select: { userId: true } },
     },
+  });
+}
+
+/** A stage, with the service it belongs to, for checking it fits the task it is given to. */
+export function findStage(id: string) {
+  return prisma.serviceStage.findUnique({
+    where: { id },
+    select: { id: true, name: true, serviceId: true },
   });
 }
 

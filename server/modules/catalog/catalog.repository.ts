@@ -11,6 +11,7 @@ const serviceInclude = () =>
   ({
     taskTemplates: { orderBy: { createdAt: "asc" } },
     subscriptions: { where: inForceTodayWhere(config.TZ), select: { clientId: true } },
+    stages: { orderBy: { order: "asc" } },
   }) satisfies Prisma.ServiceInclude;
 
 export type ServiceRecord = Prisma.ServiceGetPayload<{
@@ -106,17 +107,59 @@ export function createServiceWithDefault(
   });
 }
 
-/** Update a service's fields and (atomically) apply the default flag change if any. */
+/**
+ * What a save does to a service's stages, worked out by the service layer: the ones kept (renamed
+ * or moved), the new ones, and the ones removed.
+ */
+export interface StagePlan {
+  keep: { id: string; name: string; order: number }[];
+  create: { name: string; order: number }[];
+  remove: string[];
+}
+
+/** Update a service's fields and (atomically) apply the default flag change and its stages. */
 export function updateServiceWithDefault(
   id: string,
   data: Prisma.ServiceUpdateInput,
   flag: boolean | undefined,
+  stages?: StagePlan,
 ) {
   return prisma.$transaction(async (tx) => {
     await tx.service.update({ where: { id }, data });
     await applyDefaultFlag(tx, id, flag);
+    if (stages) {
+      // removed first: a task on one would make the RESTRICT refuse, and the service layer has
+      // already checked there is none, so a refusal here is a race and rolls the whole save back
+      if (stages.remove.length) {
+        await tx.serviceStage.deleteMany({
+          where: { id: { in: stages.remove }, serviceId: id },
+        });
+      }
+      for (const s of stages.keep) {
+        await tx.serviceStage.update({
+          where: { id: s.id },
+          data: { name: s.name, order: s.order },
+        });
+      }
+      if (stages.create.length) {
+        await tx.serviceStage.createMany({
+          data: stages.create.map((s) => ({ serviceId: id, name: s.name, order: s.order })),
+        });
+      }
+    }
     return tx.service.findUnique({ where: { id }, include: serviceInclude() });
   });
+}
+
+/** How many tasks stand on each of these stages — the ones a save would remove. */
+export async function countTasksOnStages(stageIds: string[]) {
+  if (stageIds.length === 0) return new Map<string, number>();
+  const rows = await prisma.task.groupBy({
+    by: ["stageId"],
+    where: { stageId: { in: stageIds } },
+    _count: { _all: true },
+  });
+  return new Map(rows.map((r) => [r.stageId as string, r._count._all]));
 }
 
 export async function countServiceUsage(serviceId: string) {

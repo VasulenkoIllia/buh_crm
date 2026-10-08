@@ -6,6 +6,7 @@ import type {
   UpdateTaskTemplateInput,
 } from "@shared/schema/catalog.js";
 import { billingRuleValid, defaultTriggerFor, rhythmValid } from "@shared/schema/catalog.js";
+import { Prisma } from "../../generated/prisma/client.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
 import { diff, record } from "../../core/activity.js";
 import * as repo from "./catalog.repository.js";
@@ -28,6 +29,7 @@ export function toServiceDto(service: repo.ServiceRecord) {
     autoAddToNewClients: service.autoAddToNewClients,
     order: service.order,
     clientsCount: new Set(service.subscriptions.map((s) => s.clientId)).size,
+    stages: service.stages.map((s) => ({ id: s.id, name: s.name, order: s.order })),
     taskTemplates: service.taskTemplates.map((t) => ({
       id: t.id,
       serviceId: t.serviceId,
@@ -70,10 +72,75 @@ export async function listServices() {
   return services.map(toServiceDto);
 }
 
+// ── stages ───────────────────────────────────────────────────────────────────
+
+type StageInput = NonNullable<UpdateServiceInput["stages"]>;
+
+/**
+ * A list of stages as the activity log keeps it: the names, in order. A list rather than one
+ * "A → B → C" line, which is what it was first: the log caps a STRING at 200 characters, so a long
+ * list lost the same tail before and after and a rename near its end read as no change at all
+ * (review, 2026-10-08). Each name is at most 60 and there are at most 20.
+ */
+const stageNames = (stages: { name: string }[]) => stages.map((s) => s.name.trim());
+const sameStages = (a: string[], b: string[]) =>
+  a.length === b.length && a.every((name, i) => name === b[i]);
+
+/** Names unique inside one service, however they are cased: two "Filed" would be one filter. */
+function assertDistinctNames(stages: StageInput) {
+  const seen = new Set<string>();
+  for (const s of stages) {
+    const key = s.name.trim().toLowerCase();
+    if (seen.has(key))
+      throw new ValidationError(`The stage “${s.name.trim()}” is listed twice`);
+    seen.add(key);
+  }
+}
+
+/**
+ * What a save of the stage list does: keep (rename, move), create, remove.
+ *
+ * Removing a stage that tasks stand on is refused, naming it and how many: the task would lose
+ * where its work stands, and the firm would not know until somebody looked (owner, 2026-10-08).
+ * Moving those tasks to another stage first is the way through.
+ */
+async function planStages(
+  existing: { id: string; name: string }[],
+  input: StageInput,
+): Promise<repo.StagePlan> {
+  assertDistinctNames(input);
+  const known = new Map(existing.map((s) => [s.id, s]));
+  const kept = new Set<string>();
+  for (const s of input) {
+    if (!s.id) continue;
+    if (!known.has(s.id)) throw new ValidationError("That stage is not one of this service's");
+    // one row a stage: twice, the later write won and the list was left with a hole in its order
+    if (kept.has(s.id)) throw new ValidationError("A stage is in the list twice");
+    kept.add(s.id);
+  }
+  const remove = existing.filter((s) => !kept.has(s.id));
+  const used = await repo.countTasksOnStages(remove.map((s) => s.id));
+  const blocked = remove.filter((s) => (used.get(s.id) ?? 0) > 0);
+  if (blocked.length) {
+    const [first] = blocked;
+    const n = used.get(first.id)!;
+    throw new ConflictError(
+      `“${first.name}” is the stage of ${n} task${n === 1 ? "" : "s"}. Move them to another stage, then remove it.`,
+    );
+  }
+  return {
+    keep: input.flatMap((s, order) => (s.id ? [{ id: s.id, name: s.name.trim(), order }] : [])),
+    create: input.flatMap((s, order) => (s.id ? [] : [{ name: s.name.trim(), order }])),
+    remove: remove.map((s) => s.id),
+  };
+}
+
 export async function createService(input: CreateServiceInput) {
   const existing = await repo.findServiceByName(input.name);
   if (existing) throw new ConflictError("A service with this name already exists");
 
+  const stages = input.stages ?? [];
+  assertDistinctNames(stages);
   const color = input.color ?? PALETTE[(await repo.countServices()) % PALETTE.length];
   // internal services never bill — null out billing fields (a dummy trigger is stored, never used)
   const isInternal = input.type === "internal";
@@ -87,13 +154,20 @@ export async function createService(input: CreateServiceInput) {
       invoiceTrigger: input.invoiceTrigger ?? defaultTriggerFor(input.type),
       invoiceDay: isInternal ? null : (input.invoiceDay ?? null),
       dueDays: isInternal ? null : (input.dueDays ?? null),
+      ...(stages.length
+        ? { stages: { create: stages.map((s, order) => ({ name: s.name.trim(), order })) } }
+        : {}),
     },
     isInternal ? false : input.autoAddToNewClients === true,
   );
   record("service.created", {
     subjectId: service!.id,
     subjectLabel: service!.name,
-    changes: { type: service!.type, defaultAmount: service!.defaultAmount },
+    changes: {
+      type: service!.type,
+      defaultAmount: service!.defaultAmount,
+      ...(stages.length ? { stages: stageNames(stages) } : {}),
+    },
   });
   if (service!.autoAddToNewClients) {
     record("service.made_default", { subjectId: service!.id, subjectLabel: service!.name });
@@ -122,7 +196,8 @@ export async function updateService(id: string, input: UpdateServiceInput) {
   }
   // the default-for-new-clients flag is one-time only (merged); it and the field update
   // travel through ONE transaction (unset-others → set), so pull it out of the field data
-  const { autoAddToNewClients, ...fields } = input;
+  const { autoAddToNewClients, stages, ...fields } = input;
+  const stagePlan = stages !== undefined ? await planStages(service.stages, stages) : undefined;
   if (autoAddToNewClients === true && merged.type !== "one_time") {
     throw new ValidationError("Only a one-time service can be the default for new clients");
   }
@@ -146,7 +221,23 @@ export async function updateService(id: string, input: UpdateServiceInput) {
     fields.dueDays = null;
   }
   const flag = merged.type === "internal" ? false : autoAddToNewClients;
-  const updated = await repo.updateServiceWithDefault(id, fields, flag);
+  const updated = await repo
+    .updateServiceWithDefault(id, fields, flag, stagePlan)
+    .catch((error: unknown) => {
+      // a task moved onto a stage being removed after `planStages` counted: the foreign key
+      // refuses the delete, and it is the same answer as the count's, not "a record is missing".
+      // Only a save that removes stages can meet it; nothing else in the transaction deletes.
+      if (
+        stagePlan?.remove.length &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2003"
+      ) {
+        throw new ConflictError(
+          "A task was just moved onto a stage this removes. Reload, move it, then remove the stage.",
+        );
+      }
+      throw error;
+    });
 
   const subject = { subjectId: id, subjectLabel: updated!.name };
   /**
@@ -156,18 +247,25 @@ export async function updateService(id: string, input: UpdateServiceInput) {
    * create. Folding either into a generic "updated" would hide the two changes anybody would come
    * looking for.
    */
+  const moved =
+    diff(service as unknown as Record<string, unknown>, fields as Record<string, unknown>, [
+      "name",
+      "type",
+      "defaultAmount",
+      "invoiceTrigger",
+      "invoiceDay",
+      "dueDays",
+      "color",
+    ]) ?? {};
+  // the list as words, before and after: a rename, a move, an addition and a removal all read
+  const before = stageNames(service.stages);
+  const after = stageNames(updated!.stages);
+  const changes = sameStages(before, after)
+    ? moved
+    : { ...moved, stages: { from: before, to: after } };
   record("service.updated", {
     ...subject,
-    changes:
-      diff(service as unknown as Record<string, unknown>, fields as Record<string, unknown>, [
-        "name",
-        "type",
-        "defaultAmount",
-        "invoiceTrigger",
-        "invoiceDay",
-        "dueDays",
-        "color",
-      ]) ?? undefined,
+    changes: Object.keys(changes).length ? changes : undefined,
   });
   if (input.active !== undefined && input.active !== service.active) {
     record(input.active ? "service.activated" : "service.deactivated", subject);

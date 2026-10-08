@@ -136,7 +136,9 @@ export function SearchSelect({
     <div className="relative" ref={box}>
       <Input
         id={id}
-        className="pr-7"
+        // room for the clear button only while there is one: an empty filter is all placeholder,
+        // and in the tasks bar those 16px decided whether a word was cut off (2026-10-08)
+        className={value ? "pr-7" : undefined}
         autoComplete="off"
         role="combobox"
         aria-label={ariaLabel}

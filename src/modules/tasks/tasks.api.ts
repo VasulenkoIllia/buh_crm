@@ -46,6 +46,11 @@ export interface ActiveTimer {
 
 /** What the Tasks screen is asking for. Every one of these is answered by SQL. */
 export interface TaskQuery {
+  /** a stage by its NAME, across services (the server compares ignoring case) */
+  stage?: string;
+  /** the table's sort by stage position; omitted = newest first */
+  sort?: "stage";
+  dir?: "asc" | "desc";
   /** open work (the board) or completed work (the Done view) */
   /**
    * "all" is the Archive screen's read. The board never asks for it — archived work is done or
@@ -88,6 +93,11 @@ export function useTasks(query: TaskQuery, opts?: { enabled?: boolean }) {
   if (query.assigneeId) params.set("assigneeId", query.assigneeId);
   if (query.clientId) params.set("clientId", query.clientId);
   if (query.leadId) params.set("leadId", query.leadId);
+  if (query.stage) params.set("stage", query.stage);
+  if (query.sort) {
+    params.set("sort", query.sort);
+    params.set("dir", query.dir ?? "asc");
+  }
   if (query.view === "table") {
     params.set("page", String(query.page ?? 1));
     params.set("pageSize", String(query.pageSize ?? TABLE_PAGE_SIZE));

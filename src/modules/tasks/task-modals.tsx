@@ -893,6 +893,25 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
                   <span className="text-muted">—</span>
                 )}
               </Field>
+              {/* only a service with stages has any to offer; a person moves it, freely, and the
+                  last one does not close the task (owner, 2026-10-08) */}
+              {service && service.stages.length > 0 && (
+                <Field label="Stage">
+                  <Select
+                    value={task.stage?.id ?? ""}
+                    disabled={locked}
+                    aria-label="Stage"
+                    onChange={(e) => patch({ stageId: e.target.value || null })}
+                  >
+                    <option value="">—</option>
+                    {service.stages.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
               <Field label="Deadline">
                 <Input
                   className="w-40"

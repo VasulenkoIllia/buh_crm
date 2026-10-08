@@ -636,10 +636,34 @@ model Service {
   invoices      Invoice[]
   meetings      Meeting[]
   people        ClientPerson[]
+  /// the steps its work goes through, in order; none = the service has no stages (2026-10-08)
+  stages        ServiceStage[]
 
   // the catalog's own read order. The index exists in the database — the 2026-08-27 migration
   // created it — but the model had never declared it, so every schema diff wanted to drop it.
   @@index([order])
+}
+
+/// **A step a service's work goes through** (owner, 2026-10-08): "Invite Sent", "Docs Received",
+/// "Contract Signed"… for a tax return. Optional and per service: a service with none behaves as it
+/// always did, and a task of a service that has some carries one of them (`Task.stageId`).
+///
+/// Each service keeps its OWN list, edited with the service. The same name on two services (both tax
+/// returns "Docs Received") is two rows, and the tasks screen filters by the NAME, so one filter
+/// finds both. `order` is the position in the service's list, 0-based, and is what "sort by stage"
+/// sorts by. Names are unique inside a service, case-insensitively, checked by the service layer:
+/// a database constraint would refuse swapping two names in one save.
+model ServiceStage {
+  id        String   @id @default(uuid()) @db.Uuid
+  serviceId String   @db.Uuid
+  name      String
+  order     Int
+  createdAt DateTime @default(now())
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  tasks   Task[]
+
+  @@index([serviceId, order])
 }
 
 model TaskTemplate {
@@ -1011,6 +1035,8 @@ model Task {
   leadId         String?   @db.Uuid
   serviceId      String?   @db.Uuid
   kind           TaskKind  @default(once)
+  /// where this work stands among its service's stages; null = not set, or the service has none
+  stageId        String?   @db.Uuid
   priorityId     String    @db.Uuid
   statusColumnId String    @db.Uuid
   /// Where the card sits IN its column, ascending — the firm's own order, dragged by hand.
@@ -1054,6 +1080,9 @@ model Task {
   company      Company?       @relation(fields: [companyId], references: [id], onDelete: Restrict)
   lead         Lead?          @relation(fields: [leadId], references: [id])
   service      Service?       @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  /// Restrict: a stage a task stands on cannot be deleted from under it; the service layer refuses
+  /// first, naming the stage and how many tasks are on it
+  stage        ServiceStage?  @relation(fields: [stageId], references: [id], onDelete: Restrict)
   priority     Priority       @relation(fields: [priorityId], references: [id])
   statusColumn TaskColumn     @relation(fields: [statusColumnId], references: [id])
   invoice      Invoice?       @relation(fields: [invoiceId], references: [id])
@@ -1083,6 +1112,7 @@ model Task {
   @@index([deadline])
   @@index([archivedAt])
   @@index([cancelledAt])
+  @@index([stageId])
   // the board reads one column at a time, in order
   @@index([statusColumnId, boardOrder])
 }

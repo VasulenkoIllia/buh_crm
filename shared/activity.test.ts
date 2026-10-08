@@ -130,7 +130,8 @@ describe("the activity registry", () => {
     // and three for files in chats (chat.md §6, stage B, 2026-09-20): uploaded, opened or
     // downloaded, and deleted with the last message carrying it — all three labelled "a chat file",
     // with no name and no chat. A chat file never reaches the Trash, so it has no purge of its own
-    expect(ACTIVITY_KEYS.length).toBe(214);
+    // and one for a task moving along its service's stages (tasks.md, 2026-10-08)
+    expect(ACTIVITY_KEYS.length).toBe(215);
     // the checklist is empty because the pass is finished — not because it was abandoned
     expect(PLANNED_EVENT_KEYS).toEqual([]);
   });

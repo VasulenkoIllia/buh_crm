@@ -1155,3 +1155,207 @@ describe("catalog", () => {
     });
   });
 });
+
+/**
+ * A service's stages (owner, 2026-10-08): an optional, ordered list edited with the service, which
+ * the tasks of that service then stand on. Saved as the WHOLE list, so a rename, a move, an
+ * addition and a removal are one save.
+ */
+describe("a service's stages", () => {
+  /** the log is written once the response has gone, so it is waited for, as in the chat suites */
+  async function logged(action: string, subjectId: string, changed?: string) {
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const row = await prisma.activityEvent.findFirst({
+        where: { action, subjectId },
+        orderBy: { occurredAt: "desc" },
+      });
+      if (row && (!changed || JSON.stringify(row.changes ?? {}).includes(changed))) return row;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw new Error(`no ${action} row for ${subjectId}`);
+  }
+
+  const save = (id: string, stages: { id?: string; name: string }[], cookie = adminCookie) =>
+    app.inject({
+      method: "PATCH",
+      url: `/api/catalog/${id}`,
+      headers: { cookie },
+      payload: { stages },
+    });
+  const names = (res: { json: () => { stages: { name: string }[] } }) =>
+    res.json().stages.map((s) => s.name);
+
+  it("is none for a service nobody gave stages, which behaves as it always did", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+      payload: { name: "Stageless", type: "one_time", defaultAmount: 10_000 },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().stages).toEqual([]);
+  });
+
+  it("is created with the service, in order, and written to the log as words", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+      payload: {
+        name: "Personal tax return (stages)",
+        type: "one_time",
+        stages: [{ name: "Invite Sent" }, { name: " Docs Received " }, { name: "Filed" }],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(
+      created.json().stages.map((s: { name: string; order: number }) => [s.order, s.name]),
+    ).toEqual([
+      [0, "Invite Sent"],
+      [1, "Docs Received"],
+      [2, "Filed"],
+    ]);
+    const row = await logged("service.created", created.json().id);
+    expect(row.changes).toMatchObject({ stages: ["Invite Sent", "Docs Received", "Filed"] });
+  });
+
+  it("renames, moves, adds and removes in one save, keeping each kept stage's identity", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+      payload: {
+        name: "Business tax return (stages)",
+        type: "one_time",
+        stages: [{ name: "A" }, { name: "B" }, { name: "C" }],
+      },
+    });
+    const id = created.json().id as string;
+    const [a, b, c] = created.json().stages as { id: string }[];
+
+    const res = await save(id, [
+      { id: c.id, name: "C first" },
+      { id: a.id, name: "A" },
+      { name: "New" },
+    ]);
+    expect(res.statusCode).toBe(200);
+    expect(names(res)).toEqual(["C first", "A", "New"]);
+    expect(res.json().stages[0].id).toBe(c.id); // the same row, renamed and moved
+    expect(await prisma.serviceStage.count({ where: { id: b.id } })).toBe(0);
+
+    const row = await logged("service.updated", id, "C first");
+    expect(row.changes).toMatchObject({
+      stages: { from: ["A", "B", "C"], to: ["C first", "A", "New"] },
+    });
+
+    // a save that leaves the stages out leaves them alone
+    const other = await app.inject({
+      method: "PATCH",
+      url: `/api/catalog/${id}`,
+      headers: { cookie: adminCookie },
+      payload: { defaultAmount: 20_000 },
+    });
+    expect(names(other)).toEqual(["C first", "A", "New"]);
+  });
+
+  it("logs a rename at the end of a long list, past the log's 200-character cap on a string", async () => {
+    const long = Array.from({ length: 15 }, (_, i) => ({
+      name: `Stage number ${i + 1} of 15`,
+    }));
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+      payload: { name: "Long stages", type: "one_time", stages: long },
+    });
+    expect(created.statusCode).toBe(201);
+    const saved = created.json().stages as { id: string; name: string }[];
+    const renamed = saved.map((s, i) => ({
+      id: s.id,
+      name: i === 14 ? "Filed at last" : s.name,
+    }));
+    expect((await save(created.json().id, renamed)).statusCode).toBe(200);
+
+    const row = await logged("service.updated", created.json().id, "Filed at last");
+    const { from, to } = (row.changes as { stages: { from: string[]; to: string[] } }).stages;
+    expect(from.at(-1)).toBe("Stage number 15 of 15");
+    expect(to.at(-1)).toBe("Filed at last");
+  });
+
+  it("refuses a name twice, however it is cased, a stage of another service, and one stage twice", async () => {
+    const one = await app.inject({
+      method: "POST",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+      payload: { name: "Stages one", type: "one_time", stages: [{ name: "Filed" }] },
+    });
+    const two = await app.inject({
+      method: "POST",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+      payload: { name: "Stages two", type: "one_time" },
+    });
+    expect(
+      (await save(two.json().id, [{ name: "Filed" }, { name: "filed " }])).statusCode,
+    ).toBe(400);
+    const foreign = await save(two.json().id, [{ id: one.json().stages[0].id, name: "Filed" }]);
+    expect(foreign.statusCode).toBe(400);
+    // the same stage twice under two names: the later write won and the order had a hole
+    const own = one.json().stages[0].id;
+    const twice = await save(one.json().id, [
+      { id: own, name: "Filed" },
+      { id: own, name: "Sent" },
+    ]);
+    expect(twice.statusCode).toBe(400);
+  });
+
+  it("will not remove a stage tasks stand on, and says which and how many", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+      payload: {
+        name: "Stages in use",
+        type: "one_time",
+        stages: [{ name: "Docs Received" }, { name: "Filed" }],
+      },
+    });
+    const id = created.json().id as string;
+    const [docs, filed] = created.json().stages as { id: string; name: string }[];
+    const [priority, column] = await Promise.all([
+      prisma.priority.findFirstOrThrow(),
+      prisma.taskColumn.findFirstOrThrow(),
+    ]);
+    await prisma.task.create({
+      data: {
+        title: "On a stage",
+        serviceId: id,
+        stageId: docs.id,
+        priorityId: priority.id,
+        statusColumnId: column.id,
+      },
+    });
+
+    const refused = await save(id, [{ id: filed.id, name: "Filed" }]);
+    expect(refused.statusCode).toBe(409);
+    expect(refused.body).toContain("“Docs Received” is the stage of 1 task");
+    // renaming it is fine: the task keeps it and reads the new name
+    const renamed = await save(id, [
+      { id: docs.id, name: "Documents in" },
+      { id: filed.id, name: "Filed" },
+    ]);
+    expect(renamed.statusCode).toBe(200);
+    // the unused one can go
+    expect((await save(id, [{ id: docs.id, name: "Documents in" }])).statusCode).toBe(200);
+  });
+
+  it("is the catalog's to change: admins only", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+      payload: { name: "Stages admin only", type: "one_time" },
+    });
+    expect((await save(created.json().id, [{ name: "X" }], userCookie)).statusCode).toBe(403);
+  });
+});

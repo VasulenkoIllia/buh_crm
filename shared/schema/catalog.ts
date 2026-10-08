@@ -21,6 +21,19 @@ export const taskTemplateSchema = z.object({
 });
 export type TaskTemplate = z.infer<typeof taskTemplateSchema>;
 
+/** One step of a service's work, in its order (catalog.md, "Stages"). */
+export const serviceStageSchema = z.object({
+  id: uuid,
+  name: z.string().min(1),
+  /** 0-based position in the service's list: what "sort by stage" sorts by */
+  order: z.number().int(),
+});
+export type ServiceStage = z.infer<typeof serviceStageSchema>;
+
+/** How many stages one service may have, and how long one may be called. */
+export const MAX_STAGES = 20;
+export const STAGE_NAME_MAX = 60;
+
 export const serviceSchema = z.object({
   id: uuid,
   name: z.string().min(1),
@@ -37,6 +50,8 @@ export const serviceSchema = z.object({
   order: z.number().int(),
   clientsCount: z.number().int(),
   taskTemplates: z.array(taskTemplateSchema),
+  /** the steps its work goes through, in order; empty = the service has no stages */
+  stages: z.array(serviceStageSchema),
 });
 export type Service = z.infer<typeof serviceSchema>;
 
@@ -171,6 +186,20 @@ const serviceFields = z.object({
   dueDays: z.number().int().min(1).max(365).nullable().optional(),
   /** auto-add this service to every new client (one-time services only; ≤1 in the catalog) */
   autoAddToNewClients: z.boolean().optional(),
+  /**
+   * The whole list of stages, in order; omitted = leave them as they are. An entry with an `id` is
+   * an existing stage (renamed or moved), one without is new, and an existing stage missing from
+   * the list is removed, which is refused while tasks stand on it.
+   */
+  stages: z
+    .array(
+      z.object({
+        id: uuid.optional(),
+        name: z.string().trim().min(1).max(STAGE_NAME_MAX),
+      }),
+    )
+    .max(MAX_STAGES)
+    .optional(),
 });
 
 /** the default-for-new-clients flag is only valid on a one-time service */

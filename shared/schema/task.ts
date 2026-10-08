@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { STAGE_NAME_MAX } from "./catalog.js";
 import { money, uuid } from "./common.js";
 import { invoiceStatus, taskKind, timeEntrySource } from "./enums.js";
 
@@ -76,6 +77,11 @@ export const taskSchema = z.object({
   companyId: uuid.nullable(),
   leadId: uuid.nullable(),
   serviceId: uuid.nullable(),
+  /**
+   * Where the work stands among its service's stages (owner, 2026-10-08); null when it is not set
+   * or the service has none. `order` is the stage's position in its service, for sorting.
+   */
+  stage: z.object({ id: uuid, name: z.string(), order: z.number().int() }).nullable(),
   /** once = billable one-off · sub = generated from a subscription · free = internal */
   kind: taskKind,
   priorityId: uuid,
@@ -205,6 +211,8 @@ export const updateTaskInput = workflowFields.partial().extend({
   amount: money.nullable().optional(),
   // optional on PATCH — omitting keeps current assignees; [] clears them
   assignees: z.array(uuid).max(20).optional(),
+  /** one of the task's service's stages; null clears it */
+  stageId: uuid.nullable().optional(),
 });
 export type UpdateTaskInput = z.infer<typeof updateTaskInput>;
 
@@ -283,6 +291,14 @@ export const taskListQuery = z.object({
    * through this filter (user, 2026-08-08).
    */
   serviceId: z.union([uuid, z.literal("none")]).optional(),
+  /**
+   * A stage by its NAME, across services: each service keeps its own list, and "Docs Received" on
+   * both tax returns is one filter that finds both (owner, 2026-10-08). Compared ignoring case.
+   */
+  stage: z.string().trim().min(1).max(STAGE_NAME_MAX).optional(),
+  /** the table's sort; omitted = newest first, as it always was */
+  sort: z.enum(["stage"]).optional(),
+  dir: z.enum(["asc", "desc"]).default("asc"),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(50),
 });

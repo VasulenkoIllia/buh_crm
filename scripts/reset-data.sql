@@ -126,6 +126,17 @@ DELETE FROM "Notification";
 -- would CASCADE from the service anyway, but naming it keeps this file readable and keeps the
 -- invariant test's "every table is accounted for" check honest.
 DELETE FROM "TaskTemplate" WHERE "serviceId" NOT IN (SELECT id FROM "Service" WHERE "autoAddToNewClients");
+-- A service's stages go with it, as its templates do; the tasks that stood on them are gone above.
+-- Guarded: this file runs BEFORE the deploy's migrations, so on the deploy that brings the table
+-- it does not exist yet, and a bare DELETE stopped that `--reset` after the dump (2026-10-08).
+-- PL/pgSQL resolves a table only when it runs the statement, so the untaken branch costs nothing.
+-- The rows would go with the services by CASCADE anyway; the statement is named to be read.
+DO $$
+BEGIN
+  IF to_regclass('public."ServiceStage"') IS NOT NULL THEN
+    DELETE FROM "ServiceStage" WHERE "serviceId" NOT IN (SELECT id FROM "Service" WHERE "autoAddToNewClients");
+  END IF;
+END $$;
 DELETE FROM "Service" WHERE NOT "autoAddToNewClients";
 
 -- base data — recreated on the next boot by ensureBaseData()

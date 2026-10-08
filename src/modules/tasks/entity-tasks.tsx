@@ -188,6 +188,11 @@ function TaskRow({
           {task.title}
         </span>
         {serviceName && <ServiceChip name={serviceName.name} color={serviceName.color} />}
+        {task.stage && (
+          <Chip tone="gray" size="sm" title="Stage" className="flex-none">
+            {task.stage.name}
+          </Chip>
+        )}
         {task.kind === "sub" && (
           <Chip tone="blue" size="sm">
             📅 auto

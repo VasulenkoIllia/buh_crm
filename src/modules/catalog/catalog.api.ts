@@ -9,7 +9,7 @@ import type {
 } from "@shared/schema/catalog";
 import { api } from "@/shared/lib/api";
 import { applyDrop } from "@/shared/lib/drop-target";
-import { CATALOG_KEY } from "@/shared/lib/query-keys";
+import { CATALOG_KEY, TASKS_KEY } from "@/shared/lib/query-keys";
 
 /** The whole catalog (active + inactive) — dropdowns filter to active themselves. */
 export function useCatalog() {
@@ -35,11 +35,17 @@ export function useCreateService() {
 }
 
 export function useUpdateService() {
-  const invalidate = useInvalidateCatalog();
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateServiceInput }) =>
       api<Service>(`/api/catalog/${id}`, { method: "PATCH", body: input }),
-    onSuccess: invalidate,
+    // a renamed stage is printed on every task that stands on it, so a save that changed the
+    // stages makes the task lists stale as well (review, 2026-10-08)
+    onSuccess: (_service, { input }) =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: CATALOG_KEY }),
+        input.stages && queryClient.invalidateQueries({ queryKey: TASKS_KEY }),
+      ]),
   });
 }
 

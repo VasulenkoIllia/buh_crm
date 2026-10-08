@@ -50,7 +50,10 @@ export function Modal({
 
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    // Escape belongs to the innermost open thing. One that took it already says so: a list being
+    // dragged by the keyboard cancels the drag with it and marks the key handled, and closing the
+    // form as well threw away whatever was half typed in it (2026-10-08).
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !e.defaultPrevented && onClose();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);

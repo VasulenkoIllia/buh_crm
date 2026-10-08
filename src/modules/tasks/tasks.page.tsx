@@ -19,6 +19,7 @@ import { Button } from "@/shared/ui/button";
 import { Chip } from "@/shared/ui/chip";
 import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
 import { SearchSelect } from "@/shared/ui/search-select";
+import { type StageSort, anyStages, nextStageSort, stageFilterNames } from "./stage-filter";
 import { FilterChips } from "@/shared/ui/tabs";
 import { Segmented } from "@/shared/ui/segmented";
 import { fmtBizDay, fmtDate } from "@/shared/lib/format";
@@ -77,6 +78,9 @@ export function TasksPage() {
   const [donePeriod, setDonePeriod] = useState<DonePeriod>("7");
   const [cancelledPeriod, setCancelledPeriod] = useState<DonePeriod>("all");
   const [serviceFilter, setServiceFilter] = useState("");
+  /** a stage by its name, across services; the table's sort by stage (owner, 2026-10-08) */
+  const [stageFilter, setStageFilter] = useState("");
+  const [stageSort, setStageSort] = useState<StageSort>("none");
   /** ticked rows in a closed view — `selected` is taken: that is the task open in the modal */
   const [ticked, setTicked] = useState<string[]>([]);
   const [page, setPage] = useState(1);
@@ -96,6 +100,19 @@ export function TasksPage() {
 
   // Every filter is a SERVER filter: a chip has to search all the work, not just the rows this
   // page loaded. "Mine" is just an assignee filter with the signed-in user in it.
+  const { data: catalog } = useCatalog();
+  // the names on offer follow the service picked; a stage left picked from another service's list
+  // stops filtering rather than quietly asking for work nobody can see in the picker
+  const stageNames = stageFilterNames(catalog ?? [], serviceFilter || undefined);
+  // a firm whose services have no stages sees no stage picker, column or sort: the screen is as it
+  // was before stages existed (review, 2026-10-08)
+  const usesStages = anyStages(catalog ?? []);
+  // the picker's OWN spelling of the name: the server compares ignoring case, the picker does not,
+  // and "docs received" kept from another service's list showed an empty box while still filtering
+  const stageValue =
+    stageNames.find((n) => n.toLowerCase() === stageFilter.toLowerCase()) ?? "";
+  const sortingByStage = usesStages && layout === "table" && stageSort !== "none";
+
   const { data, isLoading, error, refetch } = useTasks({
     status: cancelled ? "cancelled" : done ? "done" : "open",
     view: layout,
@@ -108,13 +125,15 @@ export function TasksPage() {
     assigneeId: mineOnly ? user?.id : assigneeFilter || undefined,
     clientId: targetKind === "client" ? targetId : undefined,
     leadId: targetKind === "lead" ? targetId : undefined,
+    stage: stageValue || undefined,
+    sort: sortingByStage ? "stage" : undefined,
+    dir: stageSort === "desc" ? "desc" : "asc",
     page,
     pageSize: TABLE_PAGE_SIZE,
   });
   const { data: columns } = useTaskColumns();
   const { data: team } = useAssignees();
   const { data: taskTargets } = useTaskTargets();
-  const { data: catalog } = useCatalog();
   const bulkArchive = useBulkArchiveTasks();
   const [bulkNote, setBulkNote] = useState<{ text: string; hint?: string } | null>(null);
 
@@ -131,6 +150,8 @@ export function TasksPage() {
     donePeriod,
     cancelledPeriod,
     serviceFilter,
+    stageValue,
+    stageSort,
     page,
   ]);
 
@@ -146,6 +167,8 @@ export function TasksPage() {
     donePeriod,
     cancelledPeriod,
     serviceFilter,
+    stageValue,
+    stageSort,
   ]);
   const [formOpen, setFormOpen] = useState(false);
   const [formColumnId, setFormColumnId] = useState<string | undefined>();
@@ -196,8 +219,8 @@ export function TasksPage() {
         you switched view (user, 2026-08-01).
       */}
       <div className="flex flex-none items-start justify-between gap-3 border-b border-border bg-surface px-6 pb-3 pt-4">
-        <div className="flex min-w-0 flex-wrap items-center gap-3">
-          <h1 className="text-[18px] font-semibold">Tasks</h1>
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-3">
+          <h1 className="mr-1 text-[18px] font-semibold">Tasks</h1>
           {/* Both closed views take a PERIOD, not a state — "mine"/"overdue" mean nothing for work
             that is finished or called off. They differ only in where they start: Done at a week
             because it piles up, Cancelled at everything because it does not, and the one you are
@@ -221,16 +244,18 @@ export function TasksPage() {
           )}
           {/* searchable: this lists every client AND lead with live work — a plain dropdown
             stops being usable long before the firm does */}
-          {/* The three pickers give a little width (176 down to 120) before any of them wraps, so
-            the Active view's bar is one row on a 13-inch MacBook; at 176 each it was two
-            (owner, 2026-09-29). */}
+          {/* The pickers give width (176 down to 90) before any of them wraps, so the Active view's
+            bar is one row on a 13-inch MacBook; at 176 each it was two (owner, 2026-09-29). The
+            stage picker made it four, and the row fits again only with one-word placeholders ("All
+            services" is what the list's first row says) and the client picker, whose words are
+            the longest, starting wider (owner, 2026-10-08). */}
           {/* the catalog service the work goes through. "Internal" is not a service — it is the
             absence of one, and without the option every internal task is unreachable here. */}
-          <div className="min-w-0 max-w-44 flex-1 basis-[120px]">
+          <div className="min-w-0 max-w-44 flex-1 basis-[90px]">
             <SearchSelect
               value={serviceFilter}
               onChange={setServiceFilter}
-              placeholder="All services"
+              placeholder="Service"
               emptyLabel="All services"
               ariaLabel="Filter by service"
               options={[
@@ -241,11 +266,25 @@ export function TasksPage() {
               ]}
             />
           </div>
-          <div className="min-w-0 max-w-44 flex-1 basis-[120px]">
+          {/* only when some service has stages: the picker means nothing to a firm with none. It
+            stays put when the service picked has none, so the bar does not jump */}
+          {usesStages && (
+            <div className="min-w-0 max-w-44 flex-1 basis-[90px]">
+              <SearchSelect
+                value={stageValue}
+                onChange={setStageFilter}
+                placeholder="Stage"
+                emptyLabel="All stages"
+                ariaLabel="Filter by stage"
+                options={stageNames.map((n) => ({ value: n, label: n }))}
+              />
+            </div>
+          )}
+          <div className="min-w-0 max-w-44 flex-1 basis-[130px]">
             <SearchSelect
               value={targetFilter}
               onChange={setTargetFilter}
-              placeholder="All clients & leads"
+              placeholder="Client or lead"
               emptyLabel="All clients & leads"
               options={targetOptions.map((t) => ({
                 value: `${t.kind}:${t.id}`,
@@ -255,7 +294,7 @@ export function TasksPage() {
           </div>
           <div
             className={cn(
-              "min-w-0 max-w-44 flex-1 basis-[120px]",
+              "min-w-0 max-w-44 flex-1 basis-[90px]",
               mineOnly && "pointer-events-none opacity-50",
             )}
           >
@@ -263,7 +302,7 @@ export function TasksPage() {
             <SearchSelect
               value={mineOnly ? "" : assigneeFilter}
               onChange={setAssigneeFilter}
-              placeholder="All assignees"
+              placeholder="Assignee"
               emptyLabel="All assignees"
               options={(team ?? []).map((u) => ({
                 value: u.id,
@@ -400,6 +439,8 @@ export function TasksPage() {
             columns={columns}
             tasks={tasks}
             team={team ?? []}
+            stageSort={usesStages ? stageSort : undefined}
+            onStageSort={() => setStageSort(nextStageSort)}
             onOpen={(t) => openDetails(t.id)}
             ticked={closed ? ticked : undefined}
             onTick={
@@ -919,6 +960,11 @@ function CardFace({
         <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] text-muted">
           <TargetName task={task} />
           {service && <ServiceChip name={service.name} color={service.color} />}
+          {task.stage && (
+            <Chip tone="gray" title="Stage">
+              {task.stage.name}
+            </Chip>
+          )}
         </div>
       )}
       {/* the deadline leads the row of facts rather than taking a line of its own */}
@@ -1117,6 +1163,8 @@ function TaskTable({
   onOpen,
   ticked = [],
   onTick,
+  stageSort,
+  onStageSort,
 }: {
   columns: TaskColumn[];
   tasks: Task[];
@@ -1129,10 +1177,19 @@ function TaskTable({
    */
   ticked?: string[];
   onTick?: (id: string) => void;
+  /** absent while no service has stages: no column at all, rather than one of dashes */
+  stageSort?: StageSort;
+  onStageSort: () => void;
 }) {
   const { data: settings } = useSettings();
   const selectable = !!onTick;
-  const grid = "grid grid-cols-[26px_1fr_150px_130px_96px_110px_88px_70px] items-center";
+  const showStage = stageSort !== undefined;
+  const grid = cn(
+    "grid items-center",
+    showStage
+      ? "grid-cols-[26px_1fr_150px_130px_96px_110px_112px_88px_70px]"
+      : "grid-cols-[26px_1fr_150px_130px_96px_110px_88px_70px]",
+  );
 
   return (
     <div className="flex-1 overflow-auto p-3.5">
@@ -1149,6 +1206,20 @@ function TaskTable({
           <span>Assignee</span>
           <span>Priority</span>
           <span>Status</span>
+          {/* the one sortable column: a click goes up, down, then back to newest first */}
+          {showStage && (
+            <button
+              type="button"
+              onClick={onStageSort}
+              aria-label={`Sort by stage${stageSort === "none" ? "" : stageSort === "asc" ? ", ascending" : ", descending"}`}
+              className="flex items-center gap-1 text-left uppercase tracking-[.4px] hover:text-ink"
+            >
+              Stage
+              <span aria-hidden="true">
+                {stageSort === "asc" ? "↑" : stageSort === "desc" ? "↓" : "↕"}
+              </span>
+            </button>
+          )}
           <span className="text-right">Due</span>
           <span className="text-right">Tracked</span>
         </div>
@@ -1219,6 +1290,11 @@ function TaskTable({
                   {t.done ? "done" : (column?.name ?? "—")}
                 </Chip>
               </span>
+              {showStage && (
+                <span className="min-w-0 truncate text-ink-700" title={t.stage?.name}>
+                  {t.stage?.name ?? <span className="text-faint">—</span>}
+                </span>
+              )}
               <span
                 className={cn(
                   "text-right tabular-nums",
