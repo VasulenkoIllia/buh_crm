@@ -598,6 +598,40 @@ describe("sender mailboxes", () => {
   });
 
   /**
+   * A contact button dials ONE number (owner, 2026-10-08). Two written into the field ran together
+   * into twenty digits that dial nothing; a US number without its country code is fine, the letter
+   * adds the 1.
+   */
+  it("refuses two numbers in one button, and takes a US number without its +1", async () => {
+    const two = await app.inject({
+      method: "POST",
+      url: "/api/mailouts/settings/senders",
+      headers: { cookie },
+      payload: {
+        name: "Two numbers",
+        fromEmail: "two@illion.tax",
+        contactPhone: "(980) 580-8890/(323) 761-7170",
+      },
+    });
+    expect(two.statusCode).toBe(400);
+    expect(two.body).toMatch(/One number per button/);
+
+    const one = await app.inject({
+      method: "POST",
+      url: "/api/mailouts/settings/senders",
+      headers: { cookie },
+      payload: {
+        name: "One number",
+        fromEmail: "one@illion.tax",
+        contactPhone: "(980) 580-8890",
+        contactWhatsapp: "(323) 761-7170",
+        contactTelegram: "@illion_tax",
+      },
+    });
+    expect(one.statusCode).toBe(201);
+  });
+
+  /**
    * A mailbox that only sends is half a mailbox: bounces come back as ordinary mail, and reading
    * them needs its own host, port and — usually not — its own credentials.
    */
@@ -1196,6 +1230,39 @@ describe("previewing the letter itself", () => {
     expect(body.html).toContain("#37544F"); // the brand colour
     expect(body.sendable).toBe(true);
     expect(testOutbox).toHaveLength(0);
+  });
+
+  /**
+   * The template's own mailbox, not the default one (owner, 2026-10-08): a phone number changed in
+   * a mailbox the template goes from never showed, because the preview drew every template through
+   * the default mailbox's signature and said nothing about which one it was.
+   */
+  it("draws the letter through the mailbox it is given, and names it", async () => {
+    const billing = await prisma.mailSenderAccount.create({
+      data: {
+        name: "Billing preview",
+        fromName: "ILLION Billing",
+        fromEmail: "billing@illion.tax",
+        signature: "Billing desk\n+1 (980) 580-8890",
+        contactPhone: "+1 (980) 580-8890",
+      },
+    });
+    try {
+      const through = await render({ ...letter(), senderAccountId: billing.id });
+      expect(through.statusCode).toBe(200);
+      expect(through.json().html).toContain("580-8890");
+      expect(through.json().html).not.toContain("Maryna Onyshchenko");
+      expect(through.json().sender).toEqual({
+        name: "Billing preview",
+        email: "billing@illion.tax",
+      });
+
+      const byDefault = await render(letter());
+      expect(byDefault.json().html).toContain("Maryna Onyshchenko");
+      expect(byDefault.json().sender).toEqual({ name: "Main", email: "info@illion.tax" });
+    } finally {
+      await prisma.mailSenderAccount.delete({ where: { id: billing.id } });
+    }
   });
 
   it("shows the legal footer on commercial and omits it on transactional", async () => {

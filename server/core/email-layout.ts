@@ -39,7 +39,7 @@
  * Without them this shell still lands in spam. See docs/modules/mailouts.md.
  */
 import { MARK_END, MARK_START } from "@shared/mailouts.js";
-import { type ContactField, contactsInLetter } from "@shared/schema/mailouts.js";
+import { type ContactField, contactsInLetter, dialDigits } from "@shared/schema/mailouts.js";
 import { escapeHtml } from "./html.js";
 
 const GREEN = "#37544F";
@@ -173,8 +173,12 @@ export interface ContactDetails {
   website?: string | null;
 }
 
-/** `+1 (704) 726-6994` → `17047266994`. `wa.me` and `t.me` reject anything else. */
-const digits = (value: string) => value.replace(/\D/g, "");
+/**
+ * `+1 (704) 726-6994` → `17047266994`, and `(980) 580-8890` → `19805808890`: `wa.me` and `t.me`
+ * reject anything but digits, and ten of them without a country code are a US number
+ * (`dialDigits`, shared with the mailbox form's check).
+ */
+const digits = dialDigits;
 
 /**
  * The tap-to-contact buttons, built from fields the firm filled in.
@@ -224,7 +228,8 @@ export function contactLinks(contacts: ContactDetails): ContactLink[] {
 // into it, and a phone number you cannot tap is a small daily annoyance. These make the text
 // clickable; they no longer decide anything, which is what made the old parser fragile.
 const EMAIL_RE = /[\w.+-]+@[\w-]+\.[\w.-]+/;
-const PHONE_RE = /\+?[\d][\d\s().-]{7,}\d/;
+// every number on the line, an opening bracket included: "(980) 580-8890/(323) 761-7170" is two
+const PHONE_RE = /\+?\(?\d[\d\s().-]{7,}\d/g;
 const URL_RE = /\b((?:https?:\/\/)?(?:[\w-]+\.)+(?:tax|com|net|org|io|co|ua|us))\b/i;
 
 /**
@@ -242,15 +247,23 @@ function linkifyLine(line: string): string {
   const email = safe.match(EMAIL_RE)?.[0];
   if (email) return safe.replace(email, anchor(email, `mailto:${email}`));
 
-  const phone = safe.match(PHONE_RE)?.[0];
-  if (phone) {
-    const digits = phone.replace(/\D/g, "");
-    const href = /telegram/i.test(safe)
-      ? `https://t.me/+${digits}`
-      : /whats\s?app/i.test(safe)
-        ? `https://wa.me/${digits}`
-        : `tel:+${digits}`;
-    return safe.replace(phone, anchor(phone, href));
+  // Only what has the length of a phone, 10 to 15 digits: a year range, an EIN or a ZIP+4 is not
+  // one, and a run of more is two numbers with nothing between them to tell them apart (audit,
+  // 2026-10-08). A line with none falls through to the website check below.
+  const isPhone = (run: string) => {
+    const length = run.replace(/\D/g, "").length;
+    return length >= 10 && length <= 15;
+  };
+  // `match`, not `test`: a global regex's `test` keeps its place between calls
+  if ((safe.match(PHONE_RE) ?? []).some(isPhone)) {
+    const href = (phone: string) =>
+      /telegram/i.test(safe)
+        ? `https://t.me/+${digits(phone)}`
+        : /whats\s?app/i.test(safe)
+          ? `https://wa.me/${digits(phone)}`
+          : `tel:+${digits(phone)}`;
+    // each number its own link: only the first used to be, and the second read as plain text
+    return safe.replace(PHONE_RE, (run) => (isPhone(run) ? anchor(run, href(run)) : run));
   }
 
   const url = safe.match(URL_RE)?.[1];

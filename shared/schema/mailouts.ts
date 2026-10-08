@@ -177,6 +177,12 @@ export const letterPreviewSchema = z.object({
   /** false when the firm has no postal address — a commercial send would be refused */
   sendable: z.boolean(),
   blockedReason: z.string().nullable(),
+  /**
+   * The mailbox the letter was drawn through: its signature and contacts are the ones shown. Named
+   * because a template can go from a mailbox other than the default, and a preview that did not
+   * say which one showed the default's signature with nothing to tell (owner, 2026-10-08).
+   */
+  sender: z.object({ name: z.string(), email: z.string().nullable() }),
 });
 export type LetterPreview = z.infer<typeof letterPreviewSchema>;
 
@@ -546,46 +552,60 @@ const senderText = (max: number) =>
     .nullable()
     .optional();
 
-export const senderAccountInput = z.object({
-  name: z.string().trim().min(1, "Required").max(60).optional(),
-  fromName: z.string().trim().max(80).optional(),
-  fromEmail: z.union([z.email(), z.literal("")]).optional(),
-  replyTo: z
-    .union([z.email(), z.literal("")])
-    .nullable()
-    .optional(),
-  signature: senderText(2000),
-  smtpHost: senderText(200),
-  smtpPort: z.number().int().min(1).max(65535).nullable().optional(),
-  smtpSecure: z.boolean().nullable().optional(),
-  smtpUser: senderText(200),
-  /** "" clears the stored password; omit to leave it untouched */
-  smtpPass: z.string().max(200).optional(),
+export const senderAccountInput = z
+  .object({
+    name: z.string().trim().min(1, "Required").max(60).optional(),
+    fromName: z.string().trim().max(80).optional(),
+    fromEmail: z.union([z.email(), z.literal("")]).optional(),
+    replyTo: z
+      .union([z.email(), z.literal("")])
+      .nullable()
+      .optional(),
+    signature: senderText(2000),
+    smtpHost: senderText(200),
+    smtpPort: z.number().int().min(1).max(65535).nullable().optional(),
+    smtpSecure: z.boolean().nullable().optional(),
+    smtpUser: senderText(200),
+    /** "" clears the stored password; omit to leave it untouched */
+    smtpPass: z.string().max(200).optional(),
 
-  // Reading the mailbox back. Configured, never inferred: bounces go to the envelope sender, and
-  // the hosting decides which mailbox that is — production shows them arriving somewhere other
-  // than the configured `fromEmail`.
-  imapHost: senderText(200),
-  imapPort: z.number().int().min(1).max(65535).nullable().optional(),
-  imapSecure: z.boolean().nullable().optional(),
-  /** "" means "reuse the SMTP username", which is the usual case */
-  imapUser: senderText(200),
-  /** "" clears the stored password; omit to leave it untouched */
-  imapPass: z.string().max(200).optional(),
+    // Reading the mailbox back. Configured, never inferred: bounces go to the envelope sender, and
+    // the hosting decides which mailbox that is — production shows them arriving somewhere other
+    // than the configured `fromEmail`.
+    imapHost: senderText(200),
+    imapPort: z.number().int().min(1).max(65535).nullable().optional(),
+    imapSecure: z.boolean().nullable().optional(),
+    /** "" means "reuse the SMTP username", which is the usual case */
+    imapUser: senderText(200),
+    /** "" clears the stored password; omit to leave it untouched */
+    imapPass: z.string().max(200).optional(),
 
-  active: z.boolean().optional(),
+    active: z.boolean().optional(),
 
-  // the tap-to-contact buttons — explicit fields, never parsed out of the signature
-  contactEmail: z
-    .union([z.email(), z.literal("")])
-    .nullable()
-    .optional(),
-  contactPhone: senderText(60),
-  contactTelegram: senderText(60),
-  contactWhatsapp: senderText(60),
-  contactViber: senderText(60),
-  contactWebsite: senderText(200),
-});
+    // the tap-to-contact buttons — explicit fields, never parsed out of the signature
+    contactEmail: z
+      .union([z.email(), z.literal("")])
+      .nullable()
+      .optional(),
+    contactPhone: senderText(60),
+    contactTelegram: senderText(60),
+    contactWhatsapp: senderText(60),
+    contactViber: senderText(60),
+    contactWebsite: senderText(200),
+  })
+  .superRefine((v, ctx) => {
+    // one dialable number per button; the form asks the same before it sends
+    const fields = {
+      contactPhone: v.contactPhone,
+      contactTelegram: v.contactTelegram,
+      contactWhatsapp: v.contactWhatsapp,
+      contactViber: v.contactViber,
+    };
+    for (const [path, value] of Object.entries(fields)) {
+      const problem = contactNumberProblem(value, { username: path === "contactTelegram" });
+      if (problem) ctx.addIssue({ code: "custom", path: [path], message: problem });
+    }
+  });
 export type SenderAccountInput = z.infer<typeof senderAccountInput>;
 
 /** The firm's postal address — its own endpoint, because it belongs to the firm, not a mailbox. */
@@ -626,6 +646,43 @@ export type ContactField = (typeof CONTACT_ORDER)[number];
  * right edge. So the row is capped, and `CONTACT_ORDER` decides what survives.
  */
 export const MAX_CONTACT_PILLS = 4;
+
+/**
+ * The digits a dial link takes: `tel:+…`, `wa.me/…`, `t.me/+…`, `viber://…`.
+ *
+ * A US firm writes its numbers without the country code, `(980) 580-8890`, and a link built from
+ * those ten digits alone dials +980, a different country (owner, 2026-10-08). Ten digits written
+ * WITHOUT a `+` or `00` are a North American number, so they get the `1`. A number written with its
+ * country code is left as it is, whatever its length: `+45 12 34 56 78` is ten digits too, and it
+ * is Danish (audit, 2026-10-08).
+ */
+export function dialDigits(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  const international = /^\s*(\+|00)/.test(value);
+  return digits.length === 10 && !international ? `1${digits}` : digits;
+}
+
+/**
+ * Why a contact button's field cannot make ONE working link, or null when it can.
+ *
+ * A button dials one number. Two written into the field, `(980) 580-8890/(323) 761-7170`, ran
+ * together into twenty digits that dial nothing, and nobody notices a dead button until a client
+ * taps it. Only Telegram may hold a @username instead of a number; in the other fields words do not
+ * excuse the digits, or `(980) 580-8890 or (323) 761-7170` would pass (audit, 2026-10-08).
+ */
+export function contactNumberProblem(
+  value: string | null | undefined,
+  { username = false }: { username?: boolean } = {},
+): string | null {
+  const v = value?.trim();
+  if (!v) return null;
+  // the same test `contactLinks` uses to choose t.me/<handle> over t.me/+<number>
+  if (username && /[a-z_]/i.test(v.replace(/^@/, ""))) return null;
+  const digits = dialDigits(v);
+  if (digits.length > 15) return "One number per button. A second one can go in the signature.";
+  if (digits.length < 8) return "Write the whole number, with its area code";
+  return null;
+}
 
 /**
  * Which fields become buttons, given what is filled in — in order, capped.

@@ -1433,6 +1433,7 @@ export async function previewLetter(input: PreviewLetterInput): Promise<LetterPr
     unknownVariables: [...new Set([...subject.unknown, ...heading.unknown, ...body.unknown])],
     sendable: !blockedReason,
     blockedReason,
+    sender: { name: account.name, email: account.fromEmail?.trim() || null },
   };
 }
 

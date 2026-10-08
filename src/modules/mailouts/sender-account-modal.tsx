@@ -6,6 +6,7 @@ import {
   type ContactField,
   contactsInLetter,
   type MailSenderAccountDto,
+  contactNumberProblem,
 } from "@shared/schema/mailouts";
 import { Button } from "@/shared/ui/button";
 import { FormField, Input, Textarea } from "@/shared/ui/field";
@@ -162,9 +163,21 @@ export function SenderAccountModal({
   const offerTransportChoice = !account || !account.ownSmtp || transport === "server";
 
   const set = (key: keyof typeof form) => (v: string) => setForm((f) => ({ ...f, [key]: v }));
+  // a button dials ONE number; the server refuses the same, this says so beside the field
+  const numberProblem = {
+    phone: contactNumberProblem(form.contactPhone),
+    telegram: contactNumberProblem(form.contactTelegram, { username: true }),
+    whatsapp: contactNumberProblem(form.contactWhatsapp),
+    viber: contactNumberProblem(form.contactViber),
+  };
 
   async function save() {
     setError(null);
+    if (Object.values(numberProblem).some(Boolean)) {
+      // the contact fields are on the Letter tab: show them; the message under the field says why
+      setDeliveryOpen(false);
+      return;
+    }
     if (!form.name.trim()) {
       setDeliveryOpen(false); // the name is on the Letter tab: show it rather than an error alone
       return setError("Give the mailbox a name");
@@ -334,28 +347,31 @@ export function SenderAccountModal({
                   placeholder="info@illion.tax"
                 />
               </FormField>
-              <FormField label="Phone">
+              <FormField label="Phone" error={numberProblem.phone ?? undefined}>
                 <Input
                   value={form.contactPhone}
                   onChange={(e) => set("contactPhone")(e.target.value)}
                   placeholder="+1 (704) 726-6994"
                 />
               </FormField>
-              <FormField label="Telegram — @username or a number">
+              <FormField
+                label="Telegram — @username or a number"
+                error={numberProblem.telegram ?? undefined}
+              >
                 <Input
                   value={form.contactTelegram}
                   onChange={(e) => set("contactTelegram")(e.target.value)}
                   placeholder="@illion_tax"
                 />
               </FormField>
-              <FormField label="WhatsApp">
+              <FormField label="WhatsApp" error={numberProblem.whatsapp ?? undefined}>
                 <Input
                   value={form.contactWhatsapp}
                   onChange={(e) => set("contactWhatsapp")(e.target.value)}
                   placeholder="+1 (704) 726-6994"
                 />
               </FormField>
-              <FormField label="Viber">
+              <FormField label="Viber" error={numberProblem.viber ?? undefined}>
                 <Input
                   value={form.contactViber}
                   onChange={(e) => set("contactViber")(e.target.value)}

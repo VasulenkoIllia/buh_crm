@@ -30,6 +30,7 @@ export function LetterPreviewModal({
   body,
   kind,
   onKindChange,
+  senderAccountId,
 }: {
   open: boolean;
   onClose: () => void;
@@ -38,11 +39,22 @@ export function LetterPreviewModal({
   body: string;
   kind: MailoutKind;
   onKindChange: (kind: MailoutKind) => void;
+  /**
+   * The mailbox the template goes from; empty = the default one. Drawn through it because the
+   * signature and the contact buttons belong to a mailbox: without it the preview showed the
+   * default's, whatever the template had chosen (owner, 2026-10-08).
+   */
+  senderAccountId: string;
 }) {
   const preview = usePreviewLetter();
   const [result, setResult] = useState<LetterPreview | null>(null);
   const [view, setView] = useState<View>("letter");
   const [error, setError] = useState<string | null>(null);
+
+  // a new opening, or another mailbox, starts from nothing: the last letter would name the wrong one
+  useEffect(() => {
+    if (open) setResult(null);
+  }, [open, senderAccountId]);
 
   // Re-render whenever the letter or its kind changes — the kind decides whether the legal footer
   // is there at all, which is most of what there is to compare between the two.
@@ -56,6 +68,7 @@ export function LetterPreviewModal({
         heading: heading.trim() || null,
         body: body.trim(),
         kind,
+        senderAccountId: senderAccountId || null,
       })
       .then((r) => !cancelled && setResult(r))
       .catch(
@@ -67,7 +80,7 @@ export function LetterPreviewModal({
     // The preview refetches when the LETTER changes, not when the callbacks that fetch it are
     // re-created; listing those would send a request on every keystroke.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, subject, heading, body, kind]);
+  }, [open, subject, heading, body, kind, senderAccountId]);
 
   const used = MAIL_VARIABLES.filter((v) => result?.variablesUsed.includes(v.key));
 
@@ -101,6 +114,15 @@ export function LetterPreviewModal({
           ? "Commercial: closes with the firm's postal address and an unsubscribe link, and is not sent to clients who unsubscribed."
           : "Transactional: no unsubscribe link and no postal address, and it still reaches clients who unsubscribed from news."}
       </p>
+
+      {result && (
+        <p className="mb-3 text-[12px] text-muted">
+          From the mailbox{" "}
+          <span className="font-medium text-ink-700">{result.sender.name}</span>
+          {result.sender.email ? ` · ${result.sender.email}` : ""}. Its signature and contact
+          buttons are the ones below.
+        </p>
+      )}
 
       {error && (
         <p className="mb-3 rounded-(--radius-field) bg-danger/10 px-3 py-2 text-[13px] text-danger-text">
@@ -152,7 +174,7 @@ export function LetterPreviewModal({
           min={520}
         />
       ) : (
-        <p className="text-[13px] text-muted">Rendering…</p>
+        !error && <p className="text-[13px] text-muted">Rendering…</p>
       )}
 
       {/* reference: true of every preview, and read once */}

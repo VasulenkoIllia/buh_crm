@@ -288,3 +288,64 @@ describe("the transactional blocks", () => {
     expect(text).not.toMatch(/unsubscribe/i);
   });
 });
+
+/**
+ * The numbers the firm actually wrote on 2026-10-08: US numbers without the country code, and two
+ * on one line. Ten digits alone dialled +980, a different country; the second number was not a
+ * link at all.
+ */
+describe("a US number written without its country code", () => {
+  it("dials +1 from a button", () => {
+    expect(contactLinks({ phone: "(980) 580-8890" })[0].href).toBe("tel:+19805808890");
+    expect(contactLinks({ whatsapp: "(323) 761-7170" })[0].href).toBe(
+      "https://wa.me/13237617170",
+    );
+    expect(contactLinks({ telegram: "980-580-8890" })[0].href).toBe(
+      "https://t.me/+19805808890",
+    );
+    // a number that already carries a country code is left as it is
+    expect(contactLinks({ whatsapp: "+380 67 123 4567" })[0].href).toBe(
+      "https://wa.me/380671234567",
+    );
+  });
+
+  it("makes every number on a signature line its own link, each with the +1", () => {
+    const html = renderLetter({
+      ...shell,
+      // the first two lines are a name and a title; contact lines come after them
+      signature: "Maryna Onyshchenko, EA, MBA\nAccountant\n(980) 580-8890/(323) 761-7170",
+    });
+    expect(html).toContain('href="tel:+19805808890"');
+    expect(html).toContain('href="tel:+13237617170"');
+    expect(html).not.toContain("tel:+9805808890");
+    // and the line still reads as written
+    expect(html).toMatch(/\(980\) 580-8890<\/a>\/<a [^>]*>\(323\) 761-7170<\/a>/);
+  });
+});
+
+/** What the signature links, tried against the lines a firm really types (audit, 2026-10-08). */
+describe("a signature line's numbers", () => {
+  const lineHtml = (line: string) =>
+    // no buttons: they carry tel: links of their own, and only the signature is under test
+    renderLetter({
+      ...shell,
+      contacts: {},
+      signature: `Maryna Onyshchenko\nAccountant\n${line}`,
+    });
+
+  it("links only what has the length of a phone", () => {
+    for (const notAPhone of ["EIN 12-3456789", "Clients since 2025-2026", "ZIP 28202-1234"]) {
+      expect(lineHtml(notAPhone), notAPhone).not.toContain("tel:");
+    }
+  });
+
+  it("still links the website on a line whose digits are not a phone", () => {
+    const html = lineHtml("illion.tax 2025-2026");
+    expect(html).toContain('href="https://illion.tax"');
+    expect(html).not.toContain("tel:");
+  });
+
+  it("leaves a foreign number with its own country code alone", () => {
+    expect(lineHtml("+45 12 34 56 78")).toContain('href="tel:+4512345678"');
+  });
+});

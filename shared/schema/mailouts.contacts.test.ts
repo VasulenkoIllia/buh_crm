@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { CONTACT_ORDER, MAX_CONTACT_PILLS, contactsInLetter } from "./mailouts.js";
+import {
+  CONTACT_ORDER,
+  MAX_CONTACT_PILLS,
+  contactNumberProblem,
+  contactsInLetter,
+  dialDigits,
+} from "./mailouts.js";
 
 /**
  * The order and the cap have TWO readers now — `contactLinks` builds the buttons from them and the
@@ -42,5 +48,33 @@ describe("which contacts become buttons", () => {
       "phone",
       "telegram",
     ]);
+  });
+});
+
+/** The numbers the firm writes, and the ones the audit of 2026-10-08 tried against the rules. */
+describe("a number a contact button can dial", () => {
+  it("adds the 1 to ten digits written without a country code, and only then", () => {
+    expect(dialDigits("(980) 580-8890")).toBe("19805808890");
+    expect(dialDigits("+1 (980) 580-8890")).toBe("19805808890");
+    // ten digits WITH a country code are somebody else's country: Danish here
+    expect(dialDigits("+45 12 34 56 78")).toBe("4512345678");
+    expect(dialDigits("0045 12 34 56 78")).toBe("004512345678");
+  });
+
+  it("refuses two numbers in a field, words between them or not", () => {
+    for (const two of [
+      "(980) 580-8890/(323) 761-7170",
+      "(980) 580-8890 or (323) 761-7170",
+      "980 580 8890 / 323 761 7170 (Maryna)",
+    ]) {
+      expect(contactNumberProblem(two), two).toMatch(/One number per button/);
+    }
+    expect(contactNumberProblem("+1 (980) 580-8890")).toBeNull();
+    expect(contactNumberProblem("")).toBeNull();
+  });
+
+  it("lets only Telegram hold a @username", () => {
+    expect(contactNumberProblem("@illion_tax", { username: true })).toBeNull();
+    expect(contactNumberProblem("@illion_tax")).toMatch(/whole number/);
   });
 });

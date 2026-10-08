@@ -175,11 +175,14 @@ export function TemplateModal({
               >
                 <option value="">The default mailbox</option>
                 {(senders.data?.accounts ?? [])
-                  .filter((a) => a.active)
+                  // the template's own mailbox stays listed after it is deactivated, so the
+                  // picker says what the template holds and the preview's refusal makes sense
+                  .filter((a) => a.active || a.id === senderAccountId)
                   .map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.name} — {a.fromEmail ?? "no address"}
                       {a.isDefault ? " (default)" : ""}
+                      {a.active ? "" : " (deactivated)"}
                     </option>
                   ))}
               </Select>
@@ -317,6 +320,7 @@ export function TemplateModal({
         body={body}
         kind={kind}
         onKindChange={setKind}
+        senderAccountId={senderAccountId}
       />
     </Modal>
   );
