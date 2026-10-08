@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { List, Pin, X } from "lucide-react";
 import type { ChatMessage } from "@shared/schema/chat";
 import { cn } from "@/shared/lib/cn";
+import { messageLine } from "./message-line";
 
 /**
  * **The pinned messages, in ONE line at the top of the chat** (chat.md §5.2), the way Telegram
@@ -52,11 +53,8 @@ export function PinnedBar({
 
   if (all.length === 0) return null;
   const current = all[Math.min(at, all.length - 1)];
-  const line = (message: ChatMessage) =>
-    message.deletedAt
-      ? "Message deleted"
-      : (message.text?.split("\n")[0] ??
-        (message.files.length > 0 ? `${message.files.length} files` : "Message"));
+  // one photo used to read "1 files" here (2026-10-07)
+  const line = messageLine;
 
   const stepOn = () => {
     onGo(current);

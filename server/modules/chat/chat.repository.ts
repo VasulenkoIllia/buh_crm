@@ -406,12 +406,15 @@ const MESSAGE_PARTS = {
     select: {
       id: true,
       seq: true,
+      kind: true,
       authorId: true,
       deletedAt: true,
       ciphertext: true,
       iv: true,
       authTag: true,
       keyVersion: true,
+      // a photo sent with no words has no first line to quote (owner, 2026-10-07)
+      _count: { select: { files: true } },
     },
   },
 } as const satisfies Prisma.ChatMessageInclude;

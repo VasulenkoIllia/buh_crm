@@ -908,3 +908,30 @@ describe("what every chat is holding (chat.md §6.5)", () => {
     expect(row!.byKind[0].bytes).toBeGreaterThanOrEqual(row!.byKind[1].bytes);
   });
 });
+
+/**
+ * A reply to a message that is only a file (owner, 2026-10-07). The quote carried the first line of
+ * the text and nothing else, so a reply to a photo quoted a name and a blank, and the composer read
+ * the missing text as "Message deleted". The quote now says what the original carried.
+ */
+describe("replying to a file", () => {
+  it("quotes how many files the original carried, and none once it is deleted", async () => {
+    const chatId = await group(olena, "Reply to a photo", [petro]);
+    const photo = await sent(olena, chatId, "logo.png");
+    const original = await say(olena, chatId, { files: [photo] });
+    expect(original.text).toBeNull();
+
+    const reply = await say(petro, chatId, { text: "Nice", replyToId: original.id });
+    expect(reply.replyTo).toMatchObject({
+      id: original.id,
+      kind: "text",
+      preview: null,
+      files: 1,
+      deleted: false,
+    });
+
+    await call(olena, "DELETE", `/messages/${original.id}`);
+    const after = await history(petro, chatId);
+    expect(after.messages.at(-1)!.replyTo).toMatchObject({ files: 0, deleted: true });
+  });
+});

@@ -274,9 +274,13 @@ export type ChatNotice = z.infer<typeof chatNotice>;
 export const chatReplySchema = z.object({
   id: uuid,
   seq: z.number().int(),
+  /** a poll's quote is its question, and says so */
+  kind: chatMessageKind,
   authorId: uuid.nullable(),
-  /** the first line of the original, or null once it is deleted */
+  /** the first line of the original, or null once it is deleted, or when it had no words */
   preview: z.string().nullable(),
+  /** how many files it carried, so a reply to a photo sent with no words is not a blank quote */
+  files: z.number().int(),
   deleted: z.boolean(),
 });
 

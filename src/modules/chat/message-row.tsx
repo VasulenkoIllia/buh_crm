@@ -7,6 +7,7 @@ import { fmtTime } from "@/shared/lib/format";
 import { UserAvatar } from "@/shared/ui/avatar";
 import { RecordCard } from "@/shared/ui/record-card";
 import { MessageFiles } from "./attachments";
+import { lineOf } from "./message-line";
 import { MessageMenu, ReactionPicker } from "./message-menu";
 import { PollCard } from "./poll";
 import { RichText } from "./rich-text";
@@ -161,7 +162,12 @@ export function MessageRow({
               )}
             >
               <span className="font-semibold">{nameOf(people, message.replyTo.authorId)}</span>{" "}
-              {message.replyTo.deleted ? "Message deleted" : message.replyTo.preview}
+              {lineOf({
+                deleted: message.replyTo.deleted,
+                kind: message.replyTo.kind,
+                words: message.replyTo.preview,
+                files: message.replyTo.files,
+              })}
             </button>
           )}
           {/* a message that is nothing but links to records IS those records' cards (§5.6) */}

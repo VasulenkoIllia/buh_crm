@@ -94,8 +94,11 @@ function toMessage(row: MessageRow): ChatMessage {
       ? {
           id: row.replyTo.id,
           seq: row.replyTo.seq,
+          kind: row.replyTo.kind,
           authorId: row.replyTo.authorId,
           preview: previewOf(row.replyTo),
+          // what a tombstone carried is not part of it any more, as for the message itself
+          files: row.replyTo.deletedAt ? 0 : row.replyTo._count.files,
           deleted: row.replyTo.deletedAt !== null,
         }
       : null,

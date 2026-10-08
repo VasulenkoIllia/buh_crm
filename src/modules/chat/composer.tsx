@@ -19,6 +19,7 @@ import {
   type MentionOption,
   type Mentionable,
 } from "./mentions";
+import { messageLine } from "./message-line";
 import { wrapSelection } from "./rich-text";
 
 /**
@@ -238,17 +239,16 @@ export function Composer({
   }
 
   const left = MESSAGE_LIMIT - text.length;
+  const quoted = editing ?? replyTo;
 
   return (
     <div className="border-t border-divider bg-surface">
-      {(replyTo || editing) && (
+      {quoted && (
         <div className="flex items-center gap-2 border-b border-divider px-4 py-1.5 text-[12px]">
           <span className="font-semibold text-ink-700">
             {editing ? "Editing" : "Replying to"}
           </span>
-          <span className="truncate text-muted">
-            {(editing ?? replyTo)?.text?.split("\n")[0] ?? "Message deleted"}
-          </span>
+          <span className="truncate text-muted">{messageLine(quoted)}</span>
           <IconButton label="Cancel" size="sm" className="ml-auto" onClick={onCancel}>
             <IconClose />
           </IconButton>

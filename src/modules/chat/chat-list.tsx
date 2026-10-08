@@ -25,6 +25,7 @@ import { Modal } from "@/shared/ui/modal";
 import { RowButton } from "@/shared/ui/row-button";
 import { useChatListActions } from "./chat.api";
 import { ChatSearchBox } from "./chat-search";
+import { lineOf } from "./message-line";
 import { NotifySettings } from "./notify-modal";
 
 /**
@@ -63,33 +64,17 @@ const NOTICE_LINE: Record<string, string> = {
   owner_changed: "The group has a new owner",
 };
 
-/**
- * The marks are for reading a message, not for a one-line preview: `**Friday**` in a list is
- * noise, and that is exactly what it looked like in use (found 2026-09-20).
- */
-function plain(text: string): string {
-  return text
-    .replace(/```/g, "")
-    .replace(/\*\*(.+?)\*\*/g, "$1")
-    .replace(/~~(.+?)~~/g, "$1")
-    .replace(/`(.+?)`/g, "$1")
-    .replace(/(^|[\s(])_(.+?)_(?=[\s).,!?]|$)/g, "$1$2")
-    .replace(/^>\s?/gm, "");
-}
-
 function lastLine(chat: ChatSummary): string {
   const last = chat.lastMessage;
   if (!last) return "No messages yet";
   if (last.notice) return NOTICE_LINE[last.notice] ?? "The group changed";
-  if (last.deleted) return "Message deleted";
-  if (last.kind === "poll") return `Poll: ${plain(last.preview ?? "")}`;
-  const words = plain(last.preview ?? "");
   // a photo sent with no words would otherwise be an empty line (§4.2, §6.1)
-  if (last.files > 0) {
-    const carried = last.files === 1 ? "File" : `${last.files} files`;
-    return words ? `${carried} · ${words}` : carried;
-  }
-  return words;
+  return lineOf({
+    deleted: last.deleted,
+    kind: last.kind,
+    words: last.preview,
+    files: last.files,
+  });
 }
 
 /**
