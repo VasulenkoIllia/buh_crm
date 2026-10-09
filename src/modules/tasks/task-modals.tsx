@@ -108,6 +108,8 @@ export function TaskFormModal({
     task?.plannedMinutes ?? null,
   );
   const [amount, setAmount] = useState<number | null>(task?.amount ?? null);
+  /** a new task's stage, when its service has stages; "" = none. The card changes it afterwards. */
+  const [stageId, setStageId] = useState("");
   const [description, setDescription] = useState(task?.description ?? "");
   // new task → the creator is the default assignee (removable); edit → keep current
   const [assignees, setAssignees] = useState<Set<string>>(
@@ -145,6 +147,7 @@ export function TaskFormModal({
     setSubscriptionId("");
     setAmount(null);
     setAddedLater(null);
+    setStageId("");
   };
 
   // fetch the picked client directly — includes their subscriptions
@@ -157,6 +160,8 @@ export function TaskFormModal({
     type === "client" ? client?.subscriptions.find((s) => s.id === subscriptionId) : undefined;
   const subService = services?.find((s) => s.id === subscription?.serviceId);
   const isOneTimeJob = subService?.type === "one_time";
+  // offered on a new task only: an existing one's stage is moved in its card, beside the others
+  const stages = !editing && type === "client" ? (subService?.stages ?? []) : [];
   const companyName = subscription?.companyId
     ? client?.companies.find((c) => c.id === subscription.companyId)?.name
     : null;
@@ -166,6 +171,7 @@ export function TaskFormModal({
   const pickSubscription = (id: string, from = client?.subscriptions ?? []) => {
     setSubscriptionId(id);
     setAddedLater(null);
+    setStageId(""); // a stage is one service's: another service's list starts over
     const sub = from.find((s) => s.id === id);
     const svc = services?.find((s) => s.id === sub?.serviceId);
     // one-time container: the per-client default job price prefills (editable per job)
@@ -245,6 +251,7 @@ export function TaskFormModal({
             type === "client" && target?.kind === "client" ? subscriptionId || null : null,
           amount: isOneTimeJob ? amount : null,
           subtasks: steps.length ? steps : undefined,
+          stageId: stages.some((st) => st.id === stageId) ? stageId : undefined,
         });
       }
       onClose();
@@ -515,6 +522,27 @@ export function TaskFormModal({
                   setAmount(e.target.value ? Math.round(Number(e.target.value) * 100) : null)
                 }
               />
+            </div>
+          )}
+
+          {/* Where the work starts, set with the task rather than by opening it afterwards (owner,
+              2026-10-09): a return that arrives with its documents starts at Docs Received. Only
+              for a service with stages, so every other form is unchanged. */}
+          {stages.length > 0 && (
+            <div>
+              <Label>Stage (optional)</Label>
+              <Select
+                value={stageId}
+                aria-label="Stage"
+                onChange={(e) => setStageId(e.target.value)}
+              >
+                <option value="">—</option>
+                {stages.map((st) => (
+                  <option key={st.id} value={st.id}>
+                    {st.name}
+                  </option>
+                ))}
+              </Select>
             </div>
           )}
 

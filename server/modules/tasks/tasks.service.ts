@@ -538,6 +538,14 @@ export async function createTask(input: CreateTaskInput, actor: User) {
   }
   // else: no target → internal free task
 
+  // The stage it starts at, picked in the form rather than only in the card afterwards (owner,
+  // 2026-10-09). Only a client's work through a service can have one: internal and lead work goes
+  // through none, and a stage of ANOTHER service would put the task on a list it is not on.
+  const stage = input.stageId ? await repo.findStage(input.stageId) : null;
+  if (input.stageId && (!stage || !serviceId || stage.serviceId !== serviceId)) {
+    throw new ValidationError("That stage is not one of this task's service");
+  }
+
   const task = await repo.createTask({
     title: input.title,
     clientId,
@@ -554,6 +562,7 @@ export async function createTask(input: CreateTaskInput, actor: User) {
     plannedMinutes: input.plannedMinutes ?? null,
     amount,
     description: input.description ?? null,
+    stageId: stage?.id ?? null,
     createdById: actor.id, // manual task → the actor; generated tasks stay null ("Auto")
   });
   await repo.setAssignees(task.id, input.assignees);
@@ -595,6 +604,8 @@ export async function createTask(input: CreateTaskInput, actor: User) {
     changes: {
       kind,
       deadline: input.deadline ?? null,
+      // its name, read off the row fetched to check it; no stage, no key
+      ...(stage ? { stage: stage.name } : {}),
     },
   });
   return getTask(task.id);

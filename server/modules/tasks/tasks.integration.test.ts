@@ -2458,6 +2458,40 @@ describe("a task's stage", () => {
     expect(cleared.json().stage).toBeNull();
   });
 
+  it("can start at a stage picked when it is created, and the log names it", async () => {
+    const svc = await serviceWithStages("Return (start at)", ["Invite Sent", "Docs Received"]);
+    const other = await serviceWithStages("Other (start at)", ["Elsewhere"]);
+    const clientId = await makeClient("Starter");
+    await jobOn(clientId, svc.id, "First job"); // the client's subscription to it
+    const client = await app.inject({
+      method: "GET",
+      url: `/api/clients/${clientId}`,
+      headers: { cookie: adminCookie },
+    });
+    const subscriptionId = client
+      .json()
+      .subscriptions.find((s: { serviceId: string }) => s.serviceId === svc.id).id as string;
+    const create = (payload: Record<string, unknown>) =>
+      app.inject({
+        method: "POST",
+        url: "/api/tasks",
+        headers: { cookie: adminCookie },
+        payload: { title: "Started", assignees: [], ...payload },
+      });
+
+    const res = await create({ clientId, subscriptionId, stageId: svc.stages[1].id });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().stage).toMatchObject({ id: svc.stages[1].id, name: "Docs Received" });
+    const row = await logged("task.created", res.json().id);
+    expect(row.changes).toMatchObject({ stage: "Docs Received" });
+
+    // another service's stage, and a stage on work that goes through no service at all
+    expect(
+      (await create({ clientId, subscriptionId, stageId: other.stages[0].id })).statusCode,
+    ).toBe(400);
+    expect((await create({ internal: true, stageId: svc.stages[0].id })).statusCode).toBe(400);
+  });
+
   it("refuses a stage of another service, and any stage on a task of a service without", async () => {
     const one = await serviceWithStages("Stages A (tasks)", ["Start"]);
     const two = await serviceWithStages("Stages B (tasks)", ["Begin"]);

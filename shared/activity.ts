@@ -1679,7 +1679,7 @@ const EVENTS = {
     granularity: "item",
     actorKinds: ["user"],
     retention: "ordinary",
-    changeKeys: ["kind", "deadline"],
+    changeKeys: ["kind", "deadline", "stage"],
     enabledByDefault: true,
   },
   "task.updated": {

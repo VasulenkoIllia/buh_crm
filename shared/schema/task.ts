@@ -186,6 +186,8 @@ export const createTaskInput = workflowFields
     amount: money.nullable().optional(),
     /** initial checklist steps (e.g. prefilled from the picked template's default) */
     subtasks: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
+    /** the stage the work starts at: one of the picked service's own (owner, 2026-10-09) */
+    stageId: uuid.nullable().optional(),
   })
   .refine((v) => !(v.clientId && v.leadId), {
     path: ["leadId"],
