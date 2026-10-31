@@ -203,7 +203,7 @@ export const createInvoiceInput = z
     lines: z.array(invoiceLineInput).max(50).optional(),
     withTask: z.boolean().default(false),
     taskTitle: z.string().trim().max(200).optional(),
-    assigneeIds: z.array(uuid).default([]),
+    assigneeIds: z.array(uuid).max(20).default([]),
   })
   .refine((v) => !v.withTask || !!(v.taskTitle || v.description), {
     path: ["taskTitle"],

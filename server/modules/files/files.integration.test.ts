@@ -210,6 +210,49 @@ describe("the library's API (files.md, stage B.2)", () => {
     });
   });
 
+  it("refuses a file over the 25 MB limit and keeps none of it", async () => {
+    const name = `${TAG}-big.txt`;
+    const res = await as(admin).upload(
+      "/api/files/company/upload",
+      name,
+      "x".repeat(25 * 1024 * 1024 + 1),
+    );
+    expect(res.statusCode).toBe(413);
+    expect(res.json().error.code).toBe("FST_REQ_FILE_TOO_LARGE");
+    expect(await prisma.file.count({ where: { name } })).toBe(0);
+  });
+
+  it("keeps a Ukrainian file name as it was typed", async () => {
+    const res = await as(admin).upload(
+      "/api/files/company/upload",
+      `${TAG} звіт за жовтень.txt`,
+    );
+    expect(res.statusCode).toBe(201);
+    expect(res.json().name).toBe(`${TAG} звіт за жовтень.txt`);
+  });
+
+  it("stores the first file of a request that sends two, and ignores the second", async () => {
+    const first = `${TAG}-first.txt`;
+    const second = `${TAG}-second.txt`;
+    const boundary = "----buhcrmfiles";
+    const part = (name: string) =>
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${name}"\r\n` +
+      `Content-Type: application/octet-stream\r\n\r\nhello\r\n`;
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/files/company/upload",
+      headers: {
+        cookie: admin.cookie,
+        "content-type": `multipart/form-data; boundary=${boundary}`,
+      },
+      payload: Buffer.from(`${part(first)}${part(second)}--${boundary}--\r\n`),
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().name).toBe(first);
+    expect(await prisma.file.count({ where: { name: first } })).toBe(1);
+    expect(await prisma.file.count({ where: { name: second } })).toBe(0);
+  });
+
   it("lists a place with its folders' totals, subfolders included, and the path down", async () => {
     const a = as(admin);
     const top = await a.post("/api/files/company/folders", {
