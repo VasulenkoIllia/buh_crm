@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { NavLink } from "react-router-dom";
 import { PanelLeftClose, PanelLeftOpen, type LucideIcon } from "lucide-react";
 import { cn } from "@/shared/lib/cn";
@@ -22,12 +22,39 @@ export interface SidebarItem {
  */
 const COLLAPSED_KEY = "layout.sidebarCollapsed";
 
+/**
+ * **On a phone it is icons, whatever this browser remembers** (owner, 2026-10-31): open, it keeps
+ * 224 of the 390px. The toggle still shows the names, since a phone has no tooltip and Clients and
+ * Team share an icon, but only for now: nothing is stored, and picking a screen folds it again.
+ * The same boundary as `max-sm`.
+ */
+const PHONE_QUERY = "not all and (min-width: 40rem)";
+
+function subscribeToPhone(onChange: () => void) {
+  const media = window.matchMedia(PHONE_QUERY);
+  media.addEventListener("change", onChange);
+  return () => media.removeEventListener("change", onChange);
+}
+
+function useIsPhone() {
+  return useSyncExternalStore(subscribeToPhone, () => window.matchMedia(PHONE_QUERY).matches);
+}
+
 export function Sidebar({ items, chatUnread }: { items: SidebarItem[]; chatUnread: number }) {
-  const [collapsed, setCollapsed] = useState(() => readPref(COLLAPSED_KEY) === "1");
+  const isPhone = useIsPhone();
+  const [remembered, setRemembered] = useState(() => readPref(COLLAPSED_KEY) === "1");
+  const [namesShown, setNamesShown] = useState(false);
+  // turned to landscape and back, it should come back folded
+  if (!isPhone && namesShown) setNamesShown(false);
+  const collapsed = isPhone ? !namesShown : remembered;
   const toggle = () => {
-    const next = !collapsed;
+    if (isPhone) {
+      setNamesShown(!namesShown);
+      return;
+    }
+    const next = !remembered;
     writePref(COLLAPSED_KEY, next ? "1" : "0");
-    setCollapsed(next);
+    setRemembered(next);
   };
 
   return (
@@ -42,7 +69,7 @@ export function Sidebar({ items, chatUnread }: { items: SidebarItem[]; chatUnrea
       <WhenCleared fallback={<BrandMark collapsed={collapsed} />}>
         <FirmBrand collapsed={collapsed} />
       </WhenCleared>
-      <nav className="flex-1 space-y-0.5 px-2">
+      <nav className="flex-1 space-y-0.5 px-2 max-sm:px-1.5">
         {items.map(({ to, label, icon: Icon, end }) => {
           const unread = to === "/chat" ? chatUnread : 0;
           return (
@@ -50,6 +77,7 @@ export function Sidebar({ items, chatUnread }: { items: SidebarItem[]; chatUnrea
               key={to}
               to={to}
               end={end}
+              onClick={() => setNamesShown(false)}
               // folded, the name is the tooltip and what a screen reader hears, with the unread
               // count that the badge alone would otherwise say only to the eye
               title={collapsed ? label : undefined}
@@ -58,7 +86,7 @@ export function Sidebar({ items, chatUnread }: { items: SidebarItem[]; chatUnrea
               }
               className={({ isActive }) =>
                 cn(
-                  "relative flex items-center rounded-(--radius-field) py-2 text-[13px] text-white/70 transition-colors hover:bg-white/5 hover:text-white",
+                  "relative flex items-center rounded-(--radius-field) py-2 text-[13px] text-white/70 transition-colors hover:bg-white/5 hover:text-white max-sm:py-3.5",
                   collapsed ? "justify-center px-0" : "gap-2.5 px-3",
                   isActive && "bg-primary text-white",
                 )
@@ -83,7 +111,7 @@ export function Sidebar({ items, chatUnread }: { items: SidebarItem[]; chatUnrea
           );
         })}
       </nav>
-      <div className="px-2 pb-3 pt-2">
+      <div className="px-2 pb-3 pt-2 max-sm:px-1.5">
         {/* the label names what the click does, so it changes with the state; no aria-expanded,
             which would announce a second, contradicting state beside it */}
         <button
@@ -92,7 +120,7 @@ export function Sidebar({ items, chatUnread }: { items: SidebarItem[]; chatUnrea
           title={collapsed ? "Expand the menu" : "Collapse the menu to icons"}
           aria-label={collapsed ? "Expand the menu" : "Collapse the menu to icons"}
           className={cn(
-            "flex w-full items-center rounded-(--radius-field) py-2 text-[13px] text-white/50 transition-colors hover:bg-white/5 hover:text-white",
+            "flex w-full items-center rounded-(--radius-field) py-2 text-[13px] text-white/50 transition-colors hover:bg-white/5 hover:text-white max-sm:py-3.5",
             collapsed ? "justify-center px-0" : "gap-2.5 px-3",
           )}
         >

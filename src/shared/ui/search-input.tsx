@@ -22,7 +22,7 @@ export function SearchInput({ className, ...props }: InputHTMLAttributes<HTMLInp
     <input
       type="search"
       className={cn(
-        "w-72 rounded-(--radius-card) border border-[#d9dde3] bg-surface px-3 py-2 text-[13px]",
+        "w-72 max-w-full min-w-0 rounded-(--radius-card) border border-[#d9dde3] bg-surface px-3 py-2 text-[13px]",
         "outline-none placeholder:text-faint focus:border-primary",
         className,
       )}

@@ -162,7 +162,7 @@ export function TimerBar() {
   if (!timer) return null;
 
   return (
-    <div className="flex items-center gap-2 rounded-(--radius-field) border border-[#cdd7f7] bg-[#eef1fb] px-3 py-1.5 text-[13px]">
+    <div className="flex max-w-full items-center gap-2 rounded-(--radius-field) border border-[#cdd7f7] bg-[#eef1fb] px-3 py-1.5 text-[13px]">
       <span className="animate-pulse font-bold text-[#3355dd]">⏱</span>
       {/* click the running task to open it (works from any page) */}
       <button

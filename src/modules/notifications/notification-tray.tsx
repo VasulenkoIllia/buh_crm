@@ -59,7 +59,7 @@ export function NotificationTray() {
       <button
         type="button"
         className={cn(
-          "relative rounded-full p-2 text-muted hover:bg-divider",
+          "relative rounded-full p-2 text-muted hover:bg-divider max-sm:p-[13px]",
           open && "bg-divider text-ink",
         )}
         aria-label={unread ? `Notifications (${unread} unread)` : "Notifications"}
@@ -69,7 +69,7 @@ export function NotificationTray() {
         <Bell size={18} />
         {unread > 0 && (
           <span
-            className="absolute top-1 right-1 min-w-[15px] rounded-full bg-danger px-[3px] text-center text-[9px] leading-[15px] font-semibold text-white"
+            className="absolute top-1 right-1 min-w-[15px] rounded-full bg-danger px-[3px] text-center text-[9px] leading-[15px] font-semibold text-white max-sm:top-2 max-sm:right-2"
             aria-hidden
           >
             {unread > 99 ? "99+" : unread}

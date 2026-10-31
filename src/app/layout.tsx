@@ -97,9 +97,9 @@ export function AppLayout() {
         <Sidebar items={nav} chatUnread={chatUnread} />
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="flex h-14 items-center justify-between border-b border-border bg-surface px-6">
+          <header className="flex h-14 items-center justify-between border-b border-border bg-surface px-6 max-sm:h-auto max-sm:min-h-14 max-sm:px-2 max-sm:py-1">
             <div className="text-[15px] font-semibold" />
-            <div className="flex items-center gap-4">
+            <div className="flex min-w-0 items-center gap-4 max-sm:flex-wrap max-sm:justify-end max-sm:gap-1">
               <FirmClock />
               <WhenCleared>
                 <TimerBar />
@@ -109,7 +109,12 @@ export function AppLayout() {
               <HeaderActions />
             </div>
           </header>
-          <main className="flex-1 p-6">
+          {/*
+            On a phone anything wider than the column scrolls here rather than widening the page:
+            a wider page takes the fixed backdrop of every modal with it, and the panel runs off
+            the screen.
+          */}
+          <main className="flex-1 p-6 max-sm:overflow-x-auto">
             {/*
             The boundary sits HERE, not around the whole app: every screen is loaded on demand
             (see router.tsx), and a page-level boundary would blank the sidebar and the header on
@@ -132,24 +137,24 @@ function HeaderActions() {
   const navigate = useNavigate();
 
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-1.5 max-sm:gap-0.5">
       <WhenCleared>
         <NotificationTray />
       </WhenCleared>
       {user && (
         <Link
           to="/profile"
-          className="flex items-center gap-2 rounded-(--radius-field) px-2 py-1.5 hover:bg-divider"
+          className="flex items-center gap-2 rounded-(--radius-field) px-2 py-1.5 hover:bg-divider max-sm:size-11 max-sm:justify-center max-sm:p-0"
         >
           <UserAvatar user={user} size="sm" />
-          <span className="text-[13px] font-medium">
+          <span className="text-[13px] font-medium max-sm:sr-only">
             {`${user.firstName} ${user.lastName}`.trim() || user.email}
           </span>
         </Link>
       )}
       <button
         type="button"
-        className="rounded-full p-2 text-muted hover:bg-divider"
+        className="rounded-full p-2 text-muted hover:bg-divider max-sm:p-3.5"
         aria-label="Sign out"
         onClick={() => logout.mutateAsync().then(() => navigate("/sign-in"))}
       >

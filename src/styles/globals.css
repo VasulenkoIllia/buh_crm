@@ -89,3 +89,16 @@ body {
     cursor: not-allowed;
   }
 }
+
+/* On a phone, under 16px iOS zooms the whole page on focus and under 44px a finger misses. Written
+   for every field, because about thirty are plain elements inside modules, not the shared `Input`.
+   It stands outside `@layer` on purpose: a layered rule loses to the `h-9` and `text-[13px]` a
+   field carries, so in `@layer base` it would do nothing. `phone-fields.test.ts` holds that. */
+input:not([type="checkbox"], [type="radio"], [type="file"], [type="color"], [type="range"]),
+select,
+textarea {
+  @variant max-sm {
+    min-height: 44px;
+    font-size: 16px;
+  }
+}

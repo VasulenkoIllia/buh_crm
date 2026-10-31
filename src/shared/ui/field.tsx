@@ -6,6 +6,7 @@ import {
 } from "react";
 import { cn } from "@/shared/lib/cn";
 
+// on a phone `globals.css` lifts every field to 16px and 44px, these included
 const fieldClasses =
   "h-9 w-full rounded-(--radius-field) border border-border bg-surface px-3 text-[14px] text-ink placeholder:text-faint focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary";
 
