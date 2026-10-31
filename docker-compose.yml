@@ -40,10 +40,10 @@ services:
       NODE_ENV: ${NODE_ENV}
       TZ: ${TZ}
       LOG_LEVEL: ${LOG_LEVEL}
-      # How many proxies are in front of the app (Cloudflare, then Traefik). Not `true`: trusting
-      # the whole chain means the client's own X-Forwarded-For header wins, and the activity log
-      # records that address against a person. See server/core/config.ts.
-      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-2}
+      # Which peers the app believes about X-Forwarded-*: the private ranges Traefik sits on. Not
+      # `true`: trusting the whole chain means the client's own X-Forwarded-For header wins, and the
+      # activity log records that address against a person. See server/core/config.ts.
+      TRUST_PROXY: ${TRUST_PROXY:-uniquelocal}
       # Set by scripts/deploy.sh, absent everywhere else. The app records the boot and notices a
       # deploy by the version changing (docs/modules/activity-log.md §3.3).
       APP_VERSION: ${APP_VERSION:-}

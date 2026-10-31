@@ -6,12 +6,12 @@
  * `108.162.237.159`, `172.71.30.128`, `104.22.1.164`, all inside Cloudflare's published ranges, on
  * a screen whose whole point is "who did this, and from where".
  *
- * **Why `TRUST_PROXY_HOPS` cannot fix it.** Fastify counts hops backwards through
- * `X-Forwarded-For`, so it can only return an address that is IN that header. Traefik does not
- * trust the `X-Forwarded-For` it receives unless its entrypoint names the sender in
- * `forwardedHeaders.trustedIPs`, and ours does not — so it REPLACES the header with the address it
- * saw, which is the Cloudflare edge. The caller's address never reaches the origin in that header
- * at all, and no hop count can find what is not there.
+ * **Why `TRUST_PROXY` cannot fix it.** Fastify walks `X-Forwarded-For` backwards, so it can only
+ * return an address that is IN that header. Traefik does not trust the `X-Forwarded-For` it
+ * receives unless its entrypoint names the sender in `forwardedHeaders.trustedIPs`, and ours does
+ * not — so it REPLACES the header with the address it saw, which is the Cloudflare edge. The
+ * caller's address never reaches the origin in that header at all, and no setting can find what
+ * is not there.
  *
  * **What does carry it.** Cloudflare sets `CF-Connecting-IP` on every request and overwrites any
  * value a caller supplies, so it is trustworthy exactly when the request really came through

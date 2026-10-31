@@ -39,20 +39,34 @@ const envSchema = z
     LOG_LEVEL: z.string().default("info"),
 
     /**
-     * **How many proxies sit in front of this app** — and therefore which entry in
-     * `X-Forwarded-For` is the actual person.
+     * **Which peers this app believes about `X-Forwarded-*`**: an address, a CIDR, a comma-separated
+     * list, or a name `proxy-addr` knows.
      *
      * `trustProxy: true` trusts the whole chain, which means the LEFTMOST value wins, and that value
      * is whatever the client typed into the header. Harmless while the only reader was the rate
      * limiter; not harmless once every sign-in and every mutation stores an address that a person
      * will later be asked to account for (activity-log.md §13 A1).
      *
-     * Two in production: Cloudflare is proxied (docs/deployment.md §34) and Traefik terminates TLS
-     * behind it, so the app is two hops from the client. It is an env var rather than a literal
-     * because that is a deployment fact, not a code fact — turning Cloudflare to DNS-only makes it
-     * one, and an IP recorded under the wrong count is a lie that looks exactly like data.
+     * A hop count, which this was until 2026-10-31, is no better: it never looks at who connected,
+     * so anybody reaching the app directly could forge all of it (GHSA-3m5p-2c4r-xxw2). Fastify
+     * 5.12.1 turned the numeric form off at runtime, and with it every address the app stores.
+     *
+     * `uniquelocal` is the private ranges, which is where Docker puts Traefik. Cloudflare's edge is
+     * public, so the walk stops there, and `core/client-ip.ts` takes it from that edge. It is an env
+     * var because it is a deployment fact: a proxy on a public address has to be named here.
+     *
+     * Refused when empty, and when an entry is a bare number. Both would quietly believe nobody:
+     * `trustProxy: ""` is falsy, and `proxy-addr` reads `2`, the old setting's value, as the address
+     * 0.0.0.2. Anything else it cannot read throws when the server starts.
      */
-    TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(10).default(2),
+    TRUST_PROXY: z
+      .string()
+      .min(1)
+      .refine(
+        (value) => !value.split(",").some((entry) => /^\d+$/.test(entry.trim())),
+        "a hop count no longer works here: name the proxies' addresses or ranges",
+      )
+      .default("uniquelocal"),
 
     /**
      * The build this container is running, and who put it there. Both are set by
