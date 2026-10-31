@@ -15,6 +15,8 @@ export const CATALOG_KEY = ["catalog"] as const;
 export const SETTINGS_KEY = ["settings"] as const;
 /** Its own key: the System tab polls, and polling must not refetch the firm's settings with it. */
 export const SYSTEM_HEALTH_KEY = ["settings", "system"] as const;
+/** Under `settings`, so a saved firm name refetches it: the name is its fallback. */
+export const INVOICE_DETAILS_KEY = ["settings", "invoice-details"] as const;
 export const USERS_KEY = ["users"] as const;
 export const CALENDAR_KEY = ["calendar"] as const;
 export const MAILOUTS_KEY = ["mailouts"] as const;

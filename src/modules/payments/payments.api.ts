@@ -4,6 +4,7 @@ import type {
   CreateInvoiceInput,
   Invoice,
   InvoiceListQuery,
+  LastRate,
   BulkTidyInput,
   BulkDeliveryInput,
   BulkResult,
@@ -13,7 +14,8 @@ import type {
   UpdatePaymentInput,
 } from "@shared/schema/payment";
 import { api } from "@/shared/lib/api";
-import { CLIENTS_KEY, INVOICES_KEY, TASKS_KEY } from "@/shared/lib/query-keys";
+import { CLIENTS_KEY, FILES_KEY, INVOICES_KEY, TASKS_KEY } from "@/shared/lib/query-keys";
+import { useToast } from "@/shared/ui/toast";
 
 export interface InvoiceListResponse {
   items: Invoice[];
@@ -170,5 +172,32 @@ export function useMarkPaid() {
         body: input,
       }),
     onSuccess: invalidate,
+  });
+}
+
+/** The rate of this client's latest hourly position. `null` = nothing to ask yet. */
+export function useLastRate(clientId: string | null) {
+  return useQuery({
+    queryKey: [...INVOICES_KEY, "last-rate", clientId],
+    queryFn: () => api<LastRate>(`/api/invoices/last-rate?clientId=${clientId}`),
+    enabled: clientId !== null,
+  });
+}
+
+/** Keeps a copy of the PDF in the client's files. The line says so even if the card has closed. */
+export function useSaveInvoicePdf() {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (invoiceId: string) =>
+      api<{ fileId: string; name: string }>(`/api/invoices/${invoiceId}/save-pdf`, {
+        method: "POST",
+      }),
+    onSuccess: (saved) => {
+      toast({ text: `Saved to the client's files as ${saved.name}` });
+      // the client's Files tab and its count are open behind this card
+      void queryClient.invalidateQueries({ queryKey: FILES_KEY });
+      void queryClient.invalidateQueries({ queryKey: CLIENTS_KEY });
+    },
   });
 }

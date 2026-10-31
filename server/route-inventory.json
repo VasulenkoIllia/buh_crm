@@ -987,6 +987,22 @@
     "access": "gate:billing"
   },
   {
+    "method": "GET",
+    "url": "/api/invoices/:id/pdf",
+    "access": "gate:billing"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/invoices/:id/pdf",
+    "access": "gate:billing",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/invoices/:id/save-pdf",
+    "access": "gate:billing"
+  },
+  {
     "method": "POST",
     "url": "/api/invoices/bulk-delivery",
     "access": "gate:billing"
@@ -995,6 +1011,17 @@
     "method": "POST",
     "url": "/api/invoices/bulk-tidy",
     "access": "gate:billing"
+  },
+  {
+    "method": "GET",
+    "url": "/api/invoices/last-rate",
+    "access": "gate:billing"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/invoices/last-rate",
+    "access": "gate:billing",
+    "derived": true
   },
   {
     "method": "POST",
@@ -1689,6 +1716,22 @@
     "method": "PUT",
     "url": "/api/settings/firm/logo",
     "access": "gate:settings"
+  },
+  {
+    "method": "GET",
+    "url": "/api/settings/invoice-details",
+    "access": "gate:settings"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/settings/invoice-details",
+    "access": "gate:settings",
+    "derived": true
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/settings/invoice-details",
+    "access": "gate:settings:admin"
   },
   {
     "method": "PATCH",

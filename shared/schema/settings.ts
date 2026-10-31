@@ -141,3 +141,43 @@ export const updateNumberingInput = z.object({
   invoiceCounterDigits: z.number().int().min(3).max(6).optional(),
 });
 export type UpdateNumberingInput = z.infer<typeof updateNumberingInput>;
+
+/**
+ * **Who an invoice is from and how to pay it**, as the PDF prints it (payments.md §10).
+ *
+ * Its own read rather than fields on `firmProfileSchema`: `GET /api/settings` is `shared()`, open
+ * to the whole firm for ever, and this is the firm's bank account. Its own write for the reason
+ * numbering has one, and a stronger one: whoever can edit these lines decides where clients send
+ * their money, so the write is an admin's whoever holds Settings, and it is kept in the log for years.
+ *
+ * `name` and `address` are read with their fallback (`invoiceIssuer` in `core/firm.ts`), so the form
+ * shows what the next PDF will print rather than an empty box.
+ */
+export const invoiceDetailsSchema = z.object({
+  name: z.string(),
+  address: z.string().nullable(),
+  website: z.string().nullable(),
+  email: z.string().nullable(),
+  phone: z.string().nullable(),
+  paymentInfo: z.string().nullable(),
+  /** the letterhead, which an invoice shares with letters. Not `printable` = WebP or GIF. */
+  logo: z.object({ name: z.string(), printable: z.boolean() }).nullable(),
+});
+export type InvoiceDetails = z.infer<typeof invoiceDetailsSchema>;
+
+/**
+ * What changed, and nothing else: omitted leaves a field alone, `null` empties it. Saving the whole
+ * block would write back whatever the form read, a colleague's newer bank details or the firm's
+ * name that an empty field only falls back on (review, 2026-10-31).
+ */
+export const updateInvoiceDetailsInput = z
+  .object({
+    name: z.string().trim().min(1).max(120).nullable(),
+    address: z.string().trim().min(1).max(300).nullable(),
+    website: z.string().trim().min(1).max(120).nullable(),
+    email: z.email().max(120).nullable(),
+    phone: z.string().trim().min(1).max(40).nullable(),
+    paymentInfo: z.string().trim().min(1).max(2000).nullable(),
+  })
+  .partial();
+export type UpdateInvoiceDetailsInput = z.infer<typeof updateInvoiceDetailsInput>;

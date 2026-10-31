@@ -1,7 +1,12 @@
-import { periodLabel } from "@shared/billing-periods";
-import type { Invoice } from "@shared/schema/payment";
+import { periodLabel } from "./billing-periods.js";
+import type { Invoice } from "./schema/payment.js";
 
 type Source = Pick<Invoice, "serviceName" | "description" | "periodKey" | "taskTitle">;
+
+/**
+ * What an invoice is for, in the two lines Billing's Service cell and the PDF's row both show.
+ * Here because both ask: two copies of this choice would soon name one invoice two ways.
+ */
 
 /** What a Billing row's Service cell leads with: the service, or the text of an invoice with none. */
 export const invoiceSubject = (invoice: Source): string | null =>

@@ -5,9 +5,9 @@ import { prisma } from "../../core/db.js";
 
 const invoiceInclude = {
   client: {
-    select: { firstName: true, lastName: true, archivedAt: true },
+    select: { firstName: true, lastName: true, archivedAt: true, email: true },
   },
-  company: { select: { name: true } },
+  company: { select: { name: true, email: true } },
   service: { select: { name: true } },
   sentBy: { select: { firstName: true, lastName: true } },
   cancelledBy: { select: { firstName: true, lastName: true } },
@@ -272,6 +272,24 @@ export function updateInvoiceWithLines(
     if (lines !== null) await replaceLines(tx, id, lines);
     return tx.invoice.update({ where: { id }, data, include: invoiceInclude });
   });
+}
+
+/** The rate of the first hourly position on this client's newest live invoice that has one. */
+export async function findLastRate(clientId: string) {
+  const line = await prisma.invoiceLine.findFirst({
+    where: {
+      quantity: { not: null },
+      unitRate: { not: null },
+      invoice: { clientId, cancelledAt: null },
+    },
+    orderBy: [
+      { invoice: { issuedAt: "desc" } },
+      { invoice: { number: "desc" } },
+      { order: "asc" },
+    ],
+    select: { unitRate: true },
+  });
+  return line?.unitRate ?? null;
 }
 
 export interface StoredLineRow {

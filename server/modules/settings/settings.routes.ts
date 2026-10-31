@@ -6,6 +6,7 @@ import {
   createSourceInput,
   swapPrioritiesInput,
   updateFirmInput,
+  updateInvoiceDetailsInput,
   updateNumberingInput,
   updatePriorityInput,
   updateSourceInput,
@@ -102,6 +103,26 @@ export async function registerRoutes(instance: FastifyInstance) {
     { config: gate("settings", { adminOnly: true }), schema: { body: updateNumberingInput } },
     async (request) => {
       return service.updateNumbering(request.body);
+    },
+  );
+
+  /**
+   * The lines an invoice prints: the sender and the bank account (`shared/schema/settings.ts`).
+   * Not on `GET /`, which is `shared()`. Read with the Settings gate, written by an admin, because
+   * whoever can edit them decides where the firm's clients send their money.
+   */
+  app.get("/invoice-details", { config: gate("settings") }, async () => {
+    return service.getInvoiceDetails();
+  });
+
+  app.patch(
+    "/invoice-details",
+    {
+      config: gate("settings", { adminOnly: true }),
+      schema: { body: updateInvoiceDetailsInput },
+    },
+    async (request) => {
+      return service.updateInvoiceDetails(request.body);
     },
   );
 

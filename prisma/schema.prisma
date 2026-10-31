@@ -494,6 +494,21 @@ model FirmProfile {
   /// crop at the lockup's own aspect. One file could serve both only by being wrong for one of them.
   mailLogoFileId String? @unique @db.Uuid
 
+  // ── The invoice document (2026-10-31) ─────────────────────────────────────
+  //
+  // Who an invoice is FROM and how to pay it, read when the PDF is drawn. `core/firm.ts`
+  // (`invoiceIssuer`) falls back on the firm's name and postal address, so a firm that has filled in
+  // nothing here still prints who it is. Saved on an admin-only route of its own: these lines say
+  // where the firm's clients send their money.
+  invoiceFromName    String?
+  /// free text, printed line by line
+  invoiceFromAddress String?
+  invoiceFromWebsite String?
+  invoiceFromEmail   String?
+  invoiceFromPhone   String?
+  /// the "Payment Information" block, free text: bank, routing number, Zelle
+  invoicePaymentInfo String?
+
   // ── Two-factor sign-in (S16) ──────────────────────────────────────────────
   /// Who must use it: `off` — each person decides, the owner's decision of 2026-09-09 — `admins`, or
   /// `everyone` (two-factor.md §6.4, decision 9). Ships off; enforced by the access hook.

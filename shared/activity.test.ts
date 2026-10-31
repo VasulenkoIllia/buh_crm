@@ -131,7 +131,9 @@ describe("the activity registry", () => {
     // downloaded, and deleted with the last message carrying it — all three labelled "a chat file",
     // with no name and no chat. A chat file never reaches the Trash, so it has no purge of its own
     // and one for a task moving along its service's stages (tasks.md, 2026-10-08)
-    expect(ACTIVITY_KEYS.length).toBe(215);
+    // and two for the invoice on paper (payments.md §10, 2026-10-31): the firm's invoice details
+    // changed, and a copy of the PDF kept in the client's files
+    expect(ACTIVITY_KEYS.length).toBe(217);
     // the checklist is empty because the pass is finished — not because it was abandoned
     expect(PLANNED_EVENT_KEYS).toEqual([]);
   });

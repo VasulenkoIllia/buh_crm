@@ -117,7 +117,7 @@ export function billingDayProblem(
   return null;
 }
 
-const MONTHS = [
+export const MONTHS = [
   "Jan",
   "Feb",
   "Mar",

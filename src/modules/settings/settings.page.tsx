@@ -23,6 +23,7 @@ import { SWEEP_EARLIEST_HOUR } from "@shared/notifications";
 import { REMINDER_CHOICES } from "@shared/schema/calendar";
 import { pillCls } from "@/shared/ui/pill";
 import { NotificationPolicySection } from "@/modules/notifications";
+import { InvoiceDetailsForm } from "./invoice-details-form";
 import { SETTINGS_TABS, type SettingsTab } from "./tabs";
 
 /**
@@ -67,7 +68,7 @@ const TABS = SETTINGS_TABS;
 const BLURB: Record<Tab, string> = {
   firm: "The firm's name, logo and clock — what every screen and every letter is stamped with.",
   lists: "The options the forms offer: task priorities, and where a client or lead came from.",
-  invoices: "How invoice numbers are built, and what the next one will look like.",
+  invoices: "How invoices are numbered, and what they print.",
   notifications: "Which notifications the firm raises at all, and by which channel.",
   access:
     "What each person may open, and what they may change. Nothing else in the app decides it.",
@@ -160,6 +161,9 @@ export function SettingsPage() {
             prefix={data.firm.invoicePrefix}
             digits={data.firm.invoiceCounterDigits}
           />
+          <Section title="Invoice details">
+            <InvoiceDetailsForm />
+          </Section>
         </div>
       )}
       {/*

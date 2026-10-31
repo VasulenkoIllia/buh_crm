@@ -236,6 +236,18 @@ const INTENDED_CHANGES: Record<string, { before: Answer; after: Answer; why: str
       "(files.md §4.4). Firm-wide figures that ignore who may see what, so admin-only even where " +
       "Settings is opened to a bookkeeper",
   },
+  "GET /api/settings/invoice-details": {
+    before: "nobody",
+    after: "admin-only",
+    why:
+      "new: who an invoice is from and how to pay it, on the Settings gate rather than in the " +
+      "firm-wide `GET /settings`, because it holds the firm's bank details",
+  },
+  "PATCH /api/settings/invoice-details": {
+    before: "nobody",
+    after: "admin-only",
+    why: "new: changing it decides where clients send their money, so it is an admin's",
+  },
 };
 
 function before(route: string): Answer {

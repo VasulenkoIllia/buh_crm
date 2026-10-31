@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { invoiceDetail, invoiceSubject } from "./row-detail";
+import { invoiceDetail, invoiceSubject } from "./invoice-subject.js";
 
 const base = { serviceName: null, description: null, periodKey: null, taskTitle: null };
 

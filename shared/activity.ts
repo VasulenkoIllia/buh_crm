@@ -1168,6 +1168,20 @@ const EVENTS = {
     retention: "ordinary",
     enabledByDefault: true,
   },
+  /**
+   * A copy of the PDF kept in the client's files. Beside `file.uploaded`, because that row says a
+   * file arrived and this one says which invoice it is.
+   */
+  "invoice.pdf_saved": {
+    subject: "invoice",
+    title: "A PDF of invoice {subject} was saved to the client's files",
+    when: "somebody keeps a copy of the invoice in the client's files",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["file"],
+    enabledByDefault: true,
+  },
   "invoice.tidied": {
     subject: "invoice",
     title: "{actor} tidied invoice {subject} away",
@@ -2462,6 +2476,27 @@ const EVENTS = {
     actorKinds: ["user"],
     retention: "long",
     changeKeys: ["invoicePrefix", "invoiceCounterDigits"],
+    enabledByDefault: true,
+  },
+  /**
+   * The sender and the bank account an invoice prints. `long` for the reason numbering is: when a
+   * client pays the wrong account, this row is the answer to who changed it, and from what.
+   */
+  "settings.invoice_details_changed": {
+    subject: "settings",
+    title: "{actor} changed the invoice details",
+    when: "the sender or the payment information printed on invoices changes",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    changeKeys: [
+      "invoiceFromName",
+      "invoiceFromAddress",
+      "invoiceFromWebsite",
+      "invoiceFromEmail",
+      "invoiceFromPhone",
+      "invoicePaymentInfo",
+    ],
     enabledByDefault: true,
   },
   "settings.logo_changed": {

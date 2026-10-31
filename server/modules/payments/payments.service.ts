@@ -196,6 +196,14 @@ export async function getInvoice(id: string) {
   return toInvoiceDto(invoice);
 }
 
+/**
+ * The rate of this client's latest hourly position, for the new-invoice form to offer. A cancelled
+ * invoice is no evidence of an agreed rate, so its positions do not count.
+ */
+export async function lastRate(clientId: string) {
+  return { unitRate: await repo.findLastRate(clientId) };
+}
+
 // ── manual issue ─────────────────────────────────────────────────────────────
 
 /**

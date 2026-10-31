@@ -2,17 +2,19 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   CreateSourceInput,
   FirmProfile,
+  InvoiceDetails,
   Priority,
   SettingsResponse,
   SourceOption,
   SwapPrioritiesInput,
   UpdateFirmInput,
+  UpdateInvoiceDetailsInput,
   UpdateNumberingInput,
   UpdatePriorityInput,
   UpdateSourceInput,
 } from "@shared/schema/settings";
 import { api } from "@/shared/lib/api";
-import { SETTINGS_KEY, SYSTEM_HEALTH_KEY } from "@/shared/lib/query-keys";
+import { INVOICE_DETAILS_KEY, SETTINGS_KEY, SYSTEM_HEALTH_KEY } from "@/shared/lib/query-keys";
 import type { JobEventRow, JobHealthRow } from "@shared/system-jobs";
 import type { FirmStorage } from "@shared/schema/files";
 
@@ -130,6 +132,22 @@ export function useUpdateNumbering() {
     mutationFn: (input: UpdateNumberingInput) =>
       api<FirmProfile>("/api/settings/numbering", { method: "PATCH", body: input }),
     onSuccess: invalidate,
+  });
+}
+
+export function useInvoiceDetails() {
+  return useQuery({
+    queryKey: INVOICE_DETAILS_KEY,
+    queryFn: () => api<InvoiceDetails>("/api/settings/invoice-details"),
+  });
+}
+
+export function useUpdateInvoiceDetails() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateInvoiceDetailsInput) =>
+      api<InvoiceDetails>("/api/settings/invoice-details", { method: "PATCH", body: input }),
+    onSuccess: (details) => qc.setQueryData(INVOICE_DETAILS_KEY, details),
   });
 }
 

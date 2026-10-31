@@ -27,7 +27,7 @@ const ICON = "[&_svg]:shrink-0";
  * controls beside them on a 13-inch MacBook (owner, 2026-09-29). A toolbar that runs out of room
  * wraps whole buttons instead.
  */
-const buttonVariants = cva(
+export const buttonVariants = cva(
   cn(
     "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-(--radius-field) text-[13px]",
     "font-medium transition-colors disabled:pointer-events-none disabled:opacity-50",

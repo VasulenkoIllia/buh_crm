@@ -11,7 +11,8 @@ import { Select } from "@/shared/ui/field";
 import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
 import { FilterChips } from "@/shared/ui/tabs";
 import { CopyLink } from "@/shared/ui/copy-link";
-import { InvoiceModal, NewInvoiceModal } from "./invoice-modals";
+import { InvoiceModal } from "./invoice-modals";
+import { NewInvoiceModal } from "./new-invoice-modal";
 import { useInvoices } from "./payments.api";
 
 const PAGE_SIZE = 25;

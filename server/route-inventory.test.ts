@@ -152,10 +152,14 @@ describe("route inventory", () => {
       // the Files screen shows it, the chat's rules decide it. +1 the same day: keeping one of
       // those files, a COPY into the library. Also on the chat's gate, because the file it reads
       // is a chat's; the library's own gate is checked inside `copyIntoLibrary`.
-      total: 395,
-      derivedHead: 99,
-      real: 296,
-      api: 295, // everything but /health
+      // +5 and 3 HEADs on 2026-10-31, the invoice on paper (payments.md §10): the PDF, a copy of it
+      // in the client's files and the rate a new position starts from, all on Billing, and the
+      // firm's invoice details, a read and an admin's write on Settings. The bank details are not
+      // on `GET /settings` because that read is `shared()`.
+      total: 403,
+      derivedHead: 102,
+      real: 301,
+      api: 300, // everything but /health
       anonymous: 9, // 6 credential routes, 2 unsubscribe pages, /health
       // `POST /tasks/timer/start` moved to the `tasks` gate during the 2026-09-07 audit. It takes a
       // taskId and writes against somebody else's module, so it was never really "the caller's own
@@ -163,8 +167,8 @@ describe("route inventory", () => {
       // second factor and name nobody else.
       own: 15,
       shared: 12,
-      gated: 260,
-      adminOnly: 20,
+      gated: 265,
+      adminOnly: 21,
     });
   });
 

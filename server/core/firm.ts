@@ -78,3 +78,37 @@ export function firmName(): string {
   }
   return cached ?? config.APP_NAME;
 }
+
+/** What `doc.image` can read. A letterhead may also be WebP or GIF, which it cannot. */
+const PRINTABLE_LOGO_TYPES = ["image/png", "image/jpeg"];
+
+export const isPrintableLogo = (file: { mime: string }) =>
+  PRINTABLE_LOGO_TYPES.includes(file.mime);
+
+const filled = (text: string | null) => text?.trim() || null;
+
+/**
+ * Who an invoice is from, as it prints: the firm's name and postal address until somebody writes
+ * something else in Settings → Invoices. An invoice with no sender at all is the one thing this
+ * cannot do, so the name always resolves.
+ *
+ * The logo is the letterhead: the same mark, on the same white, for the same reader.
+ *
+ * Here because two modules read it, Settings to show it and Payments to print it.
+ */
+export async function readInvoiceIssuer() {
+  const firm = await prisma.firmProfile.findUniqueOrThrow({
+    where: { id: 1 },
+    include: { mailLogoFile: true },
+  });
+  return {
+    name: filled(firm.invoiceFromName) ?? firm.name,
+    address: filled(firm.invoiceFromAddress) ?? filled(firm.postalAddress),
+    website: filled(firm.invoiceFromWebsite),
+    email: filled(firm.invoiceFromEmail),
+    phone: filled(firm.invoiceFromPhone),
+    paymentInfo: filled(firm.invoicePaymentInfo),
+    logoFile: firm.mailLogoFile,
+  };
+}
+export type InvoiceIssuer = Awaited<ReturnType<typeof readInvoiceIssuer>>;

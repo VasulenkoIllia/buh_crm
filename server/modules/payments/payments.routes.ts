@@ -6,6 +6,8 @@ import {
   addPaymentInput,
   createInvoiceInput,
   invoiceListQuery,
+  invoicePdfQuery,
+  lastRateQuery,
   bulkTidyInput,
   bulkDeliveryInput,
   markPaidInput,
@@ -14,6 +16,8 @@ import {
   updatePaymentInput,
 } from "@shared/schema/payment.js";
 import { gate } from "../../core/access.js";
+import { viewHeaders } from "../files/index.js";
+import { invoicePdf, saveInvoicePdf } from "./payments.pdf.js";
 import * as service from "./payments.service.js";
 
 const idParams = z.object({ id: uuid });
@@ -52,6 +56,12 @@ export async function registerRoutes(instance: FastifyInstance) {
   );
 
   // static paths before /:id
+  app.get(
+    "/last-rate",
+    { config: billing, schema: { querystring: lastRateQuery } },
+    async (request) => service.lastRate(request.query.clientId),
+  );
+
   app.post(
     "/mark-paid",
     { config: billing, schema: { body: markPaidInput } },
@@ -85,6 +95,33 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   app.get("/:id", { config: billing, schema: { params: idParams } }, async (request) =>
     service.getInvoice(request.params.id),
+  );
+
+  /**
+   * The same headers a stored PDF leaves with (files.md §12.2). `download=1` saves it instead of
+   * opening it; the bytes do not differ.
+   */
+  app.get(
+    "/:id/pdf",
+    { config: billing, schema: { params: idParams, querystring: invoicePdfQuery } },
+    async (request, reply) => {
+      const { name, buffer } = await invoicePdf(request.params.id);
+      const headers = viewHeaders({ name, detectedMime: "application/pdf" }) ?? {};
+      for (const [header, value] of Object.entries(headers)) reply.header(header, value);
+      if (request.query.download) {
+        reply.header(
+          "Content-Disposition",
+          `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
+        );
+      }
+      return reply.send(buffer);
+    },
+  );
+
+  app.post(
+    "/:id/save-pdf",
+    { config: billing, schema: { params: idParams } },
+    async (request) => saveInvoicePdf(request.params.id, request.currentUser!),
   );
 
   // correcting an issued invoice is a money change → admin, journalled

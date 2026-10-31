@@ -14,8 +14,9 @@ import { InvoiceStatusPill } from "@/shared/ui/invoice-status";
 import { SearchInput } from "@/shared/ui/search-input";
 import { FilterChips } from "@/shared/ui/tabs";
 import { ClearButton } from "@/shared/ui/clear-button";
-import { InvoiceModal, NewInvoiceModal } from "./invoice-modals";
-import { invoiceDetail, invoiceSubject } from "./row-detail";
+import { InvoiceModal } from "./invoice-modals";
+import { NewInvoiceModal } from "./new-invoice-modal";
+import { invoiceDetail, invoiceSubject } from "@shared/invoice-subject";
 import {
   useBulkTidy,
   useBulkDelivery,

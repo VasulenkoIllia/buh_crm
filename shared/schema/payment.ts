@@ -172,6 +172,17 @@ export const invoiceListQuery = z.object({
 });
 export type InvoiceListQuery = z.infer<typeof invoiceListQuery>;
 
+/** `download=1` saves the PDF; without it the browser opens it. */
+export const invoicePdfQuery = z.object({
+  download: z.enum(["1"]).optional(),
+});
+
+export const lastRateQuery = z.object({ clientId: uuid });
+
+/** What the new-invoice form offers as the rate of an hourly position. */
+export const lastRateSchema = z.object({ unitRate: money.nullable() });
+export type LastRate = z.infer<typeof lastRateSchema>;
+
 /**
  * Manual invoice (design: "+ New invoice"). A subscription pins the service + company
  * target exactly like a task does; without one the invoice is a bare client charge.
