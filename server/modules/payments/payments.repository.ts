@@ -169,6 +169,15 @@ export function listPeriodKeys(subscriptionIds: string[]) {
   });
 }
 
+/** Whether this subscription's period already holds an invoice, cancelled or not. */
+export async function hasPeriodInvoice(subscriptionId: string, periodKey: string) {
+  const invoice = await prisma.invoice.findUnique({
+    where: { subscriptionId_periodKey: { subscriptionId, periodKey } },
+    select: { id: true },
+  });
+  return invoice !== null;
+}
+
 // ── the per-period billing sweep (scheduler job #2) ──────────────────────────
 
 /**
@@ -227,21 +236,64 @@ export function findBillableSubscription(id: string): Promise<BillableSubscripti
 
 // ── issuing (numbering + insert, in one transaction) ─────────────────────────
 
+/** How many taken numbers in a row are stepped over one by one before the series itself is read. */
+export const MAX_TAKEN_NUMBERS = 50;
+
 /**
- * Bump and read the firm's invoice counter. The `update` takes a row lock, so concurrent
- * issues serialize on it and a rolled-back transaction gives the number back.
+ * The firm's next free number for an invoice dated in `year`. The counter's row lock serializes
+ * concurrent issues, and a rolled-back transaction gives the number back.
+ *
+ * A number that already has an invoice is stepped over here, under that lock, rather than left for
+ * the insert to refuse: a failed insert rolls the transaction back, the counter with it, and every
+ * retry would then meet the same number (owner, 2026-11-01). The counter stays past what it skipped.
+ *
+ * A counter further behind its rows than `MAX_TAKEN_NUMBERS` goes past the highest of them. Refusing
+ * instead would stop every invoice the firm issues, and no screen moves the counter.
  */
 async function allocateNumber(tx: Prisma.TransactionClient, year: number): Promise<string> {
-  // roll the year over first (no-op for everyone but the first caller of the new year)
+  // roll the year over first (no-op for everyone but the first caller of the new year). Forward
+  // only: going back for a late invoice would restart the series at a number already issued
   await tx.firmProfile.updateMany({
-    where: { id: 1, OR: [{ invoiceCounterYear: null }, { invoiceCounterYear: { not: year } }] },
+    where: { id: 1, OR: [{ invoiceCounterYear: null }, { invoiceCounterYear: { lt: year } }] },
     data: { invoiceCounterYear: year, invoiceCounter: 0 },
   });
+  // the write is what takes the lock: nobody else can hand out a number until this one commits
   const firm = await tx.firmProfile.update({
     where: { id: 1 },
-    data: { invoiceCounter: { increment: 1 } },
+    data: { invoiceCounter: { increment: 0 } },
   });
-  return `${firm.invoicePrefix}-${year}-${String(firm.invoiceCounter).padStart(firm.invoiceCounterDigits, "0")}`;
+  const series = `${firm.invoicePrefix}-${year}-`;
+  const numbered = (n: number) => series + String(n).padStart(firm.invoiceCounterDigits, "0");
+
+  // dated before the counter's year (the sweep catching up over New Year): the counter holds one
+  // year, so the late invoice continues its own year's series from the rows and leaves it alone
+  if (firm.invoiceCounterYear !== year)
+    return numbered((await highestInSeries(tx, series)) + 1);
+
+  let next = firm.invoiceCounter + 1;
+  const lastTried = firm.invoiceCounter + MAX_TAKEN_NUMBERS;
+  while (next <= lastTried && (await isNumberTaken(tx, numbered(next)))) next++;
+  if (next > lastTried) next = (await highestInSeries(tx, series)) + 1;
+  await tx.firmProfile.update({ where: { id: 1 }, data: { invoiceCounter: next } });
+  return numbered(next);
+}
+
+async function isNumberTaken(tx: Prisma.TransactionClient, number: string) {
+  const invoice = await tx.invoice.findUnique({ where: { number }, select: { id: true } });
+  return invoice !== null;
+}
+
+/**
+ * The highest number a series has reached, read as a number: the digits setting can change, so
+ * `0099` and `00100` sit in one series and sort the wrong way round as strings.
+ */
+async function highestInSeries(tx: Prisma.TransactionClient, series: string) {
+  const [row] = await tx.$queryRaw<{ highest: number | null }[]>`
+    SELECT max(substring("number" FROM char_length(${series}::text) + 1)::int) AS highest
+    FROM "Invoice"
+    WHERE starts_with("number", ${series}::text)
+      AND substring("number" FROM char_length(${series}::text) + 1) ~ '^[0-9]{1,9}$'`;
+  return row.highest ?? 0;
 }
 
 /** Allocate a number and insert the invoice. Runs in `tx` so both succeed or neither does. */

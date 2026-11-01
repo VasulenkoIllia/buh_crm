@@ -1027,6 +1027,8 @@ describe("clients", () => {
     });
 
     afterAll(async () => {
+      // on the 1st a subscription is billed the moment it is made, and its invoice holds the row
+      await prisma.invoice.deleteMany({ where: { clientId } });
       await prisma.subscription.deleteMany({ where: { clientId } });
       await prisma.client.deleteMany({ where: { id: clientId } });
       await prisma.service.deleteMany({ where: { name: { startsWith: "PeriodRule" } } });

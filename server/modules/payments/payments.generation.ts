@@ -307,6 +307,16 @@ export function dueInvoices(
 }
 
 /**
+ * What went wrong, in the part the log keeps. It keeps a value's first 200 characters, and a Prisma
+ * message is the whole call frame with the reason on its last line, so the card used to read
+ * "Invalid `tx.invoice.create()` invocation in…" and stop there.
+ */
+function failureReason(err: unknown) {
+  const message = (err instanceof Error ? err.message : String(err)).trim();
+  return message.slice(message.lastIndexOf("\n") + 1);
+}
+
+/**
  * Issue everything due for these subscriptions. Failures are isolated PER SUBSCRIPTION —
  * one client's bad row (or a transient DB error) must not stop the firm's billing run; the
  * sweep is idempotent, so whatever failed is retried on the next run.
@@ -354,8 +364,11 @@ async function issueDue(subs: BillableSubscription[]) {
             if (raised) reminded++;
           }
         } catch (err) {
-          // a concurrent sweep issued the same (subscription, period) first → skip
-          if ((err as { code?: string }).code !== "P2002") throw err;
+          // a concurrent sweep issued the same (subscription, period) first → skip. The database
+          // is asked rather than the error read, because what a P2002 carries changes with
+          // Prisma's version, and any other unique violation left a client unbilled in silence
+          const isDuplicate = (err as { code?: string }).code === "P2002";
+          if (!isDuplicate || !(await repo.hasPeriodInvoice(sub.id, due.key))) throw err;
         }
       }
     } catch (err) {
@@ -371,7 +384,7 @@ async function issueDue(subs: BillableSubscription[]) {
         subjectId: sub.id,
         subjectLabel: sub.service?.name ?? null,
         clientId: sub.clientId,
-        changes: { error: err instanceof Error ? err.message : String(err) },
+        changes: { error: failureReason(err) },
       });
     }
   }
