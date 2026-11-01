@@ -9,7 +9,13 @@ import { Chip, ChipButton } from "@/shared/ui/chip";
 import { IconAdd } from "@/shared/ui/icons";
 import { Menu, type MenuItem } from "@/shared/ui/menu";
 import { useToast } from "@/shared/ui/toast";
-import { useActiveTimer, useStartTimer, useUpdateTask, type AssigneeInfo } from "./tasks.api";
+import {
+  useActiveTimer,
+  useStartTimer,
+  useToggleDone,
+  useUpdateTask,
+  type AssigneeInfo,
+} from "./tasks.api";
 import { TimerCommentModal, fmtDuration, useElapsed } from "./timer";
 
 /**
@@ -27,10 +33,10 @@ export function DoneToggle({
   /** block the toggle while a sibling patch is in flight (e.g. an unsaved job price) */
   disabled?: boolean;
 }) {
-  const update = useUpdateTask();
+  const update = useToggleDone();
   const toggle = (e?: React.MouseEvent) => {
     e?.stopPropagation();
-    update.mutate({ id: task.id, input: { done: !task.done } });
+    update.mutate({ id: task.id, done: !task.done });
   };
   const busy = update.isPending || disabled;
 

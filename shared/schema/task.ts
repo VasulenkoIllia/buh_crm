@@ -139,6 +139,13 @@ export const taskSchema = z.object({
 });
 export type Task = z.infer<typeof taskSchema>;
 
+/**
+ * What creating or changing a task answers. `invoiceFailed` belongs to that one answer and is not
+ * a stored fact: the job was saved and its invoice was not, which a reader of the task alone cannot
+ * tell from a job that simply is not billed yet.
+ */
+export type SavedTask = Task & { invoiceFailed?: true };
+
 // `isTaskOverdue` lives in shared/dates.ts — it's a pure rule with no zod in it, and the
 // frontend must be able to call it without pulling this schema module's runtime into the bundle.
 

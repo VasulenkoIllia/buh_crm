@@ -1,8 +1,14 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseMutationResult,
+} from "@tanstack/react-query";
 import type {
   AddTimeEntryInput,
   CreateColumnInput,
   CreateTaskInput,
+  SavedTask,
   Task,
   TaskColumn,
   MoveColumnInput,
@@ -13,9 +19,10 @@ import type {
   TimeAuditEntry,
 } from "@shared/schema/task";
 import type { FileView } from "@shared/schema/files";
-import { api } from "@/shared/lib/api";
+import { ApiError, api } from "@/shared/lib/api";
 import { applyDrop } from "@/shared/lib/drop-target";
 import { CLIENTS_KEY, FILES_KEY, INVOICES_KEY, TASKS_KEY } from "@/shared/lib/query-keys";
+import { useToast } from "@/shared/ui/toast";
 
 const TIMER_KEY = [...TASKS_KEY, "timer"] as const;
 
@@ -220,10 +227,20 @@ export function useTimeAudit(taskId: string | null) {
 
 export function useCreateTask() {
   const invalidate = useInvalidateTasksAndBilling();
+  const toast = useToast();
   return useMutation({
     mutationFn: (input: CreateTaskInput) =>
-      api<Task>("/api/tasks", { method: "POST", body: input }),
-    onSuccess: invalidate,
+      api<SavedTask>("/api/tasks", { method: "POST", body: input }),
+    onSuccess: (task) => {
+      // the form closes on this answer, so the line has to outlive it. No Try again here: only
+      // completing a job bills it again, so a job created without its invoice is billed by hand
+      if (task.invoiceFailed) {
+        toast({
+          text: "Task saved, but its invoice was not issued. Issue it by hand in Billing.",
+        });
+      }
+    },
+    onSettled: invalidate,
   });
 }
 
@@ -234,6 +251,49 @@ export function useUpdateTask() {
       api<Task>(`/api/tasks/${id}`, { method: "PATCH", body: input }),
     onSuccess: invalidate,
   });
+}
+
+/**
+ * Marking a task done or reopening it, the one change that can bill a job.
+ *
+ * What it says lives here, not in a `mutate` callback: those die with their component, and a card
+ * can leave the screen while the request runs, or long before Try again is pressed. The lists
+ * refresh on every outcome because a task can be saved by an answer that still reports an error;
+ * refreshing on success alone left the card showing a state the server no longer had.
+ */
+export function useToggleDone() {
+  const invalidate = useInvalidateTasksAndBilling();
+  const toast = useToast();
+  const toggle: UseMutationResult<
+    SavedTask,
+    Error,
+    { id: string; done: boolean; retry?: true }
+  > = useMutation({
+    mutationFn: ({ id, done }) =>
+      api<SavedTask>(`/api/tasks/${id}`, { method: "PATCH", body: { done } }),
+    onSuccess: (task, variables) => {
+      if (task.invoiceFailed) {
+        toast({
+          text: "Task is done, but its invoice was not issued.",
+          action: {
+            label: "Try again",
+            run: () => toggle.mutate({ ...variables, retry: true }),
+          },
+        });
+      } else if (variables.retry) {
+        // the button has just closed its own toast, and the card may already be off the board
+        toast({ text: "Invoice issued." });
+      }
+    },
+    onError: (e) => {
+      // a 5xx message is written for a log, and an empty toast is a black bar that says nothing.
+      // Not "not saved": the task can be saved by an answer that still reports an error
+      const refusal = e instanceof ApiError && e.status < 500 && e.message;
+      toast({ text: refusal || "Something went wrong. Check the task and try again." });
+    },
+    onSettled: invalidate,
+  });
+  return toggle;
 }
 
 /**

@@ -1739,6 +1739,21 @@ const EVENTS = {
     retention: "ordinary",
     enabledByDefault: true,
   },
+  /**
+   * A job saved or completed whose invoice did not go out. The task stays as it was written, and
+   * on its own it reads like any job not billed yet; this row says one was tried and why it failed.
+   * A person's act, unlike `subscription.generation_failed`: somebody is waiting on the result.
+   */
+  "task.invoice_failed": {
+    subject: "task",
+    title: "The invoice for {subject} was not issued",
+    when: "a one-time job is created or completed and its invoice fails",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["amount", "error"],
+    enabledByDefault: true,
+  },
   "task.reopened": {
     subject: "task",
     title: "{actor} reopened {subject}",

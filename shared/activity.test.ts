@@ -133,7 +133,8 @@ describe("the activity registry", () => {
     // and one for a task moving along its service's stages (tasks.md, 2026-10-08)
     // and two for the invoice on paper (payments.md §10, 2026-10-31): the firm's invoice details
     // changed, and a copy of the PDF kept in the client's files
-    expect(ACTIVITY_KEYS.length).toBe(217);
+    // and one for a job whose invoice failed (payments.md §5, 2026-11-01)
+    expect(ACTIVITY_KEYS.length).toBe(218);
     // the checklist is empty because the pass is finished — not because it was abandoned
     expect(PLANNED_EVENT_KEYS).toEqual([]);
   });

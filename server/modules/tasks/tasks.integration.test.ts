@@ -1,11 +1,13 @@
 import argon2 from "argon2";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../../app.js";
 import { ensureBaseData } from "../../core/bootstrap.js";
 import { config } from "../../core/config.js";
 import { addDays } from "../../core/dates.js";
 import { prisma } from "../../core/db.js";
+import * as payments from "../payments/index.js";
 import { generateInternalTasks, generateSubscriptionTasks } from "./tasks.generation.js";
+import * as tasksRepo from "./tasks.repository.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 let adminCookie: string;
@@ -552,6 +554,146 @@ describe("tasks", () => {
 
     const invoices = await prisma.invoice.count({ where: { clientId } });
     expect(invoices).toBe(1);
+  });
+
+  describe("an invoice that cannot be issued", () => {
+    /** A client on a one-time service that bills at `trigger`, priced at 7000. */
+    async function jobTerms(name: string, trigger: "on_create" | "on_complete") {
+      const clientId = await makeClient(name);
+      const svc = await app.inject({
+        method: "POST",
+        url: "/api/catalog",
+        headers: { cookie: adminCookie },
+        payload: { name, type: "one_time", invoiceTrigger: trigger },
+      });
+      const sub = await app.inject({
+        method: "POST",
+        url: `/api/clients/${clientId}/subscriptions`,
+        headers: { cookie: adminCookie },
+        payload: { serviceId: svc.json().id, amount: 7000 },
+      });
+      const subscriptionId = sub
+        .json()
+        .subscriptions.find((s: { serviceId: string }) => s.serviceId === svc.json().id).id;
+      return { title: `${name} job`, clientId, subscriptionId, assignees: [adminId] };
+    }
+
+    /** The one entry the flush writes after the reply has gone out. */
+    const logged = (action: string, subjectId: string) =>
+      vi.waitFor(
+        async () => {
+          const row = await prisma.activityEvent.findFirst({ where: { action, subjectId } });
+          if (!row) throw new Error("not written yet");
+          return row;
+        },
+        { timeout: 3000 },
+      );
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("leaves a completed job done, says so, logs it, and bills it on a second try", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const job = await app.inject({
+        method: "POST",
+        url: "/api/tasks",
+        headers: { cookie: adminCookie },
+        payload: await jobTerms("Failing Complete", "on_complete"),
+      });
+      const jobId = job.json().id;
+      const complete = () =>
+        app.inject({
+          method: "PATCH",
+          url: `/api/tasks/${jobId}`,
+          headers: { cookie: adminCookie },
+          payload: { done: true },
+        });
+
+      vi.spyOn(payments, "issueJobInvoice").mockRejectedValueOnce(
+        new Error(
+          "Invalid `tx.invoice.create()` invocation in\n/app/server/x.ts:1\n\nno connection",
+        ),
+      );
+      const failed = await complete();
+
+      expect(failed.statusCode).toBe(200);
+      expect(failed.json()).toMatchObject({ done: true, invoice: null, invoiceFailed: true });
+      expect(await prisma.task.findUniqueOrThrow({ where: { id: jobId } })).toMatchObject({
+        done: true,
+        invoiceId: null,
+      });
+
+      const failure = await logged("task.invoice_failed", jobId);
+      expect(failure).toMatchObject({ outcome: "failed", statusCode: null });
+      expect(failure.changes).toEqual({ amount: 7000, error: "no connection" });
+      // the completion happened, and the log must not say it broke
+      expect(await logged("task.completed", jobId)).toMatchObject({ outcome: "ok" });
+
+      const again = await complete();
+
+      expect(again.statusCode).toBe(200);
+      expect(again.json().invoice).toMatchObject({ amount: 7000 });
+      expect(again.json().invoiceFailed).toBeUndefined();
+      expect(
+        await prisma.activityEvent.count({
+          where: { action: "task.completed", subjectId: jobId },
+        }),
+      ).toBe(1);
+    });
+
+    it("leaves the job open when deciding what to bill fails, before anything is written", async () => {
+      const job = await app.inject({
+        method: "POST",
+        url: "/api/tasks",
+        headers: { cookie: adminCookie },
+        payload: await jobTerms("Failing Lookup", "on_complete"),
+      });
+      vi.spyOn(tasksRepo, "findClientSubscription").mockRejectedValueOnce(
+        new Error("no connection"),
+      );
+
+      const failed = await app.inject({
+        method: "PATCH",
+        url: `/api/tasks/${job.json().id}`,
+        headers: { cookie: adminCookie },
+        payload: { done: true },
+      });
+
+      expect(failed.statusCode).toBe(500);
+      expect(
+        await prisma.task.findUniqueOrThrow({ where: { id: job.json().id } }),
+      ).toMatchObject({
+        done: false,
+        completedAt: null,
+      });
+    });
+
+    it("saves a new job once, with its log entry and the assignee told", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.spyOn(payments, "issueJobInvoice").mockRejectedValueOnce(new Error("no connection"));
+      const terms = await jobTerms("Failing Create", "on_create");
+
+      const job = await app.inject({
+        method: "POST",
+        url: "/api/tasks",
+        headers: { cookie: userCookie },
+        payload: terms,
+      });
+
+      expect(job.statusCode).toBe(201);
+      expect(job.json()).toMatchObject({ invoice: null, invoiceFailed: true });
+      expect(await prisma.task.count({ where: { clientId: terms.clientId } })).toBe(1);
+      expect(await logged("task.created", job.json().id)).toMatchObject({ outcome: "ok" });
+      expect(await logged("task.invoice_failed", job.json().id)).toMatchObject({
+        outcome: "failed",
+      });
+      expect(
+        await prisma.notification.count({
+          where: { userId: adminId, trigger: "task_assigned", linkId: job.json().id },
+        }),
+      ).toBe(1);
+    });
   });
 
   it("filters and pages on the server: overdue, assignee and client are SQL, the table pages", async () => {

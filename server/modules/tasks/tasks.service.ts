@@ -5,6 +5,7 @@ import type {
   CreateColumnInput,
   CreateTaskCommentInput,
   CreateTaskInput,
+  SavedTask,
   SetSubtasksInput,
   StartTimerInput,
   StopTimerInput,
@@ -40,8 +41,8 @@ import {
 } from "../../core/errors.js";
 import { clientLabel, personName } from "../../core/names.js";
 import { notify } from "../../core/notify.js";
-import { issueJobInvoice } from "../payments/index.js";
 import { diff, labelOf, peopleNaming, record } from "../../core/activity.js";
+import { billJob, invoiceDueOnCompletion } from "./tasks.billing.js";
 import * as repo from "./tasks.repository.js";
 
 /** The job's invoice WITH its settlement state — same derivation rule as the Billing screen. */
@@ -573,18 +574,6 @@ export async function createTask(input: CreateTaskInput, actor: User) {
     );
   }
 
-  if (kind === "once" && billNow && amount != null && clientId) {
-    await issueJobInvoice({
-      taskId: task.id,
-      clientId,
-      companyId,
-      serviceId,
-      amount,
-      dueDays,
-      createdById: actor.id,
-    });
-  }
-
   // AFTER the writes, never inside them: a notification for work that then rolls back cannot be
   // taken back out of somebody's tray. `notify` resolves the assignees itself and never throws.
   await notify("task_assigned", {
@@ -608,7 +597,25 @@ export async function createTask(input: CreateTaskInput, actor: User) {
       ...(stage ? { stage: stage.name } : {}),
     },
   });
-  return getTask(task.id);
+
+  let billed = true;
+  if (kind === "once" && billNow && amount != null && clientId) {
+    billed = await billJob(task.title, {
+      taskId: task.id,
+      clientId,
+      companyId,
+      serviceId,
+      amount,
+      dueDays,
+      createdById: actor.id,
+    });
+  }
+  return savedTask(task.id, billed);
+}
+
+async function savedTask(id: string, billed: boolean): Promise<SavedTask> {
+  const task = await getTask(id);
+  return billed ? task : { ...task, invoiceFailed: true };
 }
 
 /** The quiet second line of a tray row: which client's work this is, when it is a client's at all. */
@@ -674,6 +681,7 @@ export async function updateTask(id: string, input: UpdateTaskInput, actor: User
     );
   }
 
+  const invoiceDue = await invoiceDueOnCompletion(task, input);
   const updated = await repo.updateTask(id, {
     ...(input.title !== undefined ? { title: input.title } : {}),
     ...(input.priorityId !== undefined ? { priorityId: input.priorityId } : {}),
@@ -704,26 +712,8 @@ export async function updateTask(id: string, input: UpdateTaskInput, actor: User
   await recordTaskChanges(task, updated, input, { priority, column, stage });
 
   // one-time job billed on completion: issue the invoice the moment it's marked done
-  if (input.done === true && task.kind === "once" && !hasLiveInvoice(task) && task.clientId) {
-    const amount = input.amount !== undefined ? input.amount : task.amount;
-    if (amount != null) {
-      const sub = task.subscriptionId
-        ? await repo.findClientSubscription(task.clientId, task.subscriptionId)
-        : null;
-      const trigger = sub?.invoiceTrigger ?? sub?.service.invoiceTrigger;
-      if (trigger === "on_complete") {
-        await issueJobInvoice({
-          taskId: task.id,
-          clientId: task.clientId,
-          companyId: task.companyId,
-          serviceId: task.serviceId,
-          amount,
-          dueDays: sub?.dueDays ?? sub?.service.dueDays ?? null,
-        });
-      }
-    }
-  }
-  return getTask(id);
+  const billed = invoiceDue ? await billJob(updated.title, invoiceDue) : true;
+  return savedTask(id, billed);
 }
 
 /**

@@ -24,7 +24,7 @@ const ToastContext = createContext<(toast: ToastInput) => void>(() => {});
  * Built for the Undo after a delete: the delete has happened, and the line says so and offers to
  * take it back for a few seconds. A second toast replaces the first rather than stacking, because
  * two Undo buttons on screen would leave nobody sure which one takes back what. An error still
- * belongs next to what failed, not here.
+ * belongs next to what failed, not here, unless there is no beside: a card on the board.
  */
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toast, setToast] = useState<Shown | null>(null);
