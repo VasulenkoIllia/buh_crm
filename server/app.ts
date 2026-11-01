@@ -69,18 +69,17 @@ export async function buildApp() {
      * Behind Traefik in prod: trust `X-Forwarded-*` so `req.ip` / `req.protocol` are the real
      * client's (needed for per-client rate limiting and Secure-cookie detection).
      *
-     * A COUNT, not `true`, since 2026-09-08. `true` trusts the entire chain, so the leftmost entry
-     * in `X-Forwarded-For` wins — and that entry is whatever the caller typed into the header.
-     * That was harmless while the rate limiter was the only reader; it is not harmless now that
-     * every sign-in and every mutation stores an address somebody may later be asked to account
-     * for. `TRUST_PROXY_HOPS` defaults to the two real hops here (Cloudflare, then Traefik) and is
-     * an env var because that is a deployment fact — see core/config.ts.
+     * A list of peers, not `true`. `true` trusts the entire chain, so the leftmost entry in
+     * `X-Forwarded-For` wins — and that entry is whatever the caller typed into the header. Nor a
+     * hop count, which Fastify no longer honours: a count cannot tell Traefik from a stranger.
+     * `TRUST_PROXY` defaults to the private ranges Traefik sits on and is an env var because that
+     * is a deployment fact — see core/config.ts.
      *
      * It is not, on its own, enough to name the caller: Traefik replaces the `X-Forwarded-For` it
-     * receives, so the caller's address never reaches this header and no hop count can find it.
+     * receives, so the caller's address never reaches this header and no setting can find it.
      * `core/client-ip.ts` is where that is solved, and why.
      */
-    trustProxy: isProd ? config.TRUST_PROXY_HOPS : false,
+    trustProxy: isProd ? config.TRUST_PROXY : false,
     logger: {
       level: config.LOG_LEVEL,
       ...(isDev ? { transport: { target: "pino-pretty" } } : {}),

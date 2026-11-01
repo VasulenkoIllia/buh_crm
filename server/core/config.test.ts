@@ -24,6 +24,27 @@ describe("loadConfig", () => {
     expect(config.SMTP_SECURE).toBe(true);
   });
 
+  it("refuses an empty TRUST_PROXY, which would quietly believe no proxy", () => {
+    expect(() => loadConfig({ ...baseEnv, TRUST_PROXY: "" } as NodeJS.ProcessEnv)).toThrow(
+      /TRUST_PROXY/,
+    );
+  });
+
+  it("refuses a hop count in TRUST_PROXY, which proxy-addr would read as an address", () => {
+    for (const value of ["2", "0", " 2 ", "uniquelocal, 2"]) {
+      expect(() => loadConfig({ ...baseEnv, TRUST_PROXY: value } as NodeJS.ProcessEnv)).toThrow(
+        /hop count/,
+      );
+    }
+  });
+
+  it("takes names, addresses and ranges in TRUST_PROXY, and uniquelocal by default", () => {
+    expect(loadConfig(baseEnv as NodeJS.ProcessEnv).TRUST_PROXY).toBe("uniquelocal");
+    const value = "uniquelocal, 172.18.0.5, 10.0.0.0/8, fc00::/7";
+    const parsed = loadConfig({ ...baseEnv, TRUST_PROXY: value } as NodeJS.ProcessEnv);
+    expect(parsed.TRUST_PROXY).toBe(value);
+  });
+
   it("rejects a missing DATABASE_URL", () => {
     expect(() =>
       loadConfig({ SESSION_SECRET: baseEnv.SESSION_SECRET } as NodeJS.ProcessEnv),

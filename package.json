@@ -29,9 +29,9 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@fastify/cookie": "^11.1.2",
     "@fastify/helmet": "^13.1.0",
-    "@fastify/multipart": "^10.1.0",
+    "@fastify/multipart": "^10.1.6",
     "@fastify/rate-limit": "^11.1.0",
-    "@fastify/static": "^10.1.0",
+    "@fastify/static": "^10.1.8",
     "@hookform/resolvers": "^5.4.0",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
@@ -56,11 +56,11 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-hook-form": "^7.81.0",
-    "react-router-dom": "^7.18.1",
+    "react-router-dom": "^7.18.5",
     "tailwind-merge": "^3.6.0",
     "tsx": "^4.19.2",
     "unicode-emoji-json": "^0.9.0",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

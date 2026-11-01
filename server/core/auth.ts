@@ -64,8 +64,8 @@ export async function createSession(
      *
      * Not for display: it is what lets "somebody signed in from an address nobody recognises" be a
      * question anybody can ask, and it is the prerequisite the security package's detection work
-     * needs as much as this module does (activity-log.md §13 A1). Only as true as `TRUST_PROXY_HOPS`
-     * — behind a proxy an untrusted setting records the proxy for the whole firm.
+     * needs as much as this module does (activity-log.md §13 A1). Only as true as `TRUST_PROXY` —
+     * behind a proxy an untrusted setting records the proxy for the whole firm.
      */
     data: {
       id: sid,
