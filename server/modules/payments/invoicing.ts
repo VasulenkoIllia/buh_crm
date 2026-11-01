@@ -16,6 +16,10 @@ import { record } from "../../core/activity.js";
  * issues serialize on that row and a failed insert rolls the counter back.
  * (Truly gapless numbering — the legal variant — stays deferred: a rolled-back
  * transaction is the only gap source left and it's rare.)
+ *
+ * The number's year is always the issue date's. A number somebody already holds is stepped
+ * over and a late invoice continues its own year's series, both inside `allocateNumber`, so
+ * no path here has a number collision to retry (owner, 2026-11-01).
  */
 
 /**
@@ -64,12 +68,6 @@ export interface StoredLine {
   amount: number;
 }
 
-const isUniqueOn = (err: unknown, field: string) =>
-  (err as { code?: string }).code === "P2002" &&
-  ((err as { meta?: { target?: unknown } }).meta?.target as string[] | undefined)?.includes(
-    field,
-  ) === true;
-
 /** The row to write, with the due date resolved from either an explicit date or `dueDays`. */
 function invoiceRow(input: IssueInvoiceInput) {
   // an issue date is a BUSINESS DATE, not the instant of the click: stamped at UTC midnight of
@@ -98,26 +96,18 @@ function invoiceRow(input: IssueInvoiceInput) {
 }
 
 /**
- * Issue one invoice. Retries only on a `number` collision (a legacy S6 number can
- * sit on a counter value we're about to hand out); any other unique violation —
- * notably (subscriptionId, periodKey) — is the caller's business and propagates.
+ * Issue one invoice. A unique violation — notably (subscriptionId, periodKey) — is the
+ * caller's business and propagates.
  */
 export async function issueInvoice(input: IssueInvoiceInput) {
   const { data, year } = invoiceRow(input);
-  for (let attempt = 0; ; attempt++) {
-    try {
-      const invoice = await repo.inTransaction(async (tx) => {
-        const row = await repo.insertInvoice(tx, year, data, input.taskId);
-        if (input.lines?.length) await repo.replaceLines(tx, row.id, input.lines);
-        return row;
-      });
-      recordIssued(invoice);
-      return invoice;
-    } catch (err) {
-      if (attempt < 5 && isUniqueOn(err, "number")) continue; // burnt number → take the next one
-      throw err;
-    }
-  }
+  const invoice = await repo.inTransaction(async (tx) => {
+    const row = await repo.insertInvoice(tx, year, data, input.taskId);
+    if (input.lines?.length) await repo.replaceLines(tx, row.id, input.lines);
+    return row;
+  });
+  recordIssued(invoice);
+  return invoice;
 }
 
 /**
@@ -150,8 +140,7 @@ export function recordIssued(invoice: {
 /**
  * Issue inside a transaction the CALLER already opened — used when the decision to bill and the
  * billing itself have to be one atomic step (a one-time job's invoice is issued under the task's
- * row lock). No retry loop here: a failed insert has to abort the caller's transaction, and the
- * `number` collision it would retry can only come from pre-S7 rows the counter has long passed.
+ * row lock). A failed insert aborts the caller's transaction, which is what it should do.
  */
 export function issueInvoiceIn(tx: Prisma.TransactionClient, input: IssueInvoiceInput) {
   const { data, year } = invoiceRow(input);

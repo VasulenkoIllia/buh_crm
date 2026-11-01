@@ -1462,6 +1462,8 @@ describe("billing — a subscription that changes its period", () => {
     expect(created.statusCode).toBe(201);
     const subId = created.json().subscriptions[0].id as string;
     await startAtPeriodStart(subId);
+    // made on the 1st it is whole from its first day, so the card has just billed this month
+    await prisma.invoice.deleteMany({ where: { subscriptionId: subId } });
 
     // it was quarterly until now, and this quarter is invoiced
     const { y, m, monthKey } = today();
