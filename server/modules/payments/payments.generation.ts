@@ -19,7 +19,7 @@ import {
 import type { BillingPeriod } from "@shared/schema/enums.js";
 import { type Coverage, coverage, firstDayInForce } from "../../core/coverage.js";
 import { raiseSystemTask } from "../../core/system-tasks.js";
-import { issueInvoice } from "./invoicing.js";
+import { failureReason, issueInvoice } from "./invoicing.js";
 import { record } from "../../core/activity.js";
 import * as repo from "./payments.repository.js";
 import type { BillableSubscription } from "./payments.repository.js";
@@ -304,16 +304,6 @@ export function dueInvoices(
       },
     ];
   });
-}
-
-/**
- * What went wrong, in the part the log keeps. It keeps a value's first 200 characters, and a Prisma
- * message is the whole call frame with the reason on its last line, so the card used to read
- * "Invalid `tx.invoice.create()` invocation in…" and stop there.
- */
-function failureReason(err: unknown) {
-  const message = (err instanceof Error ? err.message : String(err)).trim();
-  return message.slice(message.lastIndexOf("\n") + 1);
 }
 
 /**

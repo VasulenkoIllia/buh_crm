@@ -1,7 +1,7 @@
 import { hasLiveInvoice } from "@shared/schema/payment.js";
 import type { UpdateTaskInput } from "@shared/schema/task.js";
 import { record } from "../../core/activity.js";
-import { issueJobInvoice } from "../payments/index.js";
+import { failureReason, issueJobInvoice } from "../payments/index.js";
 import * as repo from "./tasks.repository.js";
 
 type JobInvoice = Parameters<typeof issueJobInvoice>[0];
@@ -57,13 +57,4 @@ export async function billJob(title: string, input: JobInvoice) {
     });
     return false;
   }
-}
-
-/**
- * The reason, in the part the log keeps: it stores a value's first 200 characters, and a Prisma
- * message is the whole call frame with the reason on its last line.
- */
-function failureReason(err: unknown) {
-  const message = (err instanceof Error ? err.message : String(err)).trim();
-  return message.slice(message.lastIndexOf("\n") + 1);
 }

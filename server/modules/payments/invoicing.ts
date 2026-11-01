@@ -14,8 +14,9 @@ import { record } from "../../core/activity.js";
  * and re-uses a number once one is cancelled. S7 allocates it from a persisted
  * counter on FirmProfile, inside the same transaction as the insert — concurrent
  * issues serialize on that row and a failed insert rolls the counter back.
- * (Truly gapless numbering — the legal variant — stays deferred: a rolled-back
- * transaction is the only gap source left and it's rare.)
+ * (Truly gapless numbering — the legal variant — stays deferred: the gaps left are
+ * a rolled-back transaction and a run of taken numbers `allocateNumber` jumps past,
+ * both rare.)
  *
  * The number's year is always the issue date's. A number somebody already holds is stepped
  * over and a late invoice continues its own year's series, both inside `allocateNumber`, so
@@ -183,4 +184,14 @@ export async function issueJobInvoice(input: JobInvoiceInput) {
   // when somebody else billed the same job first, and that is not an issuance
   if (invoice) recordIssued(invoice);
   return invoice;
+}
+
+/**
+ * What went wrong, in the part the log keeps. It keeps a value's first 200 characters, and a Prisma
+ * message is the whole call frame with the reason on its last line, so the card used to read
+ * "Invalid `tx.invoice.create()` invocation in…" and stop there.
+ */
+export function failureReason(err: unknown) {
+  const message = (err instanceof Error ? err.message : String(err)).trim();
+  return message.slice(message.lastIndexOf("\n") + 1);
 }

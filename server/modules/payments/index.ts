@@ -6,7 +6,7 @@ export async function paymentsModule(app: FastifyInstance) {
 }
 
 // invoice issuing — Tasks bills one-time jobs through this (Payments owns numbering)
-export { issueInvoice, issueJobInvoice } from "./invoicing.js";
+export { failureReason, issueInvoice, issueJobInvoice } from "./invoicing.js";
 
 // scheduler job #2 + instant per-subscription billing (used by the clients module)
 export {
