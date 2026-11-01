@@ -10,6 +10,7 @@ import type {
   BulkResult,
   MarkPaidInput,
   SetDeliveryInput,
+  UnbilledJob,
   UpdateInvoiceInput,
   UpdatePaymentInput,
 } from "@shared/schema/payment";
@@ -84,7 +85,29 @@ export function useCreateInvoice() {
   return useMutation({
     mutationFn: (input: CreateInvoiceInput) =>
       api<Invoice>("/api/invoices", { method: "POST", body: input }),
-    onSuccess: invalidate,
+    // on a refusal too: "already billed" means the list of jobs on screen is out of date
+    onSettled: invalidate,
+  });
+}
+
+/** Under the invoices' key, so whatever bills or voids an invoice refreshes this list too. */
+export function useUnbilledJobs(clientId: string | null) {
+  return useQuery({
+    queryKey: [...INVOICES_KEY, "unbilled-jobs", clientId],
+    queryFn: () => api<UnbilledJob[]>(`/api/invoices/unbilled-jobs?clientId=${clientId}`),
+    enabled: !!clientId,
+  });
+}
+
+export function useAttachInvoice() {
+  const invalidate = useInvalidateBilling();
+  return useMutation({
+    mutationFn: ({ invoiceId, taskId }: { invoiceId: string; taskId: string }) =>
+      api<Invoice>(`/api/invoices/${invoiceId}/attach-job`, {
+        method: "POST",
+        body: { taskId },
+      }),
+    onSettled: invalidate,
   });
 }
 

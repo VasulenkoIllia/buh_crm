@@ -1,6 +1,7 @@
 import { halvesOf } from "@shared/billing-periods";
 import type { Service } from "@shared/schema/catalog";
 import type { Client, Subscription } from "@shared/schema/client";
+import type { UnbilledJob } from "@shared/schema/payment";
 import { moneyInputValue } from "@/shared/lib/money";
 import type { DraftLine } from "./invoice-lines-editor";
 
@@ -25,6 +26,21 @@ export function invoiceDefaults(
     // twice a month is a monthly price; a hand-made invoice bills one half of it
     amount: period === "half_month" ? halvesOf(amount)[0] : amount,
     dueDays: dueDays ?? service?.dueDays ?? null, // per-client override wins, as on the server
+  };
+}
+
+/**
+ * What a job being billed suggests: its own price, ahead of its service's. It has to stand alone,
+ * because a job can have no active service, or none at all.
+ */
+export function jobDefaults(
+  defaults: InvoiceDefaults | null,
+  job: Pick<UnbilledJob, "title" | "amount" | "serviceName">,
+): InvoiceDefaults {
+  return {
+    name: defaults?.name || job.serviceName || job.title,
+    amount: job.amount ?? defaults?.amount ?? 0,
+    dueDays: defaults?.dueDays ?? null,
   };
 }
 

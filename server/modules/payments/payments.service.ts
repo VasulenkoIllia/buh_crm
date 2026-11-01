@@ -18,6 +18,7 @@ import { dateToUtc, todayBusinessMs } from "../../core/dates.js";
 import { NotFoundError, ValidationError } from "../../core/errors.js";
 import { clientLabel, personName } from "../../core/names.js";
 import { issueInvoice } from "./invoicing.js";
+import { issueInvoiceOnJob, jobToBill } from "./job-invoices.js";
 import { diff, record } from "../../core/activity.js";
 import * as repo from "./payments.repository.js";
 
@@ -208,19 +209,23 @@ export async function lastRate(clientId: string) {
 
 /**
  * "+ New invoice". A subscription pins service + company exactly like a task does;
- * without one it's a bare charge on the client. `withTask` opens the job for it.
+ * without one it's a bare charge on the client. `withTask` opens the job for it, and `taskId` bills
+ * a job that already exists, which then decides what the form's service would have.
  */
 export async function createInvoice(input: CreateInvoiceInput, user: User) {
   const client = await repo.findClient(input.clientId);
   if (!client || client.archivedAt) throw new NotFoundError("Client not found");
+
+  const job = input.taskId ? await jobToBill(input.taskId, input.clientId) : null;
+  const subscriptionId = job ? job.subscriptionId : (input.subscriptionId ?? null);
 
   let companyId: string | null = null;
   let serviceId: string | null = null;
   let serviceName: string | null = null;
   let dueDays: number | null = null;
 
-  if (input.subscriptionId) {
-    const sub = await repo.findSubscription(input.subscriptionId);
+  if (subscriptionId) {
+    const sub = await repo.findSubscription(subscriptionId);
     if (!sub || sub.clientId !== input.clientId) {
       throw new ValidationError("That service isn't one of this client's");
     }
@@ -228,6 +233,10 @@ export async function createInvoice(input: CreateInvoiceInput, user: User) {
     serviceId = sub.serviceId;
     serviceName = sub.service.name;
     dueDays = sub.dueDays ?? sub.service.dueDays; // per-client override wins
+  }
+  if (job) {
+    companyId = job.companyId;
+    serviceId = job.serviceId;
   }
 
   if (input.withTask && input.assigneeIds.length > 0) {
@@ -243,11 +252,11 @@ export async function createInvoice(input: CreateInvoiceInput, user: User) {
   const amount = lines ? linesTotal(lines) : input.amount;
   if (lines && amount <= 0) throw new ValidationError("The positions add up to nothing");
 
-  const invoice = await issueInvoice({
+  const toIssue = {
     clientId: input.clientId,
     companyId,
     serviceId,
-    subscriptionId: input.subscriptionId ?? null,
+    subscriptionId,
     description: input.description ?? null,
     amount,
     lines,
@@ -256,7 +265,8 @@ export async function createInvoice(input: CreateInvoiceInput, user: User) {
       input.dueDate === undefined ? undefined : input.dueDate ? dateToUtc(input.dueDate) : null,
     dueDays,
     createdById: user.id,
-  });
+  };
+  const invoice = job ? await issueInvoiceOnJob(job.id, toIssue) : await issueInvoice(toIssue);
 
   if (input.withTask) {
     await repo.createInvoiceTask({
@@ -264,7 +274,7 @@ export async function createInvoice(input: CreateInvoiceInput, user: User) {
       clientId: input.clientId,
       companyId,
       serviceId,
-      subscriptionId: input.subscriptionId ?? null,
+      subscriptionId,
       amount,
       invoiceId: invoice.id,
       description: input.description ?? null,

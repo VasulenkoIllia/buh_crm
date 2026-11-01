@@ -248,6 +248,13 @@ const INTENDED_CHANGES: Record<string, { before: Answer; after: Answer; why: str
     after: "admin-only",
     why: "new: changing it decides where clients send their money, so it is an admin's",
   },
+  "POST /api/invoices/:id/attach-job": {
+    before: "nobody",
+    after: "admin-only",
+    why:
+      "new: changes what an invoice already issued stands for, which may be with the client, and " +
+      "has no undo, so it is an admin's like the correction beside it (payments.md §5)",
+  },
 };
 
 function before(route: string): Answer {

@@ -134,7 +134,8 @@ describe("the activity registry", () => {
     // and two for the invoice on paper (payments.md §10, 2026-10-31): the firm's invoice details
     // changed, and a copy of the PDF kept in the client's files
     // and one for a job whose invoice failed (payments.md §5, 2026-11-01)
-    expect(ACTIVITY_KEYS.length).toBe(218);
+    // and one for an invoice attached to a job by hand (the same section, the same day)
+    expect(ACTIVITY_KEYS.length).toBe(219);
     // the checklist is empty because the pass is finished — not because it was abandoned
     expect(PLANNED_EVENT_KEYS).toEqual([]);
   });

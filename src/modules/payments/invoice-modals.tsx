@@ -25,6 +25,7 @@ import {
   useUpdateInvoice,
 } from "./payments.api";
 import { InvoicePdfActions } from "./invoice-pdf-actions";
+import { AttachJob } from "./job-picker";
 import {
   LinesEditor,
   draftTotal,
@@ -269,6 +270,15 @@ export function InvoiceModal({
                     </Link>
                   </div>
                 )}
+                {!invoice.taskId &&
+                  isAdmin &&
+                  !invoice.cancelledAt &&
+                  !invoice.periodKey &&
+                  !invoice.clientArchived && (
+                    <div className="py-1">
+                      <AttachJob invoice={invoice} />
+                    </div>
+                  )}
                 <div className="text-muted">
                   Client:{" "}
                   <Link

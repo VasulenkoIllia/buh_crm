@@ -961,6 +961,11 @@
     "access": "gate:billing:admin"
   },
   {
+    "method": "POST",
+    "url": "/api/invoices/:id/attach-job",
+    "access": "gate:billing:admin"
+  },
+  {
     "method": "GET",
     "url": "/api/invoices/:id/audit",
     "access": "gate:billing:admin"
@@ -1037,6 +1042,17 @@
     "method": "PATCH",
     "url": "/api/invoices/payments/:paymentId",
     "access": "gate:billing:admin"
+  },
+  {
+    "method": "GET",
+    "url": "/api/invoices/unbilled-jobs",
+    "access": "gate:billing"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/invoices/unbilled-jobs",
+    "access": "gate:billing",
+    "derived": true
   },
   {
     "method": "GET",

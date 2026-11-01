@@ -4,6 +4,7 @@ import { z } from "zod";
 import { uuid } from "@shared/schema/common.js";
 import {
   addPaymentInput,
+  attachInvoiceInput,
   createInvoiceInput,
   invoiceListQuery,
   invoicePdfQuery,
@@ -12,11 +13,13 @@ import {
   bulkDeliveryInput,
   markPaidInput,
   setDeliveryInput,
+  unbilledJobsQuery,
   updateInvoiceInput,
   updatePaymentInput,
 } from "@shared/schema/payment.js";
 import { gate } from "../../core/access.js";
 import { viewHeaders } from "../files/index.js";
+import { attachInvoice, listUnbilledJobs } from "./job-invoices.js";
 import { invoicePdf, saveInvoicePdf } from "./payments.pdf.js";
 import * as service from "./payments.service.js";
 
@@ -28,9 +31,10 @@ export async function registerRoutes(instance: FastifyInstance) {
 
   const billing = gate("billing");
   /**
-   * Five routes that no gate state can express: correcting an issued invoice, cancelling one, and
-   * editing or deleting a recorded payment or reading its audit trail. Billing has to stay OPEN —
-   * close it and nobody can bill — so "everything here except these five" is a per-ACTION rule,
+   * Six routes that no gate state can express: correcting an issued invoice, cancelling one,
+   * attaching one to a job, and editing or deleting a recorded payment or reading its audit trail.
+   * Billing has to stay OPEN —
+   * close it and nobody can bill — so "everything here except these six" is a per-ACTION rule,
    * which is stage 2. Carried on the declaration so the one hook still decides, and so each one
    * becomes a row with a real `action` value rather than a rewrite when that day comes.
    *
@@ -60,6 +64,12 @@ export async function registerRoutes(instance: FastifyInstance) {
     "/last-rate",
     { config: billing, schema: { querystring: lastRateQuery } },
     async (request) => service.lastRate(request.query.clientId),
+  );
+
+  app.get(
+    "/unbilled-jobs",
+    { config: billing, schema: { querystring: unbilledJobsQuery } },
+    async (request) => listUnbilledJobs(request.query.clientId),
   );
 
   app.post(
@@ -153,6 +163,17 @@ export async function registerRoutes(instance: FastifyInstance) {
     "/:id/cancel",
     { config: correction, schema: { params: idParams } },
     async (request) => service.cancelInvoice(request.params.id, request.currentUser!),
+  );
+
+  // changes what an invoice already issued stands for, maybe already with the client → admin.
+  // Issuing one on a job moves the price too, and is open: that paper did not exist yet
+  app.post(
+    "/:id/attach-job",
+    { config: correction, schema: { params: idParams, body: attachInvoiceInput } },
+    async (request) => {
+      await attachInvoice(request.params.id, request.body.taskId);
+      return service.getInvoice(request.params.id);
+    },
   );
 
   // who changed which payment, before → after

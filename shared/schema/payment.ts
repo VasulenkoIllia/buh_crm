@@ -183,6 +183,24 @@ export const lastRateQuery = z.object({ clientId: uuid });
 export const lastRateSchema = z.object({ unitRate: money.nullable() });
 export type LastRate = z.infer<typeof lastRateSchema>;
 
+export const unbilledJobsQuery = z.object({ clientId: uuid });
+
+/** A one-time job of a client that no live invoice bills: what can take a hand-issued invoice. */
+export const unbilledJobSchema = z.object({
+  id: uuid,
+  title: z.string(),
+  amount: money.nullable(),
+  done: z.boolean(),
+  subscriptionId: uuid.nullable(),
+  serviceName: z.string().nullable(),
+  companyId: uuid.nullable(),
+  companyName: z.string().nullable(),
+});
+export type UnbilledJob = z.infer<typeof unbilledJobSchema>;
+
+/** Attaching an issued invoice to a job (admin). The job's price follows the invoice. */
+export const attachInvoiceInput = z.object({ taskId: uuid });
+
 /**
  * Manual invoice (design: "+ New invoice"). A subscription pins the service + company
  * target exactly like a task does; without one the invoice is a bare client charge.
@@ -215,10 +233,16 @@ export const createInvoiceInput = z
     withTask: z.boolean().default(false),
     taskTitle: z.string().trim().max(200).optional(),
     assigneeIds: z.array(uuid).default([]),
+    /** an existing one-time job this invoice bills; the job then decides service and company */
+    taskId: uuid.optional(),
   })
   .refine((v) => !v.withTask || !!(v.taskTitle || v.description), {
     path: ["taskTitle"],
     message: "Name the task (or fill the description)",
+  })
+  .refine((v) => !v.withTask || !v.taskId, {
+    path: ["taskId"],
+    message: "An invoice opens a new task or bills an existing job, not both",
   });
 export type CreateInvoiceInput = z.infer<typeof createInvoiceInput>;
 

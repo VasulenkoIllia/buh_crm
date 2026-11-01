@@ -156,10 +156,12 @@ describe("route inventory", () => {
       // in the client's files and the rate a new position starts from, all on Billing, and the
       // firm's invoice details, a read and an admin's write on Settings. The bank details are not
       // on `GET /settings` because that read is `shared()`.
-      total: 403,
-      derivedHead: 102,
-      real: 301,
-      api: 300, // everything but /health
+      // +2 and a HEAD on 2026-11-01, a job billed by hand (payments.md §5): the client's unbilled
+      // jobs on Billing, and attaching an issued invoice, an admin's act like correcting one.
+      total: 406,
+      derivedHead: 103,
+      real: 303,
+      api: 302, // everything but /health
       anonymous: 9, // 6 credential routes, 2 unsubscribe pages, /health
       // `POST /tasks/timer/start` moved to the `tasks` gate during the 2026-09-07 audit. It takes a
       // taskId and writes against somebody else's module, so it was never really "the caller's own
@@ -167,8 +169,8 @@ describe("route inventory", () => {
       // second factor and name nobody else.
       own: 15,
       shared: 12,
-      gated: 265,
-      adminOnly: 21,
+      gated: 267,
+      adminOnly: 22,
     });
   });
 

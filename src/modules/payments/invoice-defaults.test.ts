@@ -1,8 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { billToOf, invoiceDefaults, prefilledPosition } from "./invoice-defaults";
+import { billToOf, invoiceDefaults, jobDefaults, prefilledPosition } from "./invoice-defaults";
 
 const service = { name: "Bookkeeping", dueDays: 14 };
 const subscription = { amount: 10000, period: "month" as const, dueDays: null };
+
+describe("what a job being billed fills in", () => {
+  const job = { title: "Tax return", amount: 7000, serviceName: "Tax work" };
+  const terms = { name: "Tax work", amount: 10000, dueDays: 14 };
+
+  it("takes the job's price ahead of its service's, and the service's terms", () => {
+    expect(jobDefaults(terms, job)).toEqual({ name: "Tax work", amount: 7000, dueDays: 14 });
+  });
+
+  it("falls back on the service's price for a job with none", () => {
+    expect(jobDefaults(terms, { ...job, amount: null }).amount).toBe(10000);
+  });
+
+  it("stands alone for a job with no active service", () => {
+    expect(jobDefaults(null, job)).toEqual({ name: "Tax work", amount: 7000, dueDays: null });
+    expect(jobDefaults(null, { ...job, serviceName: null }).name).toBe("Tax return");
+    expect(jobDefaults(null, { ...job, amount: null }).amount).toBe(0);
+  });
+});
 
 describe("what a new invoice fills in by itself", () => {
   it("takes the price and the terms from the client's service", () => {

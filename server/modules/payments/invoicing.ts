@@ -131,7 +131,7 @@ export async function issueInvoice(input: IssueInvoiceInput) {
  * than no entry — and here that is not a rule anybody has to remember, because `record()` only
  * buffers and the flush happens once the request (or the job) is done.
  */
-function recordIssued(invoice: {
+export function recordIssued(invoice: {
   id: string;
   number: string;
   amount: number;

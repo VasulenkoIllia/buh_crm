@@ -19,6 +19,7 @@ import type {
   TimeAuditEntry,
 } from "@shared/schema/task";
 import type { FileView } from "@shared/schema/files";
+import { useCanEdit } from "@/app/auth";
 import { ApiError, api } from "@/shared/lib/api";
 import { applyDrop } from "@/shared/lib/drop-target";
 import { CLIENTS_KEY, FILES_KEY, INVOICES_KEY, TASKS_KEY } from "@/shared/lib/query-keys";
@@ -228,6 +229,7 @@ export function useTimeAudit(taskId: string | null) {
 export function useCreateTask() {
   const invalidate = useInvalidateTasksAndBilling();
   const toast = useToast();
+  const canBill = useCanEdit("billing");
   return useMutation({
     mutationFn: (input: CreateTaskInput) =>
       api<SavedTask>("/api/tasks", { method: "POST", body: input }),
@@ -235,9 +237,10 @@ export function useCreateTask() {
       // the form closes on this answer, so the line has to outlive it. No Try again here: only
       // completing a job bills it again, so a job created without its invoice is billed by hand
       if (task.invoiceFailed) {
-        toast({
-          text: "Task saved, but its invoice was not issued. Issue it by hand in Billing.",
-        });
+        const next = canBill
+          ? "Open the task and press Issue invoice."
+          : "Ask somebody with Billing to issue it.";
+        toast({ text: `Task saved, but its invoice was not issued. ${next}` });
       }
     },
     onSettled: invalidate,

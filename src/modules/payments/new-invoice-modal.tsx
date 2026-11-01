@@ -16,10 +16,12 @@ import { Segmented } from "@/shared/ui/segmented";
 import {
   billToOf,
   invoiceDefaults,
+  jobDefaults,
   prefilledPosition,
   suggestedAmount,
 } from "./invoice-defaults";
 import { LinesEditor, draftTotal, toLineInput, type DraftLine } from "./invoice-lines-editor";
+import { JobChoiceField, useJobChoice } from "./job-picker";
 import { useCreateInvoice, useLastRate } from "./payments.api";
 
 /** Compact client search — the invoice always belongs to exactly one client. */
@@ -81,10 +83,13 @@ function ClientPicker({
 
 export function NewInvoiceModal({
   presetClientId,
+  presetJobId,
   onClose,
   onCreated,
 }: {
   presetClientId?: string;
+  /** a job's card sent us here: the form opens on that job */
+  presetJobId?: string;
   onClose: () => void;
   onCreated?: (invoice: Invoice) => void;
 }) {
@@ -102,7 +107,9 @@ export function NewInvoiceModal({
   const [dueDate, setDueDate] = useState<string | null>(null);
   const [itemised, setItemised] = useState(false);
   const [noDueDate, setNoDueDate] = useState(false);
-  const [mode, setMode] = useState<"invoice" | "with_task">("invoice");
+  const [mode, setMode] = useState<"invoice" | "with_task" | "job">(
+    presetJobId ? "job" : "invoice",
+  );
   const [taskTitle, setTaskTitle] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -111,13 +118,19 @@ export function NewInvoiceModal({
   const serviceName = (id: string) => catalog?.find((s) => s.id === id)?.name ?? "Service";
   const subscriptions = (client.data?.subscriptions ?? []).filter((s) => s.active);
 
-  const subscription = subscriptions.find((s) => s.id === subscriptionId) ?? null;
-  const defaults = subscription
+  const jobChoice = useJobChoice(clientId, mode === "job", presetJobId);
+  const { job } = jobChoice;
+  // a job decides the service, as it does on the server. Its own, even when it has none: the form's
+  // service is usually the one it opened on, and those terms have nothing to do with this job
+  const subscription =
+    subscriptions.find((s) => s.id === (job ? job.subscriptionId : subscriptionId)) ?? null;
+  const serviceDefaults = subscription
     ? invoiceDefaults(
         subscription,
         catalog?.find((s) => s.id === subscription.serviceId),
       )
     : null;
+  const defaults = job ? jobDefaults(serviceDefaults, job) : serviceDefaults;
   // asked as soon as there is a client, so the rate is there when Positions opens: the first
   // keystroke in the list makes the list theirs, and a rate that lands after it would be lost
   const { data: lastRate } = useLastRate(clientId);
@@ -125,7 +138,9 @@ export function NewInvoiceModal({
   const shownAmount = amount ?? suggestedAmount(defaults);
   const suggestedDue = defaults?.dueDays != null ? todayPlus(defaults.dueDays) : "";
   const shownDueDate = noDueDate ? "" : (dueDate ?? suggestedDue);
-  const billTo = client.data ? billToOf(client.data, subscription?.companyId ?? null) : null;
+  const billTo = client.data
+    ? billToOf(client.data, job ? job.companyId : (subscription?.companyId ?? null))
+    : null;
 
   // open on the client's default service — the one they're usually billed for
   useEffect(() => {
@@ -144,6 +159,7 @@ export function NewInvoiceModal({
   async function submit() {
     setError(null);
     if (!clientId) return setError("Pick a client");
+    if (mode === "job" && !job) return setError("Pick a job");
     if (itemised && filled.length === 0)
       return setError("Add at least one position, with a name");
     if (total <= 0) return setError("Enter an amount");
@@ -159,6 +175,7 @@ export function NewInvoiceModal({
         withTask: mode === "with_task",
         taskTitle: taskTitle.trim() || undefined,
         assigneeIds: mode === "with_task" ? selected : [],
+        taskId: job?.id,
       });
       onCreated?.(invoice);
       onClose();
@@ -183,7 +200,10 @@ export function NewInvoiceModal({
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button disabled={createInvoice.isPending} onClick={() => void submit()}>
+          <Button
+            disabled={createInvoice.isPending || (mode === "job" && jobChoice.isLoading)}
+            onClick={() => void submit()}
+          >
             Create
           </Button>
         </>
@@ -197,29 +217,38 @@ export function NewInvoiceModal({
               onPick={(id) => {
                 setClientId(id);
                 setSubscriptionId("");
+                jobChoice.setJobId("");
               }}
             />
           </FormField>
 
-          <FormField label="Service (optional — pins the company target)">
-            <SearchSelect
-              value={subscriptionId}
-              onChange={setSubscriptionId}
-              disabled={!clientId}
-              placeholder={clientId ? "Search this client's services…" : "Pick a client first"}
-              emptyLabel="No service — a plain charge"
-              options={
-                clientId
-                  ? subscriptions.map((s) => ({
-                      value: s.id,
-                      label: s.companyId
-                        ? `${serviceName(s.serviceId)} · ${client.data?.companies.find((c) => c.id === s.companyId)?.name ?? "company"}`
-                        : serviceName(s.serviceId),
-                    }))
-                  : []
-              }
-            />
-          </FormField>
+          {job ? (
+            <FormField label="Service (from the job)">
+              <Input disabled aria-label="Service" value={job.serviceName ?? "No service"} />
+            </FormField>
+          ) : (
+            <FormField label="Service (optional — pins the company target)">
+              <SearchSelect
+                value={subscriptionId}
+                onChange={setSubscriptionId}
+                disabled={!clientId}
+                placeholder={
+                  clientId ? "Search this client's services…" : "Pick a client first"
+                }
+                emptyLabel="No service — a plain charge"
+                options={
+                  clientId
+                    ? subscriptions.map((s) => ({
+                        value: s.id,
+                        label: s.companyId
+                          ? `${serviceName(s.serviceId)} · ${client.data?.companies.find((c) => c.id === s.companyId)?.name ?? "company"}`
+                          : serviceName(s.serviceId),
+                      }))
+                    : []
+                }
+              />
+            </FormField>
+          )}
         </div>
 
         {billTo && (
@@ -299,7 +328,8 @@ export function NewInvoiceModal({
               { value: "lines", label: "Positions" },
             ]}
           />
-          <div className="flex items-center gap-2">
+          {/* wraps on a phone: three options beside their label ran 7px past the dialog at 390 */}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="text-[12px] font-medium text-ink-700">What to create</span>
             <Segmented
               className="w-auto"
@@ -308,12 +338,15 @@ export function NewInvoiceModal({
               options={[
                 { value: "invoice", label: "Invoice only" },
                 { value: "with_task", label: "Invoice + task" },
+                { value: "job", label: "For a job" },
               ]}
             />
           </div>
         </div>
 
         {itemised && <LinesEditor lines={lines} onChange={setTypedLines} />}
+
+        {mode === "job" && <JobChoiceField choice={jobChoice} total={total} />}
 
         {mode === "with_task" && (
           <div className="grid gap-3 rounded-(--radius-panel) bg-[#f7f8fa] p-3 sm:grid-cols-[240px_1fr]">

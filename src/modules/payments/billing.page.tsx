@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useRecordParam } from "@/shared/lib/use-record-param";
 import { CircleDollarSign } from "lucide-react";
@@ -69,6 +69,23 @@ export function BillingPage() {
   // ?client=<id> narrows the list to one client (drill-through from the client card's Invoices tab)
   const [searchParams, setSearchParams] = useSearchParams();
   const clientParam = searchParams.get("client");
+  // ?job=<id> arrives from a job's card and opens the form on that job, once: the address forgets
+  // it at once, so neither closing the form nor a reload brings it back
+  const jobParam = searchParams.get("job");
+  const [jobToBill, setJobToBill] = useState<string>();
+  useEffect(() => {
+    if (!jobParam) return;
+    setJobToBill(jobParam);
+    setNewOpen(true);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("job");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [jobParam, setSearchParams]);
   // one of that client's companies, as on the card. Kept WITH the client it was picked for, so it
   // can never narrow another client's list once the chip is cleared or the address changes.
   const [companyPick, setCompanyPick] = useState<{
@@ -418,7 +435,11 @@ export function BillingPage() {
       {newOpen && (
         <NewInvoiceModal
           presetClientId={clientParam ?? undefined}
-          onClose={() => setNewOpen(false)}
+          presetJobId={jobToBill}
+          onClose={() => {
+            setNewOpen(false);
+            setJobToBill(undefined);
+          }}
           onCreated={(inv) => openInvoice(inv.id)}
         />
       )}

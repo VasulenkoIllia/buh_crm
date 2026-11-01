@@ -1754,6 +1754,20 @@ const EVENTS = {
     changeKeys: ["amount", "error"],
     enabledByDefault: true,
   },
+  /**
+   * A job billed by hand, by an invoice issued for it or by one attached later. What ends a job's
+   * `⏳ unbilled`, and the price the job had before the invoice's total replaced it.
+   */
+  "task.invoice_attached": {
+    subject: "task",
+    title: "{actor} attached an invoice to {subject}",
+    when: "an invoice issued by hand is attached to a one-time job",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["invoice", "amount"],
+    enabledByDefault: true,
+  },
   "task.reopened": {
     subject: "task",
     title: "{actor} reopened {subject}",

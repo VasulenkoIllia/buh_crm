@@ -23,7 +23,7 @@ import { fmtMoney } from "@/shared/lib/money";
 import { CopyLink } from "@/shared/ui/copy-link";
 import { AssigneePicker } from "@/shared/ui/assignee-picker";
 import { userLabel } from "@/shared/ui/avatar";
-import { Button, IconButton } from "@/shared/ui/button";
+import { Button, IconButton, buttonVariants } from "@/shared/ui/button";
 import { ChecklistEditor } from "@/shared/ui/checklist-editor";
 import { Chip } from "@/shared/ui/chip";
 import { Input, Label, Select, Textarea } from "@/shared/ui/field";
@@ -678,6 +678,7 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
   const { data: columns } = useTaskColumns();
   const update = useUpdateTask();
   const archive = useArchiveTask();
+  const canBill = useCanEdit("billing");
 
   const isAdmin = user?.role === "admin";
   const service = services?.find((s) => s.id === task.serviceId);
@@ -983,6 +984,16 @@ export function TaskDetailsModal({ task, onClose }: { task: Task; onClose: () =>
                 </Field>
               )}
               {task.invoice && <InvoiceField invoice={task.invoice} />}
+              {/* a link rather than the form here: Billing is where a person with no access to it
+                  cannot end up, and this chunk stays free of the invoice screens */}
+              {editableAmount && canBill && task.clientId && !task.cancelledAt && (
+                <Link
+                  className={buttonVariants({ variant: "secondary", size: "sm" })}
+                  to={`/billing?client=${task.clientId}&job=${task.id}`}
+                >
+                  Issue invoice
+                </Link>
+              )}
             </div>
 
             <div>

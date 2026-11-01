@@ -324,6 +324,30 @@ export function inTransaction<T>(fn: (tx: Prisma.TransactionClient) => Promise<T
   return prisma.$transaction(fn);
 }
 
+const jobForBillingSelect = {
+  id: true,
+  title: true,
+  kind: true,
+  clientId: true,
+  companyId: true,
+  serviceId: true,
+  subscriptionId: true,
+  amount: true,
+  archivedAt: true,
+  cancelledAt: true,
+  invoiceId: true,
+  client: { select: { archivedAt: true } },
+  // `cancelledAt` rides along because "already billed" has to mean billed by an invoice that
+  // still counts — a voided one must not keep the job hostage forever
+  invoice: { select: { number: true, cancelledAt: true } },
+} satisfies Prisma.TaskSelect;
+
+export type JobForBilling = Prisma.TaskGetPayload<{ select: typeof jobForBillingSelect }>;
+
+export function findJobForBilling(taskId: string) {
+  return prisma.task.findUnique({ where: { id: taskId }, select: jobForBillingSelect });
+}
+
 /**
  * Take the row lock on a task and hand back what billing needs to decide. Used so two
  * concurrent "mark done" requests on the same one-time job can't both pass the
@@ -333,13 +357,64 @@ export async function lockTaskForInvoicing(tx: Prisma.TransactionClient, taskId:
   return tx.task.update({
     where: { id: taskId },
     data: { updatedAt: new Date() }, // the write is what takes the lock
-    // `cancelledAt` rides along because "already billed" has to mean billed by an invoice that
-    // still counts — a voided one must not keep the job hostage forever
+    select: jobForBillingSelect,
+  });
+}
+
+/**
+ * The invoice's row lock, for the same reason: two people attaching one invoice to two jobs would
+ * each see it free, and an invoice stays on one job (payments.md, "One job per invoice").
+ */
+export function lockInvoiceForAttaching(tx: Prisma.TransactionClient, invoiceId: string) {
+  return tx.invoice.update({
+    where: { id: invoiceId },
+    data: { updatedAt: new Date() }, // the write is what takes the lock
     select: {
       id: true,
-      invoiceId: true,
+      number: true,
       amount: true,
-      invoice: { select: { cancelledAt: true } },
+      clientId: true,
+      periodKey: true,
+      cancelledAt: true,
+      tasks: { select: { title: true }, take: 1 },
+    },
+  });
+}
+
+/** Point a job at its invoice. The invoice owns the number, so the job's price becomes its total. */
+export function linkJobToInvoice(
+  tx: Prisma.TransactionClient,
+  taskId: string,
+  invoiceId: string,
+  amount: number,
+) {
+  return tx.task.update({ where: { id: taskId }, data: { invoiceId, amount } });
+}
+
+/** A form's list, so a client's whole history of jobs is never read for it. */
+const UNBILLED_JOBS_LIMIT = 100;
+
+export function listUnbilledJobs(clientId: string) {
+  return prisma.task.findMany({
+    where: {
+      clientId,
+      kind: "once",
+      archivedAt: null,
+      cancelledAt: null,
+      client: { archivedAt: null },
+      OR: [{ invoiceId: null }, { invoice: { cancelledAt: { not: null } } }],
+    },
+    orderBy: { createdAt: "desc" },
+    take: UNBILLED_JOBS_LIMIT,
+    select: {
+      id: true,
+      title: true,
+      amount: true,
+      done: true,
+      subscriptionId: true,
+      companyId: true,
+      service: { select: { name: true } },
+      company: { select: { name: true } },
     },
   });
 }
