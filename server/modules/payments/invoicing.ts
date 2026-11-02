@@ -129,6 +129,7 @@ export function recordIssued(invoice: {
   amount: number;
   clientId: string;
   company: { name: string } | null;
+  paymentDetails: { name: string } | null;
 }) {
   record("invoice.issued", {
     subjectId: invoice.id,
@@ -137,10 +138,12 @@ export function recordIssued(invoice: {
     // not `number`: it is already the subject label, and the entry read "Invoice INV-2026-0042
     // was issued / number INV-2026-0042" — the same string twice, using the one line of the diff.
     // The company is who the paper is addressed to, which Bill to can make any of the client's
-    // (2026-11-02); the client is already the row's own column.
+    // (2026-11-02); the client is already the row's own column. The payment details set is which
+    // account the paper asks to be paid into (payments.md §10).
     changes: {
       amount: invoice.amount,
       ...(invoice.company ? { company: invoice.company.name } : {}),
+      ...(invoice.paymentDetails ? { paymentDetails: invoice.paymentDetails.name } : {}),
     },
   });
 }

@@ -361,7 +361,6 @@ describe("the firm's invoice details", () => {
     website: "acme.test",
     email: "billing@acme.test",
     phone: "+1 555 0100",
-    paymentInfo: `Account ${TAG}`,
   };
   let firmName: string;
 
@@ -384,7 +383,7 @@ describe("the firm's invoice details", () => {
 
     const event = await recorded("settings.invoice_details_changed", null, details.name);
     expect(event.changes).toMatchObject({
-      invoicePaymentInfo: { to: details.paymentInfo },
+      invoiceFromPhone: { to: details.phone },
     });
   });
 
@@ -413,23 +412,6 @@ describe("the firm's invoice details", () => {
     expect(row.invoiceFromName).toBeNull();
   });
 
-  it("logs the changed line of a long block, past what the log keeps of a value", async () => {
-    const opening = Array.from({ length: 12 }, (_, i) => `Bank line ${i} of the block`).join(
-      "\n",
-    );
-    await as(admin).patch(url, { paymentInfo: `${opening}\nAccount 1111` });
-    const res = await as(admin).patch(url, {
-      name: `${TAG} Long`,
-      paymentInfo: `${opening}\nAccount 2222`,
-    });
-    expect(res.statusCode).toBe(200);
-
-    const event = await recorded("settings.invoice_details_changed", null, `${TAG} Long`);
-    expect(event.changes).toMatchObject({
-      invoicePaymentInfo: { from: "Account 1111", to: "Account 2222" },
-    });
-  });
-
   it("does nothing on an empty save", async () => {
     await as(admin).patch(url, details);
     const res = await as(admin).patch(url, {});
@@ -440,13 +422,6 @@ describe("the firm's invoice details", () => {
   it("refuses an address that is not one", async () => {
     const res = await as(admin).patch(url, { ...details, email: "not an address" });
     expect(res.statusCode).toBe(400);
-  });
-
-  it("stays out of the settings every screen reads", async () => {
-    await as(admin).patch(url, details);
-    const res = await as(colleague).get("/api/settings");
-    expect(res.statusCode).toBe(200);
-    expect(res.body).not.toContain(details.paymentInfo);
   });
 
   it("clears back to the firm's name", async () => {

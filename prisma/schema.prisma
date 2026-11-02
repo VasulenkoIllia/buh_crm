@@ -512,7 +512,10 @@ model FirmProfile {
   invoiceFromWebsite String?
   invoiceFromEmail   String?
   invoiceFromPhone   String?
-  /// the "Payment Information" block, free text: bank, routing number, Zelle
+  /// the "Payment Information" block, free text: bank, routing number, Zelle.
+  /// UNREAD since 2026-11-02: the migration carried it into a `PaymentDetails` set named Default,
+  /// and invoices print sets from then on. Kept so a code-only rollback still prints something; a
+  /// later migration drops it (payments.md §10).
   invoicePaymentInfo String?
 
   // ── Two-factor sign-in (S16) ──────────────────────────────────────────────
@@ -524,6 +527,25 @@ model FirmProfile {
 
   logoFile     File? @relation("FirmLogo", fields: [logoFileId], references: [id])
   mailLogoFile File? @relation("FirmMailLogo", fields: [mailLogoFileId], references: [id])
+}
+
+/// A set of payment details an invoice prints: where the client sends the money (2026-11-02,
+/// payments.md §10). Several, because clients inside the US and outside it pay to different
+/// accounts. One live set is the default, for every client who names none; the one-default rule is
+/// a partial unique index in raw SQL (`PaymentDetails_one_default`, server/schema-invariants.test.ts).
+/// Archived, never deleted: clients and issued invoices point at it, both RESTRICT.
+model PaymentDetails {
+  id         String    @id @default(uuid()) @db.Uuid
+  name       String // "US clients", "International"
+  /// the printed block, free text, line by line
+  details    String
+  isDefault  Boolean   @default(false)
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  clients  Client[]
+  invoices Invoice[]
 }
 
 /// A mailbox the firm sends client letters from.
@@ -738,10 +760,14 @@ model Client {
   updatedAt    DateTime  @updatedAt
   archivedAt   DateTime?
   archivedById String?   @db.Uuid
+  /// the payment details their invoices carry. NULL = the firm's default set, whichever it is at
+  /// issue. Only an admin changes it (payments.md §10).
+  paymentDetailsId String? @db.Uuid
 
   /// Restrict, not the default SetNull: a source may only be deleted while nothing records it,
   /// and the database is what makes that true rather than a count taken a moment earlier.
   source         SourceOption?         @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  paymentDetails PaymentDetails?       @relation(fields: [paymentDetailsId], references: [id], onDelete: Restrict)
   companies      Company[] // 1:N — the client's companies (see below)
   people         ClientPerson[] // the "People" tab
   secrets        Secret[] // the client's own list in the vault (S18; Company and My secrets sit outside)
@@ -760,6 +786,7 @@ model Client {
   pins           ClientPin[]
 
   @@index([archivedAt])
+  @@index([paymentDetailsId])
 }
 
 /// A company OWNED BY ONE CLIENT (2026-07-26) — the invoicing / task / report dimension that
@@ -1237,8 +1264,15 @@ model Invoice {
   tidiedById     String?   @db.Uuid
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
+  /// The payment details it was issued with, and their text AS IT WAS at issue: the paper keeps
+  /// it, so editing a set never changes an invoice already sent (owner, 2026-11-02). Taken in
+  /// `insertInvoice`, the one place every issue path reaches. NULL on an invoice issued before
+  /// sets existed, or while there were none: its paper prints the client's current set.
+  paymentDetailsId String? @db.Uuid
+  paymentInfo      String?
 
-  lines        InvoiceLine[]
+  lines          InvoiceLine[]
+  paymentDetails PaymentDetails? @relation(fields: [paymentDetailsId], references: [id], onDelete: Restrict)
   client       Client            @relation(fields: [clientId], references: [id])
   company      Company?          @relation(fields: [companyId], references: [id], onDelete: Restrict)
   // Restrict, not SetNull: an invoice must never lose what it was for. The catalog/company
@@ -1260,6 +1294,7 @@ model Invoice {
   @@index([tidiedAt])
   // the working list is "this firm's live invoices, newest first" — one index answers it
   @@index([cancelledAt, tidiedAt, issuedAt])
+  @@index([paymentDetailsId])
 }
 
 /// One position on an invoice — what the total is made of.

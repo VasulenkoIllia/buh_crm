@@ -13,7 +13,7 @@ import { Modal } from "@/shared/ui/modal";
 import { RowButton } from "@/shared/ui/row-button";
 import { SearchSelect } from "@/shared/ui/search-select";
 import { Segmented } from "@/shared/ui/segmented";
-import { BillToLine, useBillTo } from "./bill-to-field";
+import { BillToLine, PaymentDetailsLine, useBillTo } from "./bill-to-field";
 import {
   invoiceDefaults,
   jobDefaults,
@@ -273,6 +273,7 @@ export function NewInvoiceModal({
             onPick={billTo.pick}
           />
         )}
+        {client.data && <PaymentDetailsLine client={client.data} />}
 
         <div className="grid gap-3.5 sm:grid-cols-2">
           <FormField label={itemised ? "Note on the invoice" : "Description"}>

@@ -97,6 +97,14 @@ const REQUIRED = [
     mustMatch: /ON public\."MailSenderAccount".*\("isDefault"\).*WHERE.*"isDefault"/is,
   },
   {
+    name: "PaymentDetails_one_default",
+    guarantees:
+      "one live set of payment details is the default (payments.md §10) — with two, which account " +
+      "a client without a set of their own is asked to pay into would depend on row order",
+    mustMatch:
+      /ON public\."PaymentDetails".*\("isDefault"\).*WHERE.*"isDefault".*"archivedAt" IS NULL/is,
+  },
+  {
     name: "Folder_live_name",
     guarantees:
       "one live folder name per place, case-insensitive (files.md §6.3). NULLS NOT DISTINCT makes " +
@@ -151,10 +159,11 @@ describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
     /**
      * Kept on purpose:
      *   • User / Session / AuthToken — the team stays signed in.
-     *   • FirmProfile, MailSenderAccount — the firm's OWN configuration (requisites, invoice
-     *     counter, the mailbox it sends from). They are not client data, and rebuilding them by
-     *     hand after every reset lost real setup (user, 2026-08-26). The letters that WERE sent
-     *     from the mailbox are still wiped — see the DELETEs above them in the script.
+     *   • FirmProfile, MailSenderAccount, PaymentDetails — the firm's OWN configuration
+     *     (requisites, invoice counter, the mailbox it sends from, the bank accounts invoices
+     *     print). They are not client data, and rebuilding them by hand after every reset lost real
+     *     setup (user, 2026-08-26). The letters that WERE sent from the mailbox, and the clients and
+     *     invoices that name a set, are still wiped — see the DELETEs in the script.
      *   • NotificationPreference — a user's own choices about their bell, and users survive.
      *     Populating them again from the defaults would silently un-mute everything they muted.
      *   • NotificationPolicy — firm configuration, like FirmProfile above: which triggers the firm
@@ -194,6 +203,7 @@ describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
       "AuthToken",
       "FirmProfile",
       "MailSenderAccount",
+      "PaymentDetails",
       "NotificationPolicy",
       "NotificationPreference",
       "JobHealth",

@@ -70,6 +70,7 @@ export type ActivitySubject =
   | "mailout"
   | "campaign"
   | "mailbox"
+  | "payment_details"
   | "file"
   | "folder"
   | "firm_file"
@@ -100,6 +101,8 @@ export const SUBJECT_GROUP: Record<ActivitySubject, ActivityGroup> = {
   mailout: "comms",
   campaign: "comms",
   mailbox: "comms",
+  // where clients send their money: read beside the invoices, not beside the other settings
+  payment_details: "money",
   file: "files",
   folder: "files",
   firm_file: "files",
@@ -143,6 +146,8 @@ export const SUBJECT_GATE: Record<ActivitySubject, string> = {
   mailout: "mailouts",
   campaign: "mailouts",
   mailbox: "mailboxes",
+  // the sets live on Settings → Invoices, and their text is the firm's bank accounts
+  payment_details: "settings",
   // a file belongs to the client or the task it hangs off; `clients` is the wider of the two
   file: "clients",
   // a client's folders are part of the client's record, like its files
@@ -771,6 +776,20 @@ const EVENTS = {
     enabledByDefault: true,
   },
   /**
+   * Which account a client is asked to pay into (payments.md §10). `long` like the sets themselves,
+   * and in words: `Firm default → International`, never an id.
+   */
+  "client.payment_details_changed": {
+    subject: "client",
+    title: "{actor} changed the payment details of {subject}",
+    when: "an admin points a client's invoices at another set of payment details",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    changeKeys: ["paymentDetails"],
+    enabledByDefault: true,
+  },
+  /**
    * **A client silently stopped being billed.** The sweep isolates failures per subscription so one
    * bad row cannot stop the firm's billing run — which is right, and which is also how a client can
    * go months without an invoice while every night's job reports "ok". `JobEvent` carries the
@@ -1126,7 +1145,8 @@ const EVENTS = {
     // not the client's NAME: `issueInvoice` runs on the nightly sweep and would need a lookup per
     // invoice to carry one, when `clientId` already lets the screen resolve it (2026-09-08). The
     // company's name comes back from the insert itself, and Bill to made it a choice (2026-11-02).
-    changeKeys: ["amount", "company"],
+    // So does the payment details set's name, read inside the insert's transaction (2026-11-02).
+    changeKeys: ["amount", "company", "paymentDetails"],
     enabledByDefault: true,
   },
   "invoice.updated": {
@@ -2509,13 +2529,13 @@ const EVENTS = {
     enabledByDefault: true,
   },
   /**
-   * The sender and the bank account an invoice prints. `long` for the reason numbering is: when a
-   * client pays the wrong account, this row is the answer to who changed it, and from what.
+   * The sender an invoice prints. `long` for the reason numbering is. The bank account was here too
+   * until 2026-11-02 (`invoicePaymentInfo`); it is a set of payment details now, logged below.
    */
   "settings.invoice_details_changed": {
     subject: "settings",
     title: "{actor} changed the invoice details",
-    when: "the sender or the payment information printed on invoices changes",
+    when: "the sender printed on invoices changes",
     granularity: "item",
     actorKinds: ["user"],
     retention: "long",
@@ -2525,8 +2545,51 @@ const EVENTS = {
       "invoiceFromWebsite",
       "invoiceFromEmail",
       "invoiceFromPhone",
-      "invoicePaymentInfo",
     ],
+    enabledByDefault: true,
+  },
+
+  // ── payment_details: where clients send their money ────────────────────────
+  //
+  // `long` throughout, for the reason the invoice details are: when a client pays the wrong
+  // account, "who changed the bank details, when, and from what" is the first question, and it is
+  // asked years later. A set's text logs its changed LINES (`linesOnlyIn`), not itself.
+  "payment_details.created": {
+    subject: "payment_details",
+    title: "{actor} added the payment details {subject}",
+    when: "a set of payment details is added on Settings → Invoices",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    changeKeys: ["details"],
+    enabledByDefault: true,
+  },
+  "payment_details.updated": {
+    subject: "payment_details",
+    title: "{actor} changed the payment details {subject}",
+    when: "a set's name or text changes; invoices already issued keep the text they were issued with",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    changeKeys: ["name", "details"],
+    enabledByDefault: true,
+  },
+  "payment_details.default_changed": {
+    subject: "payment_details",
+    title: "{actor} made {subject} the default payment details",
+    when: "the set every client without one of their own pays to changes",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    enabledByDefault: true,
+  },
+  "payment_details.archived": {
+    subject: "payment_details",
+    title: "{actor} archived the payment details {subject}",
+    when: "a set nobody uses any more leaves the lists; the invoices issued with it keep its text",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
     enabledByDefault: true,
   },
   "settings.logo_changed": {

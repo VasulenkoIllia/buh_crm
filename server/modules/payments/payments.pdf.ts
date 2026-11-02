@@ -26,18 +26,37 @@ async function readLogo(logoFile: InvoiceIssuer["logoFile"]) {
 }
 
 /**
- * An invoice as a PDF, drawn from what is true now rather than kept: the file in a client's folder
- * is the copy that stays as it was (payments.md §10). Reading one changes nothing about the
- * invoice. "Sent" stays a person's mark, because downloading a paper does not hand it over.
+ * What an invoice's paper says (payments.md §10). Drawn every time, from what is true now, except
+ * the payment details: those are the copy the invoice took at issue, so editing a set never changes
+ * a paper already sent (owner, 2026-11-02). Only an invoice with no copy, issued before sets existed
+ * or while there were none, prints what its client would get today.
  */
-export async function invoicePdf(id: string) {
+export async function invoicePaper(id: string) {
   const invoice = await repo.findInvoice(id);
   if (!invoice) throw new NotFoundError("Invoice not found");
   const { logoFile, ...issuer } = await readInvoiceIssuer();
-  const logo = await readLogo(logoFile);
+  const paymentInfo =
+    invoice.paymentInfo ??
+    (await repo.findPaymentDetailsFor(invoice.clientId))?.details ??
+    null;
   // `Company.email` is that company's invoice address; with none, the client's own
   const billToEmail = invoice.company?.email ?? invoice.client.email;
-  const document = invoiceDocument(toInvoiceDto(invoice), issuer, billToEmail);
+  const document = invoiceDocument(
+    toInvoiceDto(invoice),
+    { ...issuer, paymentInfo },
+    billToEmail,
+  );
+  return { invoice, document, logoFile };
+}
+
+/**
+ * An invoice as a PDF. The file in a client's folder is the copy that stays as it was. Reading one
+ * changes nothing about the invoice. "Sent" stays a person's mark, because downloading a paper does
+ * not hand it over.
+ */
+export async function invoicePdf(id: string) {
+  const { invoice, document, logoFile } = await invoicePaper(id);
+  const logo = await readLogo(logoFile);
   return {
     invoice,
     name: invoiceFileName(invoice.number),

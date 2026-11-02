@@ -17,6 +17,8 @@ export const SETTINGS_KEY = ["settings"] as const;
 export const SYSTEM_HEALTH_KEY = ["settings", "system"] as const;
 /** Under `settings`, so a saved firm name refetches it: the name is its fallback. */
 export const INVOICE_DETAILS_KEY = ["settings", "invoice-details"] as const;
+/** The sets with their text (Settings only); their names for other screens sit under it. */
+export const PAYMENT_DETAILS_KEY = ["settings", "payment-details"] as const;
 export const USERS_KEY = ["users"] as const;
 export const CALENDAR_KEY = ["calendar"] as const;
 export const MAILOUTS_KEY = ["mailouts"] as const;

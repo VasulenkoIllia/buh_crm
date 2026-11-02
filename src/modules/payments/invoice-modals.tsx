@@ -289,6 +289,13 @@ export function InvoiceModal({
                     {invoice.clientName}
                   </Link>
                 </div>
+                {/* the set it was issued with; its text is on the paper only */}
+                {invoice.paymentDetailsName && (
+                  <div className="text-muted">
+                    Payment details:{" "}
+                    <span className="text-ink-700">{invoice.paymentDetailsName}</span>
+                  </div>
+                )}
               </div>
 
               {/* The breakdown, when there is one. An invoice without positions shows nothing here and

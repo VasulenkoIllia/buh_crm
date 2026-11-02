@@ -76,6 +76,11 @@ export const invoiceSchema = z.object({
   companyName: z.string().nullable(),
   serviceId: uuid.nullable(),
   serviceName: z.string().nullable(),
+  /**
+   * The payment details set it was issued with, by name. Its text is on the paper only (payments.md
+   * §10). `null` = issued before sets existed, or while there were none.
+   */
+  paymentDetailsName: z.string().nullable(),
   subscriptionId: uuid.nullable(),
   /** set for per-period invoices (e.g. "2026-07", "2026-Q3") */
   periodKey: z.string().nullable(),

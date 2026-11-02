@@ -92,7 +92,8 @@ const filled = (text: string | null) => text?.trim() || null;
  * something else in Settings → Invoices. An invoice with no sender at all is the one thing this
  * cannot do, so the name always resolves.
  *
- * The logo is the letterhead: the same mark, on the same white, for the same reader.
+ * The logo is the letterhead: the same mark, on the same white, for the same reader. How to pay is
+ * not here: it is a set of payment details, copied onto each invoice at issue (payments.md §10).
  *
  * Here because two modules read it, Settings to show it and Payments to print it.
  */
@@ -107,7 +108,6 @@ export async function readInvoiceIssuer() {
     website: filled(firm.invoiceFromWebsite),
     email: filled(firm.invoiceFromEmail),
     phone: filled(firm.invoiceFromPhone),
-    paymentInfo: filled(firm.invoicePaymentInfo),
     logoFile: firm.mailLogoFile,
   };
 }

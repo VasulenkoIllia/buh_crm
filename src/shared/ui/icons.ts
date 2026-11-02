@@ -73,6 +73,8 @@ export {
   CircleSlash as IconUnavailable,
   Clock as IconWaiting,
   GripVertical as IconDrag,
+  /** the one of several that applies when nothing else is chosen; filled when it is this one */
+  Star as IconDefault,
 } from "lucide-react";
 
 /**

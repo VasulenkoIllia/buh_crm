@@ -12,8 +12,10 @@ import {
   updateSubscriptionInput,
 } from "@shared/schema/client.js";
 import { undoInput } from "@shared/schema/files.js";
+import { setClientPaymentDetailsInput } from "@shared/schema/payment-details.js";
 import { gate, shared } from "../../core/access.js";
 import { sendDownload, sendView } from "../files/index.js";
+import { setClientPaymentDetails } from "./client-payment-details.js";
 import * as service from "./clients.service.js";
 
 const idParams = z.object({ id: uuid });
@@ -79,6 +81,19 @@ export async function registerRoutes(instance: FastifyInstance) {
     async (request) => {
       return service.updateClient(request.params.id, request.body);
     },
+  );
+
+  /**
+   * Which payment details the client's invoices carry (payments.md §10). An admin's, inside the
+   * Clients gate (the owner, 2026-11-02): it decides which account the client is asked to pay into.
+   */
+  app.put(
+    "/:id/payment-details",
+    {
+      config: gate("clients", { adminOnly: true }),
+      schema: { params: idParams, body: setClientPaymentDetailsInput },
+    },
+    async (request) => setClientPaymentDetails(request.params.id, request.body),
   );
 
   /**

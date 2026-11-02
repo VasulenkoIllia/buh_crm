@@ -223,18 +223,20 @@ export async function getInvoiceDetails() {
   };
 }
 
-/** The lines one text has and the other does not. */
-function linesOnlyIn(text: string | null | undefined, other: string | null | undefined) {
+/**
+ * The lines one text has and the other does not. A block of bank details logs these rather than
+ * itself: the log keeps 200 characters of a value, and a new account number on the last line of a
+ * long block would read as no change at all.
+ */
+export function linesOnlyIn(text: string | null | undefined, other: string | null | undefined) {
   const others = new Set(other?.split("\n"));
   const lines = text?.split("\n").filter((line) => !others.has(line));
   return lines?.join("\n") || null;
 }
 
 /**
- * `long` retention, with the values: when a client pays the wrong account, "who changed the bank
- * details, when, and from what" is the first question, and it has to be answerable years later.
- * The payment block logs its changed lines, not itself: the log keeps 200 characters of a value,
- * and a new account number on the last line of a long block would read as no change at all.
+ * `long` retention, with the values: who an invoice says it is from is asked years later, as the
+ * payment details are (`payment-details.service.ts`, which took the payment block on 2026-11-02).
  */
 export async function updateInvoiceDetails(input: UpdateInvoiceDetailsInput) {
   const before = await repo.getFirmProfile();
@@ -244,7 +246,6 @@ export async function updateInvoiceDetails(input: UpdateInvoiceDetailsInput) {
     invoiceFromWebsite: input.website,
     invoiceFromEmail: input.email,
     invoiceFromPhone: input.phone,
-    invoicePaymentInfo: input.paymentInfo,
   };
   const written = (Object.keys(data) as (keyof typeof data)[]).filter(
     (column) => data[column] !== undefined,
@@ -255,14 +256,8 @@ export async function updateInvoiceDetails(input: UpdateInvoiceDetailsInput) {
     subjectLabel: input.name ?? before.name,
     changes:
       diff(
-        {
-          ...before,
-          invoicePaymentInfo: linesOnlyIn(before.invoicePaymentInfo, input.paymentInfo),
-        } as Record<string, unknown>,
-        {
-          ...data,
-          invoicePaymentInfo: linesOnlyIn(input.paymentInfo, before.invoicePaymentInfo),
-        } as Record<string, unknown>,
+        before as unknown as Record<string, unknown>,
+        data as Record<string, unknown>,
         written,
       ) ?? undefined,
   });

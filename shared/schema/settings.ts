@@ -143,12 +143,13 @@ export const updateNumberingInput = z.object({
 export type UpdateNumberingInput = z.infer<typeof updateNumberingInput>;
 
 /**
- * **Who an invoice is from and how to pay it**, as the PDF prints it (payments.md §10).
+ * **Who an invoice is from**, as the PDF prints it (payments.md §10). How to pay it is a set of
+ * payment details since 2026-11-02 (`./payment-details.ts`), copied onto each invoice at issue;
+ * this block stays live, so a new address reaches every paper.
  *
  * Its own read rather than fields on `firmProfileSchema`: `GET /api/settings` is `shared()`, open
- * to the whole firm for ever, and this is the firm's bank account. Its own write for the reason
- * numbering has one, and a stronger one: whoever can edit these lines decides where clients send
- * their money, so the write is an admin's whoever holds Settings, and it is kept in the log for years.
+ * to the whole firm for ever. Its own write for the reason numbering has one: what an invoice says
+ * about the firm is an admin's to change whoever holds Settings, and it is kept in the log for years.
  *
  * `name` and `address` are read with their fallback (`invoiceIssuer` in `core/firm.ts`), so the form
  * shows what the next PDF will print rather than an empty box.
@@ -159,7 +160,6 @@ export const invoiceDetailsSchema = z.object({
   website: z.string().nullable(),
   email: z.string().nullable(),
   phone: z.string().nullable(),
-  paymentInfo: z.string().nullable(),
   /** the letterhead, which an invoice shares with letters. Not `printable` = WebP or GIF. */
   logo: z.object({ name: z.string(), printable: z.boolean() }).nullable(),
 });
@@ -177,7 +177,6 @@ export const updateInvoiceDetailsInput = z
     website: z.string().trim().min(1).max(120).nullable(),
     email: z.email().max(120).nullable(),
     phone: z.string().trim().min(1).max(40).nullable(),
-    paymentInfo: z.string().trim().min(1).max(2000).nullable(),
   })
   .partial();
 export type UpdateInvoiceDetailsInput = z.infer<typeof updateInvoiceDetailsInput>;

@@ -11,10 +11,15 @@ import {
   updatePriorityInput,
   updateSourceInput,
 } from "@shared/schema/settings.js";
+import {
+  createPaymentDetailsInput,
+  updatePaymentDetailsInput,
+} from "@shared/schema/payment-details.js";
 import { gate, shared } from "../../core/access.js";
 import { ValidationError } from "../../core/errors.js";
 import { readStoredFile } from "../../core/files.js";
 import { storageReport } from "../files/index.js";
+import * as paymentDetails from "./payment-details.service.js";
 import * as service from "./settings.service.js";
 
 const idParams = z.object({ id: uuid });
@@ -107,9 +112,9 @@ export async function registerRoutes(instance: FastifyInstance) {
   );
 
   /**
-   * The lines an invoice prints: the sender and the bank account (`shared/schema/settings.ts`).
-   * Not on `GET /`, which is `shared()`. Read with the Settings gate, written by an admin, because
-   * whoever can edit them decides where the firm's clients send their money.
+   * The sender an invoice prints (`shared/schema/settings.ts`). Not on `GET /`, which is `shared()`.
+   * Read with the Settings gate, written by an admin. The bank account moved to the payment details
+   * sets below on 2026-11-02.
    */
   app.get("/invoice-details", { config: gate("settings") }, async () => {
     return service.getInvoiceDetails();
@@ -124,6 +129,53 @@ export async function registerRoutes(instance: FastifyInstance) {
     async (request) => {
       return service.updateInvoiceDetails(request.body);
     },
+  );
+
+  /**
+   * **Payment details sets** (payments.md §10): where clients send their money. The text is read
+   * with the Settings gate, as the invoice details are, and every write is an admin's whoever holds
+   * Settings, because whoever edits these decides which account a client pays into.
+   */
+  app.get("/payment-details", { config: gate("settings") }, async () =>
+    paymentDetails.listPaymentDetails(),
+  );
+
+  /**
+   * Names only, for the client card's select and the line in New invoice, which are not Settings'
+   * screens. `shared()`, so it must never carry the text: that stays behind the gate above.
+   */
+  app.get("/payment-details/options", { config: shared() }, async () =>
+    paymentDetails.listPaymentDetailsOptions(),
+  );
+
+  const paymentDetailsWrite = gate("settings", { adminOnly: true });
+
+  app.post(
+    "/payment-details",
+    { config: paymentDetailsWrite, schema: { body: createPaymentDetailsInput } },
+    async (request, reply) =>
+      reply.status(201).send(await paymentDetails.createPaymentDetails(request.body)),
+  );
+
+  app.patch(
+    "/payment-details/:id",
+    {
+      config: paymentDetailsWrite,
+      schema: { params: idParams, body: updatePaymentDetailsInput },
+    },
+    async (request) => paymentDetails.updatePaymentDetails(request.params.id, request.body),
+  );
+
+  app.post(
+    "/payment-details/:id/default",
+    { config: paymentDetailsWrite, schema: { params: idParams } },
+    async (request) => paymentDetails.makePaymentDetailsDefault(request.params.id),
+  );
+
+  app.post(
+    "/payment-details/:id/archive",
+    { config: paymentDetailsWrite, schema: { params: idParams } },
+    async (request) => paymentDetails.archivePaymentDetails(request.params.id),
   );
 
   /**

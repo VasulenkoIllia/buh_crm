@@ -18,6 +18,8 @@ const invoiceInclude = {
   },
   tasks: { select: { id: true, title: true }, take: 1 },
   lines: { orderBy: { order: "asc" } },
+  // the name only: the text the invoice keeps is its own `paymentInfo`
+  paymentDetails: { select: { name: true } },
 } satisfies Prisma.InvoiceInclude;
 
 export type InvoiceRecord = Prisma.InvoiceGetPayload<{ include: typeof invoiceInclude }>;
@@ -296,18 +298,54 @@ async function highestInSeries(tx: Prisma.TransactionClient, series: string) {
   return row.highest ?? 0;
 }
 
-/** Allocate a number and insert the invoice. Runs in `tx` so both succeed or neither does. */
+/**
+ * The payment details a client's invoices carry (payments.md §10): the client's own set while it
+ * is live, else the firm's default. Null when the firm has no set at all. A live client is never
+ * on an archived set (`setClientPaymentDetails`), but an archived one may be, and restored, the
+ * account they would print is the one the firm stopped using.
+ */
+export async function findPaymentDetailsFor(
+  clientId: string,
+  db: Prisma.TransactionClient = prisma,
+) {
+  const select = { id: true, name: true, details: true } as const;
+  const client = await db.client.findUnique({
+    where: { id: clientId },
+    select: { paymentDetails: { select: { ...select, archivedAt: true } } },
+  });
+  const own = client?.paymentDetails;
+  if (own && !own.archivedAt) return own;
+  return db.paymentDetails.findFirst({ where: { isDefault: true, archivedAt: null }, select });
+}
+
+/**
+ * Allocate a number and insert the invoice. Runs in `tx` so both succeed or neither does.
+ *
+ * **The one place every issue path reaches** (by hand, a job's, the 03:20 sweep), so the copy of
+ * the payment details is taken here and nowhere else: the set and its text as they are now. The
+ * paper prints that text from then on, whatever happens to the set (owner, 2026-11-02).
+ */
 export async function insertInvoice(
   tx: Prisma.TransactionClient,
   year: number,
   data: Omit<Prisma.InvoiceUncheckedCreateInput, "number">,
   taskId?: string | null,
 ) {
+  const paymentDetails = await findPaymentDetailsFor(data.clientId, tx);
   const number = await allocateNumber(tx, year);
   return tx.invoice.create({
-    data: { ...data, number, ...(taskId ? { tasks: { connect: { id: taskId } } } : {}) },
-    // the company's name, for the log's line about who the invoice is addressed to
-    include: { company: { select: { name: true } } },
+    data: {
+      ...data,
+      number,
+      paymentDetailsId: paymentDetails?.id ?? null,
+      paymentInfo: paymentDetails?.details ?? null,
+      ...(taskId ? { tasks: { connect: { id: taskId } } } : {}),
+    },
+    // the company's and the set's names, for the log's line about the invoice
+    include: {
+      company: { select: { name: true } },
+      paymentDetails: { select: { name: true } },
+    },
   });
 }
 

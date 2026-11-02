@@ -255,6 +255,39 @@ const INTENDED_CHANGES: Record<string, { before: Answer; after: Answer; why: str
       "new: changes what an invoice already issued stands for, which may be with the client, and " +
       "has no undo, so it is an admin's like the correction beside it (payments.md §5)",
   },
+  // payment details sets (payments.md §10, 2026-11-02): the bank accounts invoices print
+  "GET /api/settings/payment-details": {
+    before: "nobody",
+    after: "admin-only",
+    why:
+      "new: the sets with their text, the firm's bank accounts, on the Settings gate as the " +
+      "invoice details are; the client card and New invoice read names only, from `/options`",
+  },
+  "POST /api/settings/payment-details": {
+    before: "nobody",
+    after: "admin-only",
+    why: "new: whoever adds a set decides an account clients may be asked to pay into",
+  },
+  "PATCH /api/settings/payment-details/:id": {
+    before: "nobody",
+    after: "admin-only",
+    why: "new: editing a set changes where the next invoices ask to be paid",
+  },
+  "POST /api/settings/payment-details/:id/default": {
+    before: "nobody",
+    after: "admin-only",
+    why: "new: the default is where every client without a set of their own pays",
+  },
+  "POST /api/settings/payment-details/:id/archive": {
+    before: "nobody",
+    after: "admin-only",
+    why: "new: takes a set out of use, so it is an admin's like every other write on the sets",
+  },
+  "PUT /api/clients/:id/payment-details": {
+    before: "nobody",
+    after: "admin-only",
+    why: "new: which account one client is asked to pay into; admin only (owner, 2026-11-02)",
+  },
 };
 
 function before(route: string): Answer {

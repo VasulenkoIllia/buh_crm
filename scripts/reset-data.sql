@@ -7,6 +7,8 @@
 --                                   reset lost real setup (user, 2026-08-26).
 --   • MailSenderAccount           — the configured mailbox (From, signature, SMTP/IMAP) for the
 --                                   same reason. The letters it SENT still go.
+--   • PaymentDetails              — the firm's bank accounts invoices print, for the same reason.
+--                                   The clients and invoices that point at them still go.
 --   • the ONE default Service     — the one flagged `autoAddToNewClients`, which every new client
 --                                   is given on create. Without it a fresh client has no paid
 --                                   container at all. Every OTHER service goes.

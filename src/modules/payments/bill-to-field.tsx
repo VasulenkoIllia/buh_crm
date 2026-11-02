@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Client } from "@shared/schema/client";
+import { usePaymentDetailsOptions } from "@/modules/settings";
 import { Select } from "@/shared/ui/field";
 import { billToOf } from "./invoice-defaults";
 
@@ -22,6 +23,24 @@ export function useBillTo(companies: readonly { id: string }[]) {
     pick: (companyId: string | null) => setPicked({ companyId }),
     reset: () => setPicked(null),
   };
+}
+
+/**
+ * Which payment details the invoice will carry, by name (payments.md §10): the client's set while
+ * it is live, else the firm's default, as `findPaymentDetailsFor` decides at issue. Never the text,
+ * and not a choice here: an admin sets it on the client card.
+ */
+export function PaymentDetailsLine({ client }: { client: Pick<Client, "paymentDetails"> }) {
+  const { data: options } = usePaymentDetailsOptions();
+  if (!options) return null;
+  const own = options.find((o) => o.id === client.paymentDetails?.id);
+  const set = own ?? options.find((o) => o.isDefault);
+  const name = set ? `${set.name}${own ? "" : " (firm default)"}` : "none set up yet";
+  return (
+    <p className="-mt-1.5 truncate text-[12px] text-muted" title={name}>
+      Payment details: <span className="text-ink-700">{name}</span>
+    </p>
+  );
 }
 
 /** The `Bill to` line: a choice when the client holds companies, a plain line otherwise. */

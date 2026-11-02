@@ -8,13 +8,12 @@ import { useInvoiceDetails, useUpdateInvoiceDetails } from "./settings.api";
 type Field = Exclude<keyof InvoiceDetails, "logo">;
 type Draft = Record<Field, string>;
 
-const FIELDS: { key: Field; label: string; rows?: "address" | "payment" }[] = [
+const FIELDS: { key: Field; label: string; isMultiline?: boolean }[] = [
   { key: "name", label: "From" },
-  { key: "address", label: "Address", rows: "address" },
+  { key: "address", label: "Address", isMultiline: true },
   { key: "website", label: "Website" },
   { key: "email", label: "Email" },
   { key: "phone", label: "Phone" },
-  { key: "paymentInfo", label: "Payment information", rows: "payment" },
 ];
 
 const toDraft = (details: InvoiceDetails): Draft => ({
@@ -23,7 +22,6 @@ const toDraft = (details: InvoiceDetails): Draft => ({
   website: details.website ?? "",
   email: details.email ?? "",
   phone: details.phone ?? "",
-  paymentInfo: details.paymentInfo ?? "",
 });
 
 /** Only the boxes that now differ. An emptied box sends null, and From comes back as the firm's. */
@@ -37,8 +35,8 @@ function toInput(edits: Partial<Draft>, saved: Draft): UpdateInvoiceDetailsInput
 }
 
 /**
- * What every invoice prints as its sender and how to pay. Read-only for anybody but an admin, the
- * way numbering is: seeing it is fair, and changing it decides where clients send their money.
+ * What every invoice prints as its sender. Read-only for anybody but an admin, the way numbering
+ * is. How to pay is the payment details sets beside it (`payment-details-section.tsx`).
  */
 export function InvoiceDetailsForm() {
   const { data, isError, refetch } = useInvoiceDetails();
@@ -66,12 +64,12 @@ function Form({ details }: { details: InvoiceDetails }) {
 
   return (
     <div className="space-y-3">
-      {FIELDS.map(({ key, label, rows }) => (
+      {FIELDS.map(({ key, label, isMultiline }) => (
         <FormField key={key} label={label} htmlFor={`invoice-${key}`}>
-          {rows ? (
+          {isMultiline ? (
             <Textarea
               id={`invoice-${key}`}
-              className={rows === "payment" ? "h-[120px]" : "h-[64px]"}
+              className="h-[64px]"
               value={edits[key] ?? saved[key]}
               readOnly={!isAdmin}
               onChange={(e) => setEdits({ ...edits, [key]: e.target.value })}

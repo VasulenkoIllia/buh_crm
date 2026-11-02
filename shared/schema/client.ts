@@ -85,6 +85,11 @@ export const clientSchema = z.object({
   email: z.email().nullable(),
   address: z.string().nullable(),
   sourceId: uuid.nullable(),
+  /**
+   * The payment details set their invoices carry, by name only: the text is Settings' (payments.md
+   * §10). `null` = the firm's default. Set by an admin on its own route, never by the client form.
+   */
+  paymentDetails: z.object({ id: uuid, name: z.string() }).nullable(),
   /** derived: holds an active subscription-type service. Not stored, not settable. */
   isRegular: z.boolean(),
   description: z.string().nullable(),

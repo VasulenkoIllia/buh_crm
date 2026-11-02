@@ -9,8 +9,9 @@ import type {
   ResumeSubscriptionInput,
   UpdateSubscriptionInput,
 } from "@shared/schema/client";
+import type { SetClientPaymentDetailsInput } from "@shared/schema/payment-details";
 import { api } from "@/shared/lib/api";
-import { CATALOG_KEY, CLIENTS_KEY } from "@/shared/lib/query-keys";
+import { CATALOG_KEY, CLIENTS_KEY, PAYMENT_DETAILS_KEY } from "@/shared/lib/query-keys";
 
 export interface ClientListResponse {
   items: Client[];
@@ -102,6 +103,26 @@ export function useUpdateClient() {
     mutationFn: ({ id, input }: { id: string; input: UpdateClientInput }) =>
       api<Client>(`/api/clients/${id}`, { method: "PATCH", body: input }),
     onSuccess: invalidate,
+  });
+}
+
+/** Which payment details the client's invoices carry; `null` = the firm's default. An admin's. */
+export function useSetClientPaymentDetails() {
+  const invalidate = useInvalidateClients();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, paymentDetailsId }: { id: string; paymentDetailsId: string | null }) =>
+      api<Client>(`/api/clients/${id}/payment-details`, {
+        method: "PUT",
+        body: { paymentDetailsId } satisfies SetClientPaymentDetailsInput,
+      }),
+    // returned, so the pick stays pending until the client is read again, rather than snapping
+    // back to the old set for a round trip; the sets count their clients, and an archive waits on it
+    onSuccess: () =>
+      Promise.all([
+        invalidate(),
+        queryClient.invalidateQueries({ queryKey: PAYMENT_DETAILS_KEY }),
+      ]),
   });
 }
 

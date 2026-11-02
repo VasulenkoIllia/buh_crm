@@ -538,6 +538,11 @@
     "access": "gate:clients"
   },
   {
+    "method": "PUT",
+    "url": "/api/clients/:id/payment-details",
+    "access": "gate:clients:admin"
+  },
+  {
     "method": "DELETE",
     "url": "/api/clients/:id/pin",
     "access": "gate:clients"
@@ -1753,6 +1758,48 @@
     "method": "PATCH",
     "url": "/api/settings/numbering",
     "access": "gate:settings:admin"
+  },
+  {
+    "method": "GET",
+    "url": "/api/settings/payment-details",
+    "access": "gate:settings"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/settings/payment-details",
+    "access": "gate:settings",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/settings/payment-details",
+    "access": "gate:settings:admin"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/settings/payment-details/:id",
+    "access": "gate:settings:admin"
+  },
+  {
+    "method": "POST",
+    "url": "/api/settings/payment-details/:id/archive",
+    "access": "gate:settings:admin"
+  },
+  {
+    "method": "POST",
+    "url": "/api/settings/payment-details/:id/default",
+    "access": "gate:settings:admin"
+  },
+  {
+    "method": "GET",
+    "url": "/api/settings/payment-details/options",
+    "access": "shared"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/settings/payment-details/options",
+    "access": "shared",
+    "derived": true
   },
   {
     "method": "PATCH",

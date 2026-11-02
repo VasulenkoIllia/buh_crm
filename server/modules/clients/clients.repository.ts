@@ -17,6 +17,8 @@ const clientInclude = {
     },
   },
   source: true,
+  // the name only: the text is Settings' (payments.md §10)
+  paymentDetails: { select: { id: true, name: true } },
 } satisfies Prisma.ClientInclude;
 
 export type ClientRecord = Prisma.ClientGetPayload<{ include: typeof clientInclude }>;
@@ -655,3 +657,32 @@ export function findClientFile(clientId: string, fileId: string) {
 
 // The card's uploads and deletes go through the files module (files.md §4.2, §9): nothing here
 // writes or destroys a File row, so nothing on this card can reach past the Trash.
+
+// ── payment details (payments.md §10) ────────────────────────────────────────
+
+/** A live set by id, for the card's select. Its text is Settings', so only the name comes back. */
+export function findLivePaymentDetails(id: string) {
+  return prisma.paymentDetails.findFirst({
+    where: { id, archivedAt: null },
+    select: { id: true, name: true },
+  });
+}
+
+/**
+ * Point the client at a set, under that set's row lock and only while it is live. Archiving takes
+ * the same row first and counts the set's clients after (`archivePaymentDetails`), so the two
+ * cannot pass each other and leave a client on an archived set. False = the set was archived.
+ */
+export function setClientPaymentDetails(clientId: string, paymentDetailsId: string | null) {
+  return prisma.$transaction(async (tx) => {
+    if (paymentDetailsId) {
+      const live = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM "PaymentDetails"
+        WHERE id = ${paymentDetailsId}::uuid AND "archivedAt" IS NULL
+        FOR SHARE`;
+      if (live.length === 0) return false;
+    }
+    await tx.client.update({ where: { id: clientId }, data: { paymentDetailsId } });
+    return true;
+  });
+}

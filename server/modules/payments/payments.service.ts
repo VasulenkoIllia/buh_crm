@@ -67,6 +67,7 @@ export function toInvoiceDto(
     companyName: inv.company?.name ?? null,
     serviceId: inv.serviceId,
     serviceName: inv.service?.name ?? null,
+    paymentDetailsName: inv.paymentDetails?.name ?? null,
     subscriptionId: inv.subscriptionId,
     periodKey: inv.periodKey,
     description: inv.description,

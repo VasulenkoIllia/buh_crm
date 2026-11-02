@@ -23,8 +23,14 @@ export interface DocumentRow {
   amount: string;
 }
 
+/**
+ * Who the paper is from, which is live, and how to pay it, which is the invoice's own copy of its
+ * payment details (`invoicePaper`). Null prints an empty block.
+ */
+export type PaperIssuer = Omit<InvoiceIssuer, "logoFile"> & { paymentInfo: string | null };
+
 export interface InvoiceDocument {
-  from: Omit<InvoiceIssuer, "logoFile" | "address" | "paymentInfo"> & {
+  from: Omit<InvoiceIssuer, "logoFile" | "address"> & {
     addressLines: string[];
   };
   billTo: { name: string; email: string | null };
@@ -139,7 +145,7 @@ const MARKS = { paid: "PAID", cancelled: "CANCELLED" } as const;
 
 export function invoiceDocument(
   invoice: InvoiceSource,
-  issuer: Omit<InvoiceIssuer, "logoFile">,
+  issuer: PaperIssuer,
   billToEmail: string | null,
 ): InvoiceDocument {
   const rows = [

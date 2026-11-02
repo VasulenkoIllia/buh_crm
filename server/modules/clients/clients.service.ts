@@ -134,6 +134,7 @@ export function toClientDto(
     email: client.email,
     address: client.address,
     sourceId: client.sourceId,
+    paymentDetails: client.paymentDetails,
     isRegular: client.subscriptions.some(
       (s) => inForceOn(s.periods, today) && s.service.type === "subscription",
     ),

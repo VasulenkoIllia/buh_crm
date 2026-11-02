@@ -1,4 +1,6 @@
 export { useSettings } from "./settings.api";
+/** names of the payment details sets, never their text: the client card and New invoice */
+export { usePaymentDetailsOptions } from "./payment-details.api";
 
 /**
  * The tab strip and the gates that can open it.

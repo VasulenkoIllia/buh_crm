@@ -20,6 +20,7 @@ import { Tabs } from "@/shared/ui/tabs";
 import { ClientCode } from "@/shared/ui/client-code";
 import { ClientFormModal } from "./client-form";
 import { CompaniesTab } from "./client-companies";
+import { ClientPaymentDetails } from "./client-payment-details";
 import { ClientPeopleModal } from "./client-people-modal";
 import { AddServiceModal, SubscriptionList } from "./client-services";
 import { useArchiveClient, useClient } from "./clients.api";
@@ -426,6 +427,10 @@ function ProfileTab({ client }: { client: Client }) {
             <div className="text-[14px]">{sourceName}</div>
           </div>
         )}
+        <div className="min-w-0">
+          <FieldLabel>Payment details</FieldLabel>
+          <ClientPaymentDetails client={client} />
+        </div>
       </div>
 
       <p className="mb-4 text-[12px] text-faint">

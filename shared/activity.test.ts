@@ -135,7 +135,9 @@ describe("the activity registry", () => {
     // changed, and a copy of the PDF kept in the client's files
     // and one for a job whose invoice failed (payments.md §5, 2026-11-01)
     // and one for an invoice attached to a job by hand (the same section, the same day)
-    expect(ACTIVITY_KEYS.length).toBe(219);
+    // and five for payment details sets (payments.md §10, 2026-11-02): a set added, changed, made
+    // the default and archived, and a client pointed at another set
+    expect(ACTIVITY_KEYS.length).toBe(224);
     // the checklist is empty because the pass is finished — not because it was abandoned
     expect(PLANNED_EVENT_KEYS).toEqual([]);
   });
