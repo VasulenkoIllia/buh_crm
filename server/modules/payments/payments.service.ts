@@ -49,8 +49,24 @@ function toStoredLines(lines: InvoiceLineInput[]) {
       unitRate,
       amount: lineAmount(quantity, unitRate) ?? l.amount,
       unit: quantity !== null ? (l.unit ?? null) : null,
+      itemId: l.itemId ?? null,
     };
   });
+}
+
+/**
+ * Every invoice item a line names still exists (payments.md §3). Active or not: it may have been
+ * switched off while the form was open, and the line is still what was shown. One deleted
+ * meanwhile is refused here in words, rather than by the foreign key.
+ */
+async function refuseUnknownItems(lines: InvoiceLineInput[] | undefined) {
+  const ids = [...new Set(lines?.flatMap((l) => (l.itemId ? [l.itemId] : [])))];
+  if (ids.length === 0) return;
+  if ((await repo.countInvoiceItems(ids)) !== ids.length) {
+    throw new ValidationError(
+      "An item on this invoice was deleted meanwhile. Pick it again or type the position",
+    );
+  }
 }
 
 export function toInvoiceDto(
@@ -99,6 +115,7 @@ export function toInvoiceDto(
       unitRate: l.unitRate,
       amount: l.amount,
       unit: l.unit,
+      itemId: l.itemId,
     })),
     payments: inv.payments.map((p) => ({
       id: p.id,
@@ -265,6 +282,7 @@ export async function createInvoice(input: CreateInvoiceInput, user: User) {
 
   // Positions decide the total when there are any — the number the browser sent is only what it
   // was showing while you typed, and is never what gets stored.
+  await refuseUnknownItems(input.lines);
   const lines = input.lines?.length ? toStoredLines(input.lines) : null;
   const amount = lines ? linesTotal(lines) : input.amount;
   if (lines && amount <= 0) throw new ValidationError("The positions add up to nothing");
@@ -323,6 +341,7 @@ export async function updateInvoice(id: string, input: UpdateInvoiceInput, user:
    *   lines: []       — cleared, and the invoice goes back to being a single number.
    *   lines: [...]    — replaced, and their sum is the total.
    */
+  await refuseUnknownItems(input.lines);
   const newLines = input.lines === undefined ? null : toStoredLines(input.lines);
   const keepsLines = input.lines === undefined && invoice.lines.length > 0;
   const amount =

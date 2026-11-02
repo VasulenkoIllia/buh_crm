@@ -24,6 +24,7 @@ import { REMINDER_CHOICES } from "@shared/schema/calendar";
 import { pillCls } from "@/shared/ui/pill";
 import { NotificationPolicySection } from "@/modules/notifications";
 import { InvoiceDetailsForm } from "./invoice-details-form";
+import { InvoiceItemsSection } from "./invoice-items-section";
 import { PaymentDetailsSection } from "./payment-details-section";
 import { SETTINGS_TABS, type SettingsTab } from "./tabs";
 
@@ -167,6 +168,9 @@ export function SettingsPage() {
           </Section>
           <Section title="Payment details">
             <PaymentDetailsSection />
+          </Section>
+          <Section title="Invoice items">
+            <InvoiceItemsSection />
           </Section>
         </div>
       )}

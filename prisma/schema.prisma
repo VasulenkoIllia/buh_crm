@@ -1323,10 +1323,37 @@ model InvoiceLine {
   /// what `quantity` counts. NULL = a line written before units existed (2026-11-02), read as
   /// hours, which is what every such line meant; set only when there is a quantity
   unit        InvoiceLineUnit?
+  /// the invoice item it was picked from, so reports can count by item. Only a record of where it
+  /// came from: the description, unit and rate above are the line's own copy, and an item renamed
+  /// or repriced later changes no invoice. NULL = typed by hand, or written before items existed.
+  itemId      String?          @db.Uuid
 
-  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoice Invoice      @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  item    InvoiceItem? @relation(fields: [itemId], references: [id], onDelete: Restrict)
 
   @@index([invoiceId])
+  @@index([itemId])
+}
+
+/// **An invoice item** (payments.md §3, the client's request of 2026-11-02): a position the firm
+/// bills often, kept on Settings → Invoices so New invoice can pick it instead of typing it.
+///
+/// Picking copies it onto the line, which keeps its own copy, so the item is a suggestion and never
+/// the source of an issued invoice's numbers. An item some line came from is switched off, never
+/// deleted: `InvoiceLine.itemId` is RESTRICT.
+model InvoiceItem {
+  id        String          @id @default(uuid()) @db.Uuid
+  /// unique case-insensitively across active and inactive items (`InvoiceItem_name_key_ci`, raw SQL)
+  name      String
+  unit      InvoiceLineUnit
+  /// minor units per hour or per item; NULL = no set price, typed on each invoice
+  price     Int?
+  /// false = kept for the lines that came from it, and left out of the picker
+  active    Boolean         @default(true)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  lines InvoiceLine[]
 }
 
 model Payment {

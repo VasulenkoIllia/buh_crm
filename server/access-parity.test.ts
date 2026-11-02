@@ -288,6 +288,25 @@ const INTENDED_CHANGES: Record<string, { before: Answer; after: Answer; why: str
     after: "admin-only",
     why: "new: which account one client is asked to pay into; admin only (owner, 2026-11-02)",
   },
+  // invoice items (payments.md §3, 2026-11-02): the positions New invoice picks from. The read is
+  // `shared()`, which answers as every route did before, so only the writes are listed
+  "POST /api/settings/invoice-items": {
+    before: "nobody",
+    after: "admin-only",
+    why:
+      "new: the Settings gate, whoever holds it (owner, 2026-11-02), so an admin by its default; " +
+      "a price here is a suggestion an invoice copies, not where money goes",
+  },
+  "PATCH /api/settings/invoice-items/:id": {
+    before: "nobody",
+    after: "admin-only",
+    why: "new: renaming, repricing or switching off an item reaches the next invoices only",
+  },
+  "DELETE /api/settings/invoice-items/:id": {
+    before: "nobody",
+    after: "admin-only",
+    why: "new: only while no invoice line came from it; the database refuses it otherwise",
+  },
 };
 
 function before(route: string): Answer {

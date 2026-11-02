@@ -68,6 +68,8 @@ export interface StoredLine {
   unitRate: number | null;
   amount: number;
   unit: InvoiceLineUnit | null;
+  /** the invoice item it was picked from (payments.md §3) */
+  itemId: string | null;
 }
 
 /** The row to write, with the due date resolved from either an explicit date or `dueDays`. */

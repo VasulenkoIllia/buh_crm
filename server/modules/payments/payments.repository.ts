@@ -395,6 +395,12 @@ export interface StoredLineRow {
   unitRate: number | null;
   amount: number;
   unit: InvoiceLineUnit | null;
+  itemId: string | null;
+}
+
+/** How many of these invoice items exist, active or not. */
+export function countInvoiceItems(ids: string[]) {
+  return prisma.invoiceItem.count({ where: { id: { in: ids } } });
 }
 
 /**

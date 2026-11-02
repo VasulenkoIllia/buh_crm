@@ -71,6 +71,7 @@ export type ActivitySubject =
   | "campaign"
   | "mailbox"
   | "payment_details"
+  | "invoice_item"
   | "file"
   | "folder"
   | "firm_file"
@@ -103,6 +104,8 @@ export const SUBJECT_GROUP: Record<ActivitySubject, ActivityGroup> = {
   mailbox: "comms",
   // where clients send their money: read beside the invoices, not beside the other settings
   payment_details: "money",
+  // the positions invoices pick from, read beside the invoices like the payment details
+  invoice_item: "money",
   file: "files",
   folder: "files",
   firm_file: "files",
@@ -148,6 +151,8 @@ export const SUBJECT_GATE: Record<ActivitySubject, string> = {
   mailbox: "mailboxes",
   // the sets live on Settings → Invoices, and their text is the firm's bank accounts
   payment_details: "settings",
+  // the list lives on Settings → Invoices, which is where it is edited
+  invoice_item: "settings",
   // a file belongs to the client or the task it hangs off; `clients` is the wider of the two
   file: "clients",
   // a client's folders are part of the client's record, like its files
@@ -2590,6 +2595,40 @@ const EVENTS = {
     granularity: "item",
     actorKinds: ["user"],
     retention: "long",
+    enabledByDefault: true,
+  },
+
+  // ── invoice_item: the positions an invoice picks from ──────────────────────
+  //
+  // `ordinary`: a price here is a suggestion the line copies, so an issued invoice never depends on
+  // what the item says now, and nothing points a client's money anywhere.
+  "invoice_item.created": {
+    subject: "invoice_item",
+    title: "{actor} added the invoice item {subject}",
+    when: "a position is added to the list on Settings → Invoices",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["unit", "price"],
+    enabledByDefault: true,
+  },
+  "invoice_item.updated": {
+    subject: "invoice_item",
+    title: "{actor} changed the invoice item {subject}",
+    when: "an item's name, unit or price changes, or it is switched off or on; invoices already issued keep their own lines",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["name", "unit", "price", "active"],
+    enabledByDefault: true,
+  },
+  "invoice_item.deleted": {
+    subject: "invoice_item",
+    title: "{actor} deleted the invoice item {subject}",
+    when: "an item no invoice line came from is removed from the list",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
     enabledByDefault: true,
   },
   "settings.logo_changed": {

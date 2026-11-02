@@ -59,6 +59,7 @@ export function prefilledPosition(
     rate: lastRate !== null ? moneyInputValue(lastRate) : "",
     amount: suggestedAmount(defaults),
     unit: "hour",
+    itemId: null,
   };
 }
 

@@ -44,6 +44,8 @@ export const invoiceLineSchema = z.object({
   unitRate: money.nullable(),
   amount: money,
   unit: invoiceLineUnit.nullable(),
+  /** the invoice item it was picked from; the line's own fields above are what it says */
+  itemId: uuid.nullable(),
 });
 export type InvoiceLine = z.infer<typeof invoiceLineSchema>;
 
@@ -242,6 +244,11 @@ export const invoiceLineInput = z
     amount: money.min(0),
     /** what the quantity counts; omitted = hours, as every caller before units sent */
     unit: invoiceLineUnit.nullable().optional(),
+    /**
+     * The invoice item it was picked from (payments.md §3). Only a record of where it came from:
+     * the server stores the fields above as sent and never reads the item's price.
+     */
+    itemId: uuid.nullable().optional(),
   })
   .refine((l) => !isFractionalItemCount(l), { path: ["quantity"], message: FRACTIONAL_ITEMS });
 export type InvoiceLineInput = z.infer<typeof invoiceLineInput>;

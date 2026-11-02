@@ -1755,6 +1755,32 @@
     "access": "gate:settings:admin"
   },
   {
+    "method": "GET",
+    "url": "/api/settings/invoice-items",
+    "access": "shared"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/settings/invoice-items",
+    "access": "shared",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/settings/invoice-items",
+    "access": "gate:settings"
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/settings/invoice-items/:id",
+    "access": "gate:settings"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/settings/invoice-items/:id",
+    "access": "gate:settings"
+  },
+  {
     "method": "PATCH",
     "url": "/api/settings/numbering",
     "access": "gate:settings:admin"

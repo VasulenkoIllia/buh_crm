@@ -19,6 +19,8 @@ export const SYSTEM_HEALTH_KEY = ["settings", "system"] as const;
 export const INVOICE_DETAILS_KEY = ["settings", "invoice-details"] as const;
 /** The sets with their text (Settings only); their names for other screens sit under it. */
 export const PAYMENT_DETAILS_KEY = ["settings", "payment-details"] as const;
+/** The positions invoices pick from: Settings edits them, New invoice and the correction read them. */
+export const INVOICE_ITEMS_KEY = ["settings", "invoice-items"] as const;
 export const USERS_KEY = ["users"] as const;
 export const CALENDAR_KEY = ["calendar"] as const;
 export const MAILOUTS_KEY = ["mailouts"] as const;

@@ -45,6 +45,13 @@ const REQUIRED = [
     mustMatch: /ON public\."Company".*lower\(name\)/is,
   },
   {
+    name: "InvoiceItem_name_key_ci",
+    guarantees:
+      'an invoice item\'s name picks one item (payments.md §3) — with two "Consultation" the ' +
+      "picker would fill the line from whichever came first",
+    mustMatch: /ON public\."InvoiceItem".*lower\(name\)/is,
+  },
+  {
     name: "Subscription_one_open_period",
     guarantees:
       "a subscription is in force in at most one open-ended period — two would make 'was it " +
@@ -159,11 +166,12 @@ describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
     /**
      * Kept on purpose:
      *   • User / Session / AuthToken — the team stays signed in.
-     *   • FirmProfile, MailSenderAccount, PaymentDetails — the firm's OWN configuration
-     *     (requisites, invoice counter, the mailbox it sends from, the bank accounts invoices
-     *     print). They are not client data, and rebuilding them by hand after every reset lost real
-     *     setup (user, 2026-08-26). The letters that WERE sent from the mailbox, and the clients and
-     *     invoices that name a set, are still wiped — see the DELETEs in the script.
+     *   • FirmProfile, MailSenderAccount, PaymentDetails, InvoiceItem — the firm's OWN
+     *     configuration (requisites, invoice counter, the mailbox it sends from, the bank accounts
+     *     invoices print, the positions they pick from). They are not client data, and rebuilding
+     *     them by hand after every reset lost real setup (user, 2026-08-26). The letters that WERE
+     *     sent from the mailbox, and the clients and invoices that name a set or an item, are still
+     *     wiped — see the DELETEs in the script.
      *   • NotificationPreference — a user's own choices about their bell, and users survive.
      *     Populating them again from the defaults would silently un-mute everything they muted.
      *   • NotificationPolicy — firm configuration, like FirmProfile above: which triggers the firm
@@ -204,6 +212,7 @@ describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
       "FirmProfile",
       "MailSenderAccount",
       "PaymentDetails",
+      "InvoiceItem",
       "NotificationPolicy",
       "NotificationPreference",
       "JobHealth",

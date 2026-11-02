@@ -69,6 +69,7 @@ describe("the first position", () => {
       rate: "40.00",
       amount: "100.00",
       unit: "hour",
+      itemId: null,
     });
   });
 
@@ -79,6 +80,7 @@ describe("the first position", () => {
       rate: "",
       amount: "",
       unit: "hour",
+      itemId: null,
     });
   });
 

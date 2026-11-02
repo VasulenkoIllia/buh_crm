@@ -41,6 +41,7 @@ const position = (over: Partial<InvoiceSource["lines"][number]> = {}) => ({
   unitRate: null,
   amount: 5000,
   unit: null,
+  itemId: null,
   ...over,
 });
 

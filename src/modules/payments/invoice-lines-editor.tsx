@@ -1,12 +1,15 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { Trash2 } from "lucide-react";
 import type { InvoiceLineUnit } from "@shared/schema/enums";
+import type { InvoiceItem } from "@shared/schema/invoice-items";
 import type { Invoice } from "@shared/schema/payment";
 import { FRACTIONAL_ITEMS, isFractionalItemCount, lineAmount } from "@shared/schema/payment";
 import { cn } from "@/shared/lib/cn";
 import { fmtMoney, moneyInputValue, parseMoney } from "@/shared/lib/money";
 import { Button, IconButton } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/field";
+import { useInvoiceItems } from "@/modules/settings";
+import { PositionInput } from "./position-input";
 
 /**
  * The header's and every row's columns. On a phone the five do not fit, so the name takes a line of
@@ -56,6 +59,10 @@ export function LinesEditor({
 }) {
   const set = (i: number, patch: Partial<DraftLine>) =>
     onChange(lines.map((l, n) => (n === i ? { ...l, ...patch } : l)));
+  // offered under every row's Position box; a failed load leaves the box a plain one. All of them,
+  // inactive too, still name the item an old line came from.
+  const allItems = useInvoiceItems().data;
+  const items = pickableItems(allItems);
 
   /**
    * A position just added is at the foot of a list that may be scrolled or clipped: the list
@@ -102,10 +109,13 @@ export function LinesEditor({
           return (
             <div key={i} className={ROW}>
               <Cell label="Position" className="max-sm:col-span-3">
-                <Input
+                <PositionInput
                   value={line.description}
-                  placeholder="Consultation"
-                  onChange={(e) => set(i, { description: e.target.value })}
+                  items={items}
+                  pickedId={line.itemId}
+                  placeholder={items.length > 0 ? "Pick an item or type" : "Consultation"}
+                  onText={(text) => set(i, typedPosition(line, text, allItems))}
+                  onPick={(item) => set(i, pickedPosition(line, item))}
                 />
               </Cell>
               <Cell label="Qty">
@@ -209,6 +219,8 @@ export interface DraftLine {
   rate: string;
   amount: string;
   unit: InvoiceLineUnit;
+  /** the invoice item it was picked from; null = typed by hand */
+  itemId: string | null;
 }
 
 export const emptyLine = (): DraftLine => ({
@@ -217,7 +229,49 @@ export const emptyLine = (): DraftLine => ({
   rate: "",
   amount: "",
   unit: "hour",
+  itemId: null,
 });
+
+/** What the picker offers: an inactive item stays on the lines it is on and leaves the list. */
+export const pickableItems = (items: InvoiceItem[] | undefined) =>
+  items?.filter((item) => item.active) ?? [];
+
+/**
+ * A row with an invoice item picked (payments.md §3): its name, unit and price, and a count of 1
+ * unless one is typed. An item with no set price keeps a rate typed for it or for the row before
+ * any pick (the client's last one included), for the same unit: a rate is per unit, and another
+ * item's price is no rate of this one. Everything stays editable, and what the row then shows is what is stored.
+ */
+export const pickedPosition = (line: DraftLine, item: InvoiceItem): Partial<DraftLine> => ({
+  description: item.name,
+  unit: item.unit,
+  quantity: line.quantity.trim() || "1",
+  rate:
+    item.price !== null
+      ? moneyInputValue(item.price)
+      : (line.itemId === null || line.itemId === item.id) && item.unit === line.unit
+        ? line.rate
+        : "",
+  amount: "",
+  itemId: item.id,
+});
+
+/**
+ * A row with its name typed: a position by hand. One picked from an item keeps the link while the
+ * text still holds the item's name ("W-2 form, 2025"), and lets go once it does not: "Filing fee"
+ * typed over a W-2 is no W-2. An item this browser does not know keeps it while the box is not
+ * empty, since there is no name to hold the text to.
+ */
+export function typedPosition(
+  line: DraftLine,
+  text: string,
+  items: InvoiceItem[] | undefined,
+): Partial<DraftLine> {
+  if (!line.itemId || !text.trim()) return { description: text, itemId: null };
+  const name = items?.find((item) => item.id === line.itemId)?.name;
+  const holdsName = name === undefined || text.toLowerCase().includes(name.toLowerCase());
+  return { description: text, itemId: holdsName ? line.itemId : null };
+}
 
 /** A quantity as typed → hundredths of a unit. "3.5" → 350. */
 const parseQuantity = (text: string): number | null => {
@@ -254,6 +308,7 @@ export const toLineInput = (lines: DraftLine[]) =>
       unitRate: rate > 0 ? rate : null,
       amount: draftAmount(l) ?? parseMoney(l.amount),
       unit: quantity !== null ? l.unit : null,
+      itemId: l.itemId,
     };
   });
 
@@ -265,4 +320,5 @@ export const toDraftLines = (lines: Invoice["lines"]): DraftLine[] =>
     rate: l.unitRate != null ? moneyInputValue(l.unitRate) : "",
     amount: moneyInputValue(l.amount),
     unit: l.unit ?? "hour",
+    itemId: l.itemId,
   }));

@@ -161,18 +161,20 @@ describe("route inventory", () => {
       // +7 and 2 HEADs on 2026-11-02, payment details sets (payments.md §10): the sets with their
       // text on Settings' gate, their names `shared()` for the client card and New invoice, four
       // admin's writes (add, edit, default, archive), and the client's own set, an admin's too.
-      total: 415,
-      derivedHead: 105,
-      real: 310,
-      api: 309, // everything but /health
+      // +4 and a HEAD on 2026-11-02, invoice items (payments.md §3): the list `shared()` for New
+      // invoice, and add, edit and delete on the Settings gate, not an admin's.
+      total: 420,
+      derivedHead: 106,
+      real: 314,
+      api: 313, // everything but /health
       anonymous: 9, // 6 credential routes, 2 unsubscribe pages, /health
       // `POST /tasks/timer/start` moved to the `tasks` gate during the 2026-09-07 audit. It takes a
       // taskId and writes against somebody else's module, so it was never really "the caller's own
       // row" — `active` and `stop` still are, and must be. The two-factor five are the caller's own
       // second factor and name nobody else.
       own: 15,
-      shared: 13,
-      gated: 273,
+      shared: 14,
+      gated: 276,
       adminOnly: 27,
     });
   });

@@ -15,10 +15,15 @@ import {
   createPaymentDetailsInput,
   updatePaymentDetailsInput,
 } from "@shared/schema/payment-details.js";
+import {
+  createInvoiceItemInput,
+  updateInvoiceItemInput,
+} from "@shared/schema/invoice-items.js";
 import { gate, shared } from "../../core/access.js";
 import { ValidationError } from "../../core/errors.js";
 import { readStoredFile } from "../../core/files.js";
 import { storageReport } from "../files/index.js";
+import * as invoiceItems from "./invoice-items.service.js";
 import * as paymentDetails from "./payment-details.service.js";
 import * as service from "./settings.service.js";
 
@@ -176,6 +181,34 @@ export async function registerRoutes(instance: FastifyInstance) {
     "/payment-details/:id/archive",
     { config: paymentDetailsWrite, schema: { params: idParams } },
     async (request) => paymentDetails.archivePaymentDetails(request.params.id),
+  );
+
+  /**
+   * **Invoice items** (payments.md §3): the positions New invoice picks from. The read is
+   * `shared()` because New invoice is Billing's screen, not Settings': names, units and prices,
+   * which the catalog's `shared()` read already shows for services. The writes follow the gate, not
+   * an admin (owner, 2026-11-02): a price here is a suggestion, and decides no account.
+   */
+  app.get("/invoice-items", { config: shared() }, async () => invoiceItems.listInvoiceItems());
+
+  app.post(
+    "/invoice-items",
+    { config: gate("settings"), schema: { body: createInvoiceItemInput } },
+    async (request, reply) =>
+      reply.status(201).send(await invoiceItems.createInvoiceItem(request.body)),
+  );
+
+  app.patch(
+    "/invoice-items/:id",
+    { config: gate("settings"), schema: { params: idParams, body: updateInvoiceItemInput } },
+    async (request) => invoiceItems.updateInvoiceItem(request.params.id, request.body),
+  );
+
+  /** Only while no invoice line came from it; the service says how many did. */
+  app.delete(
+    "/invoice-items/:id",
+    { config: gate("settings"), schema: { params: idParams } },
+    async (request) => invoiceItems.deleteInvoiceItem(request.params.id),
   );
 
   /**
