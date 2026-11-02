@@ -4,6 +4,7 @@ import { buildApp } from "../../app.js";
 import { prisma } from "../../core/db.js";
 import { testOutbox } from "../../core/email.js";
 import { firmName, rememberFirmName } from "../../core/firm.js";
+import { findUserByEmail } from "./auth.repository.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 
@@ -247,6 +248,15 @@ describe("auth + users", () => {
       payload: { token, password: "should-not-work" },
     });
     expect(reset.statusCode).toBe(400);
+  });
+
+  // the address schema refuses % and \ before any route gets that far: the read is asked directly
+  it("finds an account by the whole address, whatever its case", async () => {
+    const admin = await prisma.user.findUniqueOrThrow({ where: { email: "admin@test.local" } });
+    expect((await findUserByEmail("ADMIN@test.local"))?.id).toBe(admin.id);
+    expect(await findUserByEmail("admi_@test.local")).toBeNull();
+    expect(await findUserByEmail("adm%@test.local")).toBeNull();
+    expect(await findUserByEmail("admin@test.local\\")).toBeNull();
   });
 
   it("rejects an SVG avatar (raster only)", async () => {

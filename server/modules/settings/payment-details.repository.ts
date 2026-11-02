@@ -41,12 +41,18 @@ export function findPaymentDetails(id: string) {
   return prisma.paymentDetails.findUnique({ where: { id }, include: withClientCount });
 }
 
-/** Case-insensitive, among live sets: two "International" in one select would be a coin toss. */
-export function findLivePaymentDetailsByName(name: string) {
-  return prisma.paymentDetails.findFirst({
-    where: { archivedAt: null, name: { equals: name, mode: "insensitive" } },
-    select: { id: true },
-  });
+/**
+ * Case-insensitive, among live sets: two "International" in one select would be a coin toss.
+ * `lower()`, not Prisma's insensitive `equals`: that is an ILIKE, where `%` and `_` are
+ * wildcards.
+ */
+export async function findLivePaymentDetailsByName(name: string) {
+  const [row] = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT id FROM "PaymentDetails"
+    WHERE "archivedAt" IS NULL AND lower(name) = lower(${name})
+    LIMIT 1
+  `;
+  return row ?? null;
 }
 
 /**

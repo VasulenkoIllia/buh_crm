@@ -257,6 +257,18 @@ export function listDeadlinesInRange(args: {
   });
 }
 
+/**
+ * Every stage of this name, whichever service it belongs to: the filter asks by name.
+ * `lower()`, not Prisma's insensitive `equals`: that is an ILIKE, where `%` and `_` are
+ * wildcards.
+ */
+export async function findStageIdsNamed(name: string) {
+  const stages = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT id FROM "ServiceStage" WHERE lower(name) = lower(${name})
+  `;
+  return stages.map((stage) => stage.id);
+}
+
 /** A stage, with the service it belongs to, for checking it fits the task it is given to. */
 export function findStage(id: string) {
   return prisma.serviceStage.findUnique({

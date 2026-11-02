@@ -703,6 +703,24 @@ describe("sender mailboxes", () => {
     expect(res.statusCode).toBe(409);
   });
 
+  it("compares whole names, so a % or a trailing \\ is only a character", async () => {
+    const add = (name: string) =>
+      app.inject({
+        method: "POST",
+        url: "/api/mailouts/settings/senders",
+        headers: { cookie },
+        payload: { name, fromEmail: "x@illion.tax" },
+      });
+    const names = ["Billing 50 hours", "Billing 50%", "Billing \\"];
+    try {
+      for (const name of names) expect((await add(name)).statusCode).toBe(201);
+      expect((await add("BILLING 50%")).statusCode).toBe(409);
+    } finally {
+      // the cases below count and move the mailboxes they find
+      await prisma.mailSenderAccount.deleteMany({ where: { name: { in: names } } });
+    }
+  });
+
   /**
    * A partial unique index enforces "at most one default" in the database, so moving it has to
    * clear and set in one transaction. Two defaults would make "which mailbox does this go from"
@@ -1372,6 +1390,20 @@ describe("templates", () => {
       payload: { name: "quarterly REMINDER", subject: "S", body: "B" },
     });
     expect(res.statusCode).toBe(409);
+  });
+
+  it("compares whole names, so a % or a trailing \\ is only a character", async () => {
+    const add = (name: string) =>
+      app.inject({
+        method: "POST",
+        url: "/api/mailouts/templates",
+        headers: { cookie },
+        payload: { name, subject: "S", body: "B" },
+      });
+    expect((await add("Annual 50 hours")).statusCode).toBe(201);
+    expect((await add("Annual 50%")).statusCode).toBe(201);
+    expect((await add("Annual \\")).statusCode).toBe(201);
+    expect((await add("ANNUAL 50%")).statusCode).toBe(409);
   });
 
   it("will not delete a template a mailout still points at", async () => {

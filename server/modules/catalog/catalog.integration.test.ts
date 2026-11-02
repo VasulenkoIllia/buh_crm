@@ -1359,3 +1359,19 @@ describe("a service's stages", () => {
     expect((await save(created.json().id, [{ name: "X" }], userCookie)).statusCode).toBe(403);
   });
 });
+
+describe("a service's name", () => {
+  it("is compared whole, so a % or a trailing \\ is only a character", async () => {
+    const add = (name: string) =>
+      app.inject({
+        method: "POST",
+        url: "/api/catalog",
+        headers: { cookie: adminCookie },
+        payload: { name, type: "one_time" },
+      });
+    expect((await add("Payroll 50 hours")).statusCode).toBe(201);
+    expect((await add("Payroll 50%")).statusCode).toBe(201);
+    expect((await add("Payroll \\")).statusCode).toBe(201);
+    expect((await add("PAYROLL 50%")).statusCode).toBe(409);
+  });
+});

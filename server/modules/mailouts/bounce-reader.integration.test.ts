@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "../../core/db.js";
+import { findRecipientByAddressBefore } from "./mailouts.repository.js";
 import { sweepBounces } from "./mailouts.service.js";
 
 const fixture = (name: string) =>
@@ -206,6 +207,39 @@ describe("reading delivery reports back", () => {
       where: { email: "nosuchuser@gmail.example" },
     });
     expect(again?.clearedAt).toBeNull();
+  });
+
+  /** A report naming `bondarenk_@…` is about that address, not any letter to one like it. */
+  it("falls back to the whole address, whatever its case", async () => {
+    await freshMailbox();
+    const row = await letterTo("bondarenko@yahoo.example", null);
+    const now = new Date();
+    expect((await findRecipientByAddressBefore("BONDARENKO@yahoo.example", now))?.id).toBe(
+      row.id,
+    );
+    expect(await findRecipientByAddressBefore("bondarenk_@yahoo.example", now)).toBeNull();
+    expect(await findRecipientByAddressBefore("bondarenk%", now)).toBeNull();
+    expect(await findRecipientByAddressBefore("bondarenko@yahoo.example\\", now)).toBeNull();
+  });
+
+  it("falls back to the latest letter that went out before the report", async () => {
+    await freshMailbox();
+    const report = new Date();
+    const sentAgo = async (msAgo: number, status: "sent" | "failed" = "sent") => {
+      const row = await letterTo("bondarenko@yahoo.example", null);
+      const sentAt = new Date(report.getTime() - msAgo);
+      return prisma.mailoutRecipient.update({
+        where: { id: row.id },
+        data: { sentAt, status },
+      });
+    };
+    await sentAgo(120_000);
+    const latest = await sentAgo(60_000);
+    await sentAgo(30_000, "failed");
+    await sentAgo(-60_000); // after the report: a bounce never precedes its cause
+    expect((await findRecipientByAddressBefore("bondarenko@yahoo.example", report))?.id).toBe(
+      latest.id,
+    );
   });
 
   /** A mailbox that cannot be read must be visible as broken, not silently skipped. */

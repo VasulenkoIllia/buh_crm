@@ -26,11 +26,15 @@ export function listSources() {
   return prisma.sourceOption.findMany({ orderBy: { order: "asc" } });
 }
 
-/** Case-insensitive — "Referral" and "referral" are the same source. */
-export function findSourceByName(name: string) {
-  return prisma.sourceOption.findFirst({
-    where: { name: { equals: name, mode: "insensitive" } },
-  });
+/**
+ * Case-insensitive — "Referral" and "referral" are the same source. `lower()`, not Prisma's
+ * insensitive `equals`: that is an ILIKE, where a `%` or `_` in the name is a wildcard.
+ */
+export async function findSourceByName(name: string) {
+  const [row] = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT id FROM "SourceOption" WHERE lower(name) = lower(${name}) LIMIT 1
+  `;
+  return row ?? null;
 }
 
 /** Swaps two priorities' order values in one transaction. */

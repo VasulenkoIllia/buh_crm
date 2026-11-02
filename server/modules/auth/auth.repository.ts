@@ -1,15 +1,17 @@
 import type { AuthTokenType } from "../../generated/prisma/enums.js";
 import { prisma } from "../../core/db.js";
 
-export function findUserByEmail(email: string) {
+export async function findUserByEmail(email: string) {
   // Case-insensitive: inputs are normalized to lowercase, but a legacy or
   // manually-inserted mixed-case row would otherwise be unreachable (can't log
   // in or reset). insensitive match keeps such accounts usable. Deterministic
   // orderBy so a (migration-skipped) case-collision pair always resolves the same row.
-  return prisma.user.findFirst({
-    where: { email: { equals: email, mode: "insensitive" } },
-    orderBy: { createdAt: "asc" },
-  });
+  // `lower()`, not Prisma's insensitive `equals`: that is an ILIKE, where the `_` an
+  // address may hold is a wildcard, and "audit_admin@…" signed in as "audit-admin@…".
+  const [row] = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT id FROM "User" WHERE lower(email) = lower(${email}) ORDER BY "createdAt" ASC LIMIT 1
+  `;
+  return row ? prisma.user.findUnique({ where: { id: row.id } }) : null;
 }
 
 export function createAuthToken(

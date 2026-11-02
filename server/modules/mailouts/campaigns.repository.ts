@@ -29,8 +29,15 @@ export function findCampaign(id: string) {
   return prisma.campaign.findUnique({ where: { id }, include: campaignInclude });
 }
 
-export function findCampaignByName(name: string) {
-  return prisma.campaign.findFirst({ where: { name: { equals: name, mode: "insensitive" } } });
+/**
+ * `lower()`, not Prisma's insensitive `equals`: that is an ILIKE, where `%` and `_` are
+ * wildcards.
+ */
+export async function findCampaignByName(name: string) {
+  const [row] = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT id FROM "Campaign" WHERE lower(name) = lower(${name}) LIMIT 1
+  `;
+  return row ?? null;
 }
 
 export function createCampaign(

@@ -229,6 +229,13 @@ describe("planning", () => {
     expect(clash.statusCode).toBe(409);
   });
 
+  it("compares whole names, so a % or a trailing \\ is only a character", async () => {
+    expect((await makeCampaign({ name: "Spring 50 hours" })).statusCode).toBe(201);
+    expect((await makeCampaign({ name: "Spring 50%" })).statusCode).toBe(201);
+    expect((await makeCampaign({ name: "Spring \\" })).statusCode).toBe(201);
+    expect((await makeCampaign({ name: "SPRING 50%" })).statusCode).toBe(409);
+  });
+
   it("refuses an inactive template — a schedule pointing at one would fail silently on the day", async () => {
     const dormant = await prisma.emailTemplate.create({
       data: { name: "Old", subject: "s", body: "b", kind: "commercial", active: false },

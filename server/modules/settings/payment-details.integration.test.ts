@@ -230,6 +230,14 @@ describe("the sets", () => {
     ).toBe(1);
     // the client's half is `clients/client-payment-details.integration.test.ts`
   });
+
+  it("compares whole names, so a % or a trailing \\ is only a character", async () => {
+    await add("Wire 50 hours");
+    await add("Wire 50%");
+    await add("Wire \\");
+    const clash = await as(admin).post(BASE, { name: "WIRE 50%", details: "x" });
+    expect(clash.statusCode).toBe(409);
+  });
 });
 
 describe("who sees what", () => {

@@ -12,14 +12,15 @@ export function findById(id: string) {
   return prisma.user.findUnique({ where: { id } });
 }
 
-export function findByEmail(email: string) {
+export async function findByEmail(email: string) {
   // case-insensitive so the invite duplicate-check can't be fooled by a
   // mixed-case existing row (would otherwise let a second account slip in);
-  // deterministic orderBy resolves a legacy case-collision pair to a stable row
-  return prisma.user.findFirst({
-    where: { email: { equals: email, mode: "insensitive" } },
-    orderBy: { createdAt: "asc" },
-  });
+  // deterministic orderBy resolves a legacy case-collision pair to a stable row.
+  // `lower()`, not Prisma's insensitive `equals`: that is an ILIKE, where an `_` is a wildcard.
+  const [row] = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT id FROM "User" WHERE lower(email) = lower(${email}) ORDER BY "createdAt" ASC LIMIT 1
+  `;
+  return row ?? null;
 }
 
 export function createInvitedUser(email: string, role: "admin" | "user") {

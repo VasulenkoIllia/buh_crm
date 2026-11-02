@@ -585,4 +585,15 @@ describe("leads — the pipeline's stages", () => {
     expect(res.statusCode).toBe(200);
     expect((await list()).length).toBe(before - 1);
   });
+
+  it("compares whole names, so a % or a trailing \\ is only a character", async () => {
+    const names = ["Proposal 50 hours", "Proposal 50%", "Proposal \\"];
+    try {
+      for (const name of names) expect((await add(name)).statusCode).toBe(201);
+      expect((await add("PROPOSAL 50%")).statusCode).toBe(409);
+    } finally {
+      // the next run checks the six it starts from as a set
+      await prisma.leadStage.deleteMany({ where: { name: { in: names } } });
+    }
+  });
 });

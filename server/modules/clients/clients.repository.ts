@@ -373,13 +373,20 @@ export async function reconcileClientCompanies(clientId: string, input: CompanyR
  * A company name identifies one company for the whole firm, so the save is refused with the
  * owner named rather than hitting the raw unique-index error.
  */
-export function findCompaniesNamedElsewhere(clientId: string | null, names: string[]) {
-  if (names.length === 0) return Promise.resolve([]);
+export async function findCompaniesNamedElsewhere(clientId: string | null, names: string[]) {
+  if (names.length === 0) return [];
+  // `lower()`, as `Company_name_key_ci` compares, not Prisma's insensitive `equals`: that is an
+  // ILIKE, where a `%` or `_` in a name is a wildcard
+  const named = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT id FROM "Company"
+    WHERE lower(name) IN (SELECT lower(n) FROM unnest(${names}::text[]) AS n)
+  `;
+  if (named.length === 0) return [];
   return prisma.company.findMany({
     where: {
+      id: { in: named.map((company) => company.id) },
       // null = the client doesn't exist yet (create) — nothing of theirs to exclude
       ...(clientId ? { clientId: { not: clientId } } : {}),
-      OR: names.map((name) => ({ name: { equals: name, mode: "insensitive" as const } })),
     },
     select: { name: true, client: { select: { firstName: true, lastName: true } } },
   });

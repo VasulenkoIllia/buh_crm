@@ -17,10 +17,15 @@ export function findTemplatesByIds(ids: string[]) {
   return prisma.emailTemplate.findMany({ where: { id: { in: ids } } });
 }
 
-export function findTemplateByName(name: string) {
-  return prisma.emailTemplate.findFirst({
-    where: { name: { equals: name, mode: "insensitive" } },
-  });
+/**
+ * `lower()`, not Prisma's insensitive `equals`: that is an ILIKE, where `%` and `_` are
+ * wildcards.
+ */
+export async function findTemplateByName(name: string) {
+  const [row] = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT id FROM "EmailTemplate" WHERE lower(name) = lower(${name}) LIMIT 1
+  `;
+  return row ?? null;
 }
 
 export function createTemplate(data: Prisma.EmailTemplateCreateInput) {
@@ -417,10 +422,15 @@ export function findSenderAccount(id: string) {
   return prisma.mailSenderAccount.findUnique({ where: { id } });
 }
 
-export function findSenderAccountByName(name: string) {
-  return prisma.mailSenderAccount.findFirst({
-    where: { name: { equals: name, mode: "insensitive" } },
-  });
+/**
+ * The test `MailSenderAccount_name_key_ci` makes. `lower()`, not Prisma's insensitive `equals`:
+ * that is an ILIKE, where `%` and `_` are wildcards.
+ */
+export async function findSenderAccountByName(name: string) {
+  const [row] = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT id FROM "MailSenderAccount" WHERE lower(name) = lower(${name}) LIMIT 1
+  `;
+  return row ?? null;
 }
 
 /** The one a send falls back to when neither the template nor the composer named one. */
@@ -509,15 +519,18 @@ export function findRecipientByMessageId(messageId: string) {
  * certain — a report never precedes its cause — and taken most-recent-first, which is the letter a
  * report almost always concerns.
  */
-export function findRecipientByAddressBefore(email: string, before: Date) {
-  return prisma.mailoutRecipient.findFirst({
-    where: {
-      email: { equals: email, mode: "insensitive" },
-      status: { in: ["sent", "bounced"] },
-      sentAt: { not: null, lte: before },
-    },
-    orderBy: [{ sentAt: "desc" }, { id: "desc" }],
-  });
+export async function findRecipientByAddressBefore(email: string, before: Date) {
+  // `lower()`, not Prisma's insensitive `equals`: that is an ILIKE, and the `_` many addresses
+  // hold is a wildcard there, which pinned a report on a letter to somebody else
+  const [row] = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT id FROM "MailoutRecipient"
+    WHERE lower(email) = lower(${email})
+      AND status IN ('sent', 'bounced')
+      AND "sentAt" <= ${before}
+    ORDER BY "sentAt" DESC, id DESC
+    LIMIT 1
+  `;
+  return row ? prisma.mailoutRecipient.findUnique({ where: { id: row.id } }) : null;
 }
 
 export function markBounced(

@@ -194,6 +194,20 @@ describe("settings", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().invoicePrefix).toBe("ACC");
   });
+
+  it("compares a source's name whole, so a % or a trailing \\ is only a character", async () => {
+    const add = (name: string) =>
+      app.inject({
+        method: "POST",
+        url: "/api/settings/sources",
+        headers: { cookie: adminCookie },
+        payload: { name },
+      });
+    expect((await add("Walk-in 50 hours")).statusCode).toBe(201);
+    expect((await add("Walk-in 50%")).statusCode).toBe(201);
+    expect((await add("Walk-in \\")).statusCode).toBe(201);
+    expect((await add("WALK-IN 50%")).statusCode).toBe(409);
+  });
 });
 
 /**

@@ -167,6 +167,28 @@ describe("email normalization", () => {
     expect(reset).toBeDefined();
     expect(reset!.subject.toLowerCase()).toContain("reset");
   });
+
+  // the address schema refuses % and \ before any route; the reads are asked those directly in
+  // auth.integration.test.ts and users.repository.integration.test.ts
+  it("compares the whole address, so an _ is only a character", async () => {
+    // an ILIKE read "audit_admin" as "audit" + any one character + "admin": the right password
+    // signed in, and the invitation was refused as a duplicate
+    const wild = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: "audit_admin@test.local", password: "admin-pass-123" },
+    });
+    expect(wild.statusCode).toBe(401);
+
+    const adminCookie = await loginAs("audit-admin@test.local", "admin-pass-123");
+    const invite = await app.inject({
+      method: "POST",
+      url: "/api/users/invites",
+      headers: { cookie: adminCookie },
+      payload: { email: "audit_admin@test.local", role: "user" },
+    });
+    expect(invite.statusCode).toBe(201);
+  });
 });
 
 describe("password change session invalidation", () => {
@@ -250,6 +272,29 @@ describe("clients", () => {
       "Alpha LLC",
       "Beta",
     ]);
+  });
+
+  it("compares a company name whole, so a % or a trailing \\ is only a character", async () => {
+    const cookie = await loginAs("audit-admin@test.local", "admin-pass-123");
+    const make = (firstName: string, ...names: string[]) =>
+      app.inject({
+        method: "POST",
+        url: "/api/clients",
+        headers: { cookie },
+        payload: {
+          firstName,
+          lastName: "Wildcard",
+          companies: names.map((name) => ({ name })),
+          people: [],
+        },
+      });
+    expect((await make("Holder", "Gamma 50 hours")).statusCode).toBe(201);
+    expect((await make("Percent", "Gamma 50%")).statusCode).toBe(201);
+    expect((await make("Slash", "Gamma \\")).statusCode).toBe(201);
+    // the names travel as one array, so quotes and commas beside the clash must not break it
+    const taken = await make("Again", 'Delta "D", Inc \\', "GAMMA 50%");
+    expect(taken.statusCode).toBe(409);
+    expect(taken.json().error.message).toContain('"Gamma 50%" already belongs to');
   });
 
   it("rejects an invalid person email but tolerates an empty one", async () => {

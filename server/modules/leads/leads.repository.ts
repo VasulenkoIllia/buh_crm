@@ -120,10 +120,15 @@ export function findStage(id: string) {
   return prisma.leadStage.findUnique({ where: { id } });
 }
 
-export function findStageByName(name: string) {
-  return prisma.leadStage.findFirst({
-    where: { name: { equals: name, mode: "insensitive" } },
-  });
+/**
+ * `lower()`, not Prisma's insensitive `equals`: that is an ILIKE, where `%` and `_` are
+ * wildcards.
+ */
+export async function findStageByName(name: string) {
+  const [row] = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT id FROM "LeadStage" WHERE lower(name) = lower(${name}) LIMIT 1
+  `;
+  return row ?? null;
 }
 
 /** The stage a lead lands in when nobody says otherwise: the first column of the board. */

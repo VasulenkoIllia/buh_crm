@@ -40,11 +40,15 @@ export function findService(id: string) {
   return prisma.service.findUnique({ where: { id }, include: serviceInclude() });
 }
 
-/** Case-insensitive — "Payroll" and "payroll" are the same service. */
-export function findServiceByName(name: string) {
-  return prisma.service.findFirst({
-    where: { name: { equals: name, mode: "insensitive" } },
-  });
+/**
+ * Case-insensitive — "Payroll" and "payroll" are the same service. `lower()`, not Prisma's
+ * insensitive `equals`: that is an ILIKE, where a `%` or `_` in the name is a wildcard.
+ */
+export async function findServiceByName(name: string) {
+  const [row] = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT id FROM "Service" WHERE lower(name) = lower(${name}) LIMIT 1
+  `;
+  return row ?? null;
 }
 
 export function countServices() {

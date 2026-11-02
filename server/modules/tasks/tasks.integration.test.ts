@@ -2716,4 +2716,29 @@ describe("a task's stage", () => {
       "No stage yet",
     ]);
   });
+
+  it("compares the stage's name whole, so a % or a trailing \\ is only a character", async () => {
+    const svc = await serviceWithStages("Wildcards (filter)", [
+      "Docs In",
+      "Docs 50%",
+      "Filed \\",
+    ]);
+    const clientId = await makeClient("Wildcards");
+    for (const [i, title] of ["Docs job", "Percent job", "Slash job"].entries()) {
+      const job = await jobOn(clientId, svc.id, title);
+      expect((await setStage(job.id, svc.stages[i].id)).statusCode).toBe(200);
+    }
+    const titles = async (stage: string) => {
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/tasks?view=table&clientId=${clientId}&stage=${encodeURIComponent(stage)}`,
+        headers: { cookie: userCookie },
+      });
+      expect(res.statusCode).toBe(200);
+      return res.json().items.map((t: { title: string }) => t.title) as string[];
+    };
+    expect(await titles("docs%")).toEqual([]);
+    expect(await titles("DOCS 50%")).toEqual(["Percent job"]);
+    expect(await titles("filed \\")).toEqual(["Slash job"]);
+  });
 });

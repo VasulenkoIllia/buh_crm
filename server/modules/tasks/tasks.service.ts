@@ -352,7 +352,7 @@ export async function listTasks(query: TaskListQuery) {
     and.push(query.serviceId === "none" ? { serviceId: null } : { serviceId: query.serviceId });
   }
   if (query.leadId) and.push({ leadId: query.leadId });
-  if (query.stage) and.push({ stage: { name: { equals: query.stage, mode: "insensitive" } } });
+  if (query.stage) and.push({ stageId: { in: await repo.findStageIdsNamed(query.stage) } });
   // "overdue" is answered by SQL, not by filtering the page in the browser — otherwise the
   // filter would only ever search the rows the board happened to load. Same business-date rule
   // as `isTaskOverdue`: the whole deadline day must have passed. Overdue is open work by
