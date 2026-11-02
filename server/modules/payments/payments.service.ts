@@ -33,9 +33,10 @@ const balanceOf = (inv: { amount: number; paidTotal: number; cancelledAt: Date |
 /**
  * The positions as they will be STORED — the server's arithmetic, not the browser's.
  *
- * A position that carries both hours and a rate has its amount computed here and whatever the form
- * sent is discarded. A position without them keeps the amount that was typed, which is what makes
- * "Consultation — 500" and "3.50 × 200" the same shape. Order is the order they arrived in.
+ * A position that carries both a quantity and a rate has its amount computed here and whatever the
+ * form sent is discarded. A position without them keeps the amount that was typed, which is what
+ * makes "Consultation — 500", "3.50 h × 200" and "2 × 50" the same shape. Order is the order they
+ * arrived in. A unit is kept only beside a quantity, since it says what the quantity counts.
  */
 function toStoredLines(lines: InvoiceLineInput[]) {
   return lines.map((l, order) => {
@@ -47,6 +48,7 @@ function toStoredLines(lines: InvoiceLineInput[]) {
       quantity,
       unitRate,
       amount: lineAmount(quantity, unitRate) ?? l.amount,
+      unit: quantity !== null ? (l.unit ?? null) : null,
     };
   });
 }
@@ -95,6 +97,7 @@ export function toInvoiceDto(
       quantity: l.quantity,
       unitRate: l.unitRate,
       amount: l.amount,
+      unit: l.unit,
     })),
     payments: inv.payments.map((p) => ({
       id: p.id,
@@ -208,9 +211,20 @@ export async function lastRate(clientId: string) {
 // ── manual issue ─────────────────────────────────────────────────────────────
 
 /**
- * "+ New invoice". A subscription pins service + company exactly like a task does;
- * without one it's a bare charge on the client. `withTask` opens the job for it, and `taskId` bills
- * a job that already exists, which then decides what the form's service would have.
+ * Bill to (owner, 2026-11-02): the company a hand-issued invoice is addressed to, whatever company
+ * its service sits on. `null` is the client itself; a company must be this client's own.
+ */
+async function billTo(clientId: string, companyId: string | null) {
+  if (companyId === null) return null;
+  const company = await repo.findClientCompany(clientId, companyId);
+  if (!company) throw new ValidationError("That company isn't one of this client's");
+  return company.id;
+}
+
+/**
+ * "+ New invoice". A subscription brings its service and, unless Bill to names another, its
+ * company; without one it's a bare charge on the client. `withTask` opens the job for it, and
+ * `taskId` bills a job that already exists, which then decides what the form's service would have.
  */
 export async function createInvoice(input: CreateInvoiceInput, user: User) {
   const client = await repo.findClient(input.clientId);
@@ -237,6 +251,8 @@ export async function createInvoice(input: CreateInvoiceInput, user: User) {
   if (job) {
     companyId = job.companyId;
     serviceId = job.serviceId;
+  } else if (input.companyId !== undefined) {
+    companyId = await billTo(input.clientId, input.companyId);
   }
 
   if (input.withTask && input.assigneeIds.length > 0) {

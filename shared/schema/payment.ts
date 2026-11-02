@@ -1,7 +1,12 @@
 import { z } from "zod";
 import { isPastBusinessDate, localBusinessTodayMs } from "../dates.js";
 import { money, paginated, uuid } from "./common.js";
-import { invoiceDelivery, invoiceStatus } from "./enums.js";
+import {
+  invoiceDelivery,
+  invoiceLineUnit,
+  invoiceStatus,
+  type InvoiceLineUnit,
+} from "./enums.js";
 
 // S7 Payments. Invoices originate from tasks (one-time jobs), from the per-period
 // subscription sweep, or are issued manually. Money is USD minor units; paid/balance/
@@ -26,9 +31,10 @@ export type Payment = z.infer<typeof paymentSchema>;
 /**
  * One position on an invoice.
  *
- * `quantity` is HUNDREDTHS OF AN HOUR — 2.50 h = 250 — so hours are integers for the same reason
- * money is: a float hour times a rate is where the last cent goes missing. Both it and `unitRate`
- * are optional, so one shape covers "Consultation — 500" and "3.50 × 200 = 700".
+ * `quantity` is HUNDREDTHS OF A UNIT — 2.50 h = 250, 2 items = 200 — so it is an integer for the
+ * same reason money is: a float hour times a rate is where the last cent goes missing. Both it and
+ * `unitRate` are optional, so one shape covers "Consultation — 500", "3.50 h × 200 = 700" and
+ * "2 × 50 = 100". `unit` says what is counted; null on a line from before units, read as hours.
  */
 export const invoiceLineSchema = z.object({
   id: uuid,
@@ -37,10 +43,21 @@ export const invoiceLineSchema = z.object({
   quantity: z.number().int().nullable(),
   unitRate: money.nullable(),
   amount: money,
+  unit: invoiceLineUnit.nullable(),
 });
 export type InvoiceLine = z.infer<typeof invoiceLineSchema>;
 
-/** Hours × rate, in minor units — the ONE place the arithmetic lives, so both sides agree. */
+/** A line counts items only when it says so: a line from before units counted hours. */
+export const isItemLine = (line: { unit?: InvoiceLineUnit | null }) => line.unit === "item";
+
+/** Items are counted whole: 2 items, never 2.5. The server refuses it, and the form says so first. */
+export const FRACTIONAL_ITEMS = "Items are counted in whole numbers";
+export const isFractionalItemCount = (line: {
+  unit?: InvoiceLineUnit | null;
+  quantity?: number | null;
+}) => isItemLine(line) && line.quantity != null && line.quantity % 100 !== 0;
+
+/** Quantity × rate, hours or items, in minor units — the ONE place the arithmetic lives, so both sides agree. */
 export function lineAmount(quantity: number | null, unitRate: number | null): number | null {
   if (quantity == null || unitRate == null) return null;
   return Math.round((quantity * unitRate) / 100);
@@ -211,13 +228,17 @@ export const attachInvoiceInput = z.object({ taskId: uuid });
  * RECOMPUTED on the server whenever hours and a rate are both present — the total a client types
  * is never the total that gets stored.
  */
-export const invoiceLineInput = z.object({
-  description: z.string().trim().min(1, "Name the position").max(200),
-  /** hundredths of an hour; null = a flat position with no hours */
-  quantity: z.number().int().min(1).max(1_000_00).nullable().optional(),
-  unitRate: money.nullable().optional(),
-  amount: money.min(0),
-});
+export const invoiceLineInput = z
+  .object({
+    description: z.string().trim().min(1, "Name the position").max(200),
+    /** hundredths of a unit; null = a flat position with no quantity */
+    quantity: z.number().int().min(1).max(1_000_00).nullable().optional(),
+    unitRate: money.nullable().optional(),
+    amount: money.min(0),
+    /** what the quantity counts; omitted = hours, as every caller before units sent */
+    unit: invoiceLineUnit.nullable().optional(),
+  })
+  .refine((l) => !isFractionalItemCount(l), { path: ["quantity"], message: FRACTIONAL_ITEMS });
 export type InvoiceLineInput = z.infer<typeof invoiceLineInput>;
 
 export const createInvoiceInput = z
@@ -235,6 +256,12 @@ export const createInvoiceInput = z
     assigneeIds: z.array(uuid).max(20).default([]),
     /** an existing one-time job this invoice bills; the job then decides service and company */
     taskId: uuid.optional(),
+    /**
+     * Who the invoice is addressed to (owner, 2026-11-02): one of the client's companies, or `null`
+     * for the client itself. Omitted = the service's company, as before Bill to existed. A job
+     * still decides its own.
+     */
+    companyId: uuid.nullable().optional(),
   })
   .refine((v) => !v.withTask || !!(v.taskTitle || v.description), {
     path: ["taskTitle"],

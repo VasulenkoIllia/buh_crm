@@ -1,6 +1,7 @@
 import { MONTHS } from "@shared/billing-periods.js";
 import { invoiceDetail, invoiceSubject } from "@shared/invoice-subject.js";
 import { fmtMoney } from "@shared/money.js";
+import { isItemLine } from "@shared/schema/payment.js";
 import type { InvoiceIssuer } from "../../core/firm.js";
 import type { InvoiceDto } from "./payments.service.js";
 
@@ -77,8 +78,8 @@ export function documentDate(iso: string): string {
   return `${MONTHS[day.getUTCMonth()]}-${dd}-${day.getUTCFullYear()}`;
 }
 
-/** 350 hundredths → "3.5". A whole hour reads "2", not "2.00", beside the "1" of a flat row. */
-const hours = (quantity: number) => String(quantity / 100);
+/** 350 hundredths → "3.5". A whole count reads "2", not "2.00", beside the "1" of a flat row. */
+const count = (quantity: number) => String(quantity / 100);
 
 const nonBlankLines = (text: string | null) =>
   (text ?? "")
@@ -103,18 +104,21 @@ function wholeRow(invoice: InvoiceSource): DocumentRow {
 }
 
 /**
- * Hours AND a rate make an hourly row. Hours alone carry a typed amount, which the rate column
- * cannot explain, so the hours go under the name and the row prints as an item.
+ * A quantity AND a rate fill the Rate and Qty columns: hours make an hourly row, items an item row
+ * at their price. A quantity alone carries a typed amount, which the rate column cannot explain, so
+ * it goes under the name and the row prints as one item. A line from before units counted hours.
  */
 function positionRow(line: InvoiceSource["lines"][number]): DocumentRow {
   const { quantity, unitRate, amount } = line;
-  const isHourly = quantity != null && unitRate != null;
+  const isItems = isItemLine(line);
+  const isPriced = quantity != null && unitRate != null;
   return {
     name: line.description,
-    detail: quantity != null && !isHourly ? `${hours(quantity)} h` : null,
-    rateType: isHourly ? "Hourly" : "Item",
-    rate: fmtMoney(isHourly ? unitRate : amount),
-    qty: isHourly ? hours(quantity) : "1",
+    detail:
+      quantity != null && !isPriced ? `${count(quantity)} ${isItems ? "pcs" : "h"}` : null,
+    rateType: isPriced && !isItems ? "Hourly" : "Item",
+    rate: fmtMoney(isPriced ? unitRate : amount),
+    qty: isPriced ? count(quantity) : "1",
     amount: fmtMoney(amount),
   };
 }

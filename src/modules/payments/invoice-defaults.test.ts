@@ -65,18 +65,20 @@ describe("the first position", () => {
   it("carries the service and the client's last rate, and leaves the hours to a person", () => {
     expect(prefilledPosition(defaults, 4000)).toEqual({
       description: "Bookkeeping",
-      hours: "",
+      quantity: "",
       rate: "40.00",
       amount: "100.00",
+      unit: "hour",
     });
   });
 
   it("is empty with no service and no earlier hours", () => {
     expect(prefilledPosition(null, null)).toEqual({
       description: "",
-      hours: "",
+      quantity: "",
       rate: "",
       amount: "",
+      unit: "hour",
     });
   });
 

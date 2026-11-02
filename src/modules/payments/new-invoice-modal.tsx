@@ -13,14 +13,20 @@ import { Modal } from "@/shared/ui/modal";
 import { RowButton } from "@/shared/ui/row-button";
 import { SearchSelect } from "@/shared/ui/search-select";
 import { Segmented } from "@/shared/ui/segmented";
+import { BillToLine, useBillTo } from "./bill-to-field";
 import {
-  billToOf,
   invoiceDefaults,
   jobDefaults,
   prefilledPosition,
   suggestedAmount,
 } from "./invoice-defaults";
-import { LinesEditor, draftTotal, toLineInput, type DraftLine } from "./invoice-lines-editor";
+import {
+  LinesEditor,
+  draftTotal,
+  linesProblem,
+  toLineInput,
+  type DraftLine,
+} from "./invoice-lines-editor";
 import { JobChoiceField, useJobChoice } from "./job-picker";
 import { useCreateInvoice, useLastRate } from "./payments.api";
 
@@ -138,9 +144,12 @@ export function NewInvoiceModal({
   const shownAmount = amount ?? suggestedAmount(defaults);
   const suggestedDue = defaults?.dueDays != null ? todayPlus(defaults.dueDays) : "";
   const shownDueDate = noDueDate ? "" : (dueDate ?? suggestedDue);
-  const billTo = client.data
-    ? billToOf(client.data, job ? job.companyId : (subscription?.companyId ?? null))
-    : null;
+  const billTo = useBillTo(client.data?.companies ?? []);
+  const companyId = job
+    ? job.companyId
+    : billTo.picked
+      ? billTo.picked.companyId
+      : (subscription?.companyId ?? null);
 
   // open on the client's default service — the one they're usually billed for
   useEffect(() => {
@@ -162,6 +171,8 @@ export function NewInvoiceModal({
     if (mode === "job" && !job) return setError("Pick a job");
     if (itemised && filled.length === 0)
       return setError("Add at least one position, with a name");
+    const problem = itemised ? linesProblem(filled) : null;
+    if (problem) return setError(problem);
     if (total <= 0) return setError("Enter an amount");
     try {
       const invoice = await createInvoice.mutateAsync({
@@ -176,6 +187,8 @@ export function NewInvoiceModal({
         taskTitle: taskTitle.trim() || undefined,
         assigneeIds: mode === "with_task" ? selected : [],
         taskId: job?.id,
+        // only a pick is sent: untouched, the server follows the service just as the form did
+        companyId: mode !== "job" && billTo.picked ? billTo.picked.companyId : undefined,
       });
       onCreated?.(invoice);
       onClose();
@@ -218,6 +231,7 @@ export function NewInvoiceModal({
                 setClientId(id);
                 setSubscriptionId("");
                 jobChoice.setJobId("");
+                billTo.reset();
               }}
             />
           </FormField>
@@ -227,7 +241,7 @@ export function NewInvoiceModal({
               <Input disabled aria-label="Service" value={job.serviceName ?? "No service"} />
             </FormField>
           ) : (
-            <FormField label="Service (optional — pins the company target)">
+            <FormField label="Service (optional)">
               <SearchSelect
                 value={subscriptionId}
                 onChange={setSubscriptionId}
@@ -251,11 +265,13 @@ export function NewInvoiceModal({
           )}
         </div>
 
-        {billTo && (
-          <p className="-mt-1.5 truncate text-[12px] text-muted">
-            Bill to: <span className="text-ink-700">{billTo.name}</span>
-            {billTo.email ? ` · ${billTo.email}` : ""}
-          </p>
+        {client.data && (
+          <BillToLine
+            client={client.data}
+            companyId={companyId}
+            locked={mode === "job"}
+            onPick={billTo.pick}
+          />
         )}
 
         <div className="grid gap-3.5 sm:grid-cols-2">

@@ -53,6 +53,10 @@ export type InvoiceStatus = z.infer<typeof invoiceStatus>;
 export const invoiceDelivery = z.enum(["created", "sent"]);
 export type InvoiceDelivery = z.infer<typeof invoiceDelivery>;
 
+/** What an invoice position's quantity counts: hours at a rate, or items at a price. */
+export const invoiceLineUnit = z.enum(["hour", "item"]);
+export type InvoiceLineUnit = z.infer<typeof invoiceLineUnit>;
+
 /**
  * The notification CHANNELS. The trigger keys are deliberately NOT here: they live in
  * `shared/notifications.ts`, which is zero-dependency because the UI reads it, and duplicating the

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ChevronDown, History as HistoryIcon, Pencil, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { periodLabel } from "@shared/billing-periods";
-import type { Invoice } from "@shared/schema/payment";
+import { isItemLine, type Invoice } from "@shared/schema/payment";
 import { useAuth } from "@/app/auth";
 import { cn } from "@/shared/lib/cn";
 import { fmtBizDate, fmtDate, todayIso } from "@/shared/lib/format";
@@ -30,6 +30,7 @@ import {
   LinesEditor,
   draftTotal,
   emptyLine,
+  linesProblem,
   toDraftLines,
   toLineInput,
   type DraftLine,
@@ -302,7 +303,10 @@ export function InvoiceModal({
                       <span className="min-w-0 flex-1 truncate">{line.description}</span>
                       {line.quantity != null && line.unitRate != null && (
                         <span className="whitespace-nowrap text-[12px] text-muted tabular-nums">
-                          {(line.quantity / 100).toFixed(2)} h × {fmtMoney(line.unitRate)}
+                          {isItemLine(line)
+                            ? `${line.quantity / 100} pcs`
+                            : `${(line.quantity / 100).toFixed(2)} h`}{" "}
+                          × {fmtMoney(line.unitRate)}
                         </span>
                       )}
                       <span className="w-[110px] text-right tabular-nums">
@@ -506,6 +510,8 @@ function EditInvoiceForm({
     onError(null);
     if (itemised && filled.length === 0)
       return onError("Add at least one position, with a name");
+    const problem = itemised ? linesProblem(filled) : null;
+    if (problem) return onError(problem);
     if (total <= 0) return onError("Enter an amount");
     try {
       await update.mutateAsync({

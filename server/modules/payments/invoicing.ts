@@ -1,7 +1,7 @@
 import { config } from "../../core/config.js";
 import { hasLiveInvoice } from "@shared/schema/payment.js";
 import { todayInTz, toUtc } from "../../core/dates.js";
-import type { Prisma } from "../../generated/prisma/client.js";
+import type { InvoiceLineUnit, Prisma } from "../../generated/prisma/client.js";
 import * as repo from "./payments.repository.js";
 import { record } from "../../core/activity.js";
 
@@ -67,6 +67,7 @@ export interface StoredLine {
   quantity: number | null;
   unitRate: number | null;
   amount: number;
+  unit: InvoiceLineUnit | null;
 }
 
 /** The row to write, with the due date resolved from either an explicit date or `dueDays`. */
@@ -127,14 +128,20 @@ export function recordIssued(invoice: {
   number: string;
   amount: number;
   clientId: string;
+  company: { name: string } | null;
 }) {
   record("invoice.issued", {
     subjectId: invoice.id,
     subjectLabel: invoice.number,
     clientId: invoice.clientId,
     // not `number`: it is already the subject label, and the entry read "Invoice INV-2026-0042
-    // was issued / number INV-2026-0042" — the same string twice, using the one line of the diff
-    changes: { amount: invoice.amount },
+    // was issued / number INV-2026-0042" — the same string twice, using the one line of the diff.
+    // The company is who the paper is addressed to, which Bill to can make any of the client's
+    // (2026-11-02); the client is already the row's own column.
+    changes: {
+      amount: invoice.amount,
+      ...(invoice.company ? { company: invoice.company.name } : {}),
+    },
   });
 }
 

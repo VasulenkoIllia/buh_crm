@@ -1,4 +1,4 @@
-import type { Prisma } from "../../generated/prisma/client.js";
+import type { InvoiceLineUnit, Prisma } from "../../generated/prisma/client.js";
 import { config } from "../../core/config.js";
 import { inForceTodayWhere } from "../../core/coverage.js";
 import { prisma } from "../../core/db.js";
@@ -306,6 +306,8 @@ export async function insertInvoice(
   const number = await allocateNumber(tx, year);
   return tx.invoice.create({
     data: { ...data, number, ...(taskId ? { tasks: { connect: { id: taskId } } } : {}) },
+    // the company's name, for the log's line about who the invoice is addressed to
+    include: { company: { select: { name: true } } },
   });
 }
 
@@ -326,12 +328,16 @@ export function updateInvoiceWithLines(
   });
 }
 
-/** The rate of the first hourly position on this client's newest live invoice that has one. */
+/**
+ * The rate of the first hourly position on this client's newest live invoice that has one. An
+ * item's price is no hourly rate, so item lines are skipped; a line from before units counted hours.
+ */
 export async function findLastRate(clientId: string) {
   const line = await prisma.invoiceLine.findFirst({
     where: {
       quantity: { not: null },
       unitRate: { not: null },
+      OR: [{ unit: null }, { unit: "hour" }],
       invoice: { clientId, cancelledAt: null },
     },
     orderBy: [
@@ -350,6 +356,7 @@ export interface StoredLineRow {
   quantity: number | null;
   unitRate: number | null;
   amount: number;
+  unit: InvoiceLineUnit | null;
 }
 
 /**
@@ -593,6 +600,14 @@ export function findClient(id: string) {
   return prisma.client.findUnique({
     where: { id },
     select: { id: true, archivedAt: true },
+  });
+}
+
+/** One of this client's companies, or null when the id names another client's or none. */
+export function findClientCompany(clientId: string, companyId: string) {
+  return prisma.company.findFirst({
+    where: { id: companyId, clientId },
+    select: { id: true },
   });
 }
 

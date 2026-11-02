@@ -324,6 +324,20 @@ describe("the rate a new position starts from", () => {
     expect(await rateOf(client)).toBe(4500);
   });
 
+  it("is never an item's price, which is no rate per hour", async () => {
+    const client = await newClient("items");
+    await makeInvoice({ lines: hourly(4000) }, client);
+    await makeInvoice(
+      {
+        lines: [
+          { description: "W-2 form", quantity: 200, unitRate: 5000, amount: 1, unit: "item" },
+        ],
+      },
+      client,
+    );
+    expect(await rateOf(client)).toBe(4000);
+  });
+
   it("skips a cancelled invoice", async () => {
     const client = await newClient("cancelled");
     await makeInvoice({ lines: hourly(4000) }, client);

@@ -62,6 +62,12 @@ enum BillingPeriod {
   half_month // the 15th and the last day, a MONTHLY price billed in halves (2026-10-07)
 }
 
+/// What an invoice position counts (2026-11-02): hours at a rate, or items at a price.
+enum InvoiceLineUnit {
+  hour
+  item
+}
+
 enum Periodicity {
   weekly
   monthly
@@ -1267,18 +1273,21 @@ model Invoice {
 /// "3.50 h × 200.00 = 700". A stored "invoice type" would have remembered which form was filled
 /// in rather than what is true about the document.
 model InvoiceLine {
-  id          String @id @default(uuid()) @db.Uuid
-  invoiceId   String @db.Uuid
+  id          String           @id @default(uuid()) @db.Uuid
+  invoiceId   String           @db.Uuid
   /// display order, 0-based — the firm's ordering, not the insert order
   order       Int
   description String
-  /// HUNDREDTHS OF AN HOUR: 2.50 h = 250. Integers like money, for the same reason — a float
-  /// hour times a rate is where the last cent goes missing.
+  /// HUNDREDTHS OF A UNIT: 2.50 h = 250, 2 items = 200. Integers like money, for the same reason —
+  /// a float hour times a rate is where the last cent goes missing.
   quantity    Int?
-  /// minor units per hour
+  /// minor units per hour, or per item
   unitRate    Int?
   /// minor units; = round(quantity × unitRate / 100) when both are set, else as entered
   amount      Int
+  /// what `quantity` counts. NULL = a line written before units existed (2026-11-02), read as
+  /// hours, which is what every such line meant; set only when there is a quantity
+  unit        InvoiceLineUnit?
 
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 

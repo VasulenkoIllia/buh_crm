@@ -40,6 +40,7 @@ const position = (over: Partial<InvoiceSource["lines"][number]> = {}) => ({
   quantity: null,
   unitRate: null,
   amount: 5000,
+  unit: null,
   ...over,
 });
 
@@ -93,6 +94,31 @@ describe("what an invoice says on paper", () => {
   it("prints a position with a rate and no hours at its own amount", () => {
     const [row] = rowsOf({ lines: [position({ unitRate: 4000 })] });
     expect(row).toMatchObject({ rateType: "Item", rate: "$50.00", qty: "1", amount: "$50.00" });
+  });
+
+  it("prints items at their price, counted in the Qty column", () => {
+    const lines = [position({ unit: "item", quantity: 200, unitRate: 5000, amount: 10000 })];
+    expect(rowsOf({ lines })[0]).toEqual({
+      name: "Consultation",
+      detail: null,
+      rateType: "Item",
+      rate: "$50.00",
+      qty: "2",
+      amount: "$100.00",
+    });
+  });
+
+  it("moves a count of items under the name when no price explains the amount", () => {
+    const [row] = rowsOf({ lines: [position({ unit: "item", quantity: 300 })] });
+    expect(row).toMatchObject({ detail: "3 pcs", rateType: "Item", rate: "$50.00", qty: "1" });
+  });
+
+  it("prints hours marked as hours exactly as a line from before units", () => {
+    const old = position({ quantity: 350, unitRate: 4000, amount: 14000 });
+    const marked = { ...old, unit: "hour" as const };
+    expect(rowsOf({ lines: [marked] })).toEqual(rowsOf({ lines: [old] }));
+    const bare = position({ quantity: 350 });
+    expect(rowsOf({ lines: [{ ...bare, unit: "hour" }] })).toEqual(rowsOf({ lines: [bare] }));
   });
 
   it("prints every position and keeps Sales tax last, changing no total", () => {

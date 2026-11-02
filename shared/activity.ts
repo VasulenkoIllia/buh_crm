@@ -1124,8 +1124,9 @@ const EVENTS = {
     actorKinds: ["user", "system"],
     retention: "ordinary",
     // not the client's NAME: `issueInvoice` runs on the nightly sweep and would need a lookup per
-    // invoice to carry one, when `clientId` already lets the screen resolve it (2026-09-08)
-    changeKeys: ["amount"],
+    // invoice to carry one, when `clientId` already lets the screen resolve it (2026-09-08). The
+    // company's name comes back from the insert itself, and Bill to made it a choice (2026-11-02).
+    changeKeys: ["amount", "company"],
     enabledByDefault: true,
   },
   "invoice.updated": {

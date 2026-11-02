@@ -1,7 +1,8 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { Trash2 } from "lucide-react";
+import type { InvoiceLineUnit } from "@shared/schema/enums";
 import type { Invoice } from "@shared/schema/payment";
-import { lineAmount } from "@shared/schema/payment";
+import { FRACTIONAL_ITEMS, isFractionalItemCount, lineAmount } from "@shared/schema/payment";
 import { cn } from "@/shared/lib/cn";
 import { fmtMoney, moneyInputValue, parseMoney } from "@/shared/lib/money";
 import { Button, IconButton } from "@/shared/ui/button";
@@ -9,10 +10,12 @@ import { Input } from "@/shared/ui/field";
 
 /**
  * The header's and every row's columns. On a phone the five do not fit, so the name takes a line of
- * its own and the header goes, and each cell carries its name instead.
+ * its own with the bin beside it, the header goes, and each cell carries its name instead. Below it
+ * Qty is the widest, because its unit switch takes 44px of it, and Rate keeps room for "200.00";
+ * Amount takes the bin's column too.
  */
 const ROW =
-  "grid grid-cols-[1fr_1fr_1fr_44px] items-end gap-2 sm:grid-cols-[minmax(140px,1fr)_90px_120px_120px_32px]";
+  "grid grid-cols-[1.3fr_1.15fr_1fr_44px] items-end gap-2 sm:grid-cols-[minmax(140px,1fr)_100px_120px_120px_32px]";
 
 /** A box and what it is: a caption on a phone, read out by a screen reader at any width. */
 function Cell({
@@ -40,8 +43,9 @@ function Cell({
  * "invoice type" anywhere in the database, because the difference is "does it have a breakdown"
  * and the rows themselves already answer that.
  *
- * Hours are entered as hours ("3.5") and carried as hundredths, so the arithmetic stays integer —
- * a float hour times a rate is where the last cent goes missing.
+ * A quantity is entered as hours ("3.5") or items ("2"), the row's own choice, and carried as
+ * hundredths, so the arithmetic stays integer — a float hour times a rate is where the last cent
+ * goes missing.
  */
 export function LinesEditor({
   lines,
@@ -80,7 +84,7 @@ export function LinesEditor({
         )}
       >
         <div>Position</div>
-        <div className="text-right">Hours</div>
+        <div className="text-right">Qty</div>
         <div className="text-right">Rate</div>
         <div className="text-right">Amount</div>
         <div />
@@ -97,20 +101,31 @@ export function LinesEditor({
           const computed = draftAmount(line);
           return (
             <div key={i} className={ROW}>
-              <Cell label="Position" className="max-sm:col-span-full">
+              <Cell label="Position" className="max-sm:col-span-3">
                 <Input
                   value={line.description}
                   placeholder="Consultation"
                   onChange={(e) => set(i, { description: e.target.value })}
                 />
               </Cell>
-              <Cell label="Hours">
-                <Input
-                  inputMode="decimal"
-                  className="text-right"
-                  value={line.hours}
-                  onChange={(e) => set(i, { hours: e.target.value })}
-                />
+              <Cell label="Qty">
+                <div className="relative">
+                  {/* named on its own: the cell's label also holds the unit switch, whose name
+                      would otherwise be read out as part of this box's */}
+                  <Input
+                    aria-label="Qty"
+                    inputMode="decimal"
+                    className="pr-10 text-right max-sm:pr-[46px]"
+                    value={line.quantity}
+                    onChange={(e) => set(i, { quantity: e.target.value })}
+                  />
+                  {/* a rate is per unit, so a new unit empties it: the client's last hourly rate,
+                      offered on the first row, is no price per item */}
+                  <UnitToggle
+                    unit={line.unit}
+                    onChange={(unit) => set(i, { unit, rate: "" })}
+                  />
+                </div>
               </Cell>
               <Cell label="Rate">
                 <Input
@@ -120,9 +135,9 @@ export function LinesEditor({
                   onChange={(e) => set(i, { rate: e.target.value })}
                 />
               </Cell>
-              {/* read-only the moment hours AND a rate are both there — the number is theirs, and
+              {/* read-only the moment a quantity AND a rate are both there — the number is theirs, and
                 two editable fields that must agree is how they stop agreeing */}
-              <Cell label="Amount">
+              <Cell label="Amount" className="max-sm:col-span-2">
                 <Input
                   inputMode="decimal"
                   className="text-right"
@@ -133,7 +148,7 @@ export function LinesEditor({
               </Cell>
               <IconButton
                 label="Remove this position"
-                className="hover:text-danger max-sm:size-11"
+                className="hover:text-danger max-sm:col-start-4 max-sm:row-start-1 max-sm:size-11"
                 onClick={() => onChange(lines.filter((_, n) => n !== i))}
               >
                 <Trash2 size={15} />
@@ -161,55 +176,93 @@ export function LinesEditor({
   );
 }
 
+const UNIT_MARK: Record<InvoiceLineUnit, string> = { hour: "h", item: "pcs" };
+
+/**
+ * What the row counts, inside its Qty box: one press switches hours and items (client, 2026-11-02:
+ * "2 items at $50"). A box of its own would not fit the row on a phone.
+ */
+function UnitToggle({
+  unit,
+  onChange,
+}: {
+  unit: InvoiceLineUnit;
+  onChange: (unit: InvoiceLineUnit) => void;
+}) {
+  return (
+    <IconButton
+      // the mark it shows comes first, so a voice command saying "pcs" finds it
+      label={`Unit: ${UNIT_MARK[unit]}. Switch to ${unit === "hour" ? "items" : "hours"}`}
+      onClick={() => onChange(unit === "hour" ? "item" : "hour")}
+      className="absolute inset-y-px right-px h-auto w-9 rounded-none rounded-r-(--radius-field) border-l border-divider text-[12px] font-medium max-sm:inset-y-0 max-sm:w-11"
+    >
+      {UNIT_MARK[unit]}
+    </IconButton>
+  );
+}
+
 /** A row while it is being typed — strings, because a half-typed number is not a number yet. */
 export interface DraftLine {
   description: string;
-  hours: string;
+  /** hours or items, as the row's unit says */
+  quantity: string;
   rate: string;
   amount: string;
+  unit: InvoiceLineUnit;
 }
 
 export const emptyLine = (): DraftLine => ({
   description: "",
-  hours: "",
+  quantity: "",
   rate: "",
   amount: "",
+  unit: "hour",
 });
 
-/** Hours as typed → hundredths of an hour. "3.5" → 350. */
-const parseHours = (text: string): number | null => {
+/** A quantity as typed → hundredths of a unit. "3.5" → 350. */
+const parseQuantity = (text: string): number | null => {
   const n = Number(text.replace(",", ".").trim());
   return text.trim() === "" || !Number.isFinite(n) || n <= 0 ? null : Math.round(n * 100);
 };
 
-/** A row's amount when hours AND a rate are both present — otherwise the typed one stands. */
+/** A row's amount when a quantity AND a rate are both present — otherwise the typed one stands. */
 function draftAmount(line: DraftLine): number | null {
-  const hours = parseHours(line.hours);
+  const quantity = parseQuantity(line.quantity);
   const rate = parseMoney(line.rate);
-  return hours !== null && rate > 0 ? lineAmount(hours, rate) : null;
+  return quantity !== null && rate > 0 ? lineAmount(quantity, rate) : null;
 }
 
 export const draftTotal = (lines: DraftLine[]) =>
   lines.reduce((sum, l) => sum + (draftAmount(l) ?? parseMoney(l.amount)), 0);
 
-/** Draft rows → what the API takes. */
+/** What the server would refuse about the rows, said before the request rather than after it. */
+export const linesProblem = (lines: DraftLine[]): string | null =>
+  lines.some((l) =>
+    isFractionalItemCount({ unit: l.unit, quantity: parseQuantity(l.quantity) }),
+  )
+    ? FRACTIONAL_ITEMS
+    : null;
+
+/** Draft rows → what the API takes. A unit goes only beside a quantity, which it describes. */
 export const toLineInput = (lines: DraftLine[]) =>
   lines.map((l) => {
-    const hours = parseHours(l.hours);
+    const quantity = parseQuantity(l.quantity);
     const rate = parseMoney(l.rate);
     return {
       description: l.description.trim(),
-      quantity: hours,
+      quantity,
       unitRate: rate > 0 ? rate : null,
       amount: draftAmount(l) ?? parseMoney(l.amount),
+      unit: quantity !== null ? l.unit : null,
     };
   });
 
-/** A stored invoice's positions → editable rows. */
+/** A stored invoice's positions → editable rows. A line from before units counted hours. */
 export const toDraftLines = (lines: Invoice["lines"]): DraftLine[] =>
   lines.map((l) => ({
     description: l.description,
-    hours: l.quantity != null ? String(l.quantity / 100) : "",
+    quantity: l.quantity != null ? String(l.quantity / 100) : "",
     rate: l.unitRate != null ? moneyInputValue(l.unitRate) : "",
     amount: moneyInputValue(l.amount),
+    unit: l.unit ?? "hour",
   }));

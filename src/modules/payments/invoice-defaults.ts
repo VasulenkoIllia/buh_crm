@@ -55,9 +55,10 @@ export function prefilledPosition(
 ): DraftLine {
   return {
     description: defaults?.name ?? "",
-    hours: "",
+    quantity: "",
     rate: lastRate !== null ? moneyInputValue(lastRate) : "",
     amount: suggestedAmount(defaults),
+    unit: "hour",
   };
 }
 
