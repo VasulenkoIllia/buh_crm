@@ -30,6 +30,7 @@ export function InvoiceItemsSection() {
   const { data, isError, refetch } = useInvoiceItems();
   const canEdit = useCanEdit("settings");
   const [editing, setEditing] = useState<string | "new" | null>(null);
+  const [search, setSearch] = useState("");
   const isFormOpen = editing === "new" || !!data?.some((item) => item.id === editing);
 
   // a failed refetch keeps the list it has, and an open form with it
@@ -46,31 +47,90 @@ export function InvoiceItemsSection() {
     );
   }
 
+  // a long list is searched rather than read (owner, 2026-11-03), and what the picker no longer
+  // offers goes to the foot, under its own heading. The row being edited stays whatever is typed,
+  // or the search would throw its unsaved form away
+  const typed = search.trim().toLowerCase();
+  const shown = data.filter(
+    (item) => item.id === editing || item.name.toLowerCase().includes(typed),
+  );
+  const groups = [
+    { key: "active", items: shown.filter((item) => item.active), heading: null },
+    {
+      key: "off",
+      items: shown.filter((item) => !item.active),
+      heading: "Switched off",
+    },
+  ];
+  const row = (item: InvoiceItem) => (
+    <li key={item.id}>
+      {editing === item.id ? (
+        <EditItem item={item} onDone={() => setEditing(null)} />
+      ) : (
+        <ItemRow item={item} canEdit={canEdit} onEdit={() => setEditing(item.id)} />
+      )}
+    </li>
+  );
+
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        {data.length > 0 && (
+          <Input
+            type="search"
+            aria-label="Search invoice items"
+            placeholder="Search items…"
+            className="min-w-0 flex-1 sm:max-w-xs"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        )}
+        {/* not while a form is open: pressing it would close that edit unsaved. A row a colleague
+            deleted meanwhile has no form left, so it does not count */}
+        {canEdit && !isFormOpen && (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="max-sm:h-11"
+            onClick={() => setEditing("new")}
+          >
+            Add item
+          </Button>
+        )}
+      </div>
+      {/* the search is cleared, or a new item it does not match would look like a failed add */}
+      {canEdit && editing === "new" && (
+        <AddItem
+          onDone={() => {
+            setEditing(null);
+            setSearch("");
+          }}
+        />
+      )}
+
       {data.length === 0 && editing !== "new" && (
         <p className="text-[13px] text-muted">No items yet, so positions are typed by hand.</p>
       )}
-      {data.map((item) =>
-        editing === item.id ? (
-          <EditItem key={item.id} item={item} onDone={() => setEditing(null)} />
-        ) : (
-          <ItemRow
-            key={item.id}
-            item={item}
-            canEdit={canEdit}
-            onEdit={() => setEditing(item.id)}
-          />
-        ),
+      {data.length > 0 && shown.length === 0 && (
+        <p className="text-[13px] text-muted">No item matches “{search.trim()}”.</p>
       )}
-
-      {canEdit && editing === "new" && <AddItem onDone={() => setEditing(null)} />}
-      {/* not while a form is open: pressing it would close that edit unsaved. A row a colleague
-          deleted meanwhile has no form left, so it does not count */}
-      {canEdit && !isFormOpen && (
-        <Button variant="secondary" size="sm" onClick={() => setEditing("new")}>
-          Add item
-        </Button>
+      {groups.map(
+        (group) =>
+          group.items.length > 0 && (
+            <div key={group.key}>
+              {group.heading && (
+                <h3 className="mb-1 text-[11px] font-medium uppercase tracking-wide text-faint">
+                  {group.heading} ({group.items.length})
+                </h3>
+              )}
+              <ul
+                aria-label={group.heading ?? "Invoice items"}
+                className="divide-y divide-divider rounded-(--radius-field) border border-border"
+              >
+                {group.items.map(row)}
+              </ul>
+            </div>
+          ),
       )}
     </div>
   );
@@ -99,19 +159,22 @@ function ItemRow({
   };
 
   return (
-    <div className="rounded-(--radius-field) border border-border px-3 py-2">
+    // one line each, in one bordered list: a card per item was a screen for ten of them
+    <div className="px-3 py-1">
       {/* on a phone the actions take a line of their own: three finger-wide buttons beside the
           name left it a word per line */}
-      <div className="flex items-center justify-between gap-3 max-sm:flex-col max-sm:items-stretch max-sm:gap-1">
-        <div className={cn("min-w-0", !item.active && "opacity-60")}>
-          <div className="flex flex-wrap items-center gap-x-2">
-            <span className="text-[14px] font-medium break-words">{item.name}</span>
-            {!item.active && <span className="text-[12px] text-muted">inactive</span>}
-          </div>
-          <div className="text-[12px] text-muted">
+      <div className="flex items-center justify-between gap-3 max-sm:flex-col max-sm:items-stretch max-sm:gap-1 max-sm:py-1">
+        <div
+          className={cn(
+            "flex min-w-0 flex-1 flex-wrap items-baseline justify-between gap-x-3",
+            !item.active && "opacity-60",
+          )}
+        >
+          <span className="min-w-0 text-[14px] break-words">{item.name}</span>
+          <span className="shrink-0 text-[12px] text-muted">
             {itemPriceLabel(item)}
             {item.price === null && ", no set price"}
-          </div>
+          </span>
         </div>
         {canEdit && (
           <div className="flex shrink-0 items-center gap-1 max-sm:-ml-2.5">
@@ -186,6 +249,7 @@ function EditItem({ item, onDone }: { item: InvoiceItem; onDone: () => void }) {
   return (
     <ItemForm
       initial={opened}
+      framed={false}
       isPending={update.isPending}
       error={update.error?.message ?? null}
       onCancel={onDone}
@@ -203,12 +267,15 @@ function EditItem({ item, onDone }: { item: InvoiceItem; onDone: () => void }) {
 
 function ItemForm({
   initial,
+  framed = true,
   isPending,
   error,
   onSave,
   onCancel,
 }: {
   initial: CreateInvoiceItemInput;
+  /** in the list it stands in for a row, whose list draws the border */
+  framed?: boolean;
   isPending: boolean;
   error: string | null;
   onSave: (input: CreateInvoiceItemInput) => void;
@@ -234,7 +301,7 @@ function ItemForm({
   return (
     // a form, so Enter and a phone's Go key save it
     <form
-      className="space-y-3 rounded-(--radius-field) border border-border p-3"
+      className={cn("space-y-3 p-3", framed && "rounded-(--radius-field) border border-border")}
       onSubmit={(e) => {
         e.preventDefault();
         if (canSave) onSave({ name: name.trim(), unit, price: priceValue });

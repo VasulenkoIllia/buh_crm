@@ -7,6 +7,7 @@ import { ApiError } from "@/shared/lib/api";
 import { Button, IconButton } from "@/shared/ui/button";
 import { firmZoneAbbr } from "@/shared/lib/tz";
 import { FormField, Input, Select } from "@/shared/ui/field";
+import { Segmented } from "@/shared/ui/segmented";
 import { Tabs } from "@/shared/ui/tabs";
 import {
   useCreateSource,
@@ -79,6 +80,14 @@ const BLURB: Record<Tab, string> = {
   activity: "Who did what, when, and to whom — every change anybody made through the app.",
 };
 
+/** The Invoices tab's parts, in the URL beside the tab (`?tab=invoices&part=items`). */
+type InvoicesPart = "details" | "payment" | "items";
+const INVOICES_PARTS: { value: InvoicesPart; label: string }[] = [
+  { value: "details", label: "Details" },
+  { value: "payment", label: "Payment details" },
+  { value: "items", label: "Items" },
+];
+
 export function SettingsPage() {
   const canOpen = useCanOpen("settings");
   const access = useAccess();
@@ -91,6 +100,17 @@ export function SettingsPage() {
    */
   const [params, setParams] = useSearchParams();
   const raw = params.get("tab");
+  const invoicesPart: InvoicesPart =
+    INVOICES_PARTS.find((p) => p.value === params.get("part"))?.value ?? "details";
+  const setInvoicesPart = (next: InvoicesPart) =>
+    setParams(
+      (prev) => {
+        const out = new URLSearchParams(prev);
+        out.set("part", next);
+        return out;
+      },
+      { replace: true },
+    );
   /**
    * A tab whose gate is closed leaves the strip; a link pointing at it lands on the first tab left.
    *
@@ -159,19 +179,30 @@ export function SettingsPage() {
       )}
       {data && tab === "invoices" && (
         <div className="max-w-2xl space-y-6">
-          <NumberingSection
-            prefix={data.firm.invoicePrefix}
-            digits={data.firm.invoiceCounterDigits}
-          />
-          <Section title="Invoice details">
-            <InvoiceDetailsForm />
-          </Section>
-          <Section title="Payment details">
-            <PaymentDetailsSection />
-          </Section>
-          <Section title="Invoice items">
-            <InvoiceItemsSection />
-          </Section>
+          {/* three parts, one at a time (owner, 2026-11-03): the item list grows long, and was the
+              last of four sections stacked on one page. The same gate as the tab: no route moves */}
+          <Segmented value={invoicesPart} onChange={setInvoicesPart} options={INVOICES_PARTS} />
+          {invoicesPart === "details" && (
+            <>
+              <NumberingSection
+                prefix={data.firm.invoicePrefix}
+                digits={data.firm.invoiceCounterDigits}
+              />
+              <Section title="Invoice details">
+                <InvoiceDetailsForm />
+              </Section>
+            </>
+          )}
+          {invoicesPart === "payment" && (
+            <Section title="Payment details">
+              <PaymentDetailsSection />
+            </Section>
+          )}
+          {invoicesPart === "items" && (
+            <Section title="Invoice items">
+              <InvoiceItemsSection />
+            </Section>
+          )}
         </div>
       )}
       {/*
