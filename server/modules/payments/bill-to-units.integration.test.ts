@@ -141,6 +141,99 @@ describe("Bill to in the log", () => {
   });
 });
 
+describe("Bill to in a correction (owner, 2026-11-03)", () => {
+  const correct = (id: string, payload: object) =>
+    app.inject({
+      method: "PATCH",
+      url: `/api/invoices/${id}`,
+      headers: { cookie: admin.cookie },
+      payload,
+    });
+
+  async function lastCorrection(invoiceId: string, count: number) {
+    // the log is written after the response
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const rows = await prisma.activityEvent.findMany({
+        where: { action: "invoice.updated", subjectId: invoiceId },
+        orderBy: { occurredAt: "desc" },
+      });
+      if (rows.length >= count) return rows[0];
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw new Error("no invoice.updated row");
+  }
+
+  it("moves the invoice to another company or to the client, and logs it in words", async () => {
+    const invoice = await issued({ subscriptionId: onA });
+    const toB = await correct(invoice.id, { companyId: companyB });
+    expect(toB.statusCode).toBe(200);
+    expect(toB.json().companyId).toBe(companyB);
+    expect((await lastCorrection(invoice.id, 1)).changes).toEqual({
+      billTo: { from: `${TAG} Alpha LLC`, to: `${TAG} Beta LLC` },
+    });
+
+    const toClient = await correct(invoice.id, { companyId: null });
+    expect(toClient.json().companyId).toBeNull();
+    expect((await lastCorrection(invoice.id, 2)).changes).toEqual({
+      billTo: { from: `${TAG} Beta LLC`, to: `${TAG} Taylor` },
+    });
+  });
+
+  it("logs a move between a client and their company of the same name", async () => {
+    const sole = await post("/api/clients", {
+      firstName: `${TAG} Sole`,
+      companies: [{ name: `${TAG} Sole` }],
+      people: [],
+    });
+    const company = sole.json<{ companies: { id: string }[] }>().companies[0].id;
+    const issuedRes = await post("/api/invoices", { clientId: sole.json().id, amount: 10_000 });
+    const invoiceId = issuedRes.json<{ id: string }>().id;
+
+    expect((await correct(invoiceId, { companyId: company })).json().companyId).toBe(company);
+    expect((await lastCorrection(invoiceId, 1)).changes).toEqual({
+      billTo: { from: `${TAG} Sole`, to: `${TAG} Sole` },
+    });
+    const audit = await prisma.paymentAuditLog.findFirstOrThrow({
+      where: { invoiceId, action: "updated" },
+    });
+    expect(audit.before).toMatchObject({ companyId: null });
+    expect(audit.after).toMatchObject({ companyId: company });
+  });
+
+  it("leaves Bill to alone when the correction does not name it", async () => {
+    const invoice = await issued({ subscriptionId: onA });
+    const res = await correct(invoice.id, { dueDate: "2026-12-31" });
+    expect(res.json().companyId).toBe(companyA);
+  });
+
+  it("refuses another client's company", async () => {
+    const other = await post("/api/clients", {
+      firstName: `${TAG} Stranger`,
+      companies: [{ name: `${TAG} Delta LLC` }],
+      people: [],
+    });
+    const foreign = other.json<{ companies: { id: string }[] }>().companies[0].id;
+    const invoice = await issued({ subscriptionId: onA });
+    const res = await correct(invoice.id, { companyId: foreign });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.message).toBe("That company isn't one of this client's");
+  });
+
+  it("moves a job's invoice too, and the job keeps its own company", async () => {
+    const invoice = await issued({
+      subscriptionId: onA,
+      companyId: companyB,
+      withTask: true,
+      taskTitle: "Bookkeeping",
+    });
+    expect((await correct(invoice.id, { companyId: companyA })).json().companyId).toBe(
+      companyA,
+    );
+    const task = await prisma.task.findFirstOrThrow({ where: { invoiceId: invoice.id } });
+    expect(task.companyId).toBe(companyB);
+  });
+});
+
 describe("Bill to beside a job", () => {
   it("leaves the job's own company standing, whatever Bill to says", async () => {
     // a job opened on the client itself, then freed by cancelling its invoice

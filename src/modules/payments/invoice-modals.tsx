@@ -24,6 +24,8 @@ import {
   useSetDelivery,
   useUpdateInvoice,
 } from "./payments.api";
+import { useClient } from "@/modules/clients";
+import { BillToLine, useBillTo } from "./bill-to-field";
 import { InvoicePdfActions } from "./invoice-pdf-actions";
 import { AttachJob } from "./job-picker";
 import {
@@ -216,7 +218,7 @@ export function InvoiceModal({
                         {/* acts on THIS invoice → an icon, the same control the catalog rows use */}
                         {isAdmin && !invoice.cancelledAt && !editing && (
                           <IconButton
-                            label="Edit the amount, positions, description or due date"
+                            label="Edit Bill to, the amount, positions, description or due date"
                             className="h-6 w-6"
                             onClick={() => setEditing(true)}
                           >
@@ -502,6 +504,11 @@ function EditInvoiceForm({
   onError: (message: string | null) => void;
 }) {
   const update = useUpdateInvoice();
+  // Bill to, as in New invoice (owner, 2026-11-03): the client or one of their companies. Sent
+  // only once picked here, so a colleague's move that reached this tab meanwhile is not undone
+  const client = useClient(invoice.clientId);
+  const billTo = useBillTo(client.data?.companies ?? []);
+  const companyId = billTo.picked ? billTo.picked.companyId : invoice.companyId;
   const [amount, setAmount] = useState(moneyInputValue(invoice.amount));
   const [description, setDescription] = useState(invoice.description ?? "");
   const [dueDate, setDueDate] = useState(invoice.dueDate ? invoice.dueDate.slice(0, 10) : "");
@@ -529,6 +536,7 @@ function EditInvoiceForm({
           lines: itemised ? toLineInput(filled) : [],
           description: description.trim() || null,
           dueDate: dueDate || null, // cleared = no due date
+          ...(billTo.picked ? { companyId } : {}),
         },
       });
       onDone();
@@ -539,6 +547,24 @@ function EditInvoiceForm({
 
   return (
     <div className="space-y-3 rounded-(--radius-panel) border border-primary/40 bg-[#f7f8fa] p-3">
+      {/* `pt-1.5` gives back the line's own pull towards a field above it, which here is none.
+          Until the client loads, and for an archived client, whose card does not load at all,
+          the line shows who the paper is addressed to and offers no choice */}
+      <div className="pt-1.5">
+        {client.data ? (
+          <BillToLine
+            client={client.data}
+            companyId={companyId}
+            locked={false}
+            onPick={billTo.pick}
+          />
+        ) : (
+          <p className="-mt-1.5 truncate text-[12px] text-muted">
+            Bill to:{" "}
+            <span className="text-ink-700">{invoice.companyName ?? invoice.clientName}</span>
+          </p>
+        )}
+      </div>
       <Segmented
         value={itemised ? "lines" : "flat"}
         onChange={(v) => setItemised(v === "lines")}

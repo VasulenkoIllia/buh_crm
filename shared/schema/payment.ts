@@ -300,6 +300,11 @@ export const updateInvoiceInput = z.object({
   description: z.string().trim().max(500).nullable().optional(),
   /** a date sets it · `null` clears it · omitted keeps the current one */
   dueDate: z.iso.date().nullable().optional(),
+  /**
+   * Bill to (owner, 2026-11-03): one of the client's companies, `null` for the client itself,
+   * omitted keeps it. A job's invoice too: only the paper's addressee moves, the job keeps its own.
+   */
+  companyId: uuid.nullable().optional(),
 });
 export type UpdateInvoiceInput = z.infer<typeof updateInvoiceInput>;
 

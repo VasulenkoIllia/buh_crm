@@ -1157,11 +1157,11 @@ const EVENTS = {
   "invoice.updated": {
     subject: "invoice",
     title: "{actor} corrected invoice {subject}",
-    when: "an issued invoice's amount, note, due date or positions are changed",
+    when: "an issued invoice's amount, note, due date, positions or Bill to are changed",
     granularity: "item",
     actorKinds: ["user"],
     retention: "ordinary",
-    changeKeys: ["amount", "description", "dueDate"],
+    changeKeys: ["amount", "description", "dueDate", "billTo"],
     journal: "payment",
     enabledByDefault: true,
   },

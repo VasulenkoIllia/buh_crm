@@ -16,7 +16,7 @@ import type { Prisma, User } from "../../generated/prisma/client.js";
 import { config } from "../../core/config.js";
 import { dateToUtc, todayBusinessMs } from "../../core/dates.js";
 import { NotFoundError, ValidationError } from "../../core/errors.js";
-import { clientLabel, personName } from "../../core/names.js";
+import { clientLabel, personName, type Nameable } from "../../core/names.js";
 import { issueInvoice } from "./invoicing.js";
 import { issueInvoiceOnJob, jobToBill } from "./job-invoices.js";
 import { diff, record } from "../../core/activity.js";
@@ -239,6 +239,10 @@ async function billTo(clientId: string, companyId: string | null) {
   return company.id;
 }
 
+/** Who the paper addresses, in words: the company's name, else the client's, as it prints. */
+const addressee = (inv: { company: { name: string } | null; client: Nameable }) =>
+  inv.company?.name ?? clientLabel(inv.client);
+
 /**
  * "+ New invoice". A subscription brings its service and, unless Bill to names another, its
  * company; without one it's a bare charge on the client. `withTask` opens the job for it, and
@@ -355,11 +359,19 @@ export async function updateInvoice(id: string, input: UpdateInvoiceInput, user:
   if (amount < invoice.paidTotal) {
     throw new ValidationError("The amount can't be less than what's already been paid");
   }
+  // Bill to moves the paper's addressee only, a job's invoice's too: the job keeps its company
+  const companyId =
+    input.companyId === undefined
+      ? invoice.companyId
+      : await billTo(invoice.clientId, input.companyId);
 
   const before = {
     amount: invoice.amount,
     description: invoice.description,
     dueDate: invoice.dueDate?.toISOString() ?? null,
+    billTo: addressee(invoice),
+    // the audit's own record of which addressee: a company can carry the client's name
+    companyId: invoice.companyId,
   };
   const updated = await repo.updateInvoiceWithLines(
     id,
@@ -368,6 +380,9 @@ export async function updateInvoice(id: string, input: UpdateInvoiceInput, user:
       ...(input.description !== undefined ? { description: input.description ?? null } : {}),
       ...(input.dueDate !== undefined
         ? { dueDate: input.dueDate ? dateToUtc(input.dueDate) : null }
+        : {}),
+      ...(companyId !== invoice.companyId
+        ? { company: companyId ? { connect: { id: companyId } } : { disconnect: true } }
         : {}),
     },
     newLines,
@@ -395,26 +410,32 @@ export async function updateInvoice(id: string, input: UpdateInvoiceInput, user:
       amount: updated.amount,
       description: updated.description,
       dueDate: updated.dueDate?.toISOString() ?? null,
+      billTo: addressee(updated),
+      companyId: updated.companyId,
     },
   });
+  const changes = diff(
+    before,
+    {
+      amount,
+      ...(input.description !== undefined ? { description: input.description ?? null } : {}),
+      ...(input.dueDate !== undefined
+        ? { dueDate: updated.dueDate?.toISOString() ?? null }
+        : {}),
+      billTo: addressee(updated),
+    },
+    ["amount", "description", "dueDate", "billTo"],
+  );
+  // a sole trader's company often carries the client's own name: a move between the two is still
+  // a move, and its diff would otherwise read as nothing
+  const movedUnseen = companyId !== invoice.companyId && !changes?.billTo;
   record("invoice.updated", {
     subjectId: id,
     subjectLabel: invoice.number,
     clientId: invoice.clientId,
-    changes:
-      diff(
-        before,
-        {
-          amount,
-          ...(input.description !== undefined
-            ? { description: input.description ?? null }
-            : {}),
-          ...(input.dueDate !== undefined
-            ? { dueDate: updated.dueDate?.toISOString() ?? null }
-            : {}),
-        },
-        ["amount", "description", "dueDate"],
-      ) ?? undefined,
+    changes: movedUnseen
+      ? { ...changes, billTo: { from: before.billTo, to: addressee(updated) } }
+      : (changes ?? undefined),
   });
   await unarchiveIfOwed(id);
   return getInvoice(id);
