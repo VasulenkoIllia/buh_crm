@@ -14,28 +14,37 @@ import { getClient } from "./clients.service.js";
  * account the client is asked to pay into. Invoices already issued keep the text they were issued
  * with; the next one takes the new set.
  *
+ * Picking the default set is `null` too, so a client is either with everybody or an exception,
+ * and the card offers the sets alone (the owner, 2026-11-03). Pinned to the default by id, a client
+ * would stay behind when the firm moves its default.
+ *
  * Its own file: `clients.service.ts` is past a thousand lines.
  */
 export async function setClientPaymentDetails(id: string, input: SetClientPaymentDetailsInput) {
   const client = await repo.findClient(id);
   if (!client || client.archivedAt) throw new NotFoundError("Client not found");
-  const next = input.paymentDetailsId
+  const picked = input.paymentDetailsId
     ? await repo.findLivePaymentDetails(input.paymentDetailsId)
     : null;
   const gone = new ValidationError(
     "Those payment details are archived or gone. Pick another set",
   );
-  if (input.paymentDetailsId && !next) throw gone;
-  const before = client.paymentDetails;
-  if ((before?.id ?? null) !== (next?.id ?? null)) {
-    if (!(await repo.setClientPaymentDetails(id, next?.id ?? null))) throw gone;
+  if (input.paymentDetailsId && !picked) throw gone;
+  const before = client.paymentDetails?.id ?? null;
+  // this read only skips a pick that changes nothing; the repository decides null or the id
+  // under the set's lock, where a default moved meanwhile is seen
+  if (before === (picked?.isDefault ? null : (picked?.id ?? null))) return getClient(id);
+  const saved = await repo.setClientPaymentDetails(id, picked?.id ?? null);
+  if (!saved) throw gone;
+  const next = saved.paymentDetailsId ? picked : null;
+  if (before !== (next?.id ?? null)) {
     record("client.payment_details_changed", {
       subjectId: id,
       subjectLabel: clientLabel(client),
       clientId: id,
       changes: {
         paymentDetails: {
-          from: before?.name ?? FIRM_DEFAULT_LABEL,
+          from: client.paymentDetails?.name ?? FIRM_DEFAULT_LABEL,
           to: next?.name ?? FIRM_DEFAULT_LABEL,
         },
       },

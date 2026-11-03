@@ -41,6 +41,16 @@ export function findPaymentDetails(id: string) {
   return prisma.paymentDetails.findUnique({ where: { id }, include: withClientCount });
 }
 
+/** Live clients who name no live set: their invoices print the default (`findPaymentDetailsFor`). */
+export function countClientsOnTheDefault() {
+  return prisma.client.count({
+    where: {
+      ...LIVE_CLIENTS,
+      OR: [{ paymentDetailsId: null }, { paymentDetails: { archivedAt: { not: null } } }],
+    },
+  });
+}
+
 /**
  * Case-insensitive, among live sets: two "International" in one select would be a coin toss.
  * `lower()`, not Prisma's insensitive `equals`: that is an ILIKE, where `%` and `_` are

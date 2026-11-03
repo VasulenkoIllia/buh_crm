@@ -9,6 +9,11 @@ import { useSetClientPaymentDetails } from "./clients.api";
  * **Which payment details the client's invoices carry** (payments.md §10): a set by name, never its
  * text. Everybody sees it; only an admin changes it (the owner, 2026-11-02). The next invoice takes
  * the new set, and the ones already issued keep the text they were issued with.
+ *
+ * The sets alone, no "Firm default" beside them (the owner, 2026-11-03): a client who names none
+ * shows the default set, and picking the default puts them back with everybody: the server stores
+ * it as `null`, deciding on its own fresh default rather than this tab's cached one, so the firm's
+ * next default reaches them too. Any other set is an exception.
  */
 export function ClientPaymentDetails({ client }: { client: Client }) {
   const isAdmin = useAuth().user?.role === "admin";
@@ -16,9 +21,6 @@ export function ClientPaymentDetails({ client }: { client: Client }) {
   const update = useSetClientPaymentDetails();
   const own = client.paymentDetails;
   const fallback = options?.find((o) => o.isDefault);
-  const firmDefault = fallback
-    ? `${FIRM_DEFAULT_LABEL} (${fallback.name})`
-    : FIRM_DEFAULT_LABEL;
 
   // shown while the names load, and for a set archived while the client was archived: restored,
   // the client prints the default, so the select never claims a set the client is not on
@@ -27,23 +29,25 @@ export function ClientPaymentDetails({ client }: { client: Client }) {
   if (!isAdmin)
     return (
       <div className="text-[14px] break-words">
-        {own && (!options || !isOwnMissing) ? own.name : firmDefault}
+        {own && (!options || !isOwnMissing) ? own.name : (fallback?.name ?? FIRM_DEFAULT_LABEL)}
       </div>
     );
 
+  const shown = update.isPending ? update.variables.paymentDetailsId : (own?.id ?? null);
   return (
     <div>
       <Select
         aria-label="Payment details"
         className="h-8 w-auto max-w-full text-[14px]"
         // the pick stays shown while it saves, rather than snapping back until the refetch
-        value={update.isPending ? (update.variables.paymentDetailsId ?? "") : (own?.id ?? "")}
+        value={shown ?? fallback?.id ?? ""}
         disabled={!options || update.isPending}
         onChange={(e) =>
           update.mutate({ id: client.id, paymentDetailsId: e.target.value || null })
         }
       >
-        <option value="">{firmDefault}</option>
+        {/* while the names load, and for a firm with no set yet */}
+        {!fallback && <option value="">{FIRM_DEFAULT_LABEL}</option>}
         {options?.map((o) => (
           <option key={o.id} value={o.id}>
             {o.name}

@@ -30,3 +30,23 @@ it("refuses a set archived after the service read it", async () => {
   const after = await prisma.client.findUniqueOrThrow({ where: { id: client.id } });
   expect(after.paymentDetailsId).toBeNull();
 });
+
+it("stores the default as null, decided under the set's lock rather than by the service", async () => {
+  const existing = await prisma.paymentDetails.findFirst({
+    where: { isDefault: true, archivedAt: null },
+  });
+  const fallback =
+    existing ??
+    (await prisma.paymentDetails.create({
+      data: { name: `${TAG} Main`, details: "Main", isDefault: true },
+    }));
+  if (!existing) made.setIds.push(fallback.id);
+  const client = await prisma.client.create({ data: { firstName: `${TAG} Follower` } });
+  made.clientIds.push(client.id);
+
+  expect(await setClientPaymentDetails(client.id, fallback.id)).toEqual({
+    paymentDetailsId: null,
+  });
+  const after = await prisma.client.findUniqueOrThrow({ where: { id: client.id } });
+  expect(after.paymentDetailsId).toBeNull();
+});

@@ -671,7 +671,7 @@ export function findClientFile(clientId: string, fileId: string) {
 export function findLivePaymentDetails(id: string) {
   return prisma.paymentDetails.findFirst({
     where: { id, archivedAt: null },
-    select: { id: true, name: true },
+    select: { id: true, name: true, isDefault: true },
   });
 }
 
@@ -679,17 +679,25 @@ export function findLivePaymentDetails(id: string) {
  * Point the client at a set, under that set's row lock and only while it is live. Archiving takes
  * the same row first and counts the set's clients after (`archivePaymentDetails`), so the two
  * cannot pass each other and leave a client on an archived set. False = the set was archived.
+ *
+ * The default is stored as null, decided under the same lock: moving the default updates that row,
+ * so a default moved meanwhile cannot leave anybody pinned to it by id. Answers what was stored.
  */
-export function setClientPaymentDetails(clientId: string, paymentDetailsId: string | null) {
+export function setClientPaymentDetails(
+  clientId: string,
+  paymentDetailsId: string | null,
+): Promise<false | { paymentDetailsId: string | null }> {
   return prisma.$transaction(async (tx) => {
+    let stored: string | null = null;
     if (paymentDetailsId) {
-      const live = await tx.$queryRaw<{ id: string }[]>`
-        SELECT id FROM "PaymentDetails"
+      const [live] = await tx.$queryRaw<{ id: string; isDefault: boolean }[]>`
+        SELECT id, "isDefault" FROM "PaymentDetails"
         WHERE id = ${paymentDetailsId}::uuid AND "archivedAt" IS NULL
         FOR SHARE`;
-      if (live.length === 0) return false;
+      if (!live) return false;
+      stored = live.isDefault ? null : live.id;
     }
-    await tx.client.update({ where: { id: clientId }, data: { paymentDetailsId } });
-    return true;
+    await tx.client.update({ where: { id: clientId }, data: { paymentDetailsId: stored } });
+    return { paymentDetailsId: stored };
   });
 }

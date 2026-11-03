@@ -18,19 +18,24 @@ import { linesOnlyIn } from "./settings.service.js";
  * archived changes more than one row of it.
  */
 
-function toDto(set: repo.PaymentDetailsRecord): PaymentDetails {
+/** `onTheDefault`: the clients who name no set, counted on the default, whose text they print. */
+function toDto(set: repo.PaymentDetailsRecord, onTheDefault: number): PaymentDetails {
   return {
     id: set.id,
     name: set.name,
     details: set.details,
     isDefault: set.isDefault,
     archivedAt: set.archivedAt?.toISOString() ?? null,
-    clients: set._count.clients,
+    clients: set._count.clients + (set.isDefault && !set.archivedAt ? onTheDefault : 0),
   };
 }
 
 export async function listPaymentDetails() {
-  return (await repo.listPaymentDetails()).map(toDto);
+  const [sets, onTheDefault] = await Promise.all([
+    repo.listPaymentDetails(),
+    repo.countClientsOnTheDefault(),
+  ]);
+  return sets.map((set) => toDto(set, onTheDefault));
 }
 
 export function listPaymentDetailsOptions(): Promise<PaymentDetailsOption[]> {

@@ -89,10 +89,12 @@ describe("the sets", () => {
 
   it("makes the first set the default, and logs its text", async () => {
     const since = new Date();
+    // every live client names no set yet, so the default is theirs
+    const everybody = await prisma.client.count({ where: { archivedAt: null } });
     const { list, set } = await add("US clients");
     us = set;
     expect(list).toHaveLength(1);
-    expect(us).toMatchObject({ isDefault: true, archivedAt: null, clients: 0 });
+    expect(us).toMatchObject({ isDefault: true, archivedAt: null, clients: everybody });
 
     const created = await recorded("payment_details.created", us.id, since);
     expect(created.changes).toEqual({ details: us.details });
@@ -291,6 +293,59 @@ describe("a client's own set", () => {
     await as(admin).put(url(), { paymentDetailsId: null });
     event = await recorded("client.payment_details_changed", clientId, since);
     expect(event.changes).toEqual({ paymentDetails: { from: set.name, to: "Firm default" } });
+  });
+
+  it("takes the client back to everybody when the default is picked, and counts them there", async () => {
+    const options = (await as(admin).get(`${BASE}/options`)).json<
+      { id: string; name: string; isDefault: boolean }[]
+    >();
+    const fallback = options.find((o) => o.isDefault)!;
+    const other = options.find((o) => !o.isDefault)!;
+    const count = async (id: string) =>
+      (await as(admin).get(BASE)).json<PaymentDetails[]>().find((s) => s.id === id)!.clients;
+    const before = { fallback: await count(fallback.id), other: await count(other.id) };
+
+    expect((await as(admin).put(url(), { paymentDetailsId: other.id })).statusCode).toBe(200);
+    expect(await count(fallback.id)).toBe(before.fallback - 1);
+    expect(await count(other.id)).toBe(before.other + 1);
+
+    const since = new Date();
+    const back = await as(admin).put(url(), { paymentDetailsId: fallback.id });
+    expect(back.statusCode).toBe(200);
+    // not pinned to the default by id: the firm's next default would leave such a client behind
+    expect(back.json().paymentDetails).toBeNull();
+    const event = await recorded("client.payment_details_changed", clientId, since);
+    expect(event.changes).toEqual({ paymentDetails: { from: other.name, to: "Firm default" } });
+    expect(await count(fallback.id)).toBe(before.fallback);
+    expect(await count(other.id)).toBe(before.other);
+  });
+
+  it("unpins a client pinned to the default by id, and counts one on an archived set there", async () => {
+    const fallback = (await as(admin).get(BASE))
+      .json<PaymentDetails[]>()
+      .find((s) => s.isDefault)!;
+    // a pin made while the set was not yet the default
+    await prisma.client.update({
+      where: { id: clientId },
+      data: { paymentDetailsId: fallback.id },
+    });
+    const since = new Date();
+    const res = await as(admin).put(url(), { paymentDetailsId: fallback.id });
+    expect(res.json().paymentDetails).toBeNull();
+    const event = await recorded("client.payment_details_changed", clientId, since);
+    expect(event.changes).toEqual({
+      paymentDetails: { from: fallback.name, to: "Firm default" },
+    });
+
+    // restored onto a set archived meanwhile: they print the default, so they count there
+    const archived = await prisma.paymentDetails.findFirstOrThrow({
+      where: { archivedAt: { not: null } },
+    });
+    await prisma.client.create({
+      data: { firstName: `${TAG} Restored`, paymentDetailsId: archived.id },
+    });
+    const after = (await as(admin).get(BASE)).json<PaymentDetails[]>();
+    expect(after.find((s) => s.id === fallback.id)!.clients).toBe(fallback.clients + 1);
   });
 
   it("shows on the client's card for everybody, by name", async () => {

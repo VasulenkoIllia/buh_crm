@@ -15,7 +15,10 @@ export const paymentDetailsSchema = z.object({
   details: z.string(),
   isDefault: z.boolean(),
   archivedAt: z.iso.datetime().nullable(),
-  /** live clients who name this set: archiving waits until it is 0 */
+  /**
+   * live clients whose invoices print this set: those who name it, and on the default also those
+   * who name none. Archiving waits until it is 0; the default is never archived.
+   */
   clients: z.number().int(),
 });
 export type PaymentDetails = z.infer<typeof paymentDetailsSchema>;
