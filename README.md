@@ -5,41 +5,46 @@ the companies they hold, leads, a service catalog, tasks with time tracking, inv
 meetings, client mailouts, and the team.
 
 **Status:** in use, built stage by stage. Clients, Leads, Catalog, Tasks, Payments, Calendar,
-Archive, Secrets, Mailouts, Notifications, Permissions, the Activity log, nightly backups and
-two-factor sign-in are done and in production; Reports and the production hardening pass are not.
-Specs, design and the dev plan are kept in internal docs, not in this repository.
+Archive, Files, Secrets, Chat, Mailouts, Notifications, Permissions, the Activity log, nightly
+backups and two-factor sign-in are done and in production; Reports and the production hardening
+pass are not. Specs, design and the dev plan are kept in internal docs, not in this repository.
 
 **Modules**
 
-|                   |                                                                                                                                                                                                                     |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Clients**       | a client, the companies they hold, their services (subscription or one-time), files, debt                                                                                                                           |
-| **Leads**         | pipeline, and conversion into a client                                                                                                                                                                              |
-| **Catalog**       | services, task templates, and the rule that decides when each one bills                                                                                                                                             |
-| **Tasks**         | board and table, generation on a rhythm, a timer, one-time billable jobs                                                                                                                                            |
-| **Payments**      | invoices with positions, partial payments, debt, an audited change log                                                                                                                                              |
-| **Calendar**      | meetings and deadlines on one firm clock                                                                                                                                                                            |
-| **Mailouts**      | letter templates, one-off sends, campaigns on a date or a rhythm, unsubscribe, delivery tracking — every mailbox is read back for bounces, so the log says delivered or not rather than merely sent                 |
-| **Secrets**       | the firm's credentials in one vault: My secrets, Company and each client's list, eight templates, files on a free-form one, one search; encrypted, one unlock with your own password, every look logged, a Trash    |
-| **Archive**       | closed work and settled invoices tidied away — never deleted                                                                                                                                                        |
-| **Notifications** | a bell and staff email, one registry of triggers; the firm decides which fire and who they reach, each person decides which channels they want                                                                      |
-| **Permissions**   | every API route declares who may call it and one hook decides; the firm switches areas open, read-only or closed, per role and per person                                                                           |
-| **Activity log**  | who did what, when and to whom — every mutating request and every refusal, in one searchable table, grouped by gesture                                                                                              |
-| **Sign-in**       | sessions that end (a week idle, a month at most), a growing wait and a letter after wrong passwords, and optional two-factor sign-in with an authenticator app — recovery codes, an admin's reset, a firm-wide rule |
-| **Settings**      | the firm's own profile and clock, option lists, invoice numbering, and the health of the work the CRM does on its own                                                                                               |
+|                   |                                                                                                                                                                                                                                  |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Clients**       | a client, the companies they hold, their services (subscription or one-time), files, debt                                                                                                                                        |
+| **Leads**         | pipeline, and conversion into a client                                                                                                                                                                                           |
+| **Catalog**       | services and their stages, task templates, and the rule that decides when each one bills                                                                                                                                         |
+| **Tasks**         | board and table, generation on a rhythm, a service's stage on its tasks, a timer, one-time billable jobs                                                                                                                         |
+| **Payments**      | invoices to the client or any of their companies, positions in hours, items or a flat sum (typed, or picked from the firm's list), a PDF with the firm's payment details; partial payments, debt, an audited change log          |
+| **Calendar**      | meetings and deadlines on one firm clock                                                                                                                                                                                         |
+| **Mailouts**      | letter templates, one-off sends, campaigns on a date or a rhythm, unsubscribe, delivery tracking — every mailbox is read back for bounces, so the log says delivered or not rather than merely sent                              |
+| **Files**         | the firm's file library: My files, Company and each client's folders, folder upload, viewing in the CRM, a text file written in place, search by name and details, a Trash; every file encrypted by the app and kept in a bucket |
+| **Secrets**       | the firm's credentials in one vault: My secrets, Company and each client's list, eight templates, files on a free-form one, one search; encrypted, one unlock with your own password, every look logged, a Trash                 |
+| **Chat**          | the team's own messenger: direct chats, groups, Saved messages, an announcements channel, polls, files; encrypted on the server, searched without unsealing, live in every open tab                                              |
+| **Archive**       | closed work and settled invoices tidied away — never deleted                                                                                                                                                                     |
+| **Notifications** | a bell and staff email, one registry of triggers; the firm decides which fire and who they reach, each person decides which channels they want                                                                                   |
+| **Permissions**   | every API route declares who may call it and one hook decides; the firm switches areas open, read-only or closed, per role and per person                                                                                        |
+| **Activity log**  | who did what, when and to whom — every mutating request and every refusal, in one searchable table, grouped by gesture                                                                                                           |
+| **Sign-in**       | sessions that end (a week idle, a month at most), a growing wait and a letter after wrong passwords, and optional two-factor sign-in with an authenticator app — recovery codes, an admin's reset, a firm-wide rule              |
+| **Settings**      | the firm's own profile and clock, option lists, invoices (numbering, who they are from, payment details, the positions to pick from), and the health of the work the CRM does on its own                                         |
 
 ## Stack
 
-- **Backend:** Node 24 · TypeScript · Fastify · Prisma · PostgreSQL 16 · Zod (shared schemas) · cookie sessions (a week idle, a month at most) + Argon2 · optional TOTP two-factor sign-in.
-- **Frontend:** React 19 · Vite · Tailwind · shadcn/ui · TanStack Query/Table · dnd-kit · React Hook Form.
+- **Backend:** Node 24 · TypeScript · Fastify · Prisma · PostgreSQL 16 · Zod (shared schemas) · cookie sessions (a week idle, a month at most) + Argon2 · optional TOTP two-factor sign-in · node-cron jobs · Nodemailer for mail, imapflow to read bounces back · PDFKit for invoices · server-sent events for the chat.
+- **Frontend:** React 19 · Vite · Tailwind 4 · hand-written UI primitives (`src/shared/ui/`, no component library) · TanStack Query · dnd-kit · React Hook Form.
+- **Storage:** client files in an S3-compatible bucket, each encrypted by the app with a key sealed
+  by `SECRETS_KEY`.
 - **Infra:** Docker Compose — one `app` container serving the API _and_ the built SPA, plus `db`,
   behind Traefik. Migrations run on container start. Dev email via Mailpit.
 
 ## Architecture
 
 Modular monolith: one backend, one frontend, one Postgres. Modules follow a fixed shape
-(`routes / service / repository / schema`) behind a Fastify plugin; all DB access goes through
-the module's repository; Zod schemas in `shared/` validate the API and type the client.
+(`routes / service / repository`) behind a Fastify plugin; all DB access goes through the
+module's repository; Zod schemas in `shared/` validate the API and type the client (only `auth`
+keeps a server-only schema file of its own).
 
 ## Structure
 
@@ -48,23 +53,34 @@ the module's repository; Zod schemas in `shared/` validate the API and type the 
 - `shared/` — Zod schemas + derived types, imported by both sides.
 - `prisma/` — schema + migrations.
 - `scripts/` — server operations (`deploy.sh`, `reset-data.sql`, `prune-uploads.ts`, `import-clients.ts`,
-  `move-files-to-bucket.ts`, `detect-file-types.ts`, `check-files.ts`); `scripts/backup/` — the nightly backup, the restore test, restores and
+  `import-contacts.ts`, `move-files-to-bucket.ts`, `detect-file-types.ts`, `check-files.ts`,
+  `backup-check.ts`, `reindex-chat-search.ts`, `notification-forecast.ts`); `scripts/backup/` — the nightly backup, the restore test, restores and
   their server setup ([RESTORE.md](RESTORE.md)); `scripts/storage/` — setting up and checking the
-  storage buckets (the backups' and the client files'), from a laptop.
-- `.env.example` — environment variables (identity: `APP_NAME=buh_crm`).
+  storage buckets (the backups' and the client files'), from a laptop; `scripts/dev/` and
+  `seed-scale.ts` — local probes and a year of sample data for measuring scale.
+- `templates/module/` — the scaffold a new backend module starts from.
+- `.env.example` — environment variables (identity: `APP_NAME=buh_crm`). Production needs
+  `FILES_STORAGE=s3` with the bucket's settings and `SECRETS_KEY`; without them the server refuses to
+  start.
 
 ## Development
 
 ```
 npm install
+docker compose -f docker-compose.dev.yml up -d   # Postgres
+npm run db:migrate   # apply migrations to the dev database
+npm run db:seed      # the base lists and a dev admin (prisma/seed.ts)
 npm run dev          # frontend (Vite)
-npm run dev:server   # backend (tsx watch)
-npm run verify       # format check → typecheck → lint → tests; run before every commit
+npm run dev:server   # backend (tsx watch, reads .env)
+npm run verify       # format check → typecheck → lint → tests → activity-routes check; run before every commit
 npm run format       # fixes formatting — `verify` only checks it
 npm run build
 ```
 
-Dev services (Postgres, Mailpit) run in Docker; the app runs locally with hot reload.
+Dev Postgres runs in Docker (`docker-compose.dev.yml`); dev mail goes to a Mailpit already running
+on the machine (SMTP 1025, web 8025); the app runs locally with hot reload. The tests use their own
+`buh_crm_test` database on the same Postgres (`vitest.config.ts`), created and migrated by the
+suite's global setup.
 
 ## Deployment
 
@@ -83,17 +99,19 @@ container starts (`prisma migrate deploy && npm run start`), so there is no sepa
 `--reset` is confirmed by hand every time: it prints what it is about to delete, then asks for a
 four-character code it invents on the spot, so the answer cannot be prepared, pasted or remembered.
 `--yes` does not cover it, and without a terminal it refuses to run at all. Then it empties every
-client table — clients, companies, leads, subscriptions, tasks, invoices, payments, meetings, files,
-and everything the mailouts module holds.
+client table — clients, companies, leads, subscriptions, tasks, invoices, payments, meetings, files
+and the library's folders (My files and Company too), the chats, and everything the mailouts module
+holds.
 
-What it keeps, deliberately: the team (users, sessions, reset tokens); the firm's own configuration
-(`FirmProfile` and the sender mailboxes) — requisites and the invoice-number format are settings,
-not client data; the firm's own credentials in the vault (Company and My secrets; a client's secrets
+What it keeps, deliberately: the team (users, sessions, reset tokens, two-factor keys and recovery
+codes); the firm's own configuration (`FirmProfile`, the sender mailboxes, the payment details and
+the invoice items) — requisites and the invoice-number format are settings, not client data; the
+firm's own credentials in the vault (Company and My secrets; a client's secrets
 go with the client); **who may open what** (the access policies and per-person exceptions) and **what
 the app records** (the notification rules, personal notification preferences, and the activity log
 itself — a reset that erased the log would erase the record of the reset); and the one service
 flagged "default for new clients", so a client created afterwards still has a paid container. Every other service goes. Priorities, the board's fixed
-column and the standard lead sources come back on the next boot. `server/schema-invariants.test.ts`
+column, the lead stages and the standard lead sources come back on the next boot. `server/schema-invariants.test.ts`
 holds the reset script to every table the database has, so a migration cannot silently make it
 stale.
 
@@ -110,7 +128,8 @@ auto-added default service. `--dry-run` reports what it would do and writes noth
 ### Client files
 
 Every client file is encrypted by the app before it is stored — its own AES-256-GCM key, sealed with
-`SECRETS_KEY` — and kept in an S3-compatible bucket, or on the server's disk until it is moved there.
+`SECRETS_KEY` — and kept in an S3-compatible bucket. Production refuses to start on the local store
+(`FILES_STORAGE=local`), which only development uses.
 Downloads always go through the API and its permission check. Every night a few stored files are
 read back and opened — **Settings → System → Client files open** — the one check that the files, the
 storage and the key still work together.
@@ -118,8 +137,8 @@ storage and the key still work together.
 ### Backups
 
 Every night, in the small hours of the firm's time, `scripts/backup/backup.sh` dumps the database,
-reads the dump back in full, and puts it together with every client file — once the files live in
-their bucket, a mirror of it refreshed after the dump — into one encrypted
+reads the dump back in full, and puts it together with every client file — a mirror of the files
+bucket, refreshed after the dump — into one encrypted
 [restic](https://restic.net) snapshot in S3-compatible object storage; the last seven daily copies
 are kept. On the 1st of each month `scripts/backup/drill.sh` restores the newest copy into a
 throwaway database, checks it and removes it. Both run on the host — under systemd timers, or the
