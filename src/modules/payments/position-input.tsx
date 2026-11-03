@@ -145,27 +145,18 @@ export function PositionInput({
 }
 
 /**
- * The client search's sizes (`ClientLeadSearch`, the owner, 2026-11-03): an empty box offers the
- * first few items, and typing searches them all. Every item at once was a long list over the rows
- * below on each new position, once the firm keeps a hundred.
- */
-const RESTING_ITEMS = 6;
-const MATCHING_ITEMS = 20;
-
-/**
- * The items whose names hold the text, case aside, and the first ones by name while the box is
- * empty. The row's own item is not offered again while the box still reads its name; the same name
- * typed by hand is, so it can still be picked.
+ * The items whose names hold the text, case aside, and every item while the box is empty, by name:
+ * the list scrolls in its own 224px, and typing narrows it. Every one, not the first few (owner,
+ * 2026-11-03, the day a cap of six went out): somebody who does not remember an item's name has to
+ * be able to find it by looking. The row's own item is not offered again while the box still reads
+ * its name; the same name typed by hand is, so it can still be picked.
  */
 export function suggestions(items: InvoiceItem[], text: string, pickedId: string | null) {
   const typed = text.trim().toLowerCase();
-  return items
-    .filter(
-      (item) =>
-        !(item.id === pickedId && item.name === text) &&
-        item.name.toLowerCase().includes(typed),
-    )
-    .slice(0, typed ? MATCHING_ITEMS : RESTING_ITEMS);
+  return items.filter(
+    (item) =>
+      !(item.id === pickedId && item.name === text) && item.name.toLowerCase().includes(typed),
+  );
 }
 
 type FieldPlace = {

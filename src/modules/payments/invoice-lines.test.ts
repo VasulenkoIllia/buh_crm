@@ -190,18 +190,15 @@ describe("a position picked from the invoice items", () => {
     expect(suggestions([w2, advice], "W-2 form", null)).toEqual([w2]);
   });
 
-  it("offers the first few of a long list, and searches all of it once something is typed", () => {
+  it("offers every item of a long list in order, and narrows it to what is typed", () => {
     const many = Array.from({ length: 100 }, (_, i) => ({
       ...advice,
       id: `55555555-5555-4555-8555-${String(i).padStart(12, "0")}`,
       name: `Item ${String(i).padStart(3, "0")}`,
     }));
-    expect(suggestions(many, "", null).map((item) => item.name)).toEqual(
-      ["000", "001", "002", "003", "004", "005"].map((n) => `Item ${n}`),
-    );
-    expect(suggestions(many, "  ", null)).toHaveLength(6);
+    expect(suggestions(many, "", null)).toEqual(many);
+    expect(suggestions(many, "  ", null)).toHaveLength(100);
     expect(suggestions(many, "item 09", null)).toHaveLength(10);
-    expect(suggestions(many, "item", null)).toHaveLength(20);
     expect(suggestions(many, "item 099", null).map((item) => item.name)).toEqual(["Item 099"]);
   });
 
