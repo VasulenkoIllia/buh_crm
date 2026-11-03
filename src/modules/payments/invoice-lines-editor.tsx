@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, type FocusEvent, type ReactNode } from "react";
 import { Trash2 } from "lucide-react";
 import type { InvoiceLineUnit } from "@shared/schema/enums";
 import type { InvoiceItem } from "@shared/schema/invoice-items";
@@ -106,6 +106,17 @@ export function LinesEditor({
       >
         {lines.map((line, i) => {
           const computed = draftAmount(line);
+          // the box left empty beside an amount shows its share as it is typed, and keeps it once
+          // the cursor leaves a number: the amount is then quantity × rate, read-only like any
+          const shown = completedLine(line);
+          const keepShown = (e: FocusEvent<HTMLInputElement>) => {
+            // the window losing focus (another app, a phone's browser put away) blurs the box
+            // too, and leaves it focused: the cursor did not leave, so nothing is settled
+            if (document.activeElement === e.currentTarget) return;
+            const settled = settledLine(line);
+            const { quantity, rate, amount } = settled;
+            if (settled !== line) set(i, { quantity, rate, amount });
+          };
           return (
             <div key={i} className={ROW}>
               <Cell label="Position" className="max-sm:col-span-3">
@@ -126,8 +137,9 @@ export function LinesEditor({
                     aria-label="Qty"
                     inputMode="decimal"
                     className="pr-10 text-right max-sm:pr-[46px]"
-                    value={line.quantity}
+                    value={shown.quantity}
                     onChange={(e) => set(i, { quantity: e.target.value })}
+                    onBlur={keepShown}
                   />
                   {/* a rate is per unit, so a new unit empties it: the client's last hourly rate,
                       offered on the first row, is no price per item */}
@@ -141,8 +153,9 @@ export function LinesEditor({
                 <Input
                   inputMode="decimal"
                   className="text-right"
-                  value={line.rate}
+                  value={shown.rate}
                   onChange={(e) => set(i, { rate: e.target.value })}
+                  onBlur={keepShown}
                 />
               </Cell>
               {/* read-only the moment a quantity AND a rate are both there — the number is theirs, and
@@ -154,6 +167,7 @@ export function LinesEditor({
                   value={computed !== null ? moneyInputValue(computed) : line.amount}
                   readOnly={computed !== null}
                   onChange={(e) => set(i, { amount: e.target.value })}
+                  onBlur={keepShown}
                 />
               </Cell>
               <IconButton
@@ -221,7 +235,23 @@ export interface DraftLine {
   unit: InvoiceLineUnit;
   /** the invoice item it was picked from; null = typed by hand */
   itemId: string | null;
+  /**
+   * The numbers the row was offered with, when nobody typed them: a line of an issued invoice, or
+   * the first row a service's price and the client's last rate suggest. While the row still holds
+   * them nothing is filled in, so a correction saved for its due date moves no line by a cent, and a
+   * price beside a last rate invents no hours. Typing a digit and deleting it changes nothing.
+   */
+  untouched?: Pick<DraftLine, "quantity" | "rate" | "amount">;
 }
+
+/** A row as offered rather than typed (`untouched`). */
+export const offeredLine = (line: DraftLine): DraftLine => ({
+  ...line,
+  untouched: { quantity: line.quantity, rate: line.rate, amount: line.amount },
+});
+
+const asOffered = ({ untouched: was, quantity, rate, amount }: DraftLine) =>
+  was !== undefined && was.quantity === quantity && was.rate === rate && was.amount === amount;
 
 export const emptyLine = (): DraftLine => ({
   description: "",
@@ -286,8 +316,45 @@ function draftAmount(line: DraftLine): number | null {
   return quantity !== null && rate > 0 ? lineAmount(quantity, rate) : null;
 }
 
+/**
+ * Two of the three give the third (owner, 2026-11-03): an amount and a rate fill an empty quantity,
+ * an amount and a quantity an empty rate. The share is rounded to a hundredth of a unit or to the
+ * cent, and the amount is then quantity × rate like any row's, so it may move a few cents from the
+ * one typed: 3 hours and $100 are $33.33 and $99.99 (the owner's choice over leaving the box
+ * empty). A count of items that does not come out whole is left to be typed. The same row comes
+ * back when there is nothing to fill.
+ */
+export function completedLine(line: DraftLine): DraftLine {
+  const amount = parseMoney(line.amount);
+  const noQuantity = line.quantity.trim() === "";
+  const noRate = line.rate.trim() === "";
+  if (asOffered(line) || amount <= 0 || noQuantity === noRate) return line;
+  if (noQuantity) {
+    const rate = parseMoney(line.rate);
+    const quantity = rate > 0 ? Math.round((amount * 100) / rate) : 0;
+    const whole = line.unit !== "item" || quantity % 100 === 0;
+    return quantity > 0 && whole ? { ...line, quantity: String(quantity / 100) } : line;
+  }
+  const quantity = parseQuantity(line.quantity);
+  const rate = quantity !== null ? Math.round((amount * 100) / quantity) : 0;
+  return rate > 0 ? { ...line, rate: moneyInputValue(rate) } : line;
+}
+
+/**
+ * A row as it stays once the cursor leaves a number: the share it shows is kept, and an amount typed
+ * before quantity and rate were both there goes, since the amount is theirs now. Kept, it would
+ * fill whichever of the two is emptied next, so that box could not be emptied and the row could not
+ * go back to an amount typed by hand.
+ */
+export function settledLine(line: DraftLine): DraftLine {
+  const shown = completedLine(line);
+  return draftAmount(shown) !== null && shown.amount !== "" ? { ...shown, amount: "" } : shown;
+}
+
 export const draftTotal = (lines: DraftLine[]) =>
-  lines.reduce((sum, l) => sum + (draftAmount(l) ?? parseMoney(l.amount)), 0);
+  lines
+    .map(completedLine)
+    .reduce((sum, l) => sum + (draftAmount(l) ?? parseMoney(l.amount)), 0);
 
 /** What the server would refuse about the rows, said before the request rather than after it. */
 export const linesProblem = (lines: DraftLine[]): string | null =>
@@ -297,9 +364,12 @@ export const linesProblem = (lines: DraftLine[]): string | null =>
     ? FRACTIONAL_ITEMS
     : null;
 
-/** Draft rows → what the API takes. A unit goes only beside a quantity, which it describes. */
+/**
+ * Draft rows → what the API takes, each with the share it shows. A unit goes only beside a
+ * quantity, which it describes.
+ */
 export const toLineInput = (lines: DraftLine[]) =>
-  lines.map((l) => {
+  lines.map(completedLine).map((l) => {
     const quantity = parseQuantity(l.quantity);
     const rate = parseMoney(l.rate);
     return {
@@ -312,13 +382,19 @@ export const toLineInput = (lines: DraftLine[]) =>
     };
   });
 
-/** A stored invoice's positions → editable rows. A line from before units counted hours. */
+/**
+ * A stored invoice's positions → editable rows, as offered. A line from before units counted hours.
+ * A line with a quantity and a rate opens with no amount of its own: its amount is theirs, as on the
+ * server, and one kept would fill whichever of the two is emptied.
+ */
 export const toDraftLines = (lines: Invoice["lines"]): DraftLine[] =>
-  lines.map((l) => ({
-    description: l.description,
-    quantity: l.quantity != null ? String(l.quantity / 100) : "",
-    rate: l.unitRate != null ? moneyInputValue(l.unitRate) : "",
-    amount: moneyInputValue(l.amount),
-    unit: l.unit ?? "hour",
-    itemId: l.itemId,
-  }));
+  lines.map((l) =>
+    offeredLine({
+      description: l.description,
+      quantity: l.quantity != null ? String(l.quantity / 100) : "",
+      rate: l.unitRate != null ? moneyInputValue(l.unitRate) : "",
+      amount: l.quantity != null && l.unitRate != null ? "" : moneyInputValue(l.amount),
+      unit: l.unit ?? "hour",
+      itemId: l.itemId,
+    }),
+  );

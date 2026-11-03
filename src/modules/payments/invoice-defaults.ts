@@ -3,7 +3,7 @@ import type { Service } from "@shared/schema/catalog";
 import type { Client, Subscription } from "@shared/schema/client";
 import type { UnbilledJob } from "@shared/schema/payment";
 import { moneyInputValue } from "@/shared/lib/money";
-import type { DraftLine } from "./invoice-lines-editor";
+import { offeredLine, type DraftLine } from "./invoice-lines-editor";
 
 /**
  * **What a new invoice can fill in by itself** (payments.md §10). Only suggestions: the form shows
@@ -48,19 +48,22 @@ export function jobDefaults(
 export const suggestedAmount = (defaults: InvoiceDefaults | null) =>
   defaults && defaults.amount > 0 ? moneyInputValue(defaults.amount) : "";
 
-/** The service's name and price, and the rate this client's last hours were billed at. */
+/**
+ * The service's name and price, and the rate this client's last hours were billed at. Offered, not
+ * typed: the price and the rate are two of three, and the hours are still a person's to give.
+ */
 export function prefilledPosition(
   defaults: InvoiceDefaults | null,
   lastRate: number | null,
 ): DraftLine {
-  return {
+  return offeredLine({
     description: defaults?.name ?? "",
     quantity: "",
     rate: lastRate !== null ? moneyInputValue(lastRate) : "",
     amount: suggestedAmount(defaults),
     unit: "hour",
     itemId: null,
-  };
+  });
 }
 
 /** Who the paper will address: the same two answers `invoicePdf` gives on the server. */

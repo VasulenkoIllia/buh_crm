@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { billToOf, invoiceDefaults, jobDefaults, prefilledPosition } from "./invoice-defaults";
+import { completedLine, draftTotal } from "./invoice-lines-editor";
 
 const service = { name: "Bookkeeping", dueDays: 14 };
 const subscription = { amount: 10000, period: "month" as const, dueDays: null };
@@ -63,7 +64,8 @@ describe("the first position", () => {
   const defaults = { name: "Bookkeeping", amount: 10000, dueDays: 14 };
 
   it("carries the service and the client's last rate, and leaves the hours to a person", () => {
-    expect(prefilledPosition(defaults, 4000)).toEqual({
+    const first = prefilledPosition(defaults, 4000);
+    expect(first).toMatchObject({
       description: "Bookkeeping",
       quantity: "",
       rate: "40.00",
@@ -71,10 +73,14 @@ describe("the first position", () => {
       unit: "hour",
       itemId: null,
     });
+    // the price and the rate are two of three, but nobody typed them: no hours are made up
+    expect(completedLine(first)).toBe(first);
+    expect(draftTotal([first])).toBe(100_00);
+    expect(completedLine({ ...first, rate: "50" }).quantity).toBe("2");
   });
 
   it("is empty with no service and no earlier hours", () => {
-    expect(prefilledPosition(null, null)).toEqual({
+    expect(prefilledPosition(null, null)).toMatchObject({
       description: "",
       quantity: "",
       rate: "",

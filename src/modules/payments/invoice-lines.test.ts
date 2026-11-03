@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { InvoiceItem } from "@shared/schema/invoice-items";
 import {
+  completedLine,
+  settledLine,
   draftTotal,
   emptyLine,
   linesProblem,
@@ -59,6 +61,79 @@ describe("positions counted in hours or in items", () => {
       "Items are counted in whole numbers",
     );
     expect(linesProblem([items, { ...items, quantity: "2.5", unit: "hour" }])).toBeNull();
+  });
+
+  it("fills the empty one of quantity and rate from the amount, rounded", () => {
+    const hourly = { ...emptyLine(), description: "Customer support" };
+    expect(completedLine({ ...hourly, rate: "66", amount: "132" }).quantity).toBe("2");
+    expect(completedLine({ ...hourly, quantity: "1", amount: "88" }).rate).toBe("88.00");
+    // the amount is then quantity × rate, and can move a few cents from the one typed
+    const third = { ...hourly, quantity: "3", amount: "100" };
+    expect(completedLine(third).rate).toBe("33.33");
+    expect(toLineInput([third])[0]).toMatchObject({
+      quantity: 300,
+      unitRate: 33_33,
+      amount: 99_99,
+    });
+    expect(draftTotal([third, { ...hourly, rate: "66", amount: "100" }])).toBe(99_99 + 100_32);
+  });
+
+  it("leaves a row alone with nothing to fill, a count of items that is not whole, or a line as issued", () => {
+    const both = { ...items, amount: "999" };
+    expect(completedLine(both)).toBe(both);
+    const onlyAmount = { ...emptyLine(), amount: "100" };
+    expect(completedLine(onlyAmount)).toBe(onlyAmount);
+    const priced = { ...items, quantity: "", rate: "66" };
+    expect(completedLine({ ...priced, amount: "132" }).quantity).toBe("2");
+    expect(completedLine({ ...priced, amount: "100" }).quantity).toBe("");
+    const [issued] = toDraftLines([
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        order: 0,
+        description: "W-2 form",
+        quantity: 300,
+        unitRate: null,
+        amount: 100_00,
+        unit: "item",
+        itemId: null,
+      },
+    ]);
+    expect(completedLine(issued)).toBe(issued);
+    expect(toLineInput([issued])[0]).toMatchObject({ unitRate: null, amount: 100_00 });
+    // a digit typed and deleted leaves it as issued; a quantity that changes is a person's
+    expect(completedLine({ ...issued, quantity: "3" })).toEqual(issued);
+    expect(completedLine({ ...issued, quantity: "4" }).rate).toBe("25.00");
+  });
+
+  it("drops an amount typed earlier once quantity and rate give it, so either can be emptied", () => {
+    // rate and amount typed, the quantity shown, then the cursor leaves
+    const settled = settledLine({ ...emptyLine(), rate: "66", amount: "132" });
+    expect(settled).toMatchObject({ quantity: "2", rate: "66", amount: "" });
+    // emptying the rate leaves it empty, and the amount can be typed by hand again
+    expect(completedLine({ ...settled, rate: "" })).toMatchObject({ quantity: "2", rate: "" });
+    expect(completedLine({ ...settled, rate: "", amount: "150" }).rate).toBe("75.00");
+    // both typed over an amount from before: the amount goes too
+    expect(settledLine({ ...items, amount: "500" }).amount).toBe("");
+    const plain = { ...emptyLine(), amount: "100" };
+    expect(settledLine(plain)).toBe(plain);
+  });
+
+  it("opens an issued line with a quantity and a rate without an amount of its own", () => {
+    const [line] = toDraftLines([
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        order: 0,
+        description: "Consultation",
+        quantity: 300,
+        unitRate: 33_33,
+        amount: 99_99,
+        unit: "hour",
+        itemId: null,
+      },
+    ]);
+    expect(line).toMatchObject({ quantity: "3", rate: "33.33", amount: "" });
+    expect(draftTotal([line])).toBe(99_99);
+    expect(completedLine({ ...line, rate: "" }).rate).toBe("");
   });
 
   it("opens a line from before units as hours", () => {
