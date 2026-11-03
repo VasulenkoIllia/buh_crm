@@ -180,6 +180,24 @@ export function invoiceDocument(
   };
 }
 
-/** `invoice_INV-2026-0123.pdf`. The number is the firm's prefix, so it is cleaned, not trusted. */
-export const invoiceFileName = (number: string) =>
-  `invoice_${number.replace(/[^\w-]+/g, "_")}.pdf`;
+/** Longer than this, a name stops being read in a folder's column anyway. */
+const FILE_NAME_BILL_TO_MAX = 80;
+
+/**
+ * `invoice_INV-2026-0123 Acme LLC.pdf`: the number, and who the paper is addressed to (owner,
+ * 2026-11-03), so a folder of them reads without opening each. The number is the firm's prefix and
+ * the name is typed by people, so both are cleaned, not trusted: what a file system refuses in a
+ * name becomes a space. Cut by characters, not UTF-16 units: half an emoji makes the header's
+ * `encodeURIComponent` throw. A trailing dot goes, or `Acme Inc.` would end `..pdf`.
+ */
+export function invoiceFileName(number: string, billTo: string) {
+  const cleaned = billTo
+    .replace(/[\\/:*?"<>|\p{Cc}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const name = Array.from(cleaned)
+    .slice(0, FILE_NAME_BILL_TO_MAX)
+    .join("")
+    .replace(/[.\s]+$/, "");
+  return `invoice_${number.replace(/[^\w-]+/g, "_")}${name ? ` ${name}` : ""}.pdf`;
+}

@@ -59,7 +59,7 @@ export async function invoicePdf(id: string) {
   const logo = await readLogo(logoFile);
   return {
     invoice,
-    name: invoiceFileName(invoice.number),
+    name: invoiceFileName(invoice.number, document.billTo.name),
     buffer: await renderInvoicePdf(document, logo),
   };
 }

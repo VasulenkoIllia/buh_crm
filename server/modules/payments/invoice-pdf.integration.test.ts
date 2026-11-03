@@ -145,7 +145,7 @@ afterAll(async () => {
 });
 
 describe("the PDF", () => {
-  it("opens in the browser, and downloads under the invoice's number", async () => {
+  it("opens in the browser, and downloads under the number and who it is for", async () => {
     const invoice = await makeInvoice();
     const inline = await as(admin).get(`/api/invoices/${invoice.id}/pdf`);
     expect(inline.statusCode).toBe(200);
@@ -157,7 +157,7 @@ describe("the PDF", () => {
     const download = await as(admin).get(`/api/invoices/${invoice.id}/pdf?download=1`);
     expect(download.statusCode).toBe(200);
     expect(download.headers["content-disposition"]).toBe(
-      `attachment; filename*=UTF-8''invoice_${invoice.number}.pdf`,
+      `attachment; filename*=UTF-8''${encodeURIComponent(`invoice_${invoice.number} ${TAG} Petrenko.pdf`)}`,
     );
   });
 
@@ -256,7 +256,7 @@ describe("a copy in the client's files", () => {
     const res = await as(admin).post(`/api/invoices/${invoice.id}/save-pdf`);
     expect(res.statusCode).toBe(200);
     const saved = res.json<{ fileId: string; name: string }>();
-    expect(saved.name).toBe(`invoice_${invoice.number}.pdf`);
+    expect(saved.name).toBe(`invoice_${invoice.number} ${TAG} Petrenko.pdf`);
 
     const file = await prisma.file.findUniqueOrThrow({ where: { id: saved.fileId } });
     expect(file).toMatchObject({ clientId, zone: "shared", mime: "application/pdf" });
@@ -272,7 +272,9 @@ describe("a copy in the client's files", () => {
     const invoice = await makeInvoice();
     const first = await as(admin).post(`/api/invoices/${invoice.id}/save-pdf`);
     const second = await as(admin).post(`/api/invoices/${invoice.id}/save-pdf`);
-    expect(second.json<{ name: string }>().name).toBe(`invoice_${invoice.number} (2).pdf`);
+    expect(second.json<{ name: string }>().name).toBe(
+      `invoice_${invoice.number} ${TAG} Petrenko (2).pdf`,
+    );
     expect(second.json<{ fileId: string }>().fileId).not.toBe(
       first.json<{ fileId: string }>().fileId,
     );

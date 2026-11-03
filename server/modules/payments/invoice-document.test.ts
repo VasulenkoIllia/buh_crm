@@ -218,8 +218,26 @@ describe("the paper's small print", () => {
     expect(documentDate("2026-12-31T00:00:00.000Z")).toBe("Dec-31-2026");
   });
 
-  it("names the file after the number, cleaned", () => {
-    expect(invoiceFileName("INV-2026-0123")).toBe("invoice_INV-2026-0123.pdf");
-    expect(invoiceFileName("A/B ../0123")).toBe("invoice_A_B_0123.pdf");
+  it("names the file after the number and who it is addressed to, cleaned", () => {
+    expect(invoiceFileName("INV-2026-0123", "Harbor Studio")).toBe(
+      "invoice_INV-2026-0123 Harbor Studio.pdf",
+    );
+    expect(invoiceFileName("A/B ../0123", "Acme LLC")).toBe("invoice_A_B_0123 Acme LLC.pdf");
+    // what a file system refuses becomes a space, and a name of nothing but that drops out
+    expect(invoiceFileName("INV-1", '  Smith/Jones: "Co"  \n')).toBe(
+      "invoice_INV-1 Smith Jones Co.pdf",
+    );
+    expect(invoiceFileName("INV-1", "Acme Inc.")).toBe("invoice_INV-1 Acme Inc.pdf");
+    expect(invoiceFileName("INV-1", " / ")).toBe("invoice_INV-1.pdf");
+    expect(invoiceFileName("INV-1", "Кав'ярня Ранок")).toBe("invoice_INV-1 Кав'ярня Ранок.pdf");
+    expect(invoiceFileName("INV-1", "x".repeat(200))).toBe(
+      `invoice_INV-1 ${"x".repeat(80)}.pdf`,
+    );
+  });
+
+  it("never halves a character at the cut, which the download header could not encode", () => {
+    const name = invoiceFileName("INV-1", `${"a".repeat(79)}🚀bb`);
+    expect(name).toBe(`invoice_INV-1 ${"a".repeat(79)}🚀.pdf`);
+    expect(() => encodeURIComponent(name)).not.toThrow();
   });
 });
