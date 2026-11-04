@@ -113,7 +113,7 @@ export function InvoiceModal({
       title={invoice ? `${invoice.number} · ${invoice.clientName}` : "Invoice"}
       open
       onClose={onClose}
-      size="lg"
+      size="xl"
       actions={<CopyLink href={`/billing?invoice=${invoiceId}`} />}
       footer={
         <>
@@ -300,38 +300,6 @@ export function InvoiceModal({
                 )}
               </div>
 
-              {/* The breakdown, when there is one. An invoice without positions shows nothing here and
-              reads exactly as it did before they existed. */}
-              {invoice.lines.length > 0 && (
-                <div className="mt-3 overflow-hidden rounded-(--radius-field) border border-border">
-                  {invoice.lines.map((line) => (
-                    <div
-                      key={line.id}
-                      className="flex items-baseline gap-3 border-b border-divider px-3 py-2 text-[13px] last:border-0"
-                    >
-                      <span className="min-w-0 flex-1 truncate">{line.description}</span>
-                      {line.quantity != null && line.unitRate != null && (
-                        <span className="whitespace-nowrap text-[12px] text-muted tabular-nums">
-                          {isItemLine(line)
-                            ? `${line.quantity / 100} pcs`
-                            : `${(line.quantity / 100).toFixed(2)} h`}{" "}
-                          × {fmtMoney(line.unitRate)}
-                        </span>
-                      )}
-                      <span className="w-[110px] text-right tabular-nums">
-                        {fmtMoney(line.amount)}
-                      </span>
-                    </div>
-                  ))}
-                  <div className="flex items-baseline gap-3 border-t border-border bg-[#fafbfc] px-3 py-2 text-[13px] font-medium">
-                    <span className="flex-1">Total</span>
-                    <span className="w-[110px] text-right tabular-nums">
-                      {fmtMoney(invoice.amount)}
-                    </span>
-                  </div>
-                </div>
-              )}
-
               {/* DISCLOSURE, not a row action — so it keeps its word ("History") and wears an icon
               beside it. An icon alone here would be a riddle: nothing else on the card is hidden. */}
               {isAdmin && (
@@ -483,9 +451,51 @@ export function InvoiceModal({
               {error && <p className="text-[12px] text-danger-text">{error}</p>}
             </div>
           </div>
+
+          <InvoiceLines invoice={invoice} />
         </div>
       )}
     </Modal>
+  );
+}
+
+/**
+ * The breakdown, when there is one, across the whole card under the two columns, every name in full
+ * so nobody has to open the PDF to see what was billed. It sat in the left column and the name got
+ * what the hours, the rate and the amount left of half the card: "A…" (owner, 2026-11-04). An
+ * invoice without positions shows nothing here and reads exactly as it did before they existed.
+ */
+function InvoiceLines({ invoice }: { invoice: Invoice }) {
+  if (invoice.lines.length === 0) return null;
+  return (
+    <div className="overflow-hidden rounded-(--radius-field) border border-border">
+      {invoice.lines.map((line) => (
+        <div
+          key={line.id}
+          className="flex items-baseline gap-3 border-b border-divider px-3 py-2 text-[13px] last:border-0"
+        >
+          {/* a phone puts the hours under the name, so the name keeps the width */}
+          <div className="min-w-0 flex-1 sm:flex sm:items-baseline sm:gap-3">
+            <div className="min-w-0 break-words sm:flex-1">{line.description}</div>
+            {line.quantity != null && line.unitRate != null && (
+              <div className="whitespace-nowrap text-[12px] text-muted tabular-nums">
+                {isItemLine(line)
+                  ? `${line.quantity / 100} pcs`
+                  : `${(line.quantity / 100).toFixed(2)} h`}{" "}
+                × {fmtMoney(line.unitRate)}
+              </div>
+            )}
+          </div>
+          <span className="w-[110px] shrink-0 text-right tabular-nums">
+            {fmtMoney(line.amount)}
+          </span>
+        </div>
+      ))}
+      <div className="flex items-baseline gap-3 border-t border-border bg-[#fafbfc] px-3 py-2 text-[13px] font-medium">
+        <span className="flex-1">Total</span>
+        <span className="w-[110px] text-right tabular-nums">{fmtMoney(invoice.amount)}</span>
+      </div>
+    </div>
   );
 }
 
