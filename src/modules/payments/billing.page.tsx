@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useRecordParam } from "@/shared/lib/use-record-param";
-import { CircleDollarSign } from "lucide-react";
+import { CircleCheck, CircleDollarSign, TriangleAlert } from "lucide-react";
 import type { Invoice, InvoiceListQuery } from "@shared/schema/payment";
 import { useClient } from "@/modules/clients";
 import { cn } from "@/shared/lib/cn";
@@ -16,6 +16,7 @@ import { FilterChips } from "@/shared/ui/tabs";
 import { ClearButton } from "@/shared/ui/clear-button";
 import { InvoiceModal } from "./invoice-modals";
 import { NewInvoiceModal } from "./new-invoice-modal";
+import { PageCheckbox, SelectionBar, type BulkKind } from "./selection-bar";
 import { invoiceDetail, invoiceSubject } from "@shared/invoice-subject";
 import {
   useBulkTidy,
@@ -73,6 +74,8 @@ export function BillingPage() {
   // it at once, so neither closing the form nor a reload brings it back
   const jobParam = searchParams.get("job");
   const [jobToBill, setJobToBill] = useState<string>();
+  // Duplicate on an invoice's card: the card closes and New invoice opens filled in from it
+  const [copyOf, setCopyOf] = useState<Invoice>();
   useEffect(() => {
     if (!jobParam) return;
     setJobToBill(jobParam);
@@ -126,6 +129,33 @@ export function BillingPage() {
 
   const toggle = (id: string) =>
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const selectAll = (on: boolean) => setSelected(on ? items.map((i) => i.id) : []);
+  const hasChosen = chosen.length > 0;
+
+  /**
+   * The select-all box and the bar swap places with the headings. A keyboard's focus, dropped with
+   * the one that went, lands on the one that came rather than on the page; not scrolled to, so a
+   * phone that cleared at the foot of the list stays there.
+   */
+  const headBox = useRef<HTMLInputElement>(null);
+  const barBox = useRef<HTMLInputElement>(null);
+  const wasChosen = useRef(hasChosen);
+  useEffect(() => {
+    if (wasChosen.current === hasChosen) return;
+    wasChosen.current = hasChosen;
+    // gone with the bar, or still held by the hidden headings until the browser lets it go
+    const held = document.activeElement;
+    if (!held || held === document.body || held.getClientRects().length === 0) {
+      (hasChosen ? barBox : headBox).current?.focus({ preventScroll: true });
+    }
+  }, [hasChosen]);
+
+  // what a run did is said above the list, which a phone, its bar at the foot, may have left behind
+  const result = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (note || error) result.current?.scrollIntoView({ block: "nearest" });
+  }, [note, error]);
+  const [barHeight, setBarHeight] = useState(0);
 
   const resetView = () => {
     setPage(1);
@@ -142,23 +172,53 @@ export function BillingPage() {
     action: () => Promise<{ changed: number; skipped: number }>,
     skipReason: string,
   ) {
-    setError(null);
-    setNote(null);
     try {
       const { changed, skipped } = await action();
+      setError(null);
       setNote({
         text:
           changed > 0
             ? `${label} ${changed} invoice${changed === 1 ? "" : "s"}.`
-            : `Nothing to do — no invoice was ${label.toLowerCase()}.`,
-        hint: skipped > 0 ? `${skipped} skipped — ${skipReason}` : undefined,
+            : `Nothing to do: no invoice was ${label.toLowerCase()}.`,
+        hint: skipped > 0 ? `${skipped} skipped: ${skipReason}.` : undefined,
         skipped: skipped > 0 || changed === 0,
       });
       setSelected([]);
     } catch (e) {
+      setNote(null);
       setError((e as Error).message);
     }
   }
+
+  const bulk: Record<BulkKind, () => void> = {
+    send: () =>
+      void runBulk(
+        "Marked as sent",
+        () => bulkDelivery.mutateAsync({ invoiceIds: chosen, sent: true }),
+        "already sent or cancelled",
+      ),
+    pay: () =>
+      void runBulk(
+        "Settled",
+        async () => {
+          const { settled, skipped } = await markPaid.mutateAsync({ invoiceIds: chosen });
+          return { changed: settled, skipped };
+        },
+        "already settled or cancelled",
+      ),
+    tidy: () =>
+      void runBulk(
+        "Tidied away",
+        () => bulkTidy.mutateAsync({ invoiceIds: chosen, tidied: true }),
+        "they still have a balance",
+      ),
+    restore: () =>
+      void runBulk(
+        "Restored",
+        () => bulkTidy.mutateAsync({ invoiceIds: chosen, tidied: false }),
+        "not tidied away",
+      ),
+  };
 
   return (
     // as wide as Clients: at 960px the client and service columns had 101px each, and a company
@@ -250,137 +310,96 @@ export function BillingPage() {
 
       {data && !isLoading && (
         <>
+          {/* above the list, where the bar that did it was; kept mounted, so a reader hears it */}
+          <div
+            ref={result}
+            aria-live="polite"
+            className={cn((note || error) && "mb-3 space-y-2")}
+          >
+            {note && (
+              <div
+                className={cn(
+                  "flex items-start gap-2 rounded-(--radius-field) px-3 py-2 text-[13px]",
+                  note.skipped
+                    ? "bg-[#f7ede2] text-[#b5651d]"
+                    : "bg-success-soft text-success-text",
+                )}
+              >
+                {note.skipped ? (
+                  <TriangleAlert size={15} className="mt-0.5 shrink-0" />
+                ) : (
+                  <CircleCheck size={15} className="mt-0.5 shrink-0" />
+                )}
+                <span>
+                  <span className="font-medium">{note.text}</span>
+                  {note.hint && <span className="ml-1.5 opacity-80">{note.hint}</span>}
+                </span>
+              </div>
+            )}
+            {error && <p className="text-[13px] text-danger-text">{error}</p>}
+          </div>
           {items.length === 0 ? (
             <EmptyState
               onCreate={() => setNewOpen(true)}
               hasFilters={!!search || filter !== "all" || !!clientParam}
             />
           ) : (
-            <div className="overflow-x-auto rounded-(--radius-panel) border border-border bg-surface">
-              <div
-                className={cn(
-                  "grid min-w-[960px] items-center gap-x-3 border-b border-border px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-faint",
-                  GRID,
-                )}
-              >
-                <input
-                  type="checkbox"
-                  aria-label="Select all on this page"
-                  checked={items.length > 0 && chosen.length === items.length}
-                  onChange={(e) => setSelected(e.target.checked ? items.map((i) => i.id) : [])}
+            // only the list scrolls sideways on a narrow screen, so the bar's actions stay in reach
+            <div className="overflow-hidden rounded-(--radius-panel) border border-border bg-surface">
+              {hasChosen && (
+                <SelectionBar
+                  count={chosen.length}
+                  total={items.length}
+                  eligible={eligible}
+                  settledView={filter === "settled"}
+                  busy={busy}
+                  boxRef={barBox}
+                  onAll={selectAll}
+                  onClear={() => setSelected([])}
+                  onHeight={setBarHeight}
+                  run={bulk}
                 />
-                <div>№</div>
-                <div>Client</div>
-                <div>Service</div>
-                {/* issued before due: an invoice is raised and then falls due, and reading them in
-                    that order is how you see at a glance how long one has been outstanding */}
-                <div>Issued</div>
-                <div>Due</div>
-                <div className="text-right">Amount</div>
-                <div className="text-right">Paid</div>
-                <div>Status</div>
-                <div>Delivery</div>
-              </div>
-
-              {items.map((invoice) => (
-                <InvoiceRow
-                  key={invoice.id}
-                  invoice={invoice}
-                  checked={selected.includes(invoice.id)}
-                  onToggle={() => toggle(invoice.id)}
-                  onOpen={() => openInvoice(invoice.id)}
-                  onError={setError}
-                />
-              ))}
-            </div>
-          )}
-
-          {/* bulk marks — everything doable to many invoices without opening each one.
-              Each button states up front how many of the selection it can actually touch. */}
-          {chosen.length > 0 && (
-            <div className="mt-3 rounded-(--radius-panel) border border-primary/30 bg-[#f7f9ff] px-3 py-2.5">
-              <div className="flex flex-wrap items-center gap-2 text-[13px]">
-                <span className="font-semibold">{chosen.length} selected</span>
-                <BulkAction
-                  label="✉ Mark as sent"
-                  eligible={eligible.toSend}
-                  total={chosen.length}
-                  disabled={busy}
-                  reason="already marked as sent"
-                  onRun={() =>
-                    void runBulk(
-                      "Marked as sent",
-                      () => bulkDelivery.mutateAsync({ invoiceIds: chosen, sent: true }),
-                      "they were already sent (or are cancelled)",
-                    )
-                  }
-                />
-                <BulkAction
-                  label="Mark as paid"
-                  tone="positive"
-                  eligible={eligible.toPay}
-                  total={chosen.length}
-                  disabled={busy}
-                  reason="nothing left to pay on them"
-                  onRun={() =>
-                    void runBulk(
-                      "Settled",
-                      async () => {
-                        const { settled, skipped } = await markPaid.mutateAsync({
-                          invoiceIds: chosen,
-                        });
-                        return { changed: settled, skipped };
-                      },
-                      "they were already settled (or are cancelled)",
-                    )
-                  }
-                />
-                {filter === "settled" ? (
-                  <BulkAction
-                    label="↩ Restore"
-                    eligible={chosen.length}
-                    total={chosen.length}
-                    disabled={busy}
-                    reason=""
-                    onRun={() =>
-                      void runBulk(
-                        "Restored",
-                        () => bulkTidy.mutateAsync({ invoiceIds: chosen, tidied: false }),
-                        "they are not tidied away",
-                      )
-                    }
-                  />
-                ) : (
-                  <BulkAction
-                    label="📦 Tidy away"
-                    eligible={eligible.toTidy}
-                    total={chosen.length}
-                    disabled={busy}
-                    reason="only settled invoices (paid or cancelled) can be tidied away"
-                    onRun={() =>
-                      void runBulk(
-                        "Tidied away",
-                        () => bulkTidy.mutateAsync({ invoiceIds: chosen, tidied: true }),
-                        "they still have a balance (only settled invoices can be tidied away)",
-                      )
-                    }
-                  />
-                )}
-                <button
-                  type="button"
-                  className="ml-auto text-[12px] text-muted hover:underline"
-                  onClick={() => setSelected([])}
-                >
-                  clear selection
-                </button>
-              </div>
-              {eligible.toTidy < chosen.length && filter !== "settled" && (
-                <p className="mt-1.5 text-[12px] text-muted">
-                  {chosen.length - eligible.toTidy} of the selected still have a balance — an
-                  invoice that is still owed can't be tidied away, so it never hides from
-                  Billing.
-                </p>
               )}
+              <div className="overflow-x-auto">
+                {/* the bar above stands in for the headings while anything is ticked, at their
+                    height, so the rows do not move under the pointer */}
+                <div
+                  className={cn(
+                    "grid h-11 min-w-[960px] items-center gap-x-3 border-b border-border px-4 text-[11px] font-medium uppercase tracking-wide text-faint",
+                    GRID,
+                    hasChosen && "sm:hidden",
+                  )}
+                >
+                  <PageCheckbox
+                    boxRef={headBox}
+                    chosen={chosen.length}
+                    total={items.length}
+                    onAll={selectAll}
+                  />
+                  <div>№</div>
+                  <div>Client</div>
+                  <div>Service</div>
+                  {/* issued before due: an invoice is raised and then falls due, and reading them in
+                    that order is how you see at a glance how long one has been outstanding */}
+                  <div>Issued</div>
+                  <div>Due</div>
+                  <div className="text-right">Amount</div>
+                  <div className="text-right">Paid</div>
+                  <div>Status</div>
+                  <div>Delivery</div>
+                </div>
+
+                {items.map((invoice) => (
+                  <InvoiceRow
+                    key={invoice.id}
+                    invoice={invoice}
+                    checked={selected.includes(invoice.id)}
+                    onToggle={() => toggle(invoice.id)}
+                    onOpen={() => openInvoice(invoice.id)}
+                    onError={setError}
+                  />
+                ))}
+              </div>
             </div>
           )}
 
@@ -413,32 +432,32 @@ export function BillingPage() {
               </div>
             )}
           </div>
-          {note && (
-            <div
-              className={cn(
-                "mt-3 rounded-(--radius-field) px-3 py-2 text-[13px]",
-                note.skipped ? "bg-[#f7ede2] text-[#b5651d]" : "bg-[#e6f4ea] text-success-text",
-              )}
-            >
-              <span className="font-medium">
-                {note.skipped ? "⚠ " : "✓ "}
-                {note.text}
-              </span>
-              {note.hint && <span className="ml-1.5 opacity-80">{note.hint}</span>}
-            </div>
-          )}
-          {error && <p className="mt-2 text-[13px] text-danger-text">{error}</p>}
+          {/* room for the phone's bar at the foot, as tall as it is, so it covers neither the
+              last row nor Next */}
+          {hasChosen && <div aria-hidden className="sm:hidden" style={{ height: barHeight }} />}
         </>
       )}
 
-      {openId && <InvoiceModal invoiceId={openId} onClose={closeInvoice} />}
+      {openId && (
+        <InvoiceModal
+          invoiceId={openId}
+          onClose={closeInvoice}
+          onDuplicate={(invoice) => {
+            closeInvoice();
+            setCopyOf(invoice);
+            setNewOpen(true);
+          }}
+        />
+      )}
       {newOpen && (
         <NewInvoiceModal
           presetClientId={clientParam ?? undefined}
           presetJobId={jobToBill}
+          copyOf={copyOf}
           onClose={() => {
             setNewOpen(false);
             setJobToBill(undefined);
+            setCopyOf(undefined);
           }}
           onCreated={(inv) => openInvoice(inv.id)}
         />
@@ -565,44 +584,6 @@ function InvoiceRow({
         )}
       </div>
     </div>
-  );
-}
-
-/**
- * One bulk button. It always shows how many of the selection it can touch ("2 of 5") and goes
- * disabled with the reason when that's zero — so a click never looks like it did nothing.
- */
-function BulkAction({
-  label,
-  eligible,
-  total,
-  disabled,
-  reason,
-  tone,
-  onRun,
-}: {
-  label: string;
-  eligible: number;
-  total: number;
-  disabled: boolean;
-  reason: string;
-  tone?: "positive";
-  onRun: () => void;
-}) {
-  const none = eligible === 0;
-  return (
-    <Button
-      size="sm"
-      variant={tone === "positive" && !none ? "positive" : "secondary"}
-      disabled={disabled || none}
-      title={none ? `Not available — ${reason}` : undefined}
-      onClick={onRun}
-    >
-      {label}
-      <span className="ml-1 opacity-70">
-        {none ? "(0)" : eligible === total ? `(${total})` : `(${eligible} of ${total})`}
-      </span>
-    </Button>
   );
 }
 

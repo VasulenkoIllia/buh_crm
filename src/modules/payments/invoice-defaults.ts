@@ -1,9 +1,10 @@
 import { halvesOf } from "@shared/billing-periods";
 import type { Service } from "@shared/schema/catalog";
 import type { Client, Subscription } from "@shared/schema/client";
-import type { UnbilledJob } from "@shared/schema/payment";
+import type { Invoice, UnbilledJob } from "@shared/schema/payment";
+import { todayPlus } from "@/shared/lib/format";
 import { moneyInputValue } from "@/shared/lib/money";
-import { offeredLine, type DraftLine } from "./invoice-lines-editor";
+import { offeredLine, toDraftLines, type DraftLine } from "./invoice-lines-editor";
 
 /**
  * **What a new invoice can fill in by itself** (payments.md §10). Only suggestions: the form shows
@@ -64,6 +65,34 @@ export function prefilledPosition(
     unit: "hour",
     itemId: null,
   });
+}
+
+const DAY_MS = 86_400_000;
+
+/** Days from issue to due, by the dates the card shows (UTC, as `fmtBizDate` reads them). */
+export const termDays = (issuedAt: string, dueDate: string) =>
+  Math.max(
+    0,
+    Math.round((Date.parse(dueDate.slice(0, 10)) - Date.parse(issuedAt.slice(0, 10))) / DAY_MS),
+  );
+
+/**
+ * **What a copy of an invoice opens with** (Duplicate, owner 2026-11-04, as TaxDome does it): the
+ * same note, and the same positions at the same prices with the items they came from, or the same
+ * single amount. The number and the date of issue are the new invoice's own, given on Create. The
+ * due date keeps the original's term from today: issued on the 1st and due on the 11th, the copy
+ * is due ten days from now. One with no due date copies none.
+ */
+export function copiedDraft(
+  invoice: Pick<Invoice, "description" | "amount" | "lines" | "dueDate" | "issuedAt">,
+) {
+  const itemised = invoice.lines.length > 0;
+  return {
+    description: invoice.description ?? "",
+    lines: itemised ? toDraftLines(invoice.lines) : null,
+    amount: itemised ? null : moneyInputValue(invoice.amount),
+    dueDate: invoice.dueDate ? todayPlus(termDays(invoice.issuedAt, invoice.dueDate)) : null,
+  };
 }
 
 /** Who the paper will address: the same two answers `invoicePdf` gives on the server. */

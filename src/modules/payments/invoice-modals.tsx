@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, History as HistoryIcon, Pencil, Trash2 } from "lucide-react";
+import { ChevronDown, CopyPlus, History as HistoryIcon, Pencil, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { periodLabel } from "@shared/billing-periods";
 import { isItemLine, type Invoice } from "@shared/schema/payment";
@@ -47,9 +47,12 @@ import {
 export function InvoiceModal({
   invoiceId,
   onClose,
+  onDuplicate,
 }: {
   invoiceId: string;
   onClose: () => void;
+  /** Duplicate: New invoice, filled in from this one (owner, 2026-11-04) */
+  onDuplicate?: (invoice: Invoice) => void;
 }) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
@@ -148,6 +151,19 @@ export function InvoiceModal({
               }}
             >
               Cancel invoice
+            </Button>
+          )}
+          {/* a cancelled one too: cancelling a wrong invoice and issuing it again is the usual
+              reason. Not for an archived client, whom no new invoice can name, and not while the
+              correction is open: the copy is of what was saved, and the card's edits would go */}
+          {onDuplicate && invoice && !invoice.clientArchived && (
+            <Button
+              variant="secondary"
+              disabled={busy || editing}
+              onClick={() => onDuplicate(invoice)}
+            >
+              <CopyPlus />
+              Duplicate
             </Button>
           )}
           <Button variant="secondary" onClick={onClose}>

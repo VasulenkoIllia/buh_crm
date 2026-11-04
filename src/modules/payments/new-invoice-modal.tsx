@@ -15,6 +15,7 @@ import { SearchSelect } from "@/shared/ui/search-select";
 import { Segmented } from "@/shared/ui/segmented";
 import { BillToLine, PaymentDetailsLine, useBillTo } from "./bill-to-field";
 import {
+  copiedDraft,
   invoiceDefaults,
   jobDefaults,
   prefilledPosition,
@@ -90,12 +91,15 @@ function ClientPicker({
 export function NewInvoiceModal({
   presetClientId,
   presetJobId,
+  copyOf,
   onClose,
   onCreated,
 }: {
   presetClientId?: string;
   /** a job's card sent us here: the form opens on that job */
   presetJobId?: string;
+  /** Duplicate on an invoice's card: the form opens filled in from it (`copiedDraft`) */
+  copyOf?: Invoice;
   onClose: () => void;
   onCreated?: (invoice: Invoice) => void;
 }) {
@@ -103,16 +107,19 @@ export function NewInvoiceModal({
   const { data: catalog } = useCatalog();
   const { data: assignees } = useAssignees();
 
-  const [clientId, setClientId] = useState<string | null>(presetClientId ?? null);
-  const [subscriptionId, setSubscriptionId] = useState("");
-  const [description, setDescription] = useState("");
+  const [copy] = useState(() => (copyOf ? copiedDraft(copyOf) : null));
+  const [clientId, setClientId] = useState<string | null>(
+    copyOf?.clientId ?? presetClientId ?? null,
+  );
+  const [subscriptionId, setSubscriptionId] = useState(copyOf?.subscriptionId ?? "");
+  const [description, setDescription] = useState(copy?.description ?? "");
   // null = untouched, for all three: the form shows what the service suggests, and goes on
   // following it. Once somebody types, the value is theirs and no later pick replaces it.
-  const [amount, setAmount] = useState<string | null>(null);
-  const [typedLines, setTypedLines] = useState<DraftLine[] | null>(null);
-  const [dueDate, setDueDate] = useState<string | null>(null);
-  const [itemised, setItemised] = useState(false);
-  const [noDueDate, setNoDueDate] = useState(false);
+  const [amount, setAmount] = useState<string | null>(copy?.amount ?? null);
+  const [typedLines, setTypedLines] = useState<DraftLine[] | null>(copy?.lines ?? null);
+  const [dueDate, setDueDate] = useState<string | null>(copy?.dueDate ?? null);
+  const [itemised, setItemised] = useState(!!copy?.lines);
+  const [noDueDate, setNoDueDate] = useState(!!copyOf && !copyOf.dueDate);
   const [mode, setMode] = useState<"invoice" | "with_task" | "job">(
     presetJobId ? "job" : "invoice",
   );
@@ -144,7 +151,10 @@ export function NewInvoiceModal({
   const shownAmount = amount ?? suggestedAmount(defaults);
   const suggestedDue = defaults?.dueDays != null ? todayPlus(defaults.dueDays) : "";
   const shownDueDate = noDueDate ? "" : (dueDate ?? suggestedDue);
-  const billTo = useBillTo(client.data?.companies ?? []);
+  const billTo = useBillTo(
+    client.data?.companies ?? [],
+    copyOf ? { companyId: copyOf.companyId } : null,
+  );
   const companyId = job
     ? job.companyId
     : billTo.picked
@@ -153,6 +163,14 @@ export function NewInvoiceModal({
 
   // open on the client's default service — the one they're usually billed for
   useEffect(() => {
+    // a copy keeps the original's service, or its lack of one, while it is for the same client;
+    // one ended since is no longer offered, and the copy goes without it
+    if (copyOf && client.data?.id === copyOf.clientId) {
+      if (subscriptionId && !subscriptions.some((s) => s.id === subscriptionId)) {
+        setSubscriptionId("");
+      }
+      return;
+    }
     if (subscriptionId || subscriptions.length === 0) return;
     const preferred =
       subscriptions.find((s) => s.isDefault) ??
@@ -199,7 +217,7 @@ export function NewInvoiceModal({
 
   return (
     <Modal
-      title="New invoice"
+      title={copyOf ? `Copy of ${copyOf.number}` : "New invoice"}
       open
       onClose={onClose}
       // One width whatever is picked, so the dialog never jumps under the click (it used to grow

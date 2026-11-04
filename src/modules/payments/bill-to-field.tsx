@@ -12,8 +12,12 @@ import { billToOf } from "./invoice-defaults";
  * until somebody picks, and a pick is never replaced by a later change of service. A job decides
  * its own company, as it decides its service, so the field is not offered for one.
  */
-export function useBillTo(companies: readonly { id: string }[]) {
-  const [picked, setPicked] = useState<{ companyId: string | null } | null>(null);
+export function useBillTo(
+  companies: readonly { id: string }[],
+  /** a copy's: the invoice it copies was addressed to this company, or to the client (null) */
+  initial: { companyId: string | null } | null = null,
+) {
+  const [picked, setPicked] = useState(initial);
   // a company removed while the form is open is no pick at all: the server would refuse it, and
   // the select could not show it
   const isStale =

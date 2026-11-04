@@ -41,6 +41,8 @@ const GRID = "grid-cols-[104px_minmax(0,1fr)_84px_100px_76px_76px_88px_88px_28px
 export function EntityInvoices({ client }: { client: Client }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
+  // Duplicate on an invoice's card: the card closes and New invoice opens filled in from it
+  const [copyOf, setCopyOf] = useState<Invoice>();
   const [view, setView] = useState<InvoiceListQuery["filter"]>("all");
   const [companyId, setCompanyId] = useState<string>("");
   const [page, setPage] = useState(1);
@@ -180,11 +182,25 @@ export function EntityInvoices({ client }: { client: Client }) {
         </div>
       )}
 
-      {openId && <InvoiceModal invoiceId={openId} onClose={() => setOpenId(null)} />}
+      {openId && (
+        <InvoiceModal
+          invoiceId={openId}
+          onClose={() => setOpenId(null)}
+          onDuplicate={(invoice) => {
+            setOpenId(null);
+            setCopyOf(invoice);
+            setNewOpen(true);
+          }}
+        />
+      )}
       {newOpen && (
         <NewInvoiceModal
           presetClientId={client.id}
-          onClose={() => setNewOpen(false)}
+          copyOf={copyOf}
+          onClose={() => {
+            setNewOpen(false);
+            setCopyOf(undefined);
+          }}
           onCreated={(inv) => setOpenId(inv.id)}
         />
       )}
