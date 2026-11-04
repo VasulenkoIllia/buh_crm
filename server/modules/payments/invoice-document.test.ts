@@ -122,12 +122,12 @@ describe("what an invoice says on paper", () => {
     expect(rowsOf({ lines: [{ ...bare, unit: "hour" }] })).toEqual(rowsOf({ lines: [bare] }));
   });
 
-  it("prints every position and keeps Sales tax last, changing no total", () => {
+  it("prints every position and nothing else, no Sales tax row", () => {
     const lines = [position(), position({ description: "Filing", amount: 5000 })];
     const document = invoiceDocument(invoice({ lines }), ISSUER, null);
-    expect(document.rows.map((r) => r.name)).toEqual(["Consultation", "Filing", "Sales tax"]);
-    expect(document.rows.at(-1)).toMatchObject({ rate: "$0.00", amount: "$0.00" });
+    expect(document.rows.map((r) => r.name)).toEqual(["Consultation", "Filing"]);
     expect(document).toMatchObject({ subtotal: "$100.00", total: "$100.00" });
+    expect(invoiceDocument(invoice(), ISSUER, null).rows).toHaveLength(1);
   });
 
   it("addresses a company's invoice to the company", () => {

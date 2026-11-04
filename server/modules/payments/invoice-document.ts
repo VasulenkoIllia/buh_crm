@@ -67,16 +67,6 @@ export type InvoiceSource = Pick<
   | "lines"
 >;
 
-/** The firm charges none today. Printed because the firm's own invoices print it. */
-const SALES_TAX_ROW: DocumentRow = {
-  name: "Sales tax",
-  detail: null,
-  rateType: "-",
-  rate: fmtMoney(0),
-  qty: "1",
-  amount: fmtMoney(0),
-};
-
 /** "Oct-07-2026". The stored value is a business date, so its UTC fields ARE the firm's day. */
 export function documentDate(iso: string): string {
   const day = new Date(iso);
@@ -148,10 +138,9 @@ export function invoiceDocument(
   issuer: PaperIssuer,
   billToEmail: string | null,
 ): InvoiceDocument {
-  const rows = [
-    ...(invoice.lines.length > 0 ? invoice.lines.map(positionRow) : [wholeRow(invoice)]),
-    SALES_TAX_ROW,
-  ];
+  // no Sales tax row: the firm charges none, and a $0.00 line on every paper was noise (owner,
+  // 2026-11-04)
+  const rows = invoice.lines.length > 0 ? invoice.lines.map(positionRow) : [wholeRow(invoice)];
   const isCancelled = invoice.status === "cancelled";
   const showsPayments = invoice.paid > 0 && !isCancelled;
   return {
