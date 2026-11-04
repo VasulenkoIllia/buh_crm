@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Pencil, RotateCcw, Star } from "lucide-react";
 import type { Client, Subscription } from "@shared/schema/client";
 import { billsPerJob } from "@shared/schema/catalog";
@@ -203,6 +203,37 @@ function BillingPills({
             />
           ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Who the service is for: the client, or one of their companies. Its invoices are billed to it
+ * and its tasks carry it. On a line of its own and named: at the end of the price row it got what
+ * the price and the period left of the modal, 46px, which showed no name and said nothing about
+ * what it was (owner, 2026-11-04).
+ */
+function BillToField({
+  companies,
+  value,
+  onChange,
+}: {
+  companies: Client["companies"];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const id = useId();
+  return (
+    <div>
+      <Label htmlFor={id}>Bill to</Label>
+      <Select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">Client (main)</option>
+        {companies.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.name}
+          </option>
+        ))}
+      </Select>
     </div>
   );
 }
@@ -907,25 +938,11 @@ function EditSubscriptionModal({
             />
             {!isOneTime && (
               <Select
-                className="w-auto"
+                className="w-auto min-w-0"
                 value={period}
                 onChange={(e) => choosePeriod(e.target.value as BillingPeriod)}
               >
                 <PeriodOptions />
-              </Select>
-            )}
-            {client.companies.length > 0 && (
-              <Select
-                className="flex-1"
-                value={companyId}
-                onChange={(e) => setCompanyId(e.target.value)}
-              >
-                <option value="">Client (main)</option>
-                {client.companies.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
               </Select>
             )}
           </div>
@@ -936,6 +953,9 @@ function EditSubscriptionModal({
             </p>
           )}
         </div>
+        {client.companies.length > 0 && (
+          <BillToField companies={client.companies} value={companyId} onChange={setCompanyId} />
+        )}
         {!isOneTime && (
           <div>
             <Label>Invoice — when in the period</Label>
@@ -1242,25 +1262,11 @@ export function AddServiceModal({
               />
               {!isOneTime && (
                 <Select
-                  className="w-auto"
+                  className="w-auto min-w-0"
                   value={period}
                   onChange={(e) => choosePeriod(e.target.value as BillingPeriod)}
                 >
                   <PeriodOptions />
-                </Select>
-              )}
-              {client.companies.length > 0 && (
-                <Select
-                  className="flex-1"
-                  value={companyId}
-                  onChange={(e) => setCompanyId(e.target.value)}
-                >
-                  <option value="">Client (main)</option>
-                  {client.companies.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
                 </Select>
               )}
             </div>
@@ -1271,6 +1277,15 @@ export function AddServiceModal({
               <p className="mt-1.5 text-[12px] text-[#b5651d]">
                 Check the price: it is now per week.
               </p>
+            )}
+            {client.companies.length > 0 && (
+              <div className="mt-2.5">
+                <BillToField
+                  companies={client.companies}
+                  value={companyId}
+                  onChange={setCompanyId}
+                />
+              </div>
             )}
             {!isOneTime && (
               <div className="mt-2.5">
