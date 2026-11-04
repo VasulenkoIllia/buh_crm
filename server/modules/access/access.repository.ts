@@ -23,7 +23,7 @@ export function listOverrides() {
 /** Blocked people are left out: they cannot sign in, so an exception for them means nothing. */
 export function listPeople() {
   return prisma.user.findMany({
-    where: { status: { not: "blocked" } },
+    where: { status: { notIn: ["blocked", "deleted"] } },
     select: {
       id: true,
       firstName: true,
@@ -36,8 +36,12 @@ export function listPeople() {
   });
 }
 
+// a deleted colleague is gone for good, and their exceptions went with them (users.md §2)
 export function findUser(id: string) {
-  return prisma.user.findUnique({ where: { id }, select: { id: true } });
+  return prisma.user.findFirst({
+    where: { id, status: { not: "deleted" } },
+    select: { id: true },
+  });
 }
 
 /**

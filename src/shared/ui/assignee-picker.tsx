@@ -1,5 +1,5 @@
 import { cn } from "@/shared/lib/cn";
-import { userLabel } from "@/shared/ui/avatar";
+import { isOutOfTeam, userLabel } from "@/shared/ui/avatar";
 import { pillCls } from "@/shared/ui/pill";
 
 export interface AssigneeUser {
@@ -38,7 +38,7 @@ export function AssigneePicker({
             onClick={() => onToggle(u.id)}
           >
             {userLabel(u)}
-            {u.status === "blocked" && " ⛔"}
+            {isOutOfTeam(u) && " ⛔"}
           </button>
         ))}
     </div>

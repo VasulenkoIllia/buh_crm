@@ -73,22 +73,44 @@ export async function resendInvite(userId: string, invitedBy: User) {
 }
 
 /**
- * An invitation nobody accepted, deleted outright (owner, 2026-11-04): its link stops working and
- * the address is free for a new invite. Anybody who has signed in is blocked instead, never
- * deleted: the database keeps them for the payments, comments, files and journal rows of what they
- * did, and their hours would go with the row. An invitee can have done none of it; what does go
- * with them is their own invite token, overrides and role-change rows.
+ * **Deleting somebody from the team** (users.md §2, owner, 2026-11-04).
+ * - An invitation nobody accepted goes with its row, and the link in the letter stops working.
+ * - A blocked colleague is deleted for good but not erased: out of Team, never signing in or
+ *   coming back, their address free for a new invite as a new account. Their row stays for the
+ *   payments, comments, files, hours and journal rows of what they did, which the database keeps
+ *   for them, so those go on naming them. Blocking came first, so their sessions, My files and My
+ *   secrets were already dealt with.
+ * - Anybody else is refused: an active colleague is blocked first, on purpose, in two steps.
  */
-export async function deleteInvite(userId: string) {
+export async function deleteUser(userId: string) {
   const user = await repo.findById(userId);
-  if (!user) throw new NotFoundError("User not found");
-  if (user.status !== "invited") {
-    throw new ValidationError("Only an invitation nobody accepted can be deleted");
+  if (!user || user.status === "deleted") throw new NotFoundError("User not found");
+  if (user.status === "invited") return deleteInvite(user);
+  if (user.status !== "blocked") throw new ValidationError("Block them first, then delete");
+
+  const { count } = await repo.markDeleted(user.id, `deleted-${user.id}@deleted.invalid`);
+  if (count === 0) {
+    // another admin's delete, or an unblock, between the read and the delete
+    const now = await repo.findById(user.id);
+    throw now?.status === "deleted"
+      ? new NotFoundError("They were already deleted")
+      : new ConflictError("They were unblocked meanwhile");
   }
-  const { count } = await repo.deleteInvitedUser(userId);
+  // their sessions ended at the block; a stream that somehow outlived it closes now, not at the
+  // next heartbeat
+  await publish([user.id], "recheck", {});
+  record("user.deleted", {
+    subjectId: user.id,
+    subjectLabel: personName(user),
+    changes: { email: user.email },
+  });
+}
+
+async function deleteInvite(user: User) {
+  const { count } = await repo.deleteInvitedUser(user.id);
   if (count === 0) {
     // another admin's delete, or the invite accepted, between the read and the delete
-    throw (await repo.findById(userId))
+    throw (await repo.findById(user.id))
       ? new ConflictError("The invitation was accepted meanwhile")
       : new NotFoundError("The invitation was already deleted");
   }
@@ -116,7 +138,8 @@ async function sendInviteEmail(user: User, invitedBy: User) {
 /** Admin: change role / block / unblock. Guards against locking yourself out. */
 export async function updateUser(id: string, input: UpdateUserInput, actor: User) {
   const user = await repo.findById(id);
-  if (!user) throw new NotFoundError("User not found");
+  // a deleted colleague is gone for good: no unblock, no role
+  if (!user || user.status === "deleted") throw new NotFoundError("User not found");
   if (user.id === actor.id) {
     throw new ValidationError("You cannot change your own role or status");
   }

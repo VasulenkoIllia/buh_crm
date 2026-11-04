@@ -441,6 +441,20 @@ const EVENTS = {
     retention: "long",
     enabledByDefault: true,
   },
+  /**
+   * A blocked colleague out of the team for good. Their row stays for what they did, so this is
+   * the one place that keeps the address they had: the row's own is replaced to free it.
+   */
+  "user.deleted": {
+    subject: "user",
+    title: "{actor} deleted {subject} from the team",
+    when: "a blocked colleague is deleted for good — their address can be invited again",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    changeKeys: ["email"],
+    enabledByDefault: true,
+  },
   /** An invitation nobody accepted, gone with its row: the address is free for a new one. */
   "user.invite_deleted": {
     subject: "user",

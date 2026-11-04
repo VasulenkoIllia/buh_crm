@@ -34,8 +34,11 @@ export function useResendInvite() {
   });
 }
 
-/** An invitation nobody accepted, gone with its row (users.md §2): the address is free again. */
-export function useDeleteInvite() {
+/**
+ * An invitation nobody accepted, or a blocked colleague for good (users.md §2): either way the
+ * address is free again.
+ */
+export function useDeleteUser() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api<null>(`/api/users/${id}`, { method: "DELETE" }),

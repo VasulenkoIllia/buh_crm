@@ -103,7 +103,7 @@ function judge(f: repo.FileForCheck): Verdict {
   }
   if (f.scope === "company") return { place: "Company" };
   if (f.scope?.startsWith("personal:")) {
-    return f.owner?.status === "blocked"
+    return f.owner?.status === "blocked" || f.owner?.status === "deleted"
       ? {
           problem: "in the My files of somebody blocked, where the move into Company missed it",
         }

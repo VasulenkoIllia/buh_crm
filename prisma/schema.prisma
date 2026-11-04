@@ -23,6 +23,8 @@ enum UserStatus {
   pending
   active
   blocked
+  /// out of the team for good, kept for what they did (users.md §2, 2026-11-04)
+  deleted
 }
 
 /// What a gate is worth to somebody: reachable and writable, reachable and read-only, or not

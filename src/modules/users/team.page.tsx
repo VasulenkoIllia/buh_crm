@@ -19,7 +19,7 @@ import { StatusPill } from "@/shared/ui/pill";
 import { Segmented } from "@/shared/ui/segmented";
 import { useResetTwoFactor, useSetTwoFactorPolicy, useTwoFactorTeam } from "./two-factor.api";
 import {
-  useDeleteInvite,
+  useDeleteUser,
   useInviteUser,
   usePersonalFilesSummary,
   useResendInvite,
@@ -340,7 +340,7 @@ function UserRow({
 }) {
   const updateUser = useUpdateUser();
   const resend = useResendInvite();
-  const deleteInvite = useDeleteInvite();
+  const deleteUser = useDeleteUser();
   const [blocking, setBlocking] = useState(false);
 
   const name = `${user.firstName} ${user.lastName}`.trim() || "—";
@@ -407,28 +407,6 @@ function UserRow({
                 {resend.isSuccess ? "Sent" : "Resend invite"}
               </Button>
             )}
-            {/* only an invitation: anybody who signed in is named in the history, so is blocked */}
-            {user.status === "invited" && (
-              <Button
-                variant="destructive"
-                size="sm"
-                aria-label={`Delete the invitation to ${user.email}`}
-                disabled={deleteInvite.isPending}
-                onClick={() => {
-                  if (
-                    !window.confirm(
-                      `Delete the invitation to ${user.email}? Its link stops working.`,
-                    )
-                  )
-                    return;
-                  deleteInvite.mutate(user.id, {
-                    onError: (e) => window.alert(e.message),
-                  });
-                }}
-              >
-                {deleteInvite.isPending ? "Deleting…" : "Delete"}
-              </Button>
-            )}
             {user.status === "active" && (
               <Button
                 variant="destructive"
@@ -450,6 +428,31 @@ function UserRow({
                 onClick={() => updateUser.mutate({ id: user.id, input: { status: "active" } })}
               >
                 Unblock
+              </Button>
+            )}
+            {/* an invitation, or a blocked colleague for good; an active one is blocked first */}
+            {(user.status === "invited" || user.status === "blocked") && (
+              <Button
+                variant="destructive"
+                size="sm"
+                aria-label={
+                  user.status === "invited"
+                    ? `Delete the invitation to ${user.email}`
+                    : `Delete ${name} for good`
+                }
+                disabled={deleteUser.isPending}
+                onClick={() => {
+                  const ask =
+                    user.status === "invited"
+                      ? `Delete the invitation to ${user.email}? Its link stops working.`
+                      : `Delete ${name} for good? They leave Team and can never sign in again. ` +
+                        "Their address can be invited again as a new account. " +
+                        "Their name stays on what they did.";
+                  if (!window.confirm(ask)) return;
+                  deleteUser.mutate(user.id, { onError: (e) => window.alert(e.message) });
+                }}
+              >
+                {deleteUser.isPending ? "Deleting…" : "Delete"}
               </Button>
             )}
           </span>

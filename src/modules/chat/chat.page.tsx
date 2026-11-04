@@ -169,7 +169,9 @@ export function ChatPage() {
       return "Only an admin posts here.";
     }
     if (it.kind === "direct" && it.peer && it.peer.status !== "active") {
-      return "This colleague is blocked, so the chat is read only.";
+      return it.peer.status === "deleted"
+        ? "This colleague has left the team, so the chat is read only."
+        : "This colleague is blocked, so the chat is read only.";
     }
     return null;
   }, [chat.data, user?.role]);

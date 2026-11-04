@@ -3,7 +3,7 @@ import { Check, Play } from "lucide-react";
 import type { Task } from "@shared/schema/task";
 import { ApiError } from "@/shared/lib/api";
 import { cn } from "@/shared/lib/cn";
-import { AssigneeAvatars, userLabel } from "@/shared/ui/avatar";
+import { AssigneeAvatars, isOutOfTeam, userLabel } from "@/shared/ui/avatar";
 import { Button } from "@/shared/ui/button";
 import { Chip, ChipButton } from "@/shared/ui/chip";
 import { IconAdd } from "@/shared/ui/icons";
@@ -186,7 +186,7 @@ export function AssignMenu({
       .map((u) => {
         const already = task.assignees.includes(u.id);
         return {
-          label: `${userLabel(u)}${u.status === "blocked" ? " ⛔" : ""}`,
+          label: `${userLabel(u)}${isOutOfTeam(u) ? " ⛔" : ""}`,
           checked: already,
           onSelect: pick([u.id], already),
         };

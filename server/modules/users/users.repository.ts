@@ -4,6 +4,7 @@ import type { StoredFile } from "../../core/files.js";
 
 export function listUsers() {
   return prisma.user.findMany({
+    where: { status: { not: "deleted" } },
     orderBy: [{ status: "asc" }, { firstName: "asc" }],
   });
 }
@@ -38,8 +39,9 @@ export function createInvitedUser(email: string, role: "admin" | "user") {
   });
 }
 
+// never onto a row deleted meanwhile: a deleted colleague is gone for good (users.md §2)
 export function updateUser(id: string, data: Prisma.UserUpdateInput) {
-  return prisma.user.update({ where: { id }, data });
+  return prisma.user.update({ where: { id, status: { not: "deleted" } }, data });
 }
 
 /**
@@ -56,11 +58,11 @@ export function blockUser<T>(
   return prisma.$transaction(
     async (tx) => {
       const changed = await tx.user.updateMany({
-        where: { id, status: { not: "blocked" } },
+        where: { id, status: { notIn: ["blocked", "deleted"] } },
         data: { status: "blocked" },
       });
       const moved = changed.count === 1 ? await alsoInTx(tx) : null;
-      const user = await tx.user.update({ where: { id }, data });
+      const user = await tx.user.update({ where: { id, status: { not: "deleted" } }, data });
       return { user, moved };
     },
     { timeout: 30_000 },
@@ -77,6 +79,26 @@ export function invalidateInviteTokens(userId: string) {
   return prisma.authToken.updateMany({
     where: { userId, type: "invite", usedAt: null },
     data: { usedAt: new Date() },
+  });
+}
+
+/**
+ * Out of the team for good, the row kept for what points at it, and only while still blocked. The
+ * address is replaced so it can be invited again, and every way back in goes with the password:
+ * tokens, sessions, a second factor, personal access exceptions.
+ */
+export function markDeleted(id: string, freedEmail: string) {
+  return prisma.$transaction(async (tx) => {
+    const changed = await tx.user.updateMany({
+      where: { id, status: "blocked" },
+      data: { status: "deleted", email: freedEmail, passwordHash: null },
+    });
+    if (changed.count === 0) return changed;
+    await tx.authToken.deleteMany({ where: { userId: id } });
+    await tx.session.deleteMany({ where: { userId: id } });
+    await tx.twoFactorCredential.deleteMany({ where: { userId: id } });
+    await tx.accessOverride.deleteMany({ where: { userId: id } });
+    return changed;
   });
 }
 

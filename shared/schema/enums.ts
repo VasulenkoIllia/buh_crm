@@ -8,7 +8,7 @@ export type UserRole = z.infer<typeof userRole>;
 // (2026-07-26: `clientType` is gone — a client is just a client, and the companies it holds are
 // real rows. See modules/decisions-log.md.)
 
-export const userStatus = z.enum(["invited", "pending", "active", "blocked"]);
+export const userStatus = z.enum(["invited", "pending", "active", "blocked", "deleted"]);
 export type UserStatus = z.infer<typeof userStatus>;
 
 export const serviceType = z.enum(["subscription", "one_time", "internal"]);

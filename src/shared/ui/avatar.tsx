@@ -49,6 +49,10 @@ export function UserAvatar({
   );
 }
 
+/** Blocked, or deleted for good: kept on the work they had, never offered new work. */
+export const isOutOfTeam = (u: { status?: string }) =>
+  u.status === "blocked" || u.status === "deleted";
+
 /** A user's display name — one rule, so no surface renders it a different way. */
 export const userLabel = (u: { firstName: string; lastName: string }) =>
   `${u.firstName} ${u.lastName}`.trim();
@@ -82,17 +86,17 @@ export function AssigneeAvatars({
     <span className="flex items-center gap-1">
       {ids.slice(0, 3).map((id) => {
         const u = team.find((x) => x.id === id);
-        const blocked = u?.status === "blocked";
+        const isOut = !!u && isOutOfTeam(u);
         return (
           <span
             key={id}
-            title={u ? `${userLabel(u)}${blocked ? " (blocked)" : ""}` : id}
+            title={u ? `${userLabel(u)}${isOut ? ` (${u.status})` : ""}` : id}
             className="flex"
           >
             <UserAvatar
               user={u ?? { id, firstName: "", lastName: "", avatarFileId: null }}
               size="xs"
-              className={cn(blocked && "ring-2 ring-danger")}
+              className={cn(isOut && "ring-2 ring-danger")}
             />
           </span>
         );

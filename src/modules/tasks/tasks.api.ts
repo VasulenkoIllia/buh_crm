@@ -40,7 +40,7 @@ export interface AssigneeInfo {
   id: string;
   firstName: string;
   lastName: string;
-  status: "invited" | "pending" | "active" | "blocked";
+  status: "invited" | "pending" | "active" | "blocked" | "deleted";
   /** null = no avatar uploaded; the card falls back to initials */
   avatarFileId: string | null;
 }

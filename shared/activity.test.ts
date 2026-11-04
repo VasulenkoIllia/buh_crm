@@ -139,7 +139,8 @@ describe("the activity registry", () => {
     // the default and archived, and a client pointed at another set
     // and three for invoice items (payments.md §3, the same day): added, changed and deleted
     // and one for an invitation nobody accepted, deleted (users.md §2, 2026-11-04)
-    expect(ACTIVITY_KEYS.length).toBe(228);
+    // and one for a blocked colleague deleted for good (the same section and day)
+    expect(ACTIVITY_KEYS.length).toBe(229);
     // the checklist is empty because the pass is finished — not because it was abandoned
     expect(PLANNED_EVENT_KEYS).toEqual([]);
   });
