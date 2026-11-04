@@ -2157,6 +2157,11 @@
     "derived": true
   },
   {
+    "method": "DELETE",
+    "url": "/api/users/:id",
+    "access": "gate:team"
+  },
+  {
     "method": "PATCH",
     "url": "/api/users/:id",
     "access": "gate:team"

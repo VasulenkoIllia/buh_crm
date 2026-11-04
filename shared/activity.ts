@@ -441,6 +441,17 @@ const EVENTS = {
     retention: "long",
     enabledByDefault: true,
   },
+  /** An invitation nobody accepted, gone with its row: the address is free for a new one. */
+  "user.invite_deleted": {
+    subject: "user",
+    title: "{actor} deleted the invitation to {subject}",
+    when: "an invitation nobody accepted is deleted — its link stops working",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    changeKeys: ["email", "role"],
+    enabledByDefault: true,
+  },
   /**
    * A person's own name. Not `long`: it is the one thing in this subject that is not an access
    * decision, and a name change two years old settles no dispute.

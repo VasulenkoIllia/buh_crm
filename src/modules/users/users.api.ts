@@ -34,6 +34,16 @@ export function useResendInvite() {
   });
 }
 
+/** An invitation nobody accepted, gone with its row (users.md §2): the address is free again. */
+export function useDeleteInvite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api<null>(`/api/users/${id}`, { method: "DELETE" }),
+    // after a refusal too: an invite deleted or accepted elsewhere is a stale row to drop
+    onSettled: () => queryClient.invalidateQueries({ queryKey: USERS_KEY }),
+  });
+}
+
 export function useUpdateUser() {
   const queryClient = useQueryClient();
   return useMutation({

@@ -307,6 +307,12 @@ const INTENDED_CHANGES: Record<string, { before: Answer; after: Answer; why: str
     after: "admin-only",
     why: "new: only while no invoice line came from it; the database refuses it otherwise",
   },
+  // users.md §2, 2026-11-04: an invitation nobody accepted, gone with its row
+  "DELETE /api/users/:id": {
+    before: "nobody",
+    after: "admin-only",
+    why: "new: Team's gate like the invite; anybody who signed in is refused, they are blocked",
+  },
 };
 
 function before(route: string): Answer {

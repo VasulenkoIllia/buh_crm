@@ -37,7 +37,14 @@ export function listUsers() {
 
 export async function inviteUser(input: InviteUserInput, invitedBy: User) {
   const existing = await repo.findByEmail(input.email);
-  if (existing) throw new ConflictError("A user with this email already exists");
+  if (existing) {
+    // a blocked colleague comes back through Unblock, with their history (owner, 2026-11-04)
+    throw new ConflictError(
+      existing.status === "blocked"
+        ? "This person is blocked. Unblock them in the list"
+        : "A user with this email already exists",
+    );
+  }
 
   const user = await repo.createInvitedUser(input.email, input.role);
   await sendInviteEmail(user, invitedBy);
@@ -63,6 +70,33 @@ export async function resendInvite(userId: string, invitedBy: User) {
   // an invitation revoked, and somebody holding the old one will be told it is invalid
   record("user.invite_resent", { subjectId: user.id, subjectLabel: user.email });
   return user;
+}
+
+/**
+ * An invitation nobody accepted, deleted outright (owner, 2026-11-04): its link stops working and
+ * the address is free for a new invite. Anybody who has signed in is blocked instead, never
+ * deleted: the database keeps them for the payments, comments, files and journal rows of what they
+ * did, and their hours would go with the row. An invitee can have done none of it; what does go
+ * with them is their own invite token, overrides and role-change rows.
+ */
+export async function deleteInvite(userId: string) {
+  const user = await repo.findById(userId);
+  if (!user) throw new NotFoundError("User not found");
+  if (user.status !== "invited") {
+    throw new ValidationError("Only an invitation nobody accepted can be deleted");
+  }
+  const { count } = await repo.deleteInvitedUser(userId);
+  if (count === 0) {
+    // another admin's delete, or the invite accepted, between the read and the delete
+    throw (await repo.findById(userId))
+      ? new ConflictError("The invitation was accepted meanwhile")
+      : new NotFoundError("The invitation was already deleted");
+  }
+  record("user.invite_deleted", {
+    subjectId: user.id,
+    subjectLabel: user.email,
+    changes: { email: user.email, role: user.role },
+  });
 }
 
 async function sendInviteEmail(user: User, invitedBy: User) {

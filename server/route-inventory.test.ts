@@ -163,10 +163,12 @@ describe("route inventory", () => {
       // admin's writes (add, edit, default, archive), and the client's own set, an admin's too.
       // +4 and a HEAD on 2026-11-02, invoice items (payments.md §3): the list `shared()` for New
       // invoice, and add, edit and delete on the Settings gate, not an admin's.
-      total: 420,
+      // +1 on 2026-11-04, deleting an invitation nobody accepted (users.md §2), on Team's gate
+      // like the invite itself; anybody who signed in is blocked, never deleted.
+      total: 421,
       derivedHead: 106,
-      real: 314,
-      api: 313, // everything but /health
+      real: 315,
+      api: 314, // everything but /health
       anonymous: 9, // 6 credential routes, 2 unsubscribe pages, /health
       // `POST /tasks/timer/start` moved to the `tasks` gate during the 2026-09-07 audit. It takes a
       // taskId and writes against somebody else's module, so it was never really "the caller's own
@@ -174,7 +176,7 @@ describe("route inventory", () => {
       // second factor and name nobody else.
       own: 15,
       shared: 14,
-      gated: 276,
+      gated: 277,
       adminOnly: 27,
     });
   });

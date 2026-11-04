@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -12,12 +12,14 @@ import { ApiError } from "@/shared/lib/api";
 import { fmtBytes } from "@/shared/lib/format";
 import { UserAvatar } from "@/shared/ui/avatar";
 import { Button } from "@/shared/ui/button";
+import { RowButton } from "@/shared/ui/row-button";
 import { FormField, Input, Select } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
 import { StatusPill } from "@/shared/ui/pill";
 import { Segmented } from "@/shared/ui/segmented";
 import { useResetTwoFactor, useSetTwoFactorPolicy, useTwoFactorTeam } from "./two-factor.api";
 import {
+  useDeleteInvite,
   useInviteUser,
   usePersonalFilesSummary,
   useResendInvite,
@@ -46,6 +48,17 @@ export function TeamPage() {
   const enabled = twoFactor.data
     ? new Set(twoFactor.data.members.map((m) => m.userId))
     : undefined;
+  const all = users ?? [];
+  const row = (user: PublicUser) => (
+    <UserRow
+      key={user.id}
+      user={user}
+      isSelf={user.id === me.id}
+      marked={user.id === linked}
+      twoFactorOn={enabled ? enabled.has(user.id) : undefined}
+      onReset={() => setResetting(user)}
+    />
+  );
 
   return (
     <div>
@@ -69,16 +82,13 @@ export function TeamPage() {
             </tr>
           </thead>
           <tbody>
-            {(users ?? []).map((user) => (
-              <UserRow
-                key={user.id}
-                user={user}
-                isSelf={user.id === me.id}
-                marked={user.id === linked}
-                twoFactorOn={enabled ? enabled.has(user.id) : undefined}
-                onReset={() => setResetting(user)}
-              />
-            ))}
+            {all.filter((u) => u.status !== "blocked").map(row)}
+            <BlockedGroup
+              key={linked ?? ""}
+              blocked={all.filter((u) => u.status === "blocked")}
+              linked={linked}
+              row={row}
+            />
           </tbody>
         </table>
       </div>
@@ -86,6 +96,44 @@ export function TeamPage() {
       <InviteModal open={inviteOpen} onClose={() => setInviteOpen(false)} />
       <ResetTwoFactorModal user={resetting} onClose={() => setResetting(null)} />
     </div>
+  );
+}
+
+/**
+ * **Blocked people, folded under the rest** (owner, 2026-11-04): their names are in the history,
+ * so they stay, out of the way. Open from the start when a link points at one of them; after that
+ * only a click decides, so unblocking that person does not fold the group under the cursor. Keyed
+ * by the link, so following another one decides afresh.
+ */
+function BlockedGroup({
+  blocked,
+  linked,
+  row,
+}: {
+  blocked: PublicUser[];
+  linked: string | null;
+  row: (user: PublicUser) => ReactNode;
+}) {
+  const [isOpen, setOpen] = useState(() => blocked.some((u) => u.id === linked));
+  if (blocked.length === 0) return null;
+  return (
+    <>
+      <tr className="border-b border-divider last:border-0">
+        <td colSpan={6} className="px-4">
+          <RowButton
+            aria-expanded={isOpen}
+            className="py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted hover:text-ink-700 max-sm:min-h-11"
+            onClick={() => setOpen(!isOpen)}
+          >
+            <span aria-hidden className={cn("transition-transform", isOpen && "rotate-90")}>
+              ▸
+            </span>
+            Blocked ({blocked.length})
+          </RowButton>
+        </td>
+      </tr>
+      {isOpen && blocked.map(row)}
+    </>
   );
 }
 
@@ -292,6 +340,7 @@ function UserRow({
 }) {
   const updateUser = useUpdateUser();
   const resend = useResendInvite();
+  const deleteInvite = useDeleteInvite();
   const [blocking, setBlocking] = useState(false);
 
   const name = `${user.firstName} ${user.lastName}`.trim() || "—";
@@ -335,8 +384,9 @@ function UserRow({
         <TwoFactorCell status={user.status} on={twoFactorOn} />
       </td>
       <td className="px-4 py-2.5 text-right">
+        {/* wider apart on a phone, where Delete sits beside Resend invite under a finger */}
         {!isSelf && (
-          <span className="inline-flex gap-1.5">
+          <span className="inline-flex gap-1.5 max-sm:gap-3">
             {twoFactorOn && (
               <Button
                 variant="secondary"
@@ -355,6 +405,28 @@ function UserRow({
                 onClick={() => resend.mutate(user.id)}
               >
                 {resend.isSuccess ? "Sent" : "Resend invite"}
+              </Button>
+            )}
+            {/* only an invitation: anybody who signed in is named in the history, so is blocked */}
+            {user.status === "invited" && (
+              <Button
+                variant="destructive"
+                size="sm"
+                aria-label={`Delete the invitation to ${user.email}`}
+                disabled={deleteInvite.isPending}
+                onClick={() => {
+                  if (
+                    !window.confirm(
+                      `Delete the invitation to ${user.email}? Its link stops working.`,
+                    )
+                  )
+                    return;
+                  deleteInvite.mutate(user.id, {
+                    onError: (e) => window.alert(e.message),
+                  });
+                }}
+              >
+                {deleteInvite.isPending ? "Deleting…" : "Delete"}
               </Button>
             )}
             {user.status === "active" && (

@@ -39,6 +39,16 @@ export async function registerRoutes(instance: FastifyInstance) {
     },
   );
 
+  // an invitation nobody accepted; anybody who signed in is blocked, never deleted
+  app.delete(
+    "/:id",
+    { config: gate("team"), schema: { params: idParams } },
+    async (request, reply) => {
+      await service.deleteInvite(request.params.id);
+      return reply.status(204).send();
+    },
+  );
+
   app.patch(
     "/:id",
     { config: gate("team"), schema: { params: idParams, body: updateUserInput } },

@@ -17,8 +17,9 @@ export async function findByEmail(email: string) {
   // mixed-case existing row (would otherwise let a second account slip in);
   // deterministic orderBy resolves a legacy case-collision pair to a stable row.
   // `lower()`, not Prisma's insensitive `equals`: that is an ILIKE, where an `_` is a wildcard.
-  const [row] = await prisma.$queryRaw<{ id: string }[]>`
-    SELECT id FROM "User" WHERE lower(email) = lower(${email}) ORDER BY "createdAt" ASC LIMIT 1
+  const [row] = await prisma.$queryRaw<{ id: string; status: string }[]>`
+    SELECT id, status::text FROM "User" WHERE lower(email) = lower(${email})
+    ORDER BY "createdAt" ASC LIMIT 1
   `;
   return row ?? null;
 }
@@ -77,6 +78,11 @@ export function invalidateInviteTokens(userId: string) {
     where: { userId, type: "invite", usedAt: null },
     data: { usedAt: new Date() },
   });
+}
+
+/** Only while still an invitation: one accepted meanwhile is a colleague, and stays. */
+export function deleteInvitedUser(id: string) {
+  return prisma.user.deleteMany({ where: { id, status: "invited" } });
 }
 
 export function createFileRow(
