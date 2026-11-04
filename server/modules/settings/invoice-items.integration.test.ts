@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { InvoiceItem } from "@shared/schema/invoice-items.js";
 import { buildApp } from "../../app.js";
+import { invalidateAccessCache } from "../../core/access.js";
 import { ensureBaseData } from "../../core/bootstrap.js";
 import { prisma } from "../../core/db.js";
 import { createPeople, removePeople, type Person } from "../../test/people.js";
@@ -171,6 +172,65 @@ describe("the list on Settings → Invoices", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json<InvoiceItem[]>().some((i) => i.id === item.id)).toBe(false);
     await recorded("invoice_item.deleted", item.id, since);
+  });
+});
+
+/** An invoice's Position box adds a name it does not find (owner, 2026-11-04). */
+describe("an item added from an invoice's row", () => {
+  const FROM_ROW = "/api/invoices/items";
+
+  it("is added by whoever bills, Settings closed, and lands on the list Settings reads", async () => {
+    const since = new Date();
+    const res = await as(colleague).post(FROM_ROW, {
+      name: `${TAG} Legal name change`,
+      unit: "item",
+      price: 120_00,
+    });
+    expect(res.statusCode).toBe(201);
+    const added = res.json<InvoiceItem[]>().find((i) => i.name === `${TAG} Legal name change`);
+    expect(added).toMatchObject({ unit: "item", price: 120_00, active: true });
+
+    const list = mine((await as(admin).get(BASE)).json<InvoiceItem[]>());
+    expect(list.some((i) => i.id === added!.id)).toBe(true);
+    const created = await recorded("invoice_item.created", added!.id, since);
+    expect(created.actorUserId).toBe(colleague.id);
+    expect(created.changes).toEqual({ unit: "item", price: 120_00 });
+  });
+
+  it("refuses a name already on the list, and says when that item is switched off", async () => {
+    const taken = await as(colleague).post(FROM_ROW, {
+      name: `${TAG} legal NAME change`,
+      unit: "hour",
+      price: null,
+    });
+    expect(taken.statusCode).toBe(409);
+    expect(taken.json().error.message).toMatch(/already exists/);
+    // switched off by the earlier describe
+    const off = await as(colleague).post(FROM_ROW, {
+      name: `${TAG} Payroll run`,
+      unit: "hour",
+      price: null,
+    });
+    expect(off.statusCode).toBe(409);
+    expect(off.json().error.message).toMatch(/exists, switched off/);
+  });
+
+  it("is refused to somebody Billing is closed to", async () => {
+    await prisma.accessOverride.create({
+      data: { userId: colleague.id, gate: "billing", state: "closed" },
+    });
+    invalidateAccessCache();
+    try {
+      const res = await as(colleague).post(FROM_ROW, {
+        name: `${TAG} Closed`,
+        unit: "item",
+        price: null,
+      });
+      expect(res.statusCode).toBe(403);
+    } finally {
+      await prisma.accessOverride.deleteMany({ where: { userId: colleague.id } });
+      invalidateAccessCache();
+    }
   });
 });
 

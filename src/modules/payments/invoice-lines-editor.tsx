@@ -4,11 +4,13 @@ import type { InvoiceLineUnit } from "@shared/schema/enums";
 import type { InvoiceItem } from "@shared/schema/invoice-items";
 import type { Invoice } from "@shared/schema/payment";
 import { FRACTIONAL_ITEMS, isFractionalItemCount, lineAmount } from "@shared/schema/payment";
+import { useCanEdit } from "@/app/auth";
 import { cn } from "@/shared/lib/cn";
 import { fmtMoney, moneyInputValue, parseMoney } from "@/shared/lib/money";
 import { Button, IconButton } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/field";
 import { useInvoiceItems } from "@/modules/settings";
+import { useAddInvoiceItem } from "./payments.api";
 import { PositionInput } from "./position-input";
 
 /**
@@ -63,6 +65,20 @@ export function LinesEditor({
   // inactive too, still name the item an old line came from.
   const allItems = useInvoiceItems().data;
   const items = pickableItems(allItems);
+
+  // a name the list lacks is added from its row, by whoever bills (owner, 2026-11-04). The row is
+  // linked once the item is back, as the rows are then, not as they were when it was asked for
+  const addItem = useAddInvoiceItem();
+  const canAdd = useCanEdit("billing");
+  const latest = useRef(lines);
+  useEffect(() => {
+    latest.current = lines;
+  });
+  const addFromRow = async (i: number, name: string) => {
+    const { item } = await addItem.mutateAsync({ name, ...itemFromRow(lines[i]) });
+    const patch = item ? addedPosition(latest.current[i], item) : null;
+    if (patch) onChange(latest.current.map((l, n) => (n === i ? { ...l, ...patch } : l)));
+  };
 
   /**
    * A position just added is at the foot of a list that may be scrolled or clipped: the list
@@ -127,6 +143,12 @@ export function LinesEditor({
                   placeholder={items.length > 0 ? "Pick an item or type" : "Consultation"}
                   onText={(text) => set(i, typedPosition(line, text, allItems))}
                   onPick={(item) => set(i, pickedPosition(line, item))}
+                  add={
+                    // not before the items load: every name would look new
+                    canAdd && allItems
+                      ? { as: itemFromRow(line), run: (name) => addFromRow(i, name) }
+                      : undefined
+                  }
                 />
               </Cell>
               <Cell label="Qty">
@@ -301,6 +323,28 @@ export function typedPosition(
   const name = items?.find((item) => item.id === line.itemId)?.name;
   const holdsName = name === undefined || text.toLowerCase().includes(name.toLowerCase());
   return { description: text, itemId: holdsName ? line.itemId : null };
+}
+
+/**
+ * The invoice item a row typed by hand would add (owner, 2026-11-04): its unit, and the rate it
+ * shows, when there is one. With none the item's price is typed on each invoice, until Settings sets it.
+ */
+export const itemFromRow = (line: DraftLine): Pick<InvoiceItem, "unit" | "price"> => {
+  const rate = parseMoney(completedLine(line).rate);
+  return { unit: line.unit, price: rate > 0 ? rate : null };
+};
+
+/**
+ * A row linked to the item just added from it, its numbers as they are, since the item came from
+ * them: a pick would put a count of 1 over an amount typed by hand. Nothing when the row was typed
+ * on, picked or removed while the item was being saved.
+ */
+export function addedPosition(
+  line: DraftLine | undefined,
+  item: InvoiceItem,
+): Partial<DraftLine> | null {
+  const sameName = line?.description.trim().toLowerCase() === item.name.toLowerCase();
+  return line?.itemId === null && sameName ? { description: item.name, itemId: item.id } : null;
 }
 
 /** A quantity as typed → hundredths of a unit. "3.5" → 350. */

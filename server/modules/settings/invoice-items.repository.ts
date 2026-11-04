@@ -17,8 +17,8 @@ export function findInvoiceItem(id: string) {
  * `equals`: that is an ILIKE, where "50%" matched "50 hours" and a name ending in `\` failed.
  */
 export async function findInvoiceItemByName(name: string) {
-  const [row] = await prisma.$queryRaw<{ id: string }[]>`
-    SELECT id FROM "InvoiceItem" WHERE lower(name) = lower(${name}) LIMIT 1
+  const [row] = await prisma.$queryRaw<{ id: string; active: boolean }[]>`
+    SELECT id, active FROM "InvoiceItem" WHERE lower(name) = lower(${name}) LIMIT 1
   `;
   return row ?? null;
 }

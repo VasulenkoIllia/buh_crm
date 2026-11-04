@@ -7,6 +7,9 @@ import { Input } from "@/shared/ui/field";
 /** max-h-56, the list's own scroll beyond it */
 const LIST_MAX_PX = 224;
 
+const OPTION =
+  "flex cursor-pointer items-baseline justify-between gap-3 px-3 py-1.5 text-[13px] max-sm:min-h-11 max-sm:items-center";
+
 /**
  * **The Position box** (payments.md §3): free text, with the invoice items whose names hold what
  * is typed offered under it. Picking one hands it to the row; typing on is a position by hand.
@@ -18,6 +21,9 @@ const LIST_MAX_PX = 224;
  * would clip it.
  *
  * Nothing is highlighted until an arrow key says so, so Enter after typing keeps the text.
+ *
+ * A name typed by hand that no item has is offered last, to be added to the items (owner,
+ * 2026-11-04): saved at once, so the next invoice finds it.
  */
 export function PositionInput({
   value,
@@ -26,6 +32,7 @@ export function PositionInput({
   placeholder,
   onText,
   onPick,
+  add,
 }: {
   value: string;
   /** the items the picker may offer: active ones only */
@@ -35,15 +42,31 @@ export function PositionInput({
   placeholder: string;
   onText: (text: string) => void;
   onPick: (item: InvoiceItem) => void;
+  /**
+   * Adding the typed name to the items: what the new item would be, shown beside the offer, and the
+   * request, which settles once the row has it. Absent where the caller may not add.
+   */
+  add?: { as: Pick<InvoiceItem, "unit" | "price">; run: (name: string) => Promise<unknown> };
 }) {
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(-1);
+  // both kept with the name they are about: rows are keyed by index, so a row removed above
+  // hands this box another row, and the text may change while the request runs
+  const [addingName, setAddingName] = useState<string | null>(null);
+  const [failed, setFailed] = useState<{ name: string; message: string } | null>(null);
   const field = useRef<HTMLInputElement>(null);
   const at = useFieldPlace(field, open);
   const listId = useId();
   const matches = open ? suggestions(items, value, pickedId) : [];
-  const shown = at !== null && matches.length > 0;
-  const active = Math.min(highlight, matches.length - 1);
+  const name = value.trim();
+  const adding = addingName === name;
+  // shown until the text changes, so a box left meanwhile shows it again
+  const addError = failed?.name === name ? failed.message : null;
+  const offersAdd = open && !!add && offersNewItem(items, value, pickedId);
+  // the offer is the last option, after the matches
+  const count = matches.length + (offersAdd ? 1 : 0);
+  const shown = at !== null && count > 0;
+  const active = Math.min(highlight, count - 1);
   const optionId = (i: number) => `${listId}-${i}`;
 
   const show = () => {
@@ -53,6 +76,26 @@ export function PositionInput({
   const pick = (item: InvoiceItem) => {
     onPick(item);
     setOpen(false);
+  };
+  const addTyped = () => {
+    if (!add || adding) return;
+    const adds = name;
+    setAddingName(adds);
+    setFailed(null);
+    add
+      .run(adds)
+      .then(
+        // the list closes only under the text it added: typing on keeps it open
+        () => {
+          if (field.current?.value.trim() === adds) setOpen(false);
+        },
+        (e: unknown) =>
+          setFailed({
+            name: adds,
+            message: e instanceof Error ? e.message : "Could not add the item",
+          }),
+      )
+      .finally(() => setAddingName((now) => (now === adds ? null : now)));
   };
 
   return (
@@ -86,13 +129,14 @@ export function PositionInput({
           } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
             e.preventDefault();
             const step = e.key === "ArrowDown" ? 1 : -1;
-            const next = Math.max(0, Math.min(matches.length - 1, active + step));
+            const next = Math.max(0, Math.min(count - 1, active + step));
             setHighlight(next);
             // the arrows, not the mouse, keep the highlighted row in sight past the list's edge
             document.getElementById(optionId(next))?.scrollIntoView({ block: "nearest" });
           } else if (e.key === "Enter" && active >= 0) {
             e.preventDefault();
-            pick(matches[active]);
+            if (active < matches.length) pick(matches[active]);
+            else addTyped();
           } else if (e.key === "Escape") {
             // marked handled, so the modal around it stays open (shared/ui/modal.tsx)
             e.preventDefault();
@@ -103,9 +147,6 @@ export function PositionInput({
       {shown &&
         createPortal(
           <div
-            id={listId}
-            role="listbox"
-            aria-label="Invoice items"
             // a press anywhere on the list, its scrollbar included, keeps the focus in the box,
             // so its blur does not close the list under the pointer
             onMouseDown={(e) => e.preventDefault()}
@@ -119,24 +160,56 @@ export function PositionInput({
             }}
             className="z-50 max-h-56 overflow-y-auto rounded-(--radius-field) border border-border bg-surface py-1 shadow-(--shadow-modal)"
           >
-            {matches.map((item, i) => (
-              <div
-                key={item.id}
-                id={optionId(i)}
-                role="option"
-                aria-selected={i === active}
-                // a click, which a screen reader's double tap also sends
-                onClick={() => pick(item)}
-                onMouseEnter={() => setHighlight(i)}
-                className={cn(
-                  "flex cursor-pointer items-baseline justify-between gap-3 px-3 py-1.5 text-[13px] max-sm:min-h-11 max-sm:items-center",
-                  i === active && "bg-divider",
-                )}
+            <div id={listId} role="listbox" aria-label="Invoice items">
+              {matches.map((item, i) => (
+                <div
+                  key={item.id}
+                  id={optionId(i)}
+                  role="option"
+                  aria-selected={i === active}
+                  // a click, which a screen reader's double tap also sends
+                  onClick={() => pick(item)}
+                  onMouseEnter={() => setHighlight(i)}
+                  className={cn(OPTION, i === active && "bg-divider")}
+                >
+                  <span className="min-w-0 break-words">{item.name}</span>
+                  <span className="shrink-0 text-[12px] text-faint">
+                    {itemPriceLabel(item)}
+                  </span>
+                </div>
+              ))}
+              {offersAdd && (
+                <div
+                  id={optionId(matches.length)}
+                  role="option"
+                  aria-selected={active === matches.length}
+                  aria-disabled={adding}
+                  onClick={addTyped}
+                  onMouseEnter={() => setHighlight(matches.length)}
+                  className={cn(
+                    OPTION,
+                    matches.length > 0 && "border-t border-divider",
+                    active === matches.length && "bg-divider",
+                  )}
+                >
+                  <span className="min-w-0 break-words text-primary-link">
+                    {adding ? "Adding…" : `+ Add “${name}” to items`}
+                  </span>
+                  <span className="shrink-0 text-[12px] text-faint">
+                    {itemPriceLabel(add.as)}
+                  </span>
+                </div>
+              )}
+            </div>
+            {/* held at the list's foot, or a long list would scroll it out of sight */}
+            {addError && (
+              <p
+                role="alert"
+                className="sticky bottom-0 border-t border-divider bg-surface px-3 py-1.5 text-[12px] text-danger-text"
               >
-                <span className="min-w-0 break-words">{item.name}</span>
-                <span className="shrink-0 text-[12px] text-faint">{itemPriceLabel(item)}</span>
-              </div>
-            ))}
+                {addError}
+              </p>
+            )}
           </div>,
           document.body,
         )}
@@ -156,6 +229,20 @@ export function suggestions(items: InvoiceItem[], text: string, pickedId: string
   return items.filter(
     (item) =>
       !(item.id === pickedId && item.name === text) && item.name.toLowerCase().includes(typed),
+  );
+}
+
+/**
+ * Whether the typed text is offered as a new item: a position typed by hand, not one picked from an
+ * item ("W-2 form, 2025" is still the W-2), whose name no active item has, case aside. A name a
+ * switched-off item has is offered, and the server says it is switched off.
+ */
+export function offersNewItem(items: InvoiceItem[], text: string, pickedId: string | null) {
+  const typed = text.trim().toLowerCase();
+  return (
+    pickedId === null &&
+    typed !== "" &&
+    !items.some((item) => item.name.toLowerCase() === typed)
   );
 }
 

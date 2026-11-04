@@ -14,8 +14,15 @@ import type {
   UpdateInvoiceInput,
   UpdatePaymentInput,
 } from "@shared/schema/payment";
+import type { CreateInvoiceItemInput, InvoiceItem } from "@shared/schema/invoice-items";
 import { api } from "@/shared/lib/api";
-import { CLIENTS_KEY, FILES_KEY, INVOICES_KEY, TASKS_KEY } from "@/shared/lib/query-keys";
+import {
+  CLIENTS_KEY,
+  FILES_KEY,
+  INVOICE_ITEMS_KEY,
+  INVOICES_KEY,
+  TASKS_KEY,
+} from "@/shared/lib/query-keys";
 import { useToast } from "@/shared/ui/toast";
 
 export interface InvoiceListResponse {
@@ -204,6 +211,28 @@ export function useLastRate(clientId: string | null) {
     queryKey: [...INVOICES_KEY, "last-rate", clientId],
     queryFn: () => api<LastRate>(`/api/invoices/last-rate?clientId=${clientId}`),
     enabled: clientId !== null,
+  });
+}
+
+/**
+ * A name a row's Position box did not find, added to the invoice items (payments.md §3, owner
+ * 2026-11-04). Billing's own route, so whoever bills may, Settings closed or not. The answer is the
+ * whole list, which replaces the cached one; the new item is the one of its name, unique case aside.
+ */
+export function useAddInvoiceItem() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: CreateInvoiceItemInput) => {
+      const list = await api<InvoiceItem[]>("/api/invoices/items", {
+        method: "POST",
+        body: input,
+      });
+      return { list, item: list.find((i) => i.name === input.name) };
+    },
+    onSuccess: ({ list }) => queryClient.setQueryData(INVOICE_ITEMS_KEY, list),
+    // a refusal is mostly a colleague's item this cache has not seen yet: it comes in, and the
+    // offer gives way to the item itself
+    onError: () => queryClient.invalidateQueries({ queryKey: INVOICE_ITEMS_KEY }),
   });
 }
 

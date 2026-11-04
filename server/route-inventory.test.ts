@@ -165,10 +165,12 @@ describe("route inventory", () => {
       // invoice, and add, edit and delete on the Settings gate, not an admin's.
       // +1 on 2026-11-04, deleting an invitation nobody accepted (users.md §2), on Team's gate
       // like the invite itself; anybody who signed in is blocked, never deleted.
-      total: 421,
+      // +1 the same day, an invoice item added from an invoice's row (payments.md §3), on Billing's
+      // gate: whoever bills, while editing the list stays on Settings'.
+      total: 422,
       derivedHead: 106,
-      real: 315,
-      api: 314, // everything but /health
+      real: 316,
+      api: 315, // everything but /health
       anonymous: 9, // 6 credential routes, 2 unsubscribe pages, /health
       // `POST /tasks/timer/start` moved to the `tasks` gate during the 2026-09-07 audit. It takes a
       // taskId and writes against somebody else's module, so it was never really "the caller's own
@@ -176,7 +178,7 @@ describe("route inventory", () => {
       // second factor and name nobody else.
       own: 15,
       shared: 14,
-      gated: 277,
+      gated: 278,
       adminOnly: 27,
     });
   });

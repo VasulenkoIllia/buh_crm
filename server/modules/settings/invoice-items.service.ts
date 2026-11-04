@@ -9,7 +9,8 @@ import * as repo from "./invoice-items.repository.js";
 
 /**
  * **Invoice items** (payments.md §3, 2026-11-02): Settings → Invoices edits them, whoever has
- * Settings open; New invoice and the correction pick from them. A line keeps its own copy, so a
+ * Settings open; New invoice and the correction pick from them, and whoever bills may add one from
+ * a row there (`POST /api/invoices/items`, 2026-11-04). A line keeps its own copy, so a
  * rename or a new price here reaches the next invoices, never the ones already issued.
  *
  * Every write answers with the whole list, as the payment details sets do: the screen shows it,
@@ -26,11 +27,19 @@ async function findOrThrow(id: string) {
   return item;
 }
 
-/** The friendly half of `InvoiceItem_name_key_ci`, which still refuses a race (409 either way). */
+/**
+ * The friendly half of `InvoiceItem_name_key_ci`, which still refuses a race (409 either way). One
+ * switched off is said to be, since an invoice's picker does not show it; not where to switch it
+ * on, since whoever bills may not have Settings.
+ */
 async function refuseNameClash(name: string, exceptId?: string) {
   const clash = await repo.findInvoiceItemByName(name);
   if (clash && clash.id !== exceptId) {
-    throw new ConflictError(`An item named “${name}” already exists`);
+    throw new ConflictError(
+      clash.active
+        ? `An item named “${name}” already exists`
+        : `An item named “${name}” exists, switched off`,
+    );
   }
 }
 

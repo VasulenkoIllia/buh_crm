@@ -1023,6 +1023,11 @@
     "access": "gate:billing"
   },
   {
+    "method": "POST",
+    "url": "/api/invoices/items",
+    "access": "gate:billing"
+  },
+  {
     "method": "GET",
     "url": "/api/invoices/last-rate",
     "access": "gate:billing"

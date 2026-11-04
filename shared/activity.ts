@@ -2630,7 +2630,7 @@ const EVENTS = {
   "invoice_item.created": {
     subject: "invoice_item",
     title: "{actor} added the invoice item {subject}",
-    when: "a position is added to the list on Settings → Invoices",
+    when: "a position is added to the list, on Settings → Invoices or from an invoice's row",
     granularity: "item",
     actorKinds: ["user"],
     retention: "ordinary",

@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { InvoiceItem } from "@shared/schema/invoice-items";
 import {
+  addedPosition,
   completedLine,
   settledLine,
   draftTotal,
   emptyLine,
+  itemFromRow,
   linesProblem,
   pickableItems,
   pickedPosition,
@@ -12,7 +14,7 @@ import {
   toLineInput,
   typedPosition,
 } from "./invoice-lines-editor";
-import { suggestions } from "./position-input";
+import { offersNewItem, suggestions } from "./position-input";
 
 /** Hours or items (client, 2026-11-02): what the positions editor sends and shows. */
 describe("positions counted in hours or in items", () => {
@@ -246,5 +248,58 @@ describe("a position picked from the invoice items", () => {
       description: "W-2 form",
       itemId: null,
     });
+  });
+});
+
+/** A name the Position box did not find, added to the items from its row (owner, 2026-11-04). */
+describe("an invoice item added from a row", () => {
+  const w2: InvoiceItem = {
+    id: "22222222-2222-4222-8222-222222222222",
+    name: "W-2 form",
+    unit: "item",
+    price: 50_00,
+    active: true,
+  };
+  const added: InvoiceItem = {
+    id: "55555555-5555-4555-8555-555555555555",
+    name: "Legal name change",
+    unit: "item",
+    price: null,
+    active: true,
+  };
+
+  it("is offered for a name typed by hand that no active item has, case aside", () => {
+    expect(offersNewItem([w2], "Legal name change", null)).toBe(true);
+    expect(offersNewItem([w2], "w-2 FORM ", null)).toBe(false);
+    expect(offersNewItem([w2], "   ", null)).toBe(false);
+    // a row picked from an item is that item, whatever is typed after its name
+    expect(offersNewItem([w2], "W-2 form, 2025", w2.id)).toBe(false);
+    // a part of a name is a name of its own
+    expect(offersNewItem([w2], "W-2", null)).toBe(true);
+  });
+
+  it("takes the row's unit and the rate it shows, or no price without one", () => {
+    const row = { ...emptyLine(), description: "Legal name change", unit: "item" as const };
+    expect(itemFromRow({ ...row, quantity: "1", rate: "120" })).toEqual({
+      unit: "item",
+      price: 120_00,
+    });
+    expect(itemFromRow(row)).toEqual({ unit: "item", price: null });
+    // the share a quantity and an amount give is the rate the row shows
+    expect(itemFromRow({ ...row, unit: "hour", quantity: "2", amount: "100" })).toEqual({
+      unit: "hour",
+      price: 50_00,
+    });
+  });
+
+  it("links the row and keeps its numbers, unless it was typed on or picked meanwhile", () => {
+    const row = { ...emptyLine(), description: "legal name change ", amount: "150" };
+    expect(addedPosition(row, added)).toEqual({
+      description: "Legal name change",
+      itemId: added.id,
+    });
+    expect(addedPosition({ ...row, description: "Legal name change, 2026" }, added)).toBeNull();
+    expect(addedPosition({ ...row, itemId: w2.id }, added)).toBeNull();
+    expect(addedPosition(undefined, added)).toBeNull();
   });
 });

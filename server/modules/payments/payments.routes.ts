@@ -17,8 +17,10 @@ import {
   updateInvoiceInput,
   updatePaymentInput,
 } from "@shared/schema/payment.js";
+import { createInvoiceItemInput } from "@shared/schema/invoice-items.js";
 import { gate } from "../../core/access.js";
 import { viewHeaders } from "../files/index.js";
+import { createInvoiceItem } from "../settings/index.js";
 import { attachInvoice, listUnbilledJobs } from "./job-invoices.js";
 import { invoicePdf, saveInvoicePdf } from "./payments.pdf.js";
 import * as service from "./payments.service.js";
@@ -88,6 +90,19 @@ export async function registerRoutes(instance: FastifyInstance) {
     "/bulk-tidy",
     { config: billing, schema: { body: bulkTidyInput } },
     async (request) => service.setTidied(request.body, request.currentUser!),
+  );
+
+  /**
+   * **A new invoice item from an invoice's row** (payments.md §3, owner 2026-11-04): whoever bills
+   * may add a name to the list the Position box offers, the row's unit and rate with it. Billing's
+   * gate, not Settings': Settings is closed to users by default, and they write invoices. Editing,
+   * switching off and deleting an item stay on Settings → Invoices. The answer is the whole list,
+   * as Settings' own add answers.
+   */
+  app.post(
+    "/items",
+    { config: billing, schema: { body: createInvoiceItemInput } },
+    async (request, reply) => reply.status(201).send(await createInvoiceItem(request.body)),
   );
 
   app.patch(
