@@ -23,7 +23,8 @@ const OPTION =
  * Nothing is highlighted until an arrow key says so, so Enter after typing keeps the text.
  *
  * A name typed by hand that no item has is offered last, to be added to the items (owner,
- * 2026-11-04): saved at once, so the next invoice finds it.
+ * 2026-11-04): it opens the item's form, where the unit and the price are set (2026-11-05), so the
+ * next invoice finds it.
  */
 export function PositionInput({
   value,
@@ -42,26 +43,16 @@ export function PositionInput({
   placeholder: string;
   onText: (text: string) => void;
   onPick: (item: InvoiceItem) => void;
-  /**
-   * Adding the typed name to the items: what the new item would be, shown beside the offer, and the
-   * request, which settles once the row has it. Absent where the caller may not add.
-   */
-  add?: { as: Pick<InvoiceItem, "unit" | "price">; run: (name: string) => Promise<unknown> };
+  /** Adding the typed name to the items: opens the item's form. Absent where the caller may not add. */
+  add?: (name: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(-1);
-  // both kept with the name they are about: rows are keyed by index, so a row removed above
-  // hands this box another row, and the text may change while the request runs
-  const [addingName, setAddingName] = useState<string | null>(null);
-  const [failed, setFailed] = useState<{ name: string; message: string } | null>(null);
   const field = useRef<HTMLInputElement>(null);
   const at = useFieldPlace(field, open);
   const listId = useId();
   const matches = open ? suggestions(items, value, pickedId) : [];
   const name = value.trim();
-  const adding = addingName === name;
-  // shown until the text changes, so a box left meanwhile shows it again
-  const addError = failed?.name === name ? failed.message : null;
   const offersAdd = open && !!add && offersNewItem(items, value, pickedId);
   // the offer is the last option, after the matches
   const count = matches.length + (offersAdd ? 1 : 0);
@@ -78,24 +69,8 @@ export function PositionInput({
     setOpen(false);
   };
   const addTyped = () => {
-    if (!add || adding) return;
-    const adds = name;
-    setAddingName(adds);
-    setFailed(null);
-    add
-      .run(adds)
-      .then(
-        // the list closes only under the text it added: typing on keeps it open
-        () => {
-          if (field.current?.value.trim() === adds) setOpen(false);
-        },
-        (e: unknown) =>
-          setFailed({
-            name: adds,
-            message: e instanceof Error ? e.message : "Could not add the item",
-          }),
-      )
-      .finally(() => setAddingName((now) => (now === adds ? null : now)));
+    setOpen(false);
+    add?.(name);
   };
 
   return (
@@ -183,7 +158,6 @@ export function PositionInput({
                   id={optionId(matches.length)}
                   role="option"
                   aria-selected={active === matches.length}
-                  aria-disabled={adding}
                   onClick={addTyped}
                   onMouseEnter={() => setHighlight(matches.length)}
                   className={cn(
@@ -193,23 +167,11 @@ export function PositionInput({
                   )}
                 >
                   <span className="min-w-0 break-words text-primary-link">
-                    {adding ? "Adding…" : `+ Add “${name}” to items`}
-                  </span>
-                  <span className="shrink-0 text-[12px] text-faint">
-                    {itemPriceLabel(add.as)}
+                    + Add “{name}” to items
                   </span>
                 </div>
               )}
             </div>
-            {/* held at the list's foot, or a long list would scroll it out of sight */}
-            {addError && (
-              <p
-                role="alert"
-                className="sticky bottom-0 border-t border-divider bg-surface px-3 py-1.5 text-[12px] text-danger-text"
-              >
-                {addError}
-              </p>
-            )}
           </div>,
           document.body,
         )}

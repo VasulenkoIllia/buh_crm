@@ -11,6 +11,14 @@ const SIZES = {
   "2xl": "max-w-6xl",
 } as const;
 
+/**
+ * The modals open now, innermost last. A modal joins once per opening, and `onClose` is read from
+ * a ref: joining again on every new `onClose`, which most callers pass inline, would bring an outer
+ * modal re-rendering under an inner one to the top, and it would take the inner one's Escape.
+ * The inner one has to open after the outer one: two opening in the same render join child first.
+ */
+const OPEN_MODALS: object[] = [];
+
 export function Modal({
   title,
   open,
@@ -47,16 +55,31 @@ export function Modal({
   // Was the mousedown on the backdrop itself? Only then does a full click close it —
   // so a text-selection drag that ends on the backdrop doesn't dismiss the modal.
   const downOnBackdrop = useRef(false);
+  const close = useRef(onClose);
+  useEffect(() => {
+    close.current = onClose;
+  });
 
   useEffect(() => {
     if (!open) return;
     // Escape belongs to the innermost open thing. One that took it already says so: a list being
     // dragged by the keyboard cancels the drag with it and marks the key handled, and closing the
-    // form as well threw away whatever was half typed in it (2026-10-08).
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !e.defaultPrevented && onClose();
+    // form as well threw away whatever was half typed in it (2026-10-08). A modal opened over
+    // another (a new invoice item over New invoice, 2026-11-05) is the innermost one: the window
+    // hears the outer one first, so the stack decides, not the order of the listeners.
+    const self = {};
+    OPEN_MODALS.push(self);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !e.defaultPrevented && OPEN_MODALS.at(-1) === self) {
+        close.current();
+      }
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      OPEN_MODALS.splice(OPEN_MODALS.indexOf(self), 1);
+    };
+  }, [open]);
 
   if (!open) return null;
 

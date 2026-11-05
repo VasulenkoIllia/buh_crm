@@ -292,14 +292,39 @@ describe("an invoice item added from a row", () => {
     });
   });
 
-  it("links the row and keeps its numbers, unless it was typed on or picked meanwhile", () => {
-    const row = { ...emptyLine(), description: "legal name change ", amount: "150" };
-    expect(addedPosition(row, added)).toEqual({
+  it("takes the name, unit and price the item's form saved, as a pick does", () => {
+    const row = { ...emptyLine(), description: "legal name chg", unit: "item" as const };
+    expect(
+      addedPosition({ ...row, quantity: "2" }, { ...added, unit: "hour", price: 90_00 }),
+    ).toEqual({
       description: "Legal name change",
+      unit: "hour",
+      quantity: "2",
+      rate: "90.00",
+      amount: "",
       itemId: added.id,
     });
-    expect(addedPosition({ ...row, description: "Legal name change, 2026" }, added)).toBeNull();
-    expect(addedPosition({ ...row, itemId: w2.id }, added)).toBeNull();
+    // an amount typed with no count becomes one at the price
+    expect(addedPosition({ ...row, amount: "150" }, { ...added, price: 150_00 })).toMatchObject(
+      {
+        quantity: "1",
+        rate: "150.00",
+        amount: "",
+      },
+    );
+  });
+
+  it("keeps the row's numbers when the item has no price, emptying the rate of a new unit", () => {
+    const row = { ...emptyLine(), description: "legal name change", unit: "item" as const };
+    expect(addedPosition({ ...row, amount: "150" }, added)).toEqual({
+      description: "Legal name change",
+      itemId: added.id,
+      unit: "item",
+    });
+    expect(
+      addedPosition({ ...row, quantity: "2", rate: "40" }, { ...added, unit: "hour" }),
+    ).toEqual({ description: "Legal name change", itemId: added.id, unit: "hour", rate: "" });
     expect(addedPosition(undefined, added)).toBeNull();
+    expect(addedPosition({ ...row, itemId: w2.id }, added)).toBeNull();
   });
 });

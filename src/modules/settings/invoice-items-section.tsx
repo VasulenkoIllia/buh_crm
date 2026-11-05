@@ -265,7 +265,8 @@ function EditItem({ item, onDone }: { item: InvoiceItem; onDone: () => void }) {
   );
 }
 
-function ItemForm({
+/** Also the form a row of New invoice or the correction adds an item through (`InvoiceItemForm`). */
+export function ItemForm({
   initial,
   framed = true,
   isPending,
@@ -348,10 +349,10 @@ function ItemForm({
         </p>
       )}
       <div className="flex gap-2">
-        <Button type="submit" disabled={!canSave}>
+        <Button type="submit" className="max-sm:h-11" disabled={!canSave}>
           Save
         </Button>
-        <Button type="button" variant="secondary" onClick={onCancel}>
+        <Button type="button" variant="secondary" className="max-sm:h-11" onClick={onCancel}>
           Cancel
         </Button>
       </div>

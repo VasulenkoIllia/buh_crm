@@ -1,7 +1,7 @@
-import { useEffect, useRef, type FocusEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FocusEvent, type ReactNode } from "react";
 import { Trash2 } from "lucide-react";
 import type { InvoiceLineUnit } from "@shared/schema/enums";
-import type { InvoiceItem } from "@shared/schema/invoice-items";
+import type { CreateInvoiceItemInput, InvoiceItem } from "@shared/schema/invoice-items";
 import type { Invoice } from "@shared/schema/payment";
 import { FRACTIONAL_ITEMS, isFractionalItemCount, lineAmount } from "@shared/schema/payment";
 import { useCanEdit } from "@/app/auth";
@@ -10,7 +10,7 @@ import { fmtMoney, moneyInputValue, parseMoney } from "@/shared/lib/money";
 import { Button, IconButton } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/field";
 import { useInvoiceItems } from "@/modules/settings";
-import { useAddInvoiceItem } from "./payments.api";
+import { NewItemModal } from "./new-item-modal";
 import { PositionInput } from "./position-input";
 
 /**
@@ -66,17 +66,19 @@ export function LinesEditor({
   const allItems = useInvoiceItems().data;
   const items = pickableItems(allItems);
 
-  // a name the list lacks is added from its row, by whoever bills (owner, 2026-11-04). The row is
-  // linked once the item is back, as the rows are then, not as they were when it was asked for
-  const addItem = useAddInvoiceItem();
+  // a name the list lacks is added from its row, by whoever bills (owner, 2026-11-04), in the item's
+  // own form (2026-11-05). The row is linked once the item is back, as the rows are then
   const canAdd = useCanEdit("billing");
+  const [newItem, setNewItem] = useState<{
+    row: number;
+    initial: CreateInvoiceItemInput;
+  } | null>(null);
   const latest = useRef(lines);
   useEffect(() => {
     latest.current = lines;
   });
-  const addFromRow = async (i: number, name: string) => {
-    const { item } = await addItem.mutateAsync({ name, ...itemFromRow(lines[i]) });
-    const patch = item ? addedPosition(latest.current[i], item) : null;
+  const linkAdded = (i: number, item: InvoiceItem) => {
+    const patch = addedPosition(latest.current[i], item);
     if (patch) onChange(latest.current.map((l, n) => (n === i ? { ...l, ...patch } : l)));
   };
 
@@ -146,7 +148,8 @@ export function LinesEditor({
                   add={
                     // not before the items load: every name would look new
                     canAdd && allItems
-                      ? { as: itemFromRow(line), run: (name) => addFromRow(i, name) }
+                      ? (name) =>
+                          setNewItem({ row: i, initial: { name, ...itemFromRow(line) } })
                       : undefined
                   }
                 />
@@ -218,6 +221,14 @@ export function LinesEditor({
           <span className="font-semibold tabular-nums">{fmtMoney(draftTotal(lines))}</span>
         </span>
       </div>
+
+      {newItem && (
+        <NewItemModal
+          initial={newItem.initial}
+          onAdded={(item) => linkAdded(newItem.row, item)}
+          onClose={() => setNewItem(null)}
+        />
+      )}
     </div>
   );
 }
@@ -335,16 +346,24 @@ export const itemFromRow = (line: DraftLine): Pick<InvoiceItem, "unit" | "price"
 };
 
 /**
- * A row linked to the item just added from it, its numbers as they are, since the item came from
- * them: a pick would put a count of 1 over an amount typed by hand. Nothing when the row was typed
- * on, picked or removed while the item was being saved.
+ * A row linked to the item just added from it (2026-11-05): the name, unit and price the form saved,
+ * which may differ from the row's, as a pick hands them over. An item with no price leaves the row's
+ * numbers as they are, since a pick would put a count of 1 over an amount typed by hand, and a new
+ * unit still empties the rate, as the unit switch does. Nothing when the row is gone or already
+ * names an item: the offer is made only on a row typed by hand.
  */
 export function addedPosition(
   line: DraftLine | undefined,
   item: InvoiceItem,
 ): Partial<DraftLine> | null {
-  const sameName = line?.description.trim().toLowerCase() === item.name.toLowerCase();
-  return line?.itemId === null && sameName ? { description: item.name, itemId: item.id } : null;
+  if (!line || line.itemId !== null) return null;
+  if (item.price !== null) return pickedPosition(line, item);
+  return {
+    description: item.name,
+    itemId: item.id,
+    unit: item.unit,
+    ...(item.unit !== line.unit ? { rate: "" } : {}),
+  };
 }
 
 /** A quantity as typed → hundredths of a unit. "3.5" → 350. */
