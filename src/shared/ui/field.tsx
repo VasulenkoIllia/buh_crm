@@ -69,16 +69,19 @@ export function FormField({
   label,
   htmlFor,
   error,
+  className,
   children,
 }: {
   /** a node, not a string: a field's label is where its `<InfoHint>` hangs */
   label: React.ReactNode;
   htmlFor?: string;
   error?: string;
+  /** for a field that has to grow with its column (the meeting's Notes) */
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
-    <div>
+    <div className={className}>
       <Label htmlFor={htmlFor}>{label}</Label>
       {children}
       <FieldError message={error} />

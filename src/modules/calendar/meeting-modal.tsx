@@ -56,6 +56,12 @@ const joinToInstant = (date: string, time: string): string =>
 /** Half-hour steps, so the common case is two clicks and the odd one is still typable. */
 const TIME_STEP_SECONDS = 1800;
 
+/**
+ * The least Notes ever shows. Two rows hid notes that run to a paragraph (owner, 2026-11-09); the
+ * box also grows to the bottom of its column when another column is taller.
+ */
+const NOTES_MIN_ROWS = 5;
+
 /** Only asked when the meeting has a client — a lead holds no services to route through. */
 type TaskMode = "internal" | "service";
 
@@ -365,7 +371,7 @@ export function MeetingModal({
                 // rearranged, and the work usually still needs doing. Say so rather than let the
                 // person discover it on the board.
                 const note = existing.taskId
-                  ? "\n\nIts task stays on the board — close that separately if the work is off too."
+                  ? "\n\nIts task stays on the board; close it there if the work is off too."
                   : "";
                 if (!window.confirm(`Call this meeting off? It leaves the calendar.${note}`))
                   return;
@@ -407,9 +413,13 @@ export function MeetingModal({
           how people are reminded, who from the firm is coming and the task it makes. In one column
           it ran to 700px, 780 for a client with people, and on a 13-inch MacBook it scrolled by up
           to 235 (owner, 2026-09-29).
+
+          The first column is a flex column so Notes takes whatever height the row has left. Link
+          went to the second column to give it that room: with Notes at five rows the first column
+          was the tallest, and every row of it made the whole modal taller (owner, 2026-11-09).
         */}
         <div className="grid gap-x-6 gap-y-3.5 lg:grid-cols-3">
-          <div className="space-y-3.5">
+          <div className="flex flex-col gap-3.5">
             <FormField label="Title" htmlFor="m-title" error={titleError ?? undefined}>
               <Input
                 id="m-title"
@@ -441,7 +451,7 @@ export function MeetingModal({
                     setSubscriptionId("");
                     setTaskMode("internal");
                   }}
-                  placeholder="Search — or leave empty for an internal meeting"
+                  placeholder="Search, or leave empty for internal"
                 />
               )}
             </FormField>
@@ -509,18 +519,12 @@ export function MeetingModal({
               </FormField>
             )}
 
-            <FormField label="Link" htmlFor="m-link">
-              <Input
-                id="m-link"
-                value={link}
-                onChange={(e) => setLink(e.target.value)}
-                placeholder="e.g. a video-call URL"
-              />
-            </FormField>
-            <FormField label="Notes" htmlFor="m-desc">
+            {/* `flex-auto`, not `flex-1`: the rows are the floor, and a zero basis would drop it */}
+            <FormField label="Notes" htmlFor="m-desc" className="flex flex-auto flex-col">
               <Textarea
                 id="m-desc"
-                rows={2}
+                rows={NOTES_MIN_ROWS}
+                className="flex-auto"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
               />
@@ -576,11 +580,11 @@ export function MeetingModal({
               </div>
             </FormField>
             {/*
-              Under Duration because both are about the clock, and above "Who's coming" because that is
-              who it reaches. Pills rather than a select: four choices and an off, all visible at once,
+              Under Duration because both are about the clock, and just before "Who's coming" because
+              that is who it reaches. Pills rather than a select: four choices and an off, all visible at once,
               the same shape the duration presets above already use.
             */}
-            <FormField label="Remind whoever is coming">
+            <FormField label="Reminder">
               <div className="flex flex-wrap items-center gap-1.5">
                 <button
                   type="button"
@@ -600,12 +604,14 @@ export function MeetingModal({
                   </button>
                 ))}
               </div>
-              {remind !== null && (
-                <p className="mt-1.5 text-[12px] text-muted-400">
-                  Everyone coming gets a notification {remind} minutes before — unless they have
-                  turned this off in their own profile.
-                </p>
-              )}
+            </FormField>
+            <FormField label="Link" htmlFor="m-link">
+              <Input
+                id="m-link"
+                value={link}
+                onChange={(e) => setLink(e.target.value)}
+                placeholder="e.g. a video-call URL"
+              />
             </FormField>
           </div>
 
@@ -630,14 +636,12 @@ export function MeetingModal({
                 <ul className="mt-1 space-y-0.5">
                   {conflicts.map((c) => (
                     <li key={c.meetingId}>
-                      {c.userIds.map(nameOf).join(", ")} — “{c.title}”,{" "}
+                      {c.userIds.map(nameOf).join(", ")}: “{c.title}”,{" "}
                       {fmtRange(c.startAt, c.durationMinutes)}
                     </li>
                   ))}
                 </ul>
-                <p className="mt-1 text-[12px] opacity-80">
-                  You can book it anyway — this is a heads-up, not a block.
-                </p>
+                <p className="mt-1 text-[12px] opacity-80">You can still book it.</p>
               </div>
             )}
 
@@ -669,9 +673,7 @@ export function MeetingModal({
                           ]}
                         />
                         {taskMode === "internal" ? (
-                          <p className="text-[12px] text-faint">
-                            The firm's own time, attributed to this client. Bills nothing.
-                          </p>
+                          <p className="text-[12px] text-faint">Not billed.</p>
                         ) : (
                           <>
                             <SearchSelect
@@ -680,7 +682,7 @@ export function MeetingModal({
                               placeholder={
                                 serviceOptions.length === 0
                                   ? "This client has no running service"
-                                  : "Which service does the work go through?"
+                                  : "Pick a service"
                               }
                               emptyLabel="—"
                               ariaLabel="Service"
@@ -688,8 +690,7 @@ export function MeetingModal({
                               onChange={setSubscriptionId}
                             />
                             <p className="text-[12px] text-faint">
-                              Billed exactly like any other job on that service — a one-time
-                              service will issue its invoice on its own trigger.
+                              Billed like any job on this service.
                             </p>
                           </>
                         )}
@@ -697,12 +698,12 @@ export function MeetingModal({
                     ) : (
                       <p className="text-[12px] text-faint">
                         {target?.kind === "lead"
-                          ? "Work on this lead — free, because a lead holds no services yet."
-                          : "The firm's own time. Pick a client above if it should go through a service."}
+                          ? "Not billed: a lead has no services yet."
+                          : "Internal, not billed."}
                       </p>
                     )}
                     <p className="text-[12px] text-faint">
-                      Due on the day of the meeting, assigned to you and everyone invited.
+                      Due on the meeting day, for you and everyone coming.
                     </p>
                   </div>
                 )}
