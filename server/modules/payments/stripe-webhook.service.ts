@@ -27,6 +27,17 @@ import { STRIPE_API_VERSION, type StripeMode, type StripeWebhookEvent } from "./
 
 const NOT_OURS = "not a payment this CRM asked for";
 
+/**
+ * How long a dispute about a payment this CRM has no record of is sent back to be delivered again,
+ * rather than ignored. Stripe does not keep its events in order: on 2026-11-12 the sandbox's
+ * dispute card sent the dispute 150 ms before the payment it disputes, and an answer of "not ours"
+ * lost it for good. A dispute older than this is somebody else's sale (owner, 2026-11-12).
+ */
+export const UNKNOWN_DISPUTE_RETRY_MS = 60 * 60 * 1000;
+
+/** What the route answers: 200, or a retry because the event came before what it is about. */
+export type StripeEventAnswer = "handled" | "too_early";
+
 const REFUSAL_REASONS: Record<repo.PaymentRefusal, string> = {
   cancelled: "the invoice was cancelled before the payment arrived",
   settled: "the invoice was already paid in full",
@@ -185,6 +196,13 @@ async function onDisputeCreated(event: EventOf<"dispute_created">) {
     ? await repo.findInvoiceIdByPaymentIntent(event.paymentIntentId)
     : null;
   const invoice = invoiceId ? await repo.findInvoiceLabel(invoiceId) : null;
+  if (!invoice) {
+    // a dispute has a deadline and money: the row alone would not say which payment it named
+    console.error(
+      `[stripe] dispute ${event.disputeId} (event ${event.id}) ignored: no payment of ours is ` +
+        `${event.paymentIntentId ?? "a dispute with no PaymentIntent"}`,
+    );
+  }
   const told: Told = invoice
     ? {
         outcome: "needs_attention",
@@ -206,6 +224,24 @@ async function retell(event: StripeWebhookEvent, seen: repo.SeenEvent) {
   if (!invoice) return;
   if (event.kind === "session_completed") await tellThenClose(event, invoice, seen, false);
   else await tell(event, invoice, seen, false);
+}
+
+/**
+ * A dispute that may have overtaken its own payment: young, and about a PaymentIntent no session of
+ * ours has recorded yet. Nothing is written, so the delivery Stripe sends again is a first one; the
+ * log line is written here, where the PaymentIntent and the age are known.
+ */
+async function isTooEarly(event: StripeWebhookEvent): Promise<boolean> {
+  if (event.kind !== "dispute_created" || !event.paymentIntentId) return false;
+  const ageMs = Date.now() - event.occurredAt.getTime();
+  if (ageMs >= UNKNOWN_DISPUTE_RETRY_MS) return false;
+  if ((await repo.findInvoiceIdByPaymentIntent(event.paymentIntentId)) !== null) return false;
+  console.error(
+    `[stripe] event ${event.id} (${event.type}) is about a payment not recorded yet ` +
+      `(${event.paymentIntentId}, ${Math.round(ageMs / 60_000)} min old); ` +
+      "Stripe will deliver it again",
+  );
+  return true;
 }
 
 /** The first delivery of an event. `false` when another delivery of it got there first. */
@@ -233,9 +269,12 @@ function handleFirst(event: StripeWebhookEvent): Promise<boolean> {
 
 /**
  * One verified event. Throws only on a failure of our own, which the route answers 500 so that
- * Stripe delivers it again.
+ * Stripe delivers it again; `too_early` is the same retry, asked for on purpose.
  */
-export async function handleStripeEvent(event: StripeWebhookEvent, mode: StripeMode) {
+export async function handleStripeEvent(
+  event: StripeWebhookEvent,
+  mode: StripeMode,
+): Promise<StripeEventAnswer> {
   if (event.apiVersion && event.apiVersion !== STRIPE_API_VERSION) {
     // read anyway: the fields used here have kept their shape, but the endpoint should be fixed
     console.error(
@@ -253,12 +292,17 @@ export async function handleStripeEvent(event: StripeWebhookEvent, mode: StripeM
         reason: `a ${event.livemode ? "live" : "sandbox"} event while the CRM runs ${mode}`,
       }),
     );
-    return;
+    return "handled";
   }
   const seen = await repo.findEvent(event.id);
-  if (seen) return retell(event, seen);
-  if (await handleFirst(event)) return;
+  if (seen) {
+    await retell(event, seen);
+    return "handled";
+  }
+  if (await isTooEarly(event)) return "too_early";
+  if (await handleFirst(event)) return "handled";
   // the other delivery may still fail after its row: tell what it decided from here too
   const decided = await repo.findEvent(event.id);
   if (decided) await retell(event, decided);
+  return "handled";
 }

@@ -3,7 +3,7 @@ import { anonymous } from "../../core/access.js";
 import { setActivityActor } from "../../core/activity.js";
 import { clientIp } from "../../core/client-ip.js";
 import { STRIPE_ACTOR } from "./stripe-webhook.notices.js";
-import { handleStripeEvent } from "./stripe-webhook.service.js";
+import { handleStripeEvent, type StripeEventAnswer } from "./stripe-webhook.service.js";
 import { isSignatureError, stripeGateway, type StripeWebhookEvent } from "./stripe.js";
 
 /** Stripe's events are a few kilobytes; a body this size is not one of them. */
@@ -30,7 +30,9 @@ const failed = (reply: FastifyReply) =>
  * Answers: 400 for a request that is not Stripe's (no header, a wrong or stale signature), with no
  * `StripeEvent` written, a line in the server log, and the request's bare activity row, failed,
  * which is what an audit log is read for; 404 while Stripe is not configured; 200 once the event is
- * handled or knowingly ignored, a repeat included; 500 for a failure of our own, always a 500 and
+ * handled or knowingly ignored, a repeat included; 503 for a dispute that came before the payment it
+ * disputes (`UNKNOWN_DISPUTE_RETRY_MS`), logged, so Stripe delivers it again once the payment is in;
+ * 500 for a failure of our own, always a 500 and
  * logged with the event's id, so Stripe delivers it again (the app's error handler would turn a
  * database refusal into a 409 or a 400 and log nothing). No Origin check opt-out: Stripe sends no
  * Origin, and a request that carries one is not Stripe's.
@@ -90,14 +92,21 @@ export async function registerStripeWebhookRoutes(instance: FastifyInstance) {
 
           // from here on the request is Stripe's, and its tier-1 row says so
           setActivityActor(STRIPE_ACTOR);
+          let answer: StripeEventAnswer;
           try {
-            await handleStripeEvent(event, gateway.mode);
+            answer = await handleStripeEvent(event, gateway.mode);
           } catch (error) {
             console.error(
               `[stripe] event ${event.id} (${event.type}) failed; Stripe will deliver it again`,
               error,
             );
             return failed(reply);
+          }
+          if (answer === "too_early") {
+            // logged by the service, which knows the payment it waits for
+            return reply
+              .status(503)
+              .send({ error: { code: "too_early", message: "Not processed yet" } });
           }
           return reply.status(200).send({ received: true });
         },

@@ -4,6 +4,7 @@ import { buildApp } from "../../app.js";
 import { ensureBaseData } from "../../core/bootstrap.js";
 import { prisma } from "../../core/db.js";
 import { createPeople, removePeople, type Person } from "../../test/people.js";
+import { UNKNOWN_DISPUTE_RETRY_MS } from "./stripe-webhook.service.js";
 import { fakeStripe, signWebhook } from "./stripe.fake.js";
 import { setStripeGatewayForTests, STRIPE_API_VERSION } from "./stripe.js";
 
@@ -572,17 +573,76 @@ describe("a refund and a dispute in Stripe", () => {
     expect(await eventRow(refund.id)).toMatchObject({ outcome: "ignored", invoiceId: null });
   });
 
-  it("are ignored for a dispute that is not ours", async () => {
+  /**
+   * Stripe does not keep its events in order. On production on 2026-11-12 the sandbox's dispute
+   * card sent `charge.dispute.created` 150 ms before the `checkout.session.completed` it disputes;
+   * the dispute found no invoice, was ignored with a 200, and nobody was told.
+   */
+  it("is delivered again when the dispute overtook its payment, then told", async () => {
+    const invoice = await makeInvoice(25000);
+    const session = await openSession(invoice);
+    const object = completed(session);
     const dispute = stripeEvent("charge.dispute.created", {
-      id: "dp_2",
+      id: "dp_3",
       object: "dispute",
-      amount: 5000,
-      charge: "ch_4",
-      payment_intent: intentId(),
+      amount: 25000,
+      charge: "ch_5",
+      payment_intent: object.payment_intent,
       reason: "fraudulent",
     });
-    await deliver(dispute);
+
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    // every early delivery is turned back and leaves nothing to find
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      expect((await deliver(dispute)).statusCode).toBe(503);
+      expect(await eventRow(dispute.id)).toBeNull();
+    }
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining(String(object.payment_intent)));
+
+    await deliver(stripeEvent("checkout.session.completed", object));
+    expect((await deliver(dispute)).statusCode).toBe(200);
+    expect(await eventRow(dispute.id)).toMatchObject({
+      outcome: "needs_attention",
+      invoiceId: invoice.id,
+      reason: "$250.00 disputed: fraudulent",
+    });
+    expect(await noticesFor("invoice_online_attention", invoice.id)).toHaveLength(1);
+    expect(await journalCount("invoice.disputed_in_stripe", invoice.id)).toBe(1);
+  });
+
+  it("are ignored for a dispute that names no payment at all, however young", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const dispute = stripeEvent("charge.dispute.created", {
+      id: "dp_4",
+      object: "dispute",
+      amount: 5000,
+      charge: "ch_6",
+      payment_intent: null,
+      reason: "fraudulent",
+    });
+    expect((await deliver(dispute)).statusCode).toBe(200);
     expect(await eventRow(dispute.id)).toMatchObject({ outcome: "ignored", invoiceId: null });
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining("dp_4"));
+  });
+
+  it("are ignored for a dispute that is not ours, once it is too old to be overtaking one", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const createdMs = Date.now() - UNKNOWN_DISPUTE_RETRY_MS - 60_000;
+    const dispute = stripeEvent(
+      "charge.dispute.created",
+      {
+        id: "dp_2",
+        object: "dispute",
+        amount: 5000,
+        charge: "ch_4",
+        payment_intent: intentId(),
+        reason: "fraudulent",
+      },
+      { created: Math.floor(createdMs / 1000) },
+    );
+    expect((await deliver(dispute)).statusCode).toBe(200);
+    expect(await eventRow(dispute.id)).toMatchObject({ outcome: "ignored", invoiceId: null });
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining("dp_2"));
   });
 
   it("tell the admins about a refund of money no card payment recorded, in those words", async () => {
