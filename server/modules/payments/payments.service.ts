@@ -550,11 +550,12 @@ export async function setDelivery(id: string, input: SetDeliveryInput, user: Use
 export async function cancelInvoice(id: string, user: User) {
   const invoice = await repo.findInvoice(id);
   if (!invoice) throw new NotFoundError("Invoice not found");
-  if (invoice.cancelledAt) throw new ValidationError("This invoice is already cancelled");
-  if (invoice.payments.length > 0) {
+  // both rules are checked under the invoice's row lock, where a payment landing now is seen
+  const { invoice: cancelled, reason } = await repo.cancelInvoiceChecked(id, user.id);
+  if (reason === "cancelled") throw new ValidationError("This invoice is already cancelled");
+  if (reason === "paid") {
     throw new ValidationError("Delete the payments on this invoice before cancelling it");
   }
-  const cancelled = await repo.cancelInvoice(id, user.id);
   await closeOpenCheckouts([id]);
   record("invoice.cancelled", {
     subjectId: id,
@@ -621,18 +622,19 @@ export async function updatePayment(id: string, input: UpdatePaymentInput, user:
   const payment = await repo.findPayment(id);
   if (!payment) throw new NotFoundError("Payment not found");
 
-  const amount = input.amount ?? payment.amount;
-  const others = await repo.sumOtherPayments(payment.invoiceId, id);
-  if (others + amount > payment.invoice.amount) {
-    throw new ValidationError("Payments would exceed the invoice total");
-  }
-
   const before = snapshot(payment);
-  const updated = await repo.updatePayment(id, payment.invoiceId, {
-    ...(input.amount !== undefined ? { amount: input.amount } : {}),
-    ...(input.paidAt !== undefined ? { paidAt: dateToUtc(input.paidAt) } : {}),
-    ...(input.reference !== undefined ? { reference: input.reference ?? null } : {}),
-  });
+  // the invoice's total is checked under its row lock, where a payment landing now is seen
+  const { payment: updated, reason } = await repo.updatePaymentChecked(
+    id,
+    payment.invoiceId,
+    input.amount,
+    {
+      ...(input.amount !== undefined ? { amount: input.amount } : {}),
+      ...(input.paidAt !== undefined ? { paidAt: dateToUtc(input.paidAt) } : {}),
+      ...(input.reference !== undefined ? { reference: input.reference ?? null } : {}),
+    },
+  );
+  if (reason === "over") throw new ValidationError("Payments would exceed the invoice total");
   if (updated.amount !== before.amount) await closeOpenCheckouts([payment.invoiceId]);
   await repo.writeAudit({
     invoiceId: payment.invoiceId,

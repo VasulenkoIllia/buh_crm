@@ -27,6 +27,10 @@ if (!/@(localhost|127\.0\.0\.1|db)[:/]/.test(config.DATABASE_URL)) {
 async function clean() {
   const where = { where: { client: { email: { endsWith: TAG } } } };
   console.log("tasks       ", (await prisma.task.deleteMany(where)).count);
+  // RESTRICT to the invoice (payments.md §11), so before it, as scripts/reset-data.sql does
+  const ofInvoices = { where: { invoice: where.where } };
+  console.log("stripe events", (await prisma.stripeEvent.deleteMany(ofInvoices)).count);
+  console.log("checkouts   ", (await prisma.stripeCheckout.deleteMany(ofInvoices)).count);
   console.log("invoices    ", (await prisma.invoice.deleteMany(where)).count);
   console.log(
     "periods     ",

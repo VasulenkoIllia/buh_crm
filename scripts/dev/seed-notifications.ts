@@ -72,7 +72,11 @@ async function wipe() {
   });
   await prisma.meeting.deleteMany({ where: { title: { startsWith: TAG } } });
   await prisma.task.deleteMany({ where: { id: { in: ids } } });
-  await prisma.invoice.deleteMany({ where: { number: { startsWith: "TEST-" } } });
+  // RESTRICT to the invoice (payments.md §11), so before it, as scripts/reset-data.sql does
+  const testInvoices = { number: { startsWith: "TEST-" } };
+  await prisma.stripeEvent.deleteMany({ where: { invoice: testInvoices } });
+  await prisma.stripeCheckout.deleteMany({ where: { invoice: testInvoices } });
+  await prisma.invoice.deleteMany({ where: testInvoices });
   await prisma.notification.deleteMany();
   await prisma.mailSenderAccount.updateMany({ data: { bounceError: null } });
   console.log(

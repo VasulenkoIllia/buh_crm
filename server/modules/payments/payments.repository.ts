@@ -155,11 +155,27 @@ export function setDeliveryMany(ids: string[], sent: boolean, userId: string) {
   });
 }
 
-export function cancelInvoice(id: string, userId: string) {
-  return prisma.invoice.update({
-    where: { id },
-    data: { cancelledAt: new Date(), cancelledById: userId },
-    include: invoiceInclude,
+/**
+ * Void an invoice with its state re-checked under the invoice's row lock, the one a payment's
+ * write takes: a payment written at the same moment (Add payment, the Stripe webhook) either
+ * commits first and stops the cancel, or waits and finds the invoice cancelled. Checked before
+ * the lock, a payment could land between the check and the write and leave a cancelled invoice
+ * holding money.
+ */
+export function cancelInvoiceChecked(id: string, userId: string) {
+  return prisma.$transaction(async (tx) => {
+    const { cancelledAt } = await lockInvoice(tx, id);
+    if (cancelledAt) return { invoice: null, reason: "cancelled" as const };
+    // a statement of its own, after the lock: it sees a payment committed while this one waited
+    if ((await tx.payment.count({ where: { invoiceId: id } })) > 0) {
+      return { invoice: null, reason: "paid" as const };
+    }
+    const invoice = await tx.invoice.update({
+      where: { id },
+      data: { cancelledAt: new Date(), cancelledById: userId },
+      include: invoiceInclude,
+    });
+    return { invoice, reason: null };
   });
 }
 
@@ -527,7 +543,7 @@ export function listUnbilledJobs(clientId: string) {
 export type PaymentRecord = Prisma.PaymentGetPayload<{
   include: {
     invoice: {
-      select: { id: true; amount: true; cancelledAt: true; number: true; clientId: true };
+      select: { id: true; cancelledAt: true; number: true; clientId: true };
     };
   };
 }>;
@@ -539,16 +555,20 @@ export function findPayment(id: string): Promise<PaymentRecord | null> {
     // against its invoice and its client, and neither is worth a second query here
     include: {
       invoice: {
-        select: { id: true, amount: true, cancelledAt: true, number: true, clientId: true },
+        select: { id: true, cancelledAt: true, number: true, clientId: true },
       },
     },
   });
 }
 
 /** Σ of the OTHER payments on this invoice — the headroom an edit must respect. */
-export async function sumOtherPayments(invoiceId: string, exceptPaymentId?: string) {
-  const agg = await prisma.payment.aggregate({
-    where: { invoiceId, ...(exceptPaymentId ? { id: { not: exceptPaymentId } } : {}) },
+async function sumOtherPayments(
+  tx: Prisma.TransactionClient,
+  invoiceId: string,
+  exceptPaymentId: string,
+) {
+  const agg = await tx.payment.aggregate({
+    where: { invoiceId, id: { not: exceptPaymentId } },
     _sum: { amount: true },
   });
   return agg._sum.amount ?? 0;
@@ -592,6 +612,20 @@ export async function insertPaymentLocked(
 }
 
 /**
+ * Take the invoice's row lock for the rest of the transaction: the same write `insertPaymentLocked`
+ * opens with. A cancel and an edit or delete of a payment open with it too, so what each reads
+ * inside its transaction (the cancel's two rules, the payments a total is re-derived from) is what
+ * the one before it committed.
+ */
+function lockInvoice(tx: Prisma.TransactionClient, invoiceId: string) {
+  return tx.invoice.update({
+    where: { id: invoiceId },
+    data: { updatedAt: new Date() }, // the write is what takes the lock
+    select: { amount: true, cancelledAt: true },
+  });
+}
+
+/**
  * Re-derive `Invoice.paidTotal` from the payments — always recompute rather than nudge a delta,
  * so the stored figure can never drift from the rows it summarises. Runs inside the caller's
  * transaction, which already holds the invoice row lock.
@@ -604,20 +638,37 @@ async function syncPaidTotal(tx: Prisma.TransactionClient, invoiceId: string) {
   });
 }
 
-export function updatePayment(
+/**
+ * Edit a payment with the invoice's total re-checked under its row lock, as a new payment's is
+ * (`insertPaymentLocked`). Checked before the lock, a new payment or another edit landing at the
+ * same moment could each fit on its own and together take the payments past the total. `amount` is
+ * the new amount when the edit changes it; without one, the payment's own is read under the lock.
+ */
+export function updatePaymentChecked(
   id: string,
   invoiceId: string,
+  amount: number | undefined,
   data: Prisma.PaymentUncheckedUpdateInput,
 ) {
   return prisma.$transaction(async (tx) => {
+    // before the payment: the headroom and the Σ syncPaidTotal reads must include a change that
+    // committed while this one waited, or the check passes on old rows and the total goes stale
+    const invoice = await lockInvoice(tx, invoiceId);
+    const after =
+      amount ??
+      (await tx.payment.findUniqueOrThrow({ where: { id }, select: { amount: true } })).amount;
+    if ((await sumOtherPayments(tx, invoiceId, id)) + after > invoice.amount) {
+      return { payment: null, reason: "over" as const };
+    }
     const payment = await tx.payment.update({ where: { id }, data });
     await syncPaidTotal(tx, invoiceId);
-    return payment;
+    return { payment, reason: null };
   });
 }
 
 export function deletePayment(id: string, invoiceId: string) {
   return prisma.$transaction(async (tx) => {
+    await lockInvoice(tx, invoiceId); // first, for the reason updatePaymentChecked gives
     await tx.payment.delete({ where: { id } });
     await syncPaidTotal(tx, invoiceId);
   });
