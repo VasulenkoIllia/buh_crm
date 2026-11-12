@@ -101,7 +101,7 @@ export function SystemStatusSection() {
         );
       })}
 
-      <StripePanel stripe={data.stripe} />
+      <StripePanel stripe={data.stripe} now={now} />
 
       <LiveConnectionPanel />
 

@@ -170,11 +170,14 @@ describe("route inventory", () => {
       // +1 on 2026-11-12, the invoice's pay link `GET /pay/:token` (payments.md §11), the tenth
       // public route and a security decision: its token is the credential, it only ever sends the
       // holder to Stripe for the balance, and it has no HEAD, so a mail scanner opens no session.
-      total: 423,
+      // +1 the same day, Stripe's webhook `POST /api/stripe/webhook` (payments.md §11, stage B),
+      // the eleventh public route: Stripe has no session, and the request is authenticated by
+      // Stripe's signature over its raw bytes before anything in it is read.
+      total: 424,
       derivedHead: 106,
-      real: 317,
-      api: 315, // everything but /health and /pay/:token
-      anonymous: 10, // 6 credential routes, 2 unsubscribe pages, /health, the pay link
+      real: 318,
+      api: 316, // everything but /health and /pay/:token
+      anonymous: 11, // 6 credential routes, 2 unsubscribe pages, /health, the pay link, the webhook
       // `POST /tasks/timer/start` moved to the `tasks` gate during the 2026-09-07 audit. It takes a
       // taskId and writes against somebody else's module, so it was never really "the caller's own
       // row" — `active` and `stop` still are, and must be. The two-factor five are the caller's own
@@ -195,9 +198,10 @@ describe("route inventory", () => {
    * The one list nobody had ever seen: what answers without a session. It confirmed the audit's
    * count of 8 exactly — no route had been missed. The ninth, the second step of signing in, was
    * decided on 2026-09-12 (two-factor.md §5.4) and is listed here rather than slipped in. The
-   * tenth, the invoice's pay link, on 2026-11-12 (payments.md §11, permissions.md).
+   * tenth, the invoice's pay link, and the eleventh, Stripe's webhook, on 2026-11-12
+   * (payments.md §11, permissions.md).
    */
-  it("keeps the unauthenticated surface to the ten routes that are meant to be public", () => {
+  it("keeps the unauthenticated surface to the eleven routes that are meant to be public", () => {
     expect(
       live
         .filter((r) => !r.derived && r.access === "anonymous")
@@ -214,6 +218,7 @@ describe("route inventory", () => {
       "POST /api/auth/logout",
       "POST /api/auth/reset-password",
       "POST /api/mailouts/unsubscribe/:token",
+      "POST /api/stripe/webhook",
     ]);
   });
 

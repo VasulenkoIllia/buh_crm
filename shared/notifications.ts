@@ -68,6 +68,8 @@ export type NotificationTriggerKey =
   | "meeting_uninvited"
   | "meeting_soon"
   | "invoice_overdue"
+  | "invoice_paid_online"
+  | "invoice_online_attention"
   | "ops_mailbox_broken"
   | "ops_sweep_failed"
   | "ops_mailout_errors"
@@ -107,7 +109,7 @@ export interface NotificationTriggerSpec {
    * The permission area this trigger MAY be routed by — offered on the settings screen, and off
    * until somebody turns it on.
    *
-   * Set only on the four triggers that address an AUDIENCE rather than a subject. The other
+   * Set only on the triggers that address an AUDIENCE rather than a subject. The
    * others reach the person the thing is about — the assignee, the participant, the author — and
    * a gate is meaningless for those.
    *
@@ -387,6 +389,48 @@ export const NOTIFICATION_TRIGGERS: Record<NotificationTriggerKey, NotificationT
     dedupScope: "record",
     mandatory: false,
   },
+  /**
+   * Its own trigger so the firm can switch it off on its own (owner, 2026-11-12): good news, and
+   * the bell is enough for it, so no letter by default. Keyed by Stripe's event, which never comes
+   * round again.
+   */
+  invoice_paid_online: {
+    gateOption: "billing",
+    group: "billing",
+    title: "Invoice {number} was paid online: {client}",
+    when: "A client pays an invoice by card through its pay link, and the CRM records it.",
+    why: "Money that came in by itself is otherwise noticed only by whoever opens the invoice next.",
+    source: "event",
+    defaultRecipients: ["admin", "custom"],
+    defaultInApp: true,
+    defaultEmail: false,
+    defaultSound: false,
+    dedupScope: "occurrence",
+    mandatory: false,
+  },
+  /**
+   * One trigger for the three things in Stripe a person has to act on: money the invoice could not
+   * take, a refund and a dispute (payments.md §11). Nothing changes money on its own, so without
+   * this the CRM and Stripe would disagree in silence.
+   */
+  invoice_online_attention: {
+    gateOption: "billing",
+    group: "billing",
+    title: "Invoice {number}: {problem}",
+    when:
+      "Money paid online cannot be recorded by itself, or a card payment is refunded or disputed " +
+      "in Stripe.",
+    why:
+      "The CRM leaves the money as it is in all three cases, so until somebody corrects the " +
+      "payment by hand the invoice and Stripe say different things.",
+    source: "event",
+    defaultRecipients: ["admin", "custom"],
+    defaultInApp: true,
+    defaultEmail: true,
+    defaultSound: false,
+    dedupScope: "occurrence",
+    mandatory: false,
+  },
   ops_mailbox_broken: {
     gateOption: "mailboxes",
     group: "ops",
@@ -504,7 +548,7 @@ export const MODULE_NOTIFICATIONS: Record<string, readonly NotificationTriggerKe
       "meeting_uninvited",
       "meeting_soon",
     ],
-    payments: ["invoice_overdue"],
+    payments: ["invoice_overdue", "invoice_paid_online", "invoice_online_attention"],
     mailouts: ["ops_mailbox_broken", "ops_mailout_errors"],
     notifications: ["ops_sweep_failed"],
 

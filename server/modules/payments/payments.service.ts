@@ -20,6 +20,7 @@ import { clientLabel, personName, type Nameable } from "../../core/names.js";
 import { issueInvoice } from "./invoicing.js";
 import { issueInvoiceOnJob, jobToBill } from "./job-invoices.js";
 import { closeOpenCheckouts, payUrlFor } from "./pay-link.service.js";
+import { STRIPE_LABEL } from "./stripe.js";
 import { diff, record } from "../../core/activity.js";
 import * as repo from "./payments.repository.js";
 
@@ -127,7 +128,9 @@ export function toInvoiceDto(
       paidAt: p.paidAt.toISOString(),
       reference: p.reference,
       createdById: p.createdById,
-      createdByName: personName(p.createdBy),
+      // the webhook records a payment with nobody behind it (payments.md §11)
+      createdByName: p.createdBy ? personName(p.createdBy) : STRIPE_LABEL,
+      source: p.source,
       createdAt: p.createdAt.toISOString(),
     })),
   };
@@ -563,17 +566,8 @@ export async function cancelInvoice(id: string, user: User) {
 
 // ── payments ─────────────────────────────────────────────────────────────────
 
-const snapshot = (p: {
-  id: string;
-  amount: number;
-  paidAt: Date;
-  reference: string | null;
-}) => ({
-  id: p.id,
-  amount: p.amount,
-  paidAt: p.paidAt.toISOString(),
-  reference: p.reference,
-});
+// beside the audit's writer, so the webhook's audit row inside its own transaction has the same shape
+const snapshot = repo.paymentSnapshot;
 
 /**
  * Any user may register a payment (admin-only edits/deletes are the guardrail).
@@ -747,7 +741,7 @@ export async function listAudit(invoiceId: string) {
     paymentId: r.paymentId,
     action: r.action,
     byUserId: r.byUserId,
-    byUserName: personName(r.byUser),
+    byUserName: r.byUser ? personName(r.byUser) : STRIPE_LABEL,
     before: r.before,
     after: r.after,
     createdAt: r.createdAt.toISOString(),

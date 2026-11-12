@@ -22,8 +22,11 @@ export const paymentSchema = z.object({
   paidAt: z.iso.datetime(),
   /** external reconcile number (bank statement / accounting system) */
   reference: z.string().nullable(),
-  createdById: uuid,
+  /** null for a payment the Stripe webhook recorded; `createdByName` then says Stripe */
+  createdById: uuid.nullable(),
   createdByName: z.string(),
+  /** typed by a person, or recorded by the Stripe webhook (payments.md §11) */
+  source: z.enum(["manual", "stripe"]),
   createdAt: z.iso.datetime(),
 });
 export type Payment = z.infer<typeof paymentSchema>;

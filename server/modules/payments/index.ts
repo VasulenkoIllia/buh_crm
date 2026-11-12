@@ -23,3 +23,6 @@ export { countOwedInvoicesForClient } from "./payments.repository.js";
 // the public pay link, registered beside /health (app.ts), and Stripe's line on Settings → System
 export { registerPayLinkRoutes } from "./pay-link.routes.js";
 export { stripeStatus } from "./pay-link.service.js";
+
+// Stripe's webhook, public, with a body parser of its own (app.ts)
+export { registerStripeWebhookRoutes } from "./stripe-webhook.routes.js";

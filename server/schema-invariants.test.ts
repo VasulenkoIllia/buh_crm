@@ -374,6 +374,13 @@ describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
       // a Stripe session is money somebody may have paid: the invoice it was for cannot vanish
       // under it (payments.md §11)
       "StripeCheckout.invoiceId",
+      // the webhook's record of money taken online, refunded or disputed (payments.md §11)
+      "StripeEvent.invoiceId",
+      // nullable since the webhook records payments with nobody behind them (payments.md §11), and
+      // an optional relation defaults to SET NULL: a colleague deleted for good would turn their
+      // payments into Stripe's. The schema names Restrict; this holds it there.
+      "Payment.createdById",
+      "PaymentAuditLog.byUserId",
     ]) {
       expect(restricted, `${fk} must be ON DELETE RESTRICT`).toContain(fk);
     }

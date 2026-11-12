@@ -96,6 +96,20 @@ enum PaymentAuditAction {
   deleted
 }
 
+/// How a payment arrived: typed by a person, or recorded by the Stripe webhook (payments.md §11).
+enum PaymentSource {
+  manual
+  stripe
+}
+
+/// What the Stripe webhook did with an event (payments.md §11): `needs_attention` is money or a
+/// refund or a dispute a person has to look at, and the admins were told.
+enum StripeEventOutcome {
+  applied
+  ignored
+  needs_attention
+}
+
 /// What happened to a secret. `unlock_failed` is journalled too: a run of them is the only signal
 /// that somebody is guessing a password. Since S18 `deleted` means moved to the Trash, and `purged`
 /// is the disposal thirty days later (secrets.md §9).
@@ -1294,6 +1308,7 @@ model Invoice {
   payments     Payment[]
   auditLogs    PaymentAuditLog[]
   checkouts    StripeCheckout[]
+  stripeEvents StripeEvent[]
 
   @@unique([subscriptionId, periodKey])
   @@index([clientId])
@@ -1370,12 +1385,17 @@ model Payment {
   amount      Int // minor units
   paidAt      DateTime
   reference   String? // external reconcile number (bank statement / accounting system)
-  createdById String   @db.Uuid
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  /// who typed it; null only for a payment the Stripe webhook recorded (`source: stripe`)
+  createdById String?       @db.Uuid
+  source      PaymentSource @default(manual)
+  /// the card payment it came from: unique, so one payment in Stripe is never recorded twice
+  stripePaymentIntentId String?  @unique
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  createdBy User    @relation("PaymentCreatedBy", fields: [createdById], references: [id])
+  // Restrict named, because an optional relation would otherwise default to SET NULL
+  createdBy User?   @relation("PaymentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
 
   @@index([invoiceId])
 }
@@ -1385,13 +1405,15 @@ model PaymentAuditLog {
   invoiceId String             @db.Uuid
   paymentId String?            @db.Uuid // null after delete; snapshot lives in before/after
   action    PaymentAuditAction
-  byUserId  String             @db.Uuid
+  /// null only when the Stripe webhook recorded the payment
+  byUserId  String?            @db.Uuid
   before    Json?
   after     Json?
   createdAt DateTime           @default(now())
 
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  byUser  User    @relation(fields: [byUserId], references: [id])
+  // Restrict named, because an optional relation would otherwise default to SET NULL
+  byUser  User?   @relation(fields: [byUserId], references: [id], onDelete: Restrict)
 
   @@index([invoiceId])
 }
@@ -1421,13 +1443,41 @@ model StripeCheckout {
   /// switch to the live one
   livemode  Boolean
   status    StripeCheckoutStatus @default(open)
-  createdAt DateTime             @default(now())
-  updatedAt DateTime             @updatedAt
+  /// the PaymentIntent that paid it, from `checkout.session.completed`: how a refund or a dispute,
+  /// which know only the payment, find the invoice, also when the payment could not be applied
+  paymentIntentId String?  @unique
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   // Restrict: a record of money asked for online is never removed with its invoice by accident
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
 
   @@index([invoiceId, status])
+}
+
+/// One event the Stripe webhook accepted (payments.md §11), whatever it did with it. Keyed by
+/// Stripe's own id, so a delivery Stripe repeats finds its row and does nothing again. The newest
+/// row is the "last webhook" on Settings → System.
+model StripeEvent {
+  /// Stripe's `evt_…` id
+  id         String             @id
+  type       String
+  livemode   Boolean
+  /// the session, charge or dispute the event is about
+  objectId   String?
+  invoiceId  String?            @db.Uuid
+  outcome    StripeEventOutcome
+  /// why it was ignored or needs attention, in plain words, for whoever reconciles with Stripe
+  reason     String?
+  /// when Stripe made the event
+  occurredAt DateTime
+  receivedAt DateTime           @default(now())
+
+  // Restrict: a record of money taken online is never removed with its invoice by accident
+  invoice Invoice? @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@index([invoiceId])
+  @@index([livemode, receivedAt])
 }
 
 // ── Calendar ─────────────────────────────────────────────────────────────────

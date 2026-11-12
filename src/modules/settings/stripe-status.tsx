@@ -1,3 +1,4 @@
+import { relativeTime } from "@/shared/lib/format";
 import { JOB_TONE_COLORS } from "@/shared/lib/colors";
 import type { SystemHealthResponse } from "./settings.api";
 
@@ -16,10 +17,16 @@ const MODE_TEXT = {
 
 /**
  * **Settings → System → Online payments** (payments.md §11): which Stripe the pay link talks to,
- * read off the server's key. Not shown at all while Stripe is not configured, like every other part
- * of it. The last webhook joins this row with stage B.
+ * read off the server's key, and when Stripe last reached the webhook. Not shown at all while
+ * Stripe is not configured, like every other part of it.
  */
-export function StripePanel({ stripe }: { stripe: SystemHealthResponse["stripe"] }) {
+export function StripePanel({
+  stripe,
+  now,
+}: {
+  stripe: SystemHealthResponse["stripe"];
+  now: Date;
+}) {
   if (!stripe) return null;
   const text = MODE_TEXT[stripe.mode];
   const color = JOB_TONE_COLORS[text.tone].fg;
@@ -36,6 +43,11 @@ export function StripePanel({ stripe }: { stripe: SystemHealthResponse["stripe"]
           />
           <span className="text-[12px]" style={{ color }}>
             {text.label}
+          </span>
+          <span className="text-[12px] text-muted">
+            {stripe.lastWebhookAt
+              ? `Last webhook ${relativeTime(new Date(stripe.lastWebhookAt), now)}`
+              : "No webhook yet"}
           </span>
         </div>
         <p className="mt-1 text-[12px] text-muted">{text.note}</p>

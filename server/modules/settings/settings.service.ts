@@ -325,11 +325,11 @@ export async function getSystemHealth() {
     bootedAt: processBootedAt().toISOString(),
     now: new Date().toISOString(),
     /**
-     * Online payments (payments.md §11): sandbox or live, read off the key; `null` while Stripe is
-     * not configured, and then the screen shows no row for it. The last webhook joins this with
-     * stage B. A widening of an admin's read.
+     * Online payments (payments.md §11): sandbox or live, read off the key, and when the last
+     * webhook arrived; `null` while Stripe is not configured, and then the screen shows no row for
+     * it. A widening of an admin's read.
      */
-    stripe: stripeStatus(),
+    stripe: await stripeStatus(),
     /**
      * What has actually happened, newest first — the second question anybody asks once the first
      * one says "working". Only runs that failed, skipped work, or did something are here; a job

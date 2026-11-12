@@ -1,10 +1,30 @@
 import { randomUUID } from "node:crypto";
-import type {
-  CheckoutSession,
-  CheckoutSessionRequest,
-  StripeGateway,
-  StripeMode,
+import Stripe from "stripe";
+import {
+  verifyStripeEvent,
+  type CheckoutSession,
+  type CheckoutSessionRequest,
+  type StripeGateway,
+  type StripeMode,
 } from "./stripe.js";
+
+/**
+ * The fake's webhook secret. Its signature is checked by the library's real code, so the suite
+ * proves the check itself, not a stand-in for it.
+ */
+export const FAKE_WEBHOOK_SECRET = "whsec_fake_suite_secret";
+
+/** The `Stripe-Signature` header Stripe would send for this body, signed now or at `timestamp`. */
+export function signWebhook(
+  payload: string,
+  options: { secret?: string; timestamp?: number } = {},
+): string {
+  return Stripe.webhooks.generateTestHeaderString({
+    payload,
+    secret: options.secret ?? FAKE_WEBHOOK_SECRET,
+    ...(options.timestamp !== undefined ? { timestamp: options.timestamp } : {}),
+  });
+}
 
 /**
  * Stripe in memory: it answers the two calls the pay link makes, and remembers them.
@@ -49,6 +69,9 @@ export function fakeStripe(mode: StripeMode = "sandbox") {
     async expireCheckoutSession(sessionId) {
       if (failures.expire) throw failures.expire;
       expired.push(sessionId);
+    },
+    verifyWebhook(payload, signature) {
+      return verifyStripeEvent(payload, signature, FAKE_WEBHOOK_SECRET);
     },
   };
 

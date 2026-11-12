@@ -1880,6 +1880,11 @@
     "derived": true
   },
   {
+    "method": "POST",
+    "url": "/api/stripe/webhook",
+    "access": "anonymous"
+  },
+  {
     "method": "GET",
     "url": "/api/tasks",
     "access": "gate:tasks"

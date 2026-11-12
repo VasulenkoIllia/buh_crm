@@ -230,21 +230,6 @@ const envSchema = z
         message: "must be the endpoint's signing secret, whsec_…",
       });
     }
-    /**
-     * **No live key before the webhook** (payments.md §11). Until stage B nothing records a payment
-     * made online, so a live key would take real money the CRM never marks, and after the session
-     * ends the link would ask for the same balance again. The sandbox is how stage A is tested.
-     * Stage B removes this check together with adding the webhook.
-     */
-    if (key.includes("_live_")) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["STRIPE_SECRET_KEY"],
-        message:
-          "a live key needs the Stripe webhook, which this version does not have yet: " +
-          "use the sandbox's key (rk_test_…)",
-      });
-    }
   });
 
 /** `rk_`/`sk_`, the mode, and the rest of the key. The mode is what `modeOfKey()` reads. */

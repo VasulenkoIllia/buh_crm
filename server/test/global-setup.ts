@@ -26,12 +26,13 @@ export default async function globalSetup() {
   });
 
   /**
-   * Stripe sessions hold their invoice with ON DELETE RESTRICT, and many suites empty the whole
-   * Invoice table: a pay-link run stopped before its own cleanup would fail all of those. Only the
-   * pay-link suite makes them, so the run owns every row.
+   * Stripe sessions and webhook events hold their invoice with ON DELETE RESTRICT, and many suites
+   * empty the whole Invoice table: a pay-link or webhook run stopped before its own cleanup would
+   * fail all of those. Only those two suites make them, so the run owns every row.
    */
   const testDb = new Client({ connectionString: TEST_URL });
   await testDb.connect();
+  await testDb.query('DELETE FROM "StripeEvent"');
   await testDb.query('DELETE FROM "StripeCheckout"');
   await testDb.end();
 

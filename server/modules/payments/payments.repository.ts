@@ -560,25 +560,35 @@ export async function sumOtherPayments(invoiceId: string, exceptPaymentId?: stri
  * seeing the old balance and together overshooting the total.
  */
 export async function createPaymentChecked(data: Prisma.PaymentUncheckedCreateInput) {
-  return prisma.$transaction(async (tx) => {
-    const invoice = await tx.invoice.update({
-      where: { id: data.invoiceId as string },
-      data: { updatedAt: new Date() }, // takes the row lock for the rest of this transaction
-      select: { amount: true, cancelledAt: true },
-    });
-    if (invoice.cancelledAt) return { payment: null, reason: "cancelled" as const };
-    const paid = await tx.payment.aggregate({
-      where: { invoiceId: data.invoiceId as string },
-      _sum: { amount: true },
-    });
-    const balance = invoice.amount - (paid._sum.amount ?? 0);
-    if (balance <= 0) return { payment: null, reason: "settled" as const };
-    if ((data.amount as number) > balance)
-      return { payment: null, reason: "over" as const, balance };
-    const payment = await tx.payment.create({ data });
-    await syncPaidTotal(tx, data.invoiceId as string);
-    return { payment, reason: null };
+  return prisma.$transaction((tx) => insertPaymentLocked(tx, data));
+}
+
+/**
+ * The same check and insert inside the CALLER's transaction: the Stripe webhook marks its session
+ * and writes the payment, its audit row and the event in one commit (payments.md §11), under the
+ * one rule for what a payment may be.
+ */
+export async function insertPaymentLocked(
+  tx: Prisma.TransactionClient,
+  data: Prisma.PaymentUncheckedCreateInput,
+) {
+  const invoice = await tx.invoice.update({
+    where: { id: data.invoiceId as string },
+    data: { updatedAt: new Date() }, // takes the row lock for the rest of this transaction
+    select: { amount: true, cancelledAt: true },
   });
+  if (invoice.cancelledAt) return { payment: null, reason: "cancelled" as const };
+  const paid = await tx.payment.aggregate({
+    where: { invoiceId: data.invoiceId as string },
+    _sum: { amount: true },
+  });
+  const balance = invoice.amount - (paid._sum.amount ?? 0);
+  if (balance <= 0) return { payment: null, reason: "settled" as const };
+  if ((data.amount as number) > balance)
+    return { payment: null, reason: "over" as const, balance };
+  const payment = await tx.payment.create({ data });
+  await syncPaidTotal(tx, data.invoiceId as string);
+  return { payment, reason: null };
 }
 
 /**
@@ -615,8 +625,24 @@ export function deletePayment(id: string, invoiceId: string) {
 
 // ── audit journal (who / when / before → after) ───────────────────────────────
 
-export function writeAudit(entry: Prisma.PaymentAuditLogUncheckedCreateInput) {
-  return prisma.paymentAuditLog.create({ data: entry });
+/** What the audit keeps of a payment, before and after. */
+export const paymentSnapshot = (p: {
+  id: string;
+  amount: number;
+  paidAt: Date;
+  reference: string | null;
+}) => ({
+  id: p.id,
+  amount: p.amount,
+  paidAt: p.paidAt.toISOString(),
+  reference: p.reference,
+});
+
+export function writeAudit(
+  entry: Prisma.PaymentAuditLogUncheckedCreateInput,
+  tx: Prisma.TransactionClient = prisma,
+) {
+  return tx.paymentAuditLog.create({ data: entry });
 }
 
 export function listAudit(invoiceId: string) {

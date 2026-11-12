@@ -453,7 +453,8 @@ describe("with Stripe off", () => {
 describe("where the link shows", () => {
   it("System names the mode read off the key", async () => {
     const system = await as("GET", "/api/settings/system");
-    expect(system.json<{ stripe: unknown }>().stripe).toEqual({ mode: "sandbox" });
+    // the last webhook beside it is the webhook suite's (stripe-webhook.integration.test.ts)
+    expect(system.json<{ stripe: unknown }>().stripe).toMatchObject({ mode: "sandbox" });
   });
 
   it("the PDF carries it in live mode only", async () => {

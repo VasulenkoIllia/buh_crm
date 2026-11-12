@@ -6,18 +6,22 @@ import { config, isTest } from "../../core/config.js";
  *
  * Two calls, and the restricted key on the server allows exactly these: create a Checkout Session
  * and expire one (Checkout Sessions: Write). Everything else Stripe has to say arrives in the
- * webhook's payload (stage B), so nothing here reads.
+ * webhook's payload, verified and read here, so nothing calls Stripe to read.
  *
- * The rest of the app sees a `StripeGateway`, never the library, so the suite runs a fake with no
- * network and the real one stays these few lines.
+ * The rest of the app sees a `StripeGateway` and `StripeWebhookEvent`, never the library, so the
+ * suite runs a fake with no network and the real one stays these few lines.
  */
 
 /**
  * The API version this code was written against, pinned rather than left to the account's default:
  * Stripe's answers change shape between versions. The literal is the library's own pin, so a
  * library upgrade that moves it fails the typecheck here instead of changing what Stripe returns.
+ * The webhook endpoint in Stripe's Dashboard is created with the same version (deployment.md).
  */
-const STRIPE_API_VERSION = "2026-09-30.endive";
+export const STRIPE_API_VERSION = "2026-09-30.endive";
+
+/** Who a payment, an audit row or a journal entry the webhook wrote is shown as. */
+export const STRIPE_LABEL = "Stripe";
 
 /**
  * Below the library's default of 80 s. A person is waiting on the pay link's redirect, and a cancel
@@ -65,6 +69,150 @@ export interface StripeGateway {
   mode: StripeMode;
   createCheckoutSession(request: CheckoutSessionRequest): Promise<CheckoutSession>;
   expireCheckoutSession(sessionId: string): Promise<void>;
+  /**
+   * The webhook's request, checked against the endpoint's signing secret before a byte of it is
+   * read. Throws when the signature, its timestamp or the header is wrong (`isSignatureError`).
+   */
+  verifyWebhook(payload: Buffer, signature: string): StripeWebhookEvent;
+}
+
+// ── the webhook's events, read ───────────────────────────────────────────────
+
+interface StripeEventBase {
+  /** Stripe's `evt_…` id: a delivery Stripe repeats carries the same one */
+  id: string;
+  type: string;
+  livemode: boolean;
+  /** when Stripe made the event */
+  occurredAt: Date;
+  /** the version the payload was rendered in: the endpoint's, set in Stripe's Dashboard */
+  apiVersion: string | null;
+}
+
+/**
+ * What the webhook acts on, read out of Stripe's event (payments.md §11). The rest of the app gets
+ * these fields and never the payload, so a change in Stripe's shapes is met here, once.
+ */
+export type StripeWebhookEvent = StripeEventBase &
+  (
+    | {
+        kind: "session_completed";
+        sessionId: string;
+        paymentIntentId: string | null;
+        /** `paid` is the money; anything else is not, with cards only */
+        paymentStatus: string;
+        /** minor units, what the payer was charged */
+        amount: number | null;
+        currency: string | null;
+        /** our metadata, for a session this CRM has no row of */
+        invoiceId: string | null;
+      }
+    | { kind: "session_expired"; sessionId: string }
+    | {
+        kind: "charge_refunded";
+        chargeId: string;
+        paymentIntentId: string | null;
+        /** minor units: the charge, and how much of it is refunded so far */
+        amount: number;
+        refundedAmount: number;
+        /** copied by Stripe from the PaymentIntent's metadata onto its charge */
+        invoiceId: string | null;
+      }
+    | {
+        kind: "dispute_created";
+        disputeId: string;
+        paymentIntentId: string | null;
+        amount: number;
+        /** Stripe's word for it, e.g. `fraudulent` */
+        reason: string;
+      }
+    | { kind: "other"; objectId: string | null }
+  );
+
+/** An expandable field is an id, or the object with its id; either way the id is what we keep. */
+function idOf(value: string | { id: string } | null | undefined): string | null {
+  if (!value) return null;
+  return typeof value === "string" ? value : value.id;
+}
+
+const metadataInvoiceId = (metadata: Stripe.Metadata | null | undefined) =>
+  typeof metadata?.invoiceId === "string" ? metadata.invoiceId : null;
+
+/** Pure, so the shapes are tested without a signature. */
+export function readStripeEvent(event: Stripe.Event): StripeWebhookEvent {
+  const base: StripeEventBase = {
+    id: event.id,
+    type: event.type,
+    livemode: event.livemode,
+    occurredAt: new Date(event.created * 1000),
+    apiVersion: event.api_version ?? null,
+  };
+  switch (event.type) {
+    case "checkout.session.completed": {
+      const session = event.data.object;
+      return {
+        ...base,
+        kind: "session_completed",
+        sessionId: session.id,
+        paymentIntentId: idOf(session.payment_intent),
+        paymentStatus: session.payment_status,
+        amount: session.amount_total,
+        currency: session.currency,
+        invoiceId: session.client_reference_id ?? metadataInvoiceId(session.metadata),
+      };
+    }
+    case "checkout.session.expired":
+      return { ...base, kind: "session_expired", sessionId: event.data.object.id };
+    case "charge.refunded": {
+      const charge = event.data.object;
+      return {
+        ...base,
+        kind: "charge_refunded",
+        chargeId: charge.id,
+        paymentIntentId: idOf(charge.payment_intent),
+        amount: charge.amount,
+        refundedAmount: charge.amount_refunded,
+        invoiceId: metadataInvoiceId(charge.metadata),
+      };
+    }
+    case "charge.dispute.created": {
+      const dispute = event.data.object;
+      return {
+        ...base,
+        kind: "dispute_created",
+        disputeId: dispute.id,
+        paymentIntentId: idOf(dispute.payment_intent),
+        amount: dispute.amount,
+        reason: dispute.reason,
+      };
+    }
+    default: {
+      const object = event.data.object as { id?: unknown };
+      return {
+        ...base,
+        kind: "other",
+        objectId: typeof object.id === "string" ? object.id : null,
+      };
+    }
+  }
+}
+
+/**
+ * Stripe's signature over the RAW bytes, with the library's own check: HMAC-SHA256 with the
+ * endpoint's `whsec_` secret, compared in constant time, and a timestamp no older than the
+ * library's five minutes, so a captured request cannot be replayed later.
+ */
+export function verifyStripeEvent(
+  payload: Buffer,
+  signature: string,
+  secret: string,
+): StripeWebhookEvent {
+  return readStripeEvent(Stripe.webhooks.constructEvent(payload, signature, secret));
+}
+
+/** A request that did not come from Stripe, or came too late: answered 400, never retried. */
+export function isSignatureError(error: unknown): boolean {
+  return error instanceof Stripe.errors.StripeSignatureVerificationError;
 }
 
 export function modeOfKey(key: string): StripeMode {
@@ -109,7 +257,7 @@ export function checkoutSessionParams(
   };
 }
 
-function stripeGatewayFor(key: string): StripeGateway {
+function stripeGatewayFor(key: string, webhookSecret: string): StripeGateway {
   const stripe = new Stripe(key, {
     apiVersion: STRIPE_API_VERSION,
     timeout: STRIPE_TIMEOUT_MS,
@@ -136,6 +284,9 @@ function stripeGatewayFor(key: string): StripeGateway {
     },
     async expireCheckoutSession(sessionId) {
       await stripe.checkout.sessions.expire(sessionId);
+    },
+    verifyWebhook(payload, signature) {
+      return verifyStripeEvent(payload, signature, webhookSecret);
     },
   };
 }
@@ -202,7 +353,10 @@ let forTests: StripeGateway | null | undefined;
 export function stripeGateway(): StripeGateway | null {
   if (forTests !== undefined) return forTests;
   if (fromEnv === undefined) {
-    fromEnv = config.STRIPE_SECRET_KEY ? stripeGatewayFor(config.STRIPE_SECRET_KEY) : null;
+    // config refuses to start with one of the two, so both are here or neither is
+    const key = config.STRIPE_SECRET_KEY;
+    const secret = config.STRIPE_WEBHOOK_SECRET;
+    fromEnv = key && secret ? stripeGatewayFor(key, secret) : null;
   }
   return fromEnv;
 }

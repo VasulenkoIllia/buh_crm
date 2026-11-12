@@ -141,7 +141,9 @@ describe("the activity registry", () => {
     // and one for an invitation nobody accepted, deleted (users.md §2, 2026-11-04)
     // and one for a blocked colleague deleted for good (the same section and day)
     // and one for the pay link opening a new Stripe Checkout page (payments.md §11, 2026-11-12)
-    expect(ACTIVITY_KEYS.length).toBe(230);
+    // and four for Stripe's webhook the same day: paid online, a payment not applied, a refund
+    // and a dispute in Stripe
+    expect(ACTIVITY_KEYS.length).toBe(234);
     // the checklist is empty because the pass is finished — not because it was abandoned
     expect(PLANNED_EVENT_KEYS).toEqual([]);
   });

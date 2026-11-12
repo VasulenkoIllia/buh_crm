@@ -195,6 +195,15 @@ const INTENDED_CHANGES: Record<string, { before: Answer; after: Answer; why: str
       "invoice, only sends the holder to Stripe Checkout for the balance or says why not, has no " +
       "HEAD twin and a rate limit of its own",
   },
+  "POST /api/stripe/webhook": {
+    before: "nobody",
+    after: "public",
+    why:
+      "new: Stripe's webhook (payments.md §11, stage B, 2026-11-12), the eleventh anonymous " +
+      "route, decided rather than added. Stripe has no session; the request is authenticated by " +
+      "Stripe's signature over its raw bytes with the endpoint's secret before anything is read, " +
+      "and it answers nothing but whether it was received",
+  },
   "GET /api/two-factor/team": {
     before: "nobody",
     after: "admin-only",

@@ -75,7 +75,9 @@ key was never on the server: name its current access key there instead of a new 
 When online payments are on, the server also holds Stripe's restricted key (`.env`,
 `STRIPE_SECRET_KEY`). It can only open and close Checkout pages, never move money out, but roll it in
 Stripe's Dashboard (Developers → API keys) and put the new one in the clean server's `.env` and the
-password manager.
+password manager. Roll the webhook's signing secret too (`STRIPE_WEBHOOK_SECRET`, Developers →
+Webhooks → the endpoint → Roll secret): whoever holds it can make the CRM record a payment that
+never happened.
 
 Restore from a clean machine, never from the suspect server.
 
@@ -198,7 +200,11 @@ and whichever wrote last each night would be the copy a restore brings back.
    are on (`STRIPE_` lines in `.env`), open Stripe's Dashboard → Developers → Webhooks and check
    that the endpoint still names `https://<APP_DOMAIN>/api/stripe/webhook`: a new domain or a
    Cloudflare rule in the way leaves every online payment unrecorded, in silence. An invoice's pay
-   link needs nothing on the same domain: its token is in the database.
+   link needs nothing on the same domain: its token is in the database. Settings → System →
+   Online payments says when the last webhook arrived. A payment made online after the night's
+   backup is in Stripe but no longer in the CRM: find them in the Dashboard (Payments, since the
+   backup's time) and resend each one's `checkout.session.completed` from its event page. One the
+   CRM can no longer place comes back as a notice to the admins, and is recorded by hand.
 8. The backups again: §7 from its fourth line — a first backup, a first restore test, the timers.
    The repository is the one you just restored from; `--init` would only say so.
 

@@ -220,8 +220,9 @@ export function InvoiceModal({
 
           {/* Two columns so the card fits without scrolling: WHAT is owed and what the invoice is
              on the left, the MOVEMENT of money — history, the payment form, the journal — on the
-             right (user, 2026-08-01). One column on a narrow window. */}
-          <div className="grid items-start gap-x-5 gap-y-4 md:grid-cols-2">
+             right (user, 2026-08-01). One column on a narrow window, named, so it is as wide as
+             the card and a long payment reference truncates instead of widening it. */}
+          <div className="grid grid-cols-1 items-start gap-x-5 gap-y-4 md:grid-cols-2">
             <div className="space-y-4">
               {
                 /* What's still OWED is the number this screen exists to answer, so it leads; the
@@ -370,7 +371,13 @@ export function InvoiceModal({
                         {fmtMoney(p.amount)}
                       </span>
                       <span className="text-muted">{fmtBizDate(p.paidAt)}</span>
-                      {p.reference && <span className="text-faint">ref: {p.reference}</span>}
+                      {/* a Stripe payment's ref is its PaymentIntent, ~30 characters: it gives
+                          way rather than push who recorded it and Delete out of the card */}
+                      {p.reference && (
+                        <span className="min-w-0 truncate text-faint" title={p.reference}>
+                          ref: {p.reference}
+                        </span>
+                      )}
                       <span className="ml-auto text-[12px] text-faint">{p.createdByName}</span>
                       {isAdmin && (
                         <IconButton

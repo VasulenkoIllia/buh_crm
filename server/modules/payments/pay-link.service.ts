@@ -3,6 +3,7 @@ import { z } from "zod";
 import { record } from "../../core/activity.js";
 import { webOrigin } from "../../core/email.js";
 import * as repo from "./pay-link.repository.js";
+import { lastEventAt } from "./stripe-webhook.repository.js";
 import {
   describeStripeError,
   isLastingStripeError,
@@ -67,10 +68,19 @@ export function payUrlFor(invoice: {
     : null;
 }
 
-/** For Settings → System: off is `null`, and then nothing about Stripe shows anywhere. */
-export function stripeStatus(): { mode: StripeGateway["mode"] } | null {
+/**
+ * For Settings → System: off is `null`, and then nothing about Stripe shows anywhere. The last
+ * webhook is the newest event accepted with this mode's key: a long silence while clients pay is
+ * how a broken endpoint shows (a new domain, Cloudflare, a wrong secret).
+ */
+export async function stripeStatus(): Promise<{
+  mode: StripeGateway["mode"];
+  lastWebhookAt: string | null;
+} | null> {
   const gateway = stripeGateway();
-  return gateway ? { mode: gateway.mode } : null;
+  if (!gateway) return null;
+  const lastAt = await lastEventAt(gateway.mode === "live");
+  return { mode: gateway.mode, lastWebhookAt: lastAt?.toISOString() ?? null };
 }
 
 // ── a click on the link ──────────────────────────────────────────────────────

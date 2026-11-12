@@ -27,6 +27,8 @@ export const CHANGE_KIND: Record<string, ChangeKind> = {
   amount: "money",
   defaultAmount: "money",
   balance: "money",
+  // how much of a card payment Stripe has refunded so far (payments.md §11)
+  refundedAmount: "money",
   // an invoice item's price per hour or per item
   price: "money",
   // stored as timestamps, read as days

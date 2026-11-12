@@ -64,7 +64,10 @@ DELETE FROM "TaskAssignee";
 DELETE FROM "TaskComment";
 DELETE FROM "Task";
 DELETE FROM "InvoiceLine";
--- The pay link's Checkout Sessions (payments.md §11). RESTRICT to the invoice, so before it.
+-- The pay link's Checkout Sessions and Stripe's webhook events about invoices (payments.md §11).
+-- RESTRICT to the invoice, so before it. Events about no invoice are not client data and stay:
+-- the newest is Settings → System's "last webhook", which would otherwise read as a dead endpoint.
+DELETE FROM "StripeEvent" WHERE "invoiceId" IS NOT NULL;
 DELETE FROM "StripeCheckout";
 DELETE FROM "Invoice";
 DELETE FROM "SubscriptionPeriod";

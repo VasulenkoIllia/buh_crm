@@ -69,19 +69,12 @@ describe("loadConfig", () => {
       expect(() => load({ STRIPE_WEBHOOK_SECRET: secret })).toThrow(/STRIPE_SECRET_KEY/);
     });
 
-    it("take a restricted or secret sandbox key", () => {
-      for (const k of [key, "sk_test_9z"]) {
+    // live too since stage B: the webhook records what a live key takes (payments.md §11)
+    it("take a restricted or secret key, sandbox or live", () => {
+      for (const k of [key, "sk_test_9z", "rk_live_9z", "sk_live_9z"]) {
         expect(
           load({ STRIPE_SECRET_KEY: k, STRIPE_WEBHOOK_SECRET: secret }).STRIPE_SECRET_KEY,
         ).toBe(k);
-      }
-    });
-
-    it("refuse a live key while nothing records a payment made online (stage A)", () => {
-      for (const k of ["rk_live_9z", "sk_live_9z"]) {
-        expect(() => load({ STRIPE_SECRET_KEY: k, STRIPE_WEBHOOK_SECRET: secret })).toThrow(
-          /live key needs the Stripe webhook/,
-        );
       }
     });
 

@@ -1250,6 +1250,62 @@ const EVENTS = {
     changeKeys: ["amount"],
     enabledByDefault: true,
   },
+  /**
+   * **Stripe's webhook, not a person** (payments.md §11): a card payment on the pay link's page,
+   * recorded as a payment with `source: stripe`. The PaymentAuditLog row beside it says Stripe too.
+   */
+  "invoice.paid_online": {
+    subject: "invoice",
+    title: "Invoice {subject} was paid online through Stripe",
+    when: "a client pays the invoice by card on the pay link's Stripe page",
+    granularity: "item",
+    actorKinds: ["system"],
+    retention: "ordinary",
+    changeKeys: ["amount", "paidAt"],
+    journal: "payment",
+    enabledByDefault: true,
+  },
+  /**
+   * Money taken in Stripe that the invoice could not take: it was cancelled or paid meanwhile, the
+   * amount is more than it owes, or Stripe did not confirm the card payment. Nothing is recorded;
+   * the admins are told, and a person refunds it in Stripe or records it by hand. `long`, like a
+   * deleted payment: a client asks about money like this months later.
+   */
+  "invoice.online_payment_unapplied": {
+    subject: "invoice",
+    title: "A Stripe payment on invoice {subject} needs attention",
+    when: "money paid through the pay link cannot be recorded on the invoice by itself",
+    granularity: "item",
+    actorKinds: ["system"],
+    retention: "long",
+    changeKeys: ["amount", "reason"],
+    enabledByDefault: true,
+  },
+  /**
+   * A refund made in Stripe's Dashboard. The payment in the CRM stays as it is: an admin edits or
+   * deletes it by hand (decided 2026-11-04), so nothing changes money on its own.
+   */
+  "invoice.refunded_in_stripe": {
+    subject: "invoice",
+    title: "A payment on invoice {subject} was refunded in Stripe",
+    when: "a card payment of the invoice is refunded, in full or in part, in Stripe",
+    granularity: "item",
+    actorKinds: ["system"],
+    retention: "long",
+    changeKeys: ["amount", "refundedAmount"],
+    enabledByDefault: true,
+  },
+  /** The payer's bank disputes the card payment. As with a refund, the money in the CRM stays. */
+  "invoice.disputed_in_stripe": {
+    subject: "invoice",
+    title: "A payment on invoice {subject} was disputed in Stripe",
+    when: "the payer's bank opens a dispute on a card payment of the invoice",
+    granularity: "item",
+    actorKinds: ["system"],
+    retention: "long",
+    changeKeys: ["amount", "reason"],
+    enabledByDefault: true,
+  },
   "invoice.tidied": {
     subject: "invoice",
     title: "{actor} tidied invoice {subject} away",
