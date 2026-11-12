@@ -19,3 +19,7 @@ export { debtByClient } from "./payments.service.js";
 
 // the client card's Invoices tab badge
 export { countOwedInvoicesForClient } from "./payments.repository.js";
+
+// the public pay link, registered beside /health (app.ts), and Stripe's line on Settings → System
+export { registerPayLinkRoutes } from "./pay-link.routes.js";
+export { stripeStatus } from "./pay-link.service.js";

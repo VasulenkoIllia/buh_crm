@@ -33,7 +33,7 @@ import { leadsModule } from "./modules/leads/index.js";
 import { mailoutsModule } from "./modules/mailouts/index.js";
 import { meetingsModule } from "./modules/meetings/index.js";
 import { notificationsModule } from "./modules/notifications/index.js";
-import { paymentsModule } from "./modules/payments/index.js";
+import { paymentsModule, registerPayLinkRoutes } from "./modules/payments/index.js";
 import { settingsModule } from "./modules/settings/index.js";
 import { tasksModule } from "./modules/tasks/index.js";
 import { twoFactorModule } from "./modules/two-factor/index.js";
@@ -308,6 +308,9 @@ export async function buildApp() {
     app: config.APP_NAME,
     timestamp: new Date().toISOString(),
   }));
+
+  // the invoice's pay link, public and short enough to print (payments.md §11)
+  await app.register(registerPayLinkRoutes);
 
   // ── Modules (registered per stage) ────────────────────────────────────────
   await app.register(authModule, { prefix: "/api/auth" }); // S1

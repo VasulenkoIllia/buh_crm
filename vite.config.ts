@@ -39,6 +39,8 @@ export default defineConfig({
       // same-origin in dev: API + health go through Vite (no CORS, Origin check stays strict)
       "/api": "http://localhost:3000",
       "/health": "http://localhost:3000",
+      // the invoice's pay link (payments.md §11), so the dev link opens like the real one
+      "/pay": "http://localhost:3000",
     },
   },
 });

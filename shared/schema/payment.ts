@@ -110,6 +110,11 @@ export const invoiceSchema = z.object({
   /** the job this invoice was issued for (one-time task), if any */
   taskId: uuid.nullable(),
   taskTitle: z.string().nullable(),
+  /**
+   * The pay link, `https://<domain>/pay/<token>` (payments.md §11): set only while Stripe is on and
+   * the invoice owes something and is not cancelled. Copy pay link shows exactly when it is set.
+   */
+  payUrl: z.string().nullable(),
   /** the breakdown; empty = a single amount, which is how every invoice looked before lines */
   lines: z.array(invoiceLineSchema),
   payments: z.array(paymentSchema),

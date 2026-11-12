@@ -186,6 +186,15 @@ const INTENDED_CHANGES: Record<string, { before: Answer; after: Answer; why: str
       "five-try challenge step one issued after the password and the account's status were " +
       "checked. PUBLIC_BEFORE stays a frozen record of the day before the access module",
   },
+  "GET /pay/:token": {
+    before: "nobody",
+    after: "public",
+    why:
+      "new: the invoice's pay link (payments.md §11, 2026-11-12), the tenth anonymous route, " +
+      "decided rather than added. Its 43-character token is the credential; it never shows the " +
+      "invoice, only sends the holder to Stripe Checkout for the balance or says why not, has no " +
+      "HEAD twin and a rate limit of its own",
+  },
   "GET /api/two-factor/team": {
     before: "nobody",
     after: "admin-only",

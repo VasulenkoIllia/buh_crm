@@ -67,13 +67,17 @@ function write(
   text: string,
   x: number,
   y: number,
-  opts: { font?: Font; size?: number; color?: string; width?: number } = {},
+  opts: { font?: Font; size?: number; color?: string; width?: number; link?: string } = {},
 ) {
   doc
     .font(opts.font ?? "regular")
     .fontSize(opts.size ?? SIZE.body)
     .fillColor(opts.color ?? COLOR.ink)
-    .text(text, x, y, { width: opts.width, lineBreak: opts.width !== undefined });
+    .text(text, x, y, {
+      width: opts.width,
+      lineBreak: opts.width !== undefined,
+      ...(opts.link ? { link: opts.link, underline: true } : {}),
+    });
 }
 
 /** Text ending at `end`: an amount's right edge is what lines the column up. */
@@ -246,7 +250,7 @@ function drawTotals(doc: Doc, document: InvoiceDocument, top: number) {
  * A titled block of free text, kept on one page when it fits on one. Line by line, because a block
  * taller than a page has to turn it here: left to pdfkit it runs through the page number.
  */
-function drawBlock(doc: Doc, title: string, lines: string[], top: number) {
+function drawBlock(doc: Doc, title: string, lines: string[], top: number, link?: string) {
   const width = X.bandRight - X.text;
   const heightOf = (text: string) =>
     doc.font("regular").fontSize(SIZE.body).heightOfString(text, { width });
@@ -256,7 +260,7 @@ function drawBlock(doc: Doc, title: string, lines: string[], top: number) {
   for (const line of lines) {
     const text = line || " ";
     y = ensureRoom(doc, y, heightOf(text), false);
-    write(doc, text, X.text, y, { width });
+    write(doc, text, X.text, y, { width, ...(link ? { link, color: COLOR.brand } : {}) });
     y = doc.y;
   }
   return y;
@@ -301,7 +305,10 @@ export function renderInvoicePdf(
     let y = drawTotals(doc, document, rowsEnd) + 26;
     if (document.note) y = drawBlock(doc, "Note:", [document.note], y) + 14;
     if (document.paymentLines.some(Boolean)) {
-      drawBlock(doc, "Payment Information:", document.paymentLines, y);
+      y = drawBlock(doc, "Payment Information:", document.paymentLines, y) + 14;
+    }
+    if (document.payOnline) {
+      drawBlock(doc, "Pay online by card:", [document.payOnline], y, document.payOnline);
     }
     drawPageNumbers(doc);
     doc.end();

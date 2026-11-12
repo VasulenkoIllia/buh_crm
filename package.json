@@ -57,6 +57,7 @@
     "react-dom": "^19.2.7",
     "react-hook-form": "^7.81.0",
     "react-router-dom": "^7.18.5",
+    "stripe": "23.0.1",
     "tailwind-merge": "^3.6.0",
     "tsx": "^4.19.2",
     "unicode-emoji-json": "^0.9.0",

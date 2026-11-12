@@ -1233,6 +1233,23 @@ const EVENTS = {
     changeKeys: ["file"],
     enabledByDefault: true,
   },
+  /**
+   * The pay link sent somebody to Stripe for the balance (payments.md §11). Only a NEW Checkout
+   * Session is recorded, so a later click that reuses it adds nothing. The actor is the link itself
+   * ("Pay link"), never a person: the client, somebody they forwarded it to and a mail scanner that
+   * fetches every link in a letter all look the same. Nothing is paid yet; the payment is the
+   * webhook's (stage B).
+   */
+  "invoice.pay_link_opened": {
+    subject: "invoice",
+    title: "The pay link of invoice {subject} opened a Stripe payment page",
+    when: "the invoice's pay link opens a new Stripe Checkout page for the balance",
+    granularity: "item",
+    actorKinds: ["system"],
+    retention: "ordinary",
+    changeKeys: ["amount"],
+    enabledByDefault: true,
+  },
   "invoice.tidied": {
     subject: "invoice",
     title: "{actor} tidied invoice {subject} away",

@@ -37,6 +37,8 @@ export function useSystemHealth() {
 export interface SystemHealthResponse {
   bootedAt: string;
   now: string;
+  /** online payments (payments.md §11); null while Stripe is not configured */
+  stripe: { mode: "sandbox" | "live" } | null;
   jobs: JobHealthRow[];
   events: JobEventRow[];
 }

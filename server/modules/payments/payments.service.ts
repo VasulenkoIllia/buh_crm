@@ -19,6 +19,7 @@ import { NotFoundError, ValidationError } from "../../core/errors.js";
 import { clientLabel, personName, type Nameable } from "../../core/names.js";
 import { issueInvoice } from "./invoicing.js";
 import { issueInvoiceOnJob, jobToBill } from "./job-invoices.js";
+import { closeOpenCheckouts, payUrlFor } from "./pay-link.service.js";
 import { diff, record } from "../../core/activity.js";
 import * as repo from "./payments.repository.js";
 
@@ -107,6 +108,8 @@ export function toInvoiceDto(
     sentByName: inv.sentBy ? personName(inv.sentBy) : null,
     taskId: inv.tasks[0]?.id ?? null,
     taskTitle: inv.tasks[0]?.title ?? null,
+    // the pay link, for whoever has Billing: a widening of this read (payments.md §11)
+    payUrl: payUrlFor(inv),
     lines: inv.lines.map((l) => ({
       id: l.id,
       order: l.order,
@@ -388,6 +391,8 @@ export async function updateInvoice(id: string, input: UpdateInvoiceInput, user:
     newLines,
   );
   if (amount !== invoice.amount) {
+    // straight after the commit, so a step below that throws cannot leave Stripe asking the old sum
+    await closeOpenCheckouts([id]);
     const { task } = await repo.syncTaskAmounts(id, amount);
     if (task) {
       // the job's price followed the invoice, and nobody touched the job — recorded so that a
@@ -547,6 +552,7 @@ export async function cancelInvoice(id: string, user: User) {
     throw new ValidationError("Delete the payments on this invoice before cancelling it");
   }
   const cancelled = await repo.cancelInvoice(id, user.id);
+  await closeOpenCheckouts([id]);
   record("invoice.cancelled", {
     subjectId: id,
     subjectLabel: invoice.number,
@@ -590,6 +596,7 @@ export async function addPayment(invoiceId: string, input: AddPaymentInput, user
     if (reason === "settled") throw new ValidationError("This invoice is already fully paid");
     throw new ValidationError("Amount is more than what's left to pay on this invoice");
   }
+  await closeOpenCheckouts([invoiceId]);
 
   await repo.writeAudit({
     invoiceId,
@@ -632,6 +639,7 @@ export async function updatePayment(id: string, input: UpdatePaymentInput, user:
     ...(input.paidAt !== undefined ? { paidAt: dateToUtc(input.paidAt) } : {}),
     ...(input.reference !== undefined ? { reference: input.reference ?? null } : {}),
   });
+  if (updated.amount !== before.amount) await closeOpenCheckouts([payment.invoiceId]);
   await repo.writeAudit({
     invoiceId: payment.invoiceId,
     paymentId: id,
@@ -655,6 +663,7 @@ export async function removePayment(id: string, user: User) {
   if (!payment) throw new NotFoundError("Payment not found");
   const before = snapshot(payment);
   await repo.deletePayment(id, payment.invoiceId);
+  await closeOpenCheckouts([payment.invoiceId]);
   await repo.writeAudit({
     invoiceId: payment.invoiceId,
     paymentId: null, // the row is gone; the snapshot is the record
@@ -678,48 +687,56 @@ export async function removePayment(id: string, user: User) {
 export async function markPaid(input: MarkPaidInput, user: User) {
   const invoices = await repo.findInvoices(input.invoiceIds);
   const paidAt = input.paidAt ? dateToUtc(input.paidAt) : new Date();
-  let settled = 0;
   let skipped = 0;
+  const settledIds: string[] = [];
 
-  for (const invoice of invoices) {
-    const balance = balanceOf(invoice);
-    if (balance <= 0) {
-      skipped++; // cancelled or already settled
-      continue;
+  // every invoice settled so far closes its sessions even when a later one throws
+  try {
+    for (const invoice of invoices) {
+      const balance = balanceOf(invoice);
+      if (balance <= 0) {
+        skipped++; // cancelled or already settled
+        continue;
+      }
+      const { payment } = await repo.createPaymentChecked({
+        invoiceId: invoice.id,
+        amount: balance,
+        paidAt,
+        createdById: user.id,
+      });
+      if (!payment) {
+        skipped++; // someone settled it between the read and the write
+        continue;
+      }
+      settledIds.push(invoice.id);
+      await repo.writeAudit({
+        invoiceId: invoice.id,
+        paymentId: payment.id,
+        action: "created",
+        byUserId: user.id,
+        after: snapshot(payment),
+      });
+      /**
+       * **Per invoice, not one summary** — §4.2's first clause, and its test applied: would anybody
+       * ever look for this row under `[subject, subjectId]`? They would. "What happened to invoice
+       * 41" must find the bulk mark-paid that settled it, or the log answers the general question and
+       * not the specific one. All of them share this request's correlation id, so the screen still
+       * shows one gesture.
+       */
+      record("invoice.payment_recorded", {
+        subjectId: invoice.id,
+        subjectLabel: invoice.number,
+        clientId: invoice.clientId,
+        changes: { amount: payment.amount, paidAt: payment.paidAt.toISOString() },
+      });
     }
-    const { payment } = await repo.createPaymentChecked({
-      invoiceId: invoice.id,
-      amount: balance,
-      paidAt,
-      createdById: user.id,
-    });
-    if (!payment) {
-      skipped++; // someone settled it between the read and the write
-      continue;
-    }
-    await repo.writeAudit({
-      invoiceId: invoice.id,
-      paymentId: payment.id,
-      action: "created",
-      byUserId: user.id,
-      after: snapshot(payment),
-    });
-    /**
-     * **Per invoice, not one summary** — §4.2's first clause, and its test applied: would anybody
-     * ever look for this row under `[subject, subjectId]`? They would. "What happened to invoice
-     * 41" must find the bulk mark-paid that settled it, or the log answers the general question and
-     * not the specific one. All of them share this request's correlation id, so the screen still
-     * shows one gesture.
-     */
-    record("invoice.payment_recorded", {
-      subjectId: invoice.id,
-      subjectLabel: invoice.number,
-      clientId: invoice.clientId,
-      changes: { amount: payment.amount, paidAt: payment.paidAt.toISOString() },
-    });
-    settled++;
+  } finally {
+    await closeOpenCheckouts(settledIds);
   }
-  return { settled, skipped: skipped + (input.invoiceIds.length - invoices.length) };
+  return {
+    settled: settledIds.length,
+    skipped: skipped + (input.invoiceIds.length - invoices.length),
+  };
 }
 
 export async function listAudit(invoiceId: string) {

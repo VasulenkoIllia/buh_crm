@@ -126,6 +126,22 @@ const envSchema = z
      */
     SECRETS_KEY: z.string().optional(),
 
+    /**
+     * Online payment through Stripe Checkout (payments.md §11). Both or neither: with neither the
+     * feature is off and nothing about it shows. The mode, sandbox or live, is read off the key
+     * (`_test_` / `_live_`) and never set apart from it, so the two cannot disagree. A restricted
+     * key (`rk_`) whose one permission is Checkout Sessions: Write is the one meant for the server;
+     * `sk_` is accepted for a developer's own sandbox. Empty means unset, like every other line.
+     */
+    STRIPE_SECRET_KEY: z
+      .string()
+      .optional()
+      .transform((value) => value?.trim() || undefined),
+    STRIPE_WEBHOOK_SECRET: z
+      .string()
+      .optional()
+      .transform((value) => value?.trim() || undefined),
+
     // First-admin bootstrap (used on a fresh server when no users exist yet).
     BOOTSTRAP_ADMIN_EMAIL: z.string().optional(),
     BOOTSTRAP_ADMIN_PASSWORD: z.string().optional(),
@@ -180,7 +196,59 @@ const envSchema = z
         message: "must be a URL, e.g. https://fsn1.your-objectstorage.com",
       });
     }
+  })
+  /**
+   * A key without its webhook secret would take money the CRM never hears about, and a secret
+   * without a key is a half-finished setup. Refused at boot, like the bucket above, because both
+   * are only ever set on purpose. The shapes are checked so the two values cannot be swapped and a
+   * publishable key (`pk_`) cannot stand in for a secret one.
+   */
+  .superRefine((env, ctx) => {
+    const key = env.STRIPE_SECRET_KEY;
+    const secret = env.STRIPE_WEBHOOK_SECRET;
+    if (!key && !secret) return;
+    if (!key || !secret) {
+      ctx.addIssue({
+        code: "custom",
+        path: [key ? "STRIPE_WEBHOOK_SECRET" : "STRIPE_SECRET_KEY"],
+        message: "STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET are set together or not at all",
+      });
+      return;
+    }
+    if (!STRIPE_KEY_SHAPE.test(key)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["STRIPE_SECRET_KEY"],
+        message:
+          "must be a secret or restricted key: rk_test_…, rk_live_…, sk_test_… or sk_live_…",
+      });
+    }
+    if (!secret.startsWith("whsec_")) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["STRIPE_WEBHOOK_SECRET"],
+        message: "must be the endpoint's signing secret, whsec_…",
+      });
+    }
+    /**
+     * **No live key before the webhook** (payments.md §11). Until stage B nothing records a payment
+     * made online, so a live key would take real money the CRM never marks, and after the session
+     * ends the link would ask for the same balance again. The sandbox is how stage A is tested.
+     * Stage B removes this check together with adding the webhook.
+     */
+    if (key.includes("_live_")) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["STRIPE_SECRET_KEY"],
+        message:
+          "a live key needs the Stripe webhook, which this version does not have yet: " +
+          "use the sandbox's key (rk_test_…)",
+      });
+    }
   });
+
+/** `rk_`/`sk_`, the mode, and the rest of the key. The mode is what `modeOfKey()` reads. */
+export const STRIPE_KEY_SHAPE = /^(rk|sk)_(test|live)_[A-Za-z0-9]+$/;
 
 export type Config = z.infer<typeof envSchema>;
 

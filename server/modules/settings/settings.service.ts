@@ -17,6 +17,7 @@ import { diff, record } from "../../core/activity.js";
 import * as repo from "./settings.repository.js";
 import { config } from "../../core/config.js";
 import { processBootedAt, readJobEvents, readJobHealth } from "../../core/job-health.js";
+import { stripeStatus } from "../payments/index.js";
 
 const MAX_LOGO_SIZE = 5 * 1024 * 1024; // 5 MB
 // raster only — no SVG (can carry inline scripts → stored XSS; same rule as avatars)
@@ -323,6 +324,12 @@ export async function getSystemHealth() {
   return {
     bootedAt: processBootedAt().toISOString(),
     now: new Date().toISOString(),
+    /**
+     * Online payments (payments.md §11): sandbox or live, read off the key; `null` while Stripe is
+     * not configured, and then the screen shows no row for it. The last webhook joins this with
+     * stage B. A widening of an admin's read.
+     */
+    stripe: stripeStatus(),
     /**
      * What has actually happened, newest first — the second question anybody asks once the first
      * one says "working". Only runs that failed, skipped work, or did something are here; a job

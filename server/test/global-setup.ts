@@ -26,6 +26,16 @@ export default async function globalSetup() {
   });
 
   /**
+   * Stripe sessions hold their invoice with ON DELETE RESTRICT, and many suites empty the whole
+   * Invoice table: a pay-link run stopped before its own cleanup would fail all of those. Only the
+   * pay-link suite makes them, so the run owns every row.
+   */
+  const testDb = new Client({ connectionString: TEST_URL });
+  await testDb.connect();
+  await testDb.query('DELETE FROM "StripeCheckout"');
+  await testDb.end();
+
+  /**
    * Where every successful request writes which route it took and whether anything described it —
    * read afterwards by `server/test/check-activity-routes.ts`, which `npm run verify` runs after the
    * suite. Emptied here so a run only ever reports on itself. Inherited by the test workers, which

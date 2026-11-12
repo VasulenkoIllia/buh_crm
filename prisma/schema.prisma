@@ -1272,6 +1272,11 @@ model Invoice {
   /// sets existed, or while there were none: its paper prints the client's current set.
   paymentDetailsId String? @db.Uuid
   paymentInfo      String?
+  /// The secret in the invoice's pay link, `/pay/<token>` (payments.md §11). Random, 43 base64url
+  /// characters carrying 244 random bits, and only ever from this default: no code path names the
+  /// column, so every insert gets one, and the migration gave one to every invoice it found. A
+  /// duplicate is a new insert, so it gets its own.
+  payToken         String  @unique @default(dbgenerated("translate(rtrim(encode(decode(replace(((gen_random_uuid())::text || (gen_random_uuid())::text), '-'::text, ''::text), 'hex'::text), 'base64'::text), '='::text), '+/'::text, '-_'::text)"))
 
   lines          InvoiceLine[]
   paymentDetails PaymentDetails? @relation(fields: [paymentDetailsId], references: [id], onDelete: Restrict)
@@ -1288,6 +1293,7 @@ model Invoice {
   tasks        Task[]
   payments     Payment[]
   auditLogs    PaymentAuditLog[]
+  checkouts    StripeCheckout[]
 
   @@unique([subscriptionId, periodKey])
   @@index([clientId])
@@ -1388,6 +1394,40 @@ model PaymentAuditLog {
   byUser  User    @relation(fields: [byUserId], references: [id])
 
   @@index([invoiceId])
+}
+
+/// Where a Checkout Session stands. `completed` is written by the webhook (stage B); until then a
+/// session leaves `open` only by being expired, by us or by its own clock.
+enum StripeCheckoutStatus {
+  open
+  completed
+  expired
+}
+
+/// One Stripe Checkout Session the pay link made (payments.md §11). It is how a second click, a
+/// second tab included, gets the SAME open session for the same balance instead of a second one to
+/// pay, and how a change of the balance finds the session to close.
+model StripeCheckout {
+  id        String               @id @default(uuid()) @db.Uuid
+  /// Stripe's `cs_…` id
+  sessionId String               @unique
+  invoiceId String               @db.Uuid
+  /// minor units, the balance the session asks for
+  amount    Int
+  /// Stripe's page for this session; it stops working at `expiresAt`
+  url       String
+  expiresAt DateTime
+  /// sandbox (false) or live: a session made with the sandbox's key is never reused after the
+  /// switch to the live one
+  livemode  Boolean
+  status    StripeCheckoutStatus @default(open)
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  // Restrict: a record of money asked for online is never removed with its invoice by accident
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@index([invoiceId, status])
 }
 
 // ── Calendar ─────────────────────────────────────────────────────────────────

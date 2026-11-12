@@ -371,6 +371,9 @@ describe("raw-SQL schema invariants (invisible to prisma migrate diff)", () => {
       // a sent letter records that this company was written to — deleting the company must be
       // refused, not silently erase the record
       "MailoutRecipient.companyId",
+      // a Stripe session is money somebody may have paid: the invoice it was for cannot vanish
+      // under it (payments.md §11)
+      "StripeCheckout.invoiceId",
     ]) {
       expect(restricted, `${fk} must be ON DELETE RESTRICT`).toContain(fk);
     }

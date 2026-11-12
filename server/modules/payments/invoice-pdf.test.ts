@@ -32,6 +32,7 @@ const document = (over: Partial<InvoiceDocument> = {}): InvoiceDocument => ({
   balance: null,
   note: null,
   paymentLines: ["Account name: Acme"],
+  payOnline: null,
   ...over,
 });
 
@@ -60,6 +61,13 @@ describe("the invoice on paper", () => {
     const paymentLines = Array.from({ length: 90 }, (_, i) => `Line ${i + 1}`);
     const pdf = await renderInvoicePdf(document({ paymentLines }), null);
     expect(pagesOf(pdf)).toBe(3);
+  });
+
+  it("makes the pay link a link a reader can click, and prints none without one", async () => {
+    const url = "https://crm.example.test/pay/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde";
+    const linked = await renderInvoicePdf(document({ payOnline: url }), null);
+    expect(linked.toString("latin1")).toContain(`/URI (${url})`);
+    expect((await renderInvoicePdf(document(), null)).toString("latin1")).not.toContain("/URI");
   });
 
   it("draws Cyrillic names and long free text", async () => {

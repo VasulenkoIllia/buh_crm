@@ -5,6 +5,7 @@ import { isPrintableLogo, readInvoiceIssuer, type InvoiceIssuer } from "../../co
 import { readStoredFile } from "../../core/files.js";
 import { copyIntoLibrary } from "../files/index.js";
 import { invoiceDocument, invoiceFileName } from "./invoice-document.js";
+import { stripeGateway } from "./stripe.js";
 import { renderInvoicePdf } from "./invoice-pdf.js";
 import * as repo from "./payments.repository.js";
 import { toInvoiceDto } from "./payments.service.js";
@@ -41,11 +42,10 @@ export async function invoicePaper(id: string) {
     null;
   // `Company.email` is that company's invoice address; with none, the client's own
   const billToEmail = invoice.company?.email ?? invoice.client.email;
-  const document = invoiceDocument(
-    toInvoiceDto(invoice),
-    { ...issuer, paymentInfo },
-    billToEmail,
-  );
+  const dto = toInvoiceDto(invoice);
+  // live only: in the sandbox the paper prints no link, so no client of the firm meets a test page
+  const payUrl = stripeGateway()?.mode === "live" ? dto.payUrl : null;
+  const document = invoiceDocument(dto, { ...issuer, paymentInfo }, billToEmail, payUrl);
   return { invoice, document, logoFile };
 }
 

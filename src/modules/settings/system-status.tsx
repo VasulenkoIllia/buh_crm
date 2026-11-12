@@ -21,6 +21,7 @@ import { JOB_TONE_COLORS } from "@/shared/lib/colors";
 import { InfoHint } from "@/shared/ui/info-hint";
 import { LiveConnectionPanel } from "./live-connection";
 import { useStorage, useSystemHealth } from "./settings.api";
+import { StripePanel } from "./stripe-status";
 
 /**
  * "Is the CRM quietly broken?" — asked and answered without opening a log.
@@ -99,6 +100,8 @@ export function SystemStatusSection() {
           </section>
         );
       })}
+
+      <StripePanel stripe={data.stripe} />
 
       <LiveConnectionPanel />
 

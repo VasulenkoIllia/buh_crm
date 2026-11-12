@@ -167,11 +167,14 @@ describe("route inventory", () => {
       // like the invite itself; anybody who signed in is blocked, never deleted.
       // +1 the same day, an invoice item added from an invoice's row (payments.md §3), on Billing's
       // gate: whoever bills, while editing the list stays on Settings'.
-      total: 422,
+      // +1 on 2026-11-12, the invoice's pay link `GET /pay/:token` (payments.md §11), the tenth
+      // public route and a security decision: its token is the credential, it only ever sends the
+      // holder to Stripe for the balance, and it has no HEAD, so a mail scanner opens no session.
+      total: 423,
       derivedHead: 106,
-      real: 316,
-      api: 315, // everything but /health
-      anonymous: 9, // 6 credential routes, 2 unsubscribe pages, /health
+      real: 317,
+      api: 315, // everything but /health and /pay/:token
+      anonymous: 10, // 6 credential routes, 2 unsubscribe pages, /health, the pay link
       // `POST /tasks/timer/start` moved to the `tasks` gate during the 2026-09-07 audit. It takes a
       // taskId and writes against somebody else's module, so it was never really "the caller's own
       // row" — `active` and `stop` still are, and must be. The two-factor five are the caller's own
@@ -191,9 +194,10 @@ describe("route inventory", () => {
   /**
    * The one list nobody had ever seen: what answers without a session. It confirmed the audit's
    * count of 8 exactly — no route had been missed. The ninth, the second step of signing in, was
-   * decided on 2026-09-12 (two-factor.md §5.4) and is listed here rather than slipped in.
+   * decided on 2026-09-12 (two-factor.md §5.4) and is listed here rather than slipped in. The
+   * tenth, the invoice's pay link, on 2026-11-12 (payments.md §11, permissions.md).
    */
-  it("keeps the unauthenticated surface to the nine routes that are meant to be public", () => {
+  it("keeps the unauthenticated surface to the ten routes that are meant to be public", () => {
     expect(
       live
         .filter((r) => !r.derived && r.access === "anonymous")
@@ -202,6 +206,7 @@ describe("route inventory", () => {
     ).toEqual([
       "GET /api/mailouts/unsubscribe/:token",
       "GET /health",
+      "GET /pay/:token",
       "POST /api/auth/accept-invite",
       "POST /api/auth/forgot-password",
       "POST /api/auth/login",

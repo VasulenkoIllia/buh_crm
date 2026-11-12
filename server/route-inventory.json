@@ -2223,5 +2223,10 @@
     "url": "/health",
     "access": "anonymous",
     "derived": true
+  },
+  {
+    "method": "GET",
+    "url": "/pay/:token",
+    "access": "anonymous"
   }
 ]

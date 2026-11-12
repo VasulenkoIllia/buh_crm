@@ -51,6 +51,52 @@ describe("loadConfig", () => {
     ).toThrow(/DATABASE_URL/);
   });
 
+  describe("Stripe's two keys", () => {
+    const key = "rk_test_51AbCdEf";
+    const secret = "whsec_0123456789";
+    const load = (extra: Record<string, string>) =>
+      loadConfig({ ...baseEnv, ...extra } as NodeJS.ProcessEnv);
+
+    it("are off with neither, an empty line counting as unset", () => {
+      expect(load({}).STRIPE_SECRET_KEY).toBeUndefined();
+      const blank = load({ STRIPE_SECRET_KEY: "", STRIPE_WEBHOOK_SECRET: " " });
+      expect(blank.STRIPE_SECRET_KEY).toBeUndefined();
+      expect(blank.STRIPE_WEBHOOK_SECRET).toBeUndefined();
+    });
+
+    it("refuse one without the other", () => {
+      expect(() => load({ STRIPE_SECRET_KEY: key })).toThrow(/STRIPE_WEBHOOK_SECRET/);
+      expect(() => load({ STRIPE_WEBHOOK_SECRET: secret })).toThrow(/STRIPE_SECRET_KEY/);
+    });
+
+    it("take a restricted or secret sandbox key", () => {
+      for (const k of [key, "sk_test_9z"]) {
+        expect(
+          load({ STRIPE_SECRET_KEY: k, STRIPE_WEBHOOK_SECRET: secret }).STRIPE_SECRET_KEY,
+        ).toBe(k);
+      }
+    });
+
+    it("refuse a live key while nothing records a payment made online (stage A)", () => {
+      for (const k of ["rk_live_9z", "sk_live_9z"]) {
+        expect(() => load({ STRIPE_SECRET_KEY: k, STRIPE_WEBHOOK_SECRET: secret })).toThrow(
+          /live key needs the Stripe webhook/,
+        );
+      }
+    });
+
+    it("refuse a publishable key, a swapped pair and a key with no mode", () => {
+      for (const k of ["pk_test_9z", secret, "sk_9z", "rk_prod_9z"]) {
+        expect(() => load({ STRIPE_SECRET_KEY: k, STRIPE_WEBHOOK_SECRET: secret })).toThrow(
+          /STRIPE_SECRET_KEY/,
+        );
+      }
+      expect(() => load({ STRIPE_SECRET_KEY: key, STRIPE_WEBHOOK_SECRET: key })).toThrow(
+        /STRIPE_WEBHOOK_SECRET/,
+      );
+    });
+  });
+
   it("rejects a short SESSION_SECRET", () => {
     expect(() =>
       loadConfig({ ...baseEnv, SESSION_SECRET: "short" } as NodeJS.ProcessEnv),

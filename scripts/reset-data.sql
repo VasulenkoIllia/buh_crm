@@ -64,6 +64,8 @@ DELETE FROM "TaskAssignee";
 DELETE FROM "TaskComment";
 DELETE FROM "Task";
 DELETE FROM "InvoiceLine";
+-- The pay link's Checkout Sessions (payments.md §11). RESTRICT to the invoice, so before it.
+DELETE FROM "StripeCheckout";
 DELETE FROM "Invoice";
 DELETE FROM "SubscriptionPeriod";
 DELETE FROM "Subscription";

@@ -47,6 +47,11 @@ export interface InvoiceDocument {
   balance: string | null;
   note: string | null;
   paymentLines: string[];
+  /**
+   * The pay link under the payment details (payments.md §11). Only in live mode and while the
+   * invoice owes something: a sandbox link must never reach a client of the firm on paper.
+   */
+  payOnline: string | null;
 }
 
 export type InvoiceSource = Pick<
@@ -137,6 +142,7 @@ export function invoiceDocument(
   invoice: InvoiceSource,
   issuer: PaperIssuer,
   billToEmail: string | null,
+  payUrl: string | null = null,
 ): InvoiceDocument {
   // no Sales tax row: the firm charges none, and a $0.00 line on every paper was noise (owner,
   // 2026-11-04)
@@ -166,6 +172,7 @@ export function invoiceDocument(
     balance: showsPayments ? fmtMoney(invoice.balance) : null,
     note: noteOf(invoice, rows),
     paymentLines: (issuer.paymentInfo ?? "").split(/\r?\n/).map((line) => line.trimEnd()),
+    payOnline: invoice.balance > 0 && !isCancelled ? payUrl : null,
   };
 }
 
