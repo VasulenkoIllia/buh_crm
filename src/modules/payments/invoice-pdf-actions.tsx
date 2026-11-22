@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { Check, CreditCard, Download, ExternalLink, FolderInput } from "lucide-react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { Check, CreditCard, Download, ExternalLink, FolderInput, Mail } from "lucide-react";
 import type { Invoice } from "@shared/schema/payment";
 import { useCanEdit } from "@/app/auth";
 import { cn } from "@/shared/lib/cn";
@@ -9,6 +9,11 @@ import { useSaveInvoicePdf } from "./payments.api";
 /** 28px at a desk, 44px under a thumb. */
 const TAP = "max-md:h-11 max-md:px-3.5";
 const LINK = cn(buttonVariants({ variant: "secondary", size: "sm" }), TAP);
+
+/** On demand: it carries Mailouts' letter frame, and most cards are opened without sending. */
+const InvoiceEmailModal = lazy(() =>
+  import("./invoice-email-modal").then((m) => ({ default: m.InvoiceEmailModal })),
+);
 
 /**
  * The paper version of this card (payments.md §10).
@@ -20,6 +25,7 @@ const LINK = cn(buttonVariants({ variant: "secondary", size: "sm" }), TAP);
 export function InvoicePdfActions({ invoice }: { invoice: Invoice }) {
   const canEdit = useCanEdit("billing");
   const save = useSaveInvoicePdf();
+  const [isEmailing, setIsEmailing] = useState(false);
   const pdfUrl = `/api/invoices/${invoice.id}/pdf`;
 
   function keepCopy() {
@@ -40,6 +46,19 @@ export function InvoicePdfActions({ invoice }: { invoice: Invoice }) {
           <Download />
           Download
         </a>
+        {/* Billing open, as Mark as sent: the letter stamps the same mark. Not on a cancelled
+            invoice, which nobody hands over */}
+        {canEdit && !invoice.cancelledAt && (
+          <Button
+            variant="secondary"
+            size="sm"
+            className={TAP}
+            onClick={() => setIsEmailing(true)}
+          >
+            <Mail />
+            Send by email
+          </Button>
+        )}
         {canEdit && (
           <Button
             variant="secondary"
@@ -55,6 +74,11 @@ export function InvoicePdfActions({ invoice }: { invoice: Invoice }) {
         {invoice.payUrl && <CopyPayLink url={invoice.payUrl} />}
       </div>
       {save.error && <p className="text-[12px] text-danger-text">{save.error.message}</p>}
+      {isEmailing && (
+        <Suspense fallback={null}>
+          <InvoiceEmailModal invoice={invoice} onClose={() => setIsEmailing(false)} />
+        </Suspense>
+      )}
     </div>
   );
 }

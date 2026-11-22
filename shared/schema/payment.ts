@@ -124,6 +124,25 @@ export const invoiceSchema = z.object({
 });
 export type Invoice = z.infer<typeof invoiceSchema>;
 
+/**
+ * What Send by email on an invoice would do (payments.md §12), shown before anybody presses Send.
+ * Read the same way the send reads it, so the window cannot promise a letter the send refuses.
+ */
+export const invoiceEmailPreviewSchema = z.object({
+  /** the invoice company's address, else the client's: the address the PDF prints */
+  to: z.string().nullable(),
+  /** the mailbox marked for invoices, with its From; null when none is */
+  mailbox: z.object({ name: z.string(), from: z.string() }).nullable(),
+  subject: z.string().nullable(),
+  /** the letter as the client will read it; null when it cannot go */
+  html: z.string().nullable(),
+  /** the PDF it carries, named as Download names it */
+  fileName: z.string(),
+  /** why it cannot go; null = it can */
+  blockedReason: z.string().nullable(),
+});
+export type InvoiceEmailPreview = z.infer<typeof invoiceEmailPreviewSchema>;
+
 export const invoiceListSchema = paginated(invoiceSchema).extend({
   /** totals across the WHOLE filtered set (not just this page) */
   totals: z.object({ receivable: money, overdue: money }),

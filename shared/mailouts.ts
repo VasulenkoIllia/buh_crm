@@ -55,7 +55,31 @@ export const FIRM_VARIABLES: readonly MailVariable[] = [
 
 export const MAIL_VARIABLES: readonly MailVariable[] = [...CLIENT_VARIABLES, ...FIRM_VARIABLES];
 
+/**
+ * What the letter an invoice is emailed with may also say (payments.md §12).
+ *
+ * Known to the invoice template only: any other letter has no invoice to read them from, so there
+ * they stay `{{unknown}}` and visible, as a typo does. The number and the two sums are on every
+ * invoice. The due date is not, and an invoice without one still goes, the date left empty (owner,
+ * 2026-11-22): a letter that names it is written so it reads without it. The samples are written
+ * the way the invoice's paper prints them.
+ */
+export const INVOICE_VARIABLES = [
+  { key: "invoice_number", label: "Invoice number", sample: "INV-2026-0042", required: true },
+  { key: "amount", label: "Invoice total", sample: "$450.00", required: true },
+  { key: "balance", label: "Balance due", sample: "$450.00", required: true },
+  { key: "due_date", label: "Due date", sample: "Dec-15-2026", required: false },
+] as const satisfies readonly MailVariable[];
+
+export type InvoiceVariableKey = (typeof INVOICE_VARIABLES)[number]["key"];
+
 const BY_KEY = new Map(MAIL_VARIABLES.map((v) => [v.key, v]));
+const INVOICE_BY_KEY = new Map(
+  [...MAIL_VARIABLES, ...INVOICE_VARIABLES].map((v) => [v.key, v]),
+);
+
+/** The catalog a letter is read against: the invoice template knows four more names. */
+const catalogFor = (opts: RenderOptions) => (opts.invoice ? INVOICE_BY_KEY : BY_KEY);
 
 export type MailVars = Record<string, string | null | undefined>;
 
@@ -75,6 +99,8 @@ export const MARK_END = "";
 export interface RenderOptions {
   /** fence each substituted value with MARK_START/MARK_END, for the preview's highlighting */
   mark?: boolean;
+  /** the letter is the invoice template, so `INVOICE_VARIABLES` are known */
+  invoice?: boolean;
 }
 
 export interface RenderResult {
@@ -99,9 +125,10 @@ export function renderMailText(
 ): RenderResult {
   const missing = new Set<string>();
   const unknown = new Set<string>();
+  const catalog = catalogFor(opts);
 
   const text = template.replace(VAR_PATTERN, (whole, key: string) => {
-    const spec = BY_KEY.get(key);
+    const spec = catalog.get(key);
     if (!spec) {
       unknown.add(key);
       return whole;
@@ -123,15 +150,18 @@ export function stripMarks(text: string): string {
 }
 
 /** Every variable a letter references, in catalog order. Drives the editor's "uses:" hint. */
-export function usedVariables(...templates: (string | null | undefined)[]): string[] {
+export function usedVariables(
+  templates: readonly (string | null | undefined)[],
+  opts: RenderOptions = {},
+): string[] {
   const found = new Set<string>();
   for (const t of templates) {
     for (const m of (t ?? "").matchAll(VAR_PATTERN)) found.add(m[1]);
   }
-  return MAIL_VARIABLES.filter((v) => found.has(v.key)).map((v) => v.key);
+  return [...catalogFor(opts).keys()].filter((key) => found.has(key));
 }
 
 /** The sample values behind the template editor's preview. */
-export function sampleVars(): MailVars {
-  return Object.fromEntries(MAIL_VARIABLES.map((v) => [v.key, v.sample]));
+export function sampleVars(opts: RenderOptions = {}): MailVars {
+  return Object.fromEntries([...catalogFor(opts).values()].map((v) => [v.key, v.sample]));
 }

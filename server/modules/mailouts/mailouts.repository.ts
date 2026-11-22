@@ -55,6 +55,25 @@ export function deleteTemplate(id: string) {
   return prisma.emailTemplate.delete({ where: { id } });
 }
 
+/** The letter invoices are emailed with; null until the firm marks one (payments.md §12). */
+export function findInvoiceTemplate() {
+  return prisma.emailTemplate.findFirst({ where: { isInvoiceTemplate: true } });
+}
+
+/**
+ * Name the invoice template, clear-then-set as `makeInvoiceSender`: the partial unique index means
+ * two statements would collide with themselves.
+ */
+export function makeInvoiceTemplate(id: string) {
+  return prisma.$transaction([
+    prisma.emailTemplate.updateMany({
+      where: { isInvoiceTemplate: true },
+      data: { isInvoiceTemplate: false },
+    }),
+    prisma.emailTemplate.update({ where: { id }, data: { isInvoiceTemplate: true } }),
+  ]);
+}
+
 // ── recipients ───────────────────────────────────────────────────────────────
 
 /**
@@ -436,6 +455,10 @@ export async function findSenderAccountByName(name: string) {
 /** The one a send falls back to when neither the template nor the composer named one. */
 export function findDefaultSenderAccount() {
   return prisma.mailSenderAccount.findFirst({ where: { isDefault: true } });
+}
+
+export function findInvoiceSenderAccount() {
+  return prisma.mailSenderAccount.findFirst({ where: { isInvoiceSender: true } });
 }
 
 export function createSenderAccount(data: Prisma.MailSenderAccountCreateInput) {

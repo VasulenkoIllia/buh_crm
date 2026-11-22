@@ -3,6 +3,7 @@ import type {
   AddPaymentInput,
   CreateInvoiceInput,
   Invoice,
+  InvoiceEmailPreview,
   InvoiceListQuery,
   LastRate,
   BulkTidyInput,
@@ -233,6 +234,36 @@ export function useAddInvoiceItem() {
     // a refusal is mostly a colleague's item this cache has not seen yet: it comes in, and the
     // offer gives way to the item itself
     onError: () => queryClient.invalidateQueries({ queryKey: INVOICE_ITEMS_KEY }),
+  });
+}
+
+const emailKey = (invoiceId: string) => [...INVOICES_KEY, "email", invoiceId];
+
+/**
+ * What Send by email would do, read on every opening of its window: the address, the mailbox and
+ * the template can all have changed since the last look.
+ */
+export function useInvoiceEmailPreview(invoiceId: string) {
+  return useQuery({
+    queryKey: emailKey(invoiceId),
+    queryFn: () => api<InvoiceEmailPreview>(`/api/invoices/${invoiceId}/email`),
+    staleTime: 0,
+    gcTime: 0,
+  });
+}
+
+/** Send by email (payments.md §12). The answer is the invoice, its sent mark stamped. */
+export function useEmailInvoice() {
+  const queryClient = useQueryClient();
+  const invalidate = useInvalidateBilling();
+  return useMutation({
+    mutationFn: (invoiceId: string) =>
+      api<Invoice>(`/api/invoices/${invoiceId}/email`, { method: "POST" }),
+    onSuccess: (_invoice, invoiceId) => {
+      // the window closes now; refetching its letter would draw it once more for nobody
+      queryClient.removeQueries({ queryKey: emailKey(invoiceId) });
+      invalidate();
+    },
   });
 }
 

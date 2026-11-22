@@ -296,6 +296,8 @@ export const testOutbox: Array<{
   text?: string;
   from?: string;
   replyTo?: string;
+  /** what went with it, and how big: an invoice's PDF is asserted by name, type and bytes */
+  attachments?: { filename: string; contentType?: string; size: number }[];
 }> = [];
 
 /**
@@ -540,6 +542,11 @@ export async function sendRawEmail(email: RawEmail): Promise<string | null> {
       text: email.text,
       from: email.from ?? config.MAIL_FROM,
       replyTo: email.replyTo ?? undefined,
+      attachments: email.attachments?.map((a) => ({
+        filename: a.filename,
+        contentType: a.contentType,
+        size: a.content.length,
+      })),
     });
     // A stand-in id rather than null, so the path that stores the key is exercised by the suite.
     // Returning null here left the one line that threads it through untested — and an untested

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useRecordParam } from "@/shared/lib/use-record-param";
-import { Pencil, Plus, Power, Send, Trash2 } from "lucide-react";
+import { Pencil, Plus, Power, Receipt, Send, Trash2 } from "lucide-react";
 import type { EmailTemplate } from "@shared/schema/mailouts";
 import { cn } from "@/shared/lib/cn";
 import { fmtDateTime } from "@/shared/lib/format";
@@ -17,6 +17,7 @@ import { TemplateModal } from "./template-modal";
 import {
   useDeleteTemplate,
   useMailouts,
+  useMakeInvoiceTemplate,
   useTemplates,
   useUpdateTemplate,
 } from "./mailouts.api";
@@ -242,6 +243,10 @@ function SentLog({ onOpen }: { onOpen: (id: string) => void }) {
 
 // ── templates ────────────────────────────────────────────────────────────────
 
+/** Why the invoice template's switch and bin are off: the server refuses both while it is the one. */
+const INVOICE_TEMPLATE_KEPT =
+  "The invoice template stays on: use another one for invoices first";
+
 /**
  * `newSignal` is a counter, not a boolean.
  *
@@ -253,6 +258,7 @@ function TemplateList({ newSignal }: { newSignal: number }) {
   const { data, isLoading } = useTemplates();
   const update = useUpdateTemplate();
   const remove = useDeleteTemplate();
+  const makeInvoice = useMakeInvoiceTemplate();
   const [editing, setEditing] = useState<EmailTemplate | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -312,16 +318,23 @@ function TemplateList({ newSignal }: { newSignal: number }) {
               className="flex items-center gap-3 border-b border-border px-4 py-3 last:border-0"
             >
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
+                {/* the badges wrap under the name on a phone rather than squeezing it to "Invo…" */}
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                   <span className="truncate text-[14px] font-medium">{t.name}</span>
                   {!t.active && (
                     <span className="rounded-(--radius-chip) bg-[#eef0f3] px-1.5 py-0.5 text-[10px] text-muted">
                       inactive
                     </span>
                   )}
-                  {t.kind === "transactional" && (
+                  {/* the invoices badge says it already, and the row is narrow on a phone */}
+                  {t.kind === "transactional" && !t.isInvoiceTemplate && (
                     <span className="rounded-(--radius-chip) bg-[#eef0f3] px-1.5 py-0.5 text-[10px] text-muted">
                       transactional
+                    </span>
+                  )}
+                  {t.isInvoiceTemplate && (
+                    <span className="inline-flex items-center gap-1 rounded-(--radius-chip) bg-[#eef0f3] px-1.5 py-0.5 text-[10px] font-medium text-muted">
+                      <Receipt size={10} /> invoices
                     </span>
                   )}
                 </div>
@@ -334,13 +347,49 @@ function TemplateList({ newSignal }: { newSignal: number }) {
                 <IconButton label="Edit template" onClick={() => openTemplate(t.id)}>
                   <Pencil size={15} />
                 </IconButton>
+                {/* the mailbox card's Use for invoices, the same icon and the same rule: shown ON
+                    and disabled once it is the one (payments.md §12) */}
                 <IconButton
                   label={
-                    t.active
-                      ? "Deactivate — it stays in history but cannot be sent or scheduled"
-                      : "Activate"
+                    t.isInvoiceTemplate
+                      ? "Invoices are emailed with this letter"
+                      : !t.active
+                        ? "Activate it first to use it for invoices"
+                        : t.kind === "commercial"
+                          ? "Only a transactional letter can go with invoices"
+                          : "Use for invoices: Send by email on an invoice goes with this letter"
                   }
-                  disabled={update.isPending}
+                  disabled={
+                    makeInvoice.isPending ||
+                    t.isInvoiceTemplate ||
+                    !t.active ||
+                    t.kind === "commercial"
+                  }
+                  className={cn(
+                    t.isInvoiceTemplate && "text-primary-link hover:text-primary-link",
+                  )}
+                  onClick={() => {
+                    setError(null);
+                    makeInvoice
+                      .mutateAsync(t.id)
+                      .catch((e) =>
+                        setError(
+                          e instanceof Error ? e.message : "Could not change the template",
+                        ),
+                      );
+                  }}
+                >
+                  <Receipt size={15} />
+                </IconButton>
+                <IconButton
+                  label={
+                    t.isInvoiceTemplate
+                      ? INVOICE_TEMPLATE_KEPT
+                      : t.active
+                        ? "Deactivate — it stays in history but cannot be sent or scheduled"
+                        : "Activate"
+                  }
+                  disabled={update.isPending || t.isInvoiceTemplate}
                   className={t.active ? "hover:text-danger" : undefined}
                   onClick={() => {
                     setError(null);
@@ -356,8 +405,8 @@ function TemplateList({ newSignal }: { newSignal: number }) {
                   <Power size={15} />
                 </IconButton>
                 <IconButton
-                  label="Delete template"
-                  disabled={remove.isPending}
+                  label={t.isInvoiceTemplate ? INVOICE_TEMPLATE_KEPT : "Delete template"}
+                  disabled={remove.isPending || t.isInvoiceTemplate}
                   className="hover:text-danger"
                   onClick={() => tryDelete(t)}
                 >

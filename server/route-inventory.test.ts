@@ -173,10 +173,13 @@ describe("route inventory", () => {
       // +1 the same day, Stripe's webhook `POST /api/stripe/webhook` (payments.md §11, stage B),
       // the eleventh public route: Stripe has no session, and the request is authenticated by
       // Stripe's signature over its raw bytes before anything in it is read.
-      total: 424,
-      derivedHead: 106,
-      real: 318,
-      api: 316, // everything but /health and /pay/:token
+      // +3 and a HEAD on 2026-11-22, Send by email on an invoice (payments.md §12): what it would
+      // send and the send, both on Billing's gate as Mark as sent is, and Use for invoices on a
+      // template, on Mail-outs' gate as the template's text is.
+      total: 428,
+      derivedHead: 107,
+      real: 321,
+      api: 319, // everything but /health and /pay/:token
       anonymous: 11, // 6 credential routes, 2 unsubscribe pages, /health, the pay link, the webhook
       // `POST /tasks/timer/start` moved to the `tasks` gate during the 2026-09-07 audit. It takes a
       // taskId and writes against somebody else's module, so it was never really "the caller's own
@@ -184,7 +187,7 @@ describe("route inventory", () => {
       // second factor and name nobody else.
       own: 15,
       shared: 14,
-      gated: 278,
+      gated: 281,
       adminOnly: 27,
     });
   });

@@ -31,6 +31,8 @@ export const emailTemplateSchema = z.object({
   active: z.boolean(),
   /** the mailbox letters from this template usually go from; null = the firm's default */
   senderAccountId: uuid.nullable(),
+  /** the letter Send by email on an invoice goes with; at most one (payments.md §12) */
+  isInvoiceTemplate: z.boolean(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });
@@ -155,6 +157,11 @@ export const previewLetterInput = letterFields.extend({
   kind: mailoutKind.default("commercial"),
   /** render through this mailbox's From and signature; omitted = the default mailbox */
   senderAccountId: uuid.nullable().optional(),
+  /**
+   * Draw it as the invoice template goes: from the invoice mailbox, transactional, with sample
+   * invoice values. `kind` and `senderAccountId` are then not read (payments.md §12).
+   */
+  isInvoiceTemplate: z.boolean().default(false),
 });
 export type PreviewLetterInput = z.infer<typeof previewLetterInput>;
 

@@ -1220,6 +1220,21 @@ const EVENTS = {
     enabledByDefault: true,
   },
   /**
+   * Send by email (payments.md §12): the PDF went to the client from the invoice mailbox. Who it
+   * went to and from where, because that is what is asked when a client says nothing arrived. The
+   * sent mark it stamps is this act, so no `invoice.marked_sent` beside it.
+   */
+  "invoice.emailed": {
+    subject: "invoice",
+    title: "{actor} emailed invoice {subject} to the client",
+    when: "an invoice is sent to the client by email",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "ordinary",
+    changeKeys: ["to", "mailbox"],
+    enabledByDefault: true,
+  },
+  /**
    * A copy of the PDF kept in the client's files. Beside `file.uploaded`, because that row says a
    * file arrived and this one says which invoice it is.
    */
@@ -2452,6 +2467,17 @@ const EVENTS = {
     actorKinds: ["user"],
     retention: "ordinary",
     changeKeys: ["name", "subject", "heading", "kind"],
+    enabledByDefault: true,
+  },
+  /** Which text every emailed invoice now arrives with (payments.md §12). */
+  "mailout.invoice_template_changed": {
+    subject: "mailout",
+    title: "{actor} made {subject} the invoice template",
+    when: "the template invoices are emailed with changes",
+    granularity: "item",
+    actorKinds: ["user"],
+    retention: "long",
+    changeKeys: ["template"],
     enabledByDefault: true,
   },
   "mailout.template_deleted": {

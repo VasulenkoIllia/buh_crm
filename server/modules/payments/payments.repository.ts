@@ -96,6 +96,17 @@ export function setInvoiceDelivery(id: string, sent: boolean, userId: string) {
   });
 }
 
+/**
+ * Send by email's mark: written only when the invoice has none, so the first hand-over, by hand or
+ * by letter, stays the one on record. One conditional statement, so two sends cannot both write it.
+ */
+export function stampSentIfUnsent(id: string, userId: string) {
+  return prisma.invoice.updateMany({
+    where: { id, sentAt: null },
+    data: { sentAt: new Date(), sentById: userId },
+  });
+}
+
 export function updateInvoice(id: string, data: Prisma.InvoiceUncheckedUpdateInput) {
   return prisma.invoice.update({ where: { id }, data, include: invoiceInclude });
 }

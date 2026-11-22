@@ -992,6 +992,22 @@
     "access": "gate:billing"
   },
   {
+    "method": "GET",
+    "url": "/api/invoices/:id/email",
+    "access": "gate:billing"
+  },
+  {
+    "method": "HEAD",
+    "url": "/api/invoices/:id/email",
+    "access": "gate:billing",
+    "derived": true
+  },
+  {
+    "method": "POST",
+    "url": "/api/invoices/:id/email",
+    "access": "gate:billing"
+  },
+  {
     "method": "POST",
     "url": "/api/invoices/:id/payments",
     "access": "gate:billing"
@@ -1382,6 +1398,11 @@
   {
     "method": "PATCH",
     "url": "/api/mailouts/templates/:id",
+    "access": "gate:mailouts"
+  },
+  {
+    "method": "POST",
+    "url": "/api/mailouts/templates/:id/invoice-template",
     "access": "gate:mailouts"
   },
   {

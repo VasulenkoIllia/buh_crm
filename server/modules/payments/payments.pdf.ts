@@ -46,7 +46,8 @@ export async function invoicePaper(id: string) {
   // live only: in the sandbox the paper prints no link, so no client of the firm meets a test page
   const payUrl = stripeGateway()?.mode === "live" ? dto.payUrl : null;
   const document = invoiceDocument(dto, { ...issuer, paymentInfo }, billToEmail, payUrl);
-  return { invoice, document, logoFile };
+  const name = invoiceFileName(invoice.number, document.billTo.name);
+  return { invoice, dto, document, logoFile, name };
 }
 
 /**
@@ -55,13 +56,13 @@ export async function invoicePaper(id: string) {
  * not hand it over.
  */
 export async function invoicePdf(id: string) {
-  const { invoice, document, logoFile } = await invoicePaper(id);
-  const logo = await readLogo(logoFile);
-  return {
-    invoice,
-    name: invoiceFileName(invoice.number, document.billTo.name),
-    buffer: await renderInvoicePdf(document, logo),
-  };
+  return paperPdf(await invoicePaper(id));
+}
+
+/** A paper already read, drawn: Send by email draws it only once the letter can go. */
+export async function paperPdf(paper: Awaited<ReturnType<typeof invoicePaper>>) {
+  const logo = await readLogo(paper.logoFile);
+  return { ...paper, buffer: await renderInvoicePdf(paper.document, logo) };
 }
 
 /**

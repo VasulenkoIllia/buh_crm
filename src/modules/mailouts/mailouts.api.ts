@@ -65,6 +65,18 @@ export function useUpdateTemplate() {
   });
 }
 
+/** Use for invoices (payments.md §12): the mark moves, so the whole list comes back. */
+export function useMakeInvoiceTemplate() {
+  const invalidate = useInvalidateTemplates();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api<EmailTemplate[]>(`/api/mailouts/templates/${id}/invoice-template`, {
+        method: "POST",
+      }),
+    onSuccess: invalidate,
+  });
+}
+
 export function useDeleteTemplate() {
   const invalidate = useInvalidateTemplates();
   return useMutation({

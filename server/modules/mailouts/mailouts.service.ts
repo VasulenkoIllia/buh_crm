@@ -96,7 +96,7 @@ const isoDay = (d: Date | null) =>
 
 /** How many of a client's letters the card tab shows. */
 
-type FirmProfile = Awaited<ReturnType<typeof repo.getFirmProfile>>;
+export type FirmProfile = Awaited<ReturnType<typeof repo.getFirmProfile>>;
 type SendableClient = Awaited<ReturnType<typeof repo.findSendableClients>>[number];
 type SendableCompany = SendableClient["companies"][number];
 
@@ -108,7 +108,7 @@ type SendableCompany = SendableClient["companies"][number];
  * address and `{{company}}` come from the company, but who to greet, what the letter may say and
  * whether they have opted out all still belong to the person.
  */
-interface Recipient {
+export interface Recipient {
   client: SendableClient;
   /** null = the client's own address */
   company: SendableCompany | null;
@@ -119,7 +119,10 @@ function addressOf(r: Recipient): string | null {
   return (r.company ? r.company.email : r.client.email) || null;
 }
 
-function companyOf(client: SendableClient, companyId: string | null): SendableCompany | null {
+export function companyOf(
+  client: SendableClient,
+  companyId: string | null,
+): SendableCompany | null {
   if (!companyId) return null;
   // matched within the client's OWN companies — one client can never address another's inbox,
   // and that is a property of the lookup rather than a check that could be forgotten
@@ -138,6 +141,7 @@ function toTemplate(t: Awaited<ReturnType<typeof repo.findTemplate>> & object) {
     kind: t.kind as MailoutKind,
     active: t.active,
     senderAccountId: t.senderAccountId,
+    isInvoiceTemplate: t.isInvoiceTemplate,
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),
   };
@@ -164,9 +168,33 @@ export async function createTemplate(input: CreateTemplateInput) {
   return toTemplate(created);
 }
 
+/**
+ * The invoice template stays usable for as long as it is the one (payments.md §12): no commercial
+ * kind, which would silence it for a client who unsubscribed from news, and no switching it off or
+ * deleting it, which would leave Send by email with no letter. Moving the mark is the way out, as
+ * the default mailbox's is.
+ */
+function assertInvoiceTemplateKept(
+  template: { name: string; isInvoiceTemplate: boolean },
+  input: UpdateTemplateInput | "delete",
+) {
+  if (!template.isInvoiceTemplate) return;
+  if (input === "delete" || input.active === false) {
+    throw new ConflictError(
+      `“${template.name}” is the invoice template. Mark another template for invoices first`,
+    );
+  }
+  if (input.kind === "commercial") {
+    throw new ValidationError(
+      "The invoice template is always transactional, so it reaches a client who unsubscribed from news",
+    );
+  }
+}
+
 export async function updateTemplate(id: string, input: UpdateTemplateInput) {
   const existing = await repo.findTemplate(id);
   if (!existing) throw new NotFoundError("Template not found");
+  assertInvoiceTemplateKept(existing, input);
 
   if (input.name && input.name.toLowerCase() !== existing.name.toLowerCase()) {
     const clash = await repo.findTemplateByName(input.name);
@@ -191,6 +219,7 @@ export async function updateTemplate(id: string, input: UpdateTemplateInput) {
 export async function deleteTemplate(id: string) {
   const existing = await repo.findTemplate(id);
   if (!existing) throw new NotFoundError("Template not found");
+  assertInvoiceTemplateKept(existing, "delete");
 
   // A sent mailout keeps a snapshot of its text, but it still points at the template by id for the
   // log's "which template was this" column. Deactivate instead, so history stays readable.
@@ -211,6 +240,42 @@ export async function deleteTemplate(id: string) {
   record("mailout.template_deleted", { subjectId: id, subjectLabel: existing.name });
 }
 
+/**
+ * **Use for invoices**: the letter Send by email on an invoice goes with (payments.md §12). Only a
+ * transactional one: turning a commercial letter into one here would leave it so when the mark
+ * moves on, and it would then reach a list without its unsubscribe link. A campaign may not hold
+ * it either: the invoice variables mean nothing in a letter to a list, and would reach every
+ * client as `{{amount}}`.
+ */
+export async function makeInvoiceTemplate(id: string) {
+  const template = await repo.findTemplate(id);
+  if (!template) throw new NotFoundError("Template not found");
+  if (!template.active) throw new ValidationError("Activate the template first");
+  if (template.isInvoiceTemplate) return listTemplates();
+  if (template.kind === "commercial") {
+    throw new ValidationError(
+      "Make it Transactional first: an invoice reaches a client who unsubscribed from news",
+    );
+  }
+  const scheduled = await repo.countCampaignsForTemplate(id);
+  if (scheduled > 0) {
+    // every campaign that holds it, a stopped one too: starting it again would send it to a list
+    throw new ConflictError(
+      `“${template.name}” is held by ${scheduled} campaign${scheduled === 1 ? "" : "s"}. ` +
+        "The invoice template goes with one invoice at a time, so pick another one",
+    );
+  }
+  const previous = await repo.findInvoiceTemplate();
+  await repo.makeInvoiceTemplate(id);
+  record("mailout.invoice_template_changed", {
+    subjectId: id,
+    subjectLabel: template.name,
+    // which letter invoices went with until now
+    changes: { template: { from: previous?.name ?? null, to: template.name } },
+  });
+  return listTemplates();
+}
+
 // ── sender mailboxes ─────────────────────────────────────────────────────────
 //
 // A firm sends different kinds of letter from different addresses. Each mailbox carries its own
@@ -218,7 +283,7 @@ export async function deleteTemplate(id: string) {
 // and its own SMTP credentials. `smtpHost` null means "borrow the `.env` account", so a mailbox
 // can be named and used before its own credentials exist.
 
-type SenderAccount = NonNullable<Awaited<ReturnType<typeof repo.findSenderAccount>>>;
+export type SenderAccount = NonNullable<Awaited<ReturnType<typeof repo.findSenderAccount>>>;
 
 /**
  * One sealed password out of the four columns that hold it.
@@ -256,7 +321,7 @@ function hasOwnSmtp(account: SenderAccount): boolean {
   return !!account.smtpHost && !!account.smtpPort;
 }
 
-function smtpFor(account: SenderAccount): SmtpAccount {
+export function smtpFor(account: SenderAccount): SmtpAccount {
   if (!hasOwnSmtp(account)) return envAccount();
   return {
     host: account.smtpHost!,
@@ -310,13 +375,13 @@ function imapFor(account: SenderAccount): ImapAccount {
  * authenticated — a From the account is not entitled to use is rejected outright, or fails
  * alignment and lands in spam.
  */
-function fromHeader(account: SenderAccount): string {
+export function fromHeader(account: SenderAccount): string {
   const address = account.fromEmail?.trim() || config.MAIL_FROM;
   return `"${account.fromName.replace(/"/g, "")}" <${address}>`;
 }
 
 /** The mailbox's contact fields, in the shape the letter shell wants. */
-function contactsOf(account: SenderAccount) {
+export function contactsOf(account: SenderAccount) {
   return {
     email: account.contactEmail,
     phone: account.contactPhone,
@@ -1023,7 +1088,7 @@ async function runSenderTest(
 
 // ── rendering one letter ─────────────────────────────────────────────────────
 
-function varsFor({ client, company }: Recipient, account: SenderAccount): MailVars {
+export function varsFor({ client, company }: Recipient, account: SenderAccount): MailVars {
   return {
     first_name: client.firstName,
     last_name: client.lastName,
@@ -1118,7 +1183,7 @@ function buildEmail(
   return { subject, html: renderLetter(shell), text: renderLetterText(shell), headers };
 }
 
-async function loadLogo(firm: FirmProfile) {
+export async function loadLogo(firm: FirmProfile) {
   if (!firm.mailLogoFile) return null;
   try {
     return {
@@ -1145,9 +1210,9 @@ async function loadLogo(firm: FirmProfile) {
  * preview has no attachment, so the same `cid:` is a dead reference and renders as a broken-image
  * icon — which is exactly what the preview did until this was split.
  */
-const cidSrc = (logo: unknown) => (logo ? `cid:${LOGO_CID}` : null);
+export const cidSrc = (logo: unknown) => (logo ? `cid:${LOGO_CID}` : null);
 
-function dataSrc(logo: { content: Buffer; contentType: string } | null): string | null {
+export function dataSrc(logo: { content: Buffer; contentType: string } | null): string | null {
   return logo ? `data:${logo.contentType};base64,${logo.content.toString("base64")}` : null;
 }
 
@@ -1172,6 +1237,11 @@ async function resolveLetter(input: SendMailoutInput): Promise<Letter> {
     const t = await repo.findTemplate(input.templateId);
     if (!t) throw new NotFoundError("Template not found");
     if (!t.active) throw new ValidationError(`“${t.name}” is inactive — activate it to send`);
+    if (t.isInvoiceTemplate) {
+      throw new ValidationError(
+        `“${t.name}” is the invoice template. It goes from an invoice, with Send by email`,
+      );
+    }
     return {
       subject: t.subject,
       heading: t.heading,
@@ -1305,7 +1375,7 @@ function judge(
  * otherwise ask the same question two hundred times. Only uncleared rows count — somebody who
  * vouches for a corrected address expects it to be writable again.
  */
-async function deadAddresses(emails: (string | null)[]): Promise<Map<string, string>> {
+export async function deadAddresses(emails: (string | null)[]): Promise<Map<string, string>> {
   const wanted = [
     ...new Set(emails.filter((e): e is string => !!e).map((e) => e.toLowerCase())),
   ];
@@ -1386,11 +1456,16 @@ function assertSendable(letter: Letter, firm: FirmProfile) {
  */
 export async function previewLetter(input: PreviewLetterInput): Promise<LetterPreview> {
   const firm = await repo.getFirmProfile();
+  // The invoice template is drawn as an invoice goes: from the invoice mailbox, transactional, with
+  // sample invoice values (payments.md §12)
+  const invoice = input.isInvoiceTemplate;
   // Previewed through the mailbox it would go from — the signature and the sender's name differ
   // per mailbox, so a preview against "the firm" would show a letter no mailbox produces.
-  const account = await resolveSenderAccount(input.senderAccountId, null);
+  const account = invoice
+    ? await invoiceMailboxForPreview()
+    : await resolveSenderAccount(input.senderAccountId, null);
   const vars = {
-    ...sampleVars(),
+    ...sampleVars({ invoice }),
     firm_name: account.fromName,
     firm_email: account.fromEmail?.trim() || config.MAIL_FROM,
   };
@@ -1398,11 +1473,11 @@ export async function previewLetter(input: PreviewLetterInput): Promise<LetterPr
   // Rendered ONCE, with the substituted values fenced. The two htmls below differ only in whether
   // those fences become a highlight or vanish — so flipping the toggle cannot show a letter
   // assembled differently from the one being described.
-  const marked = { mark: true } as const;
+  const marked = { mark: true, invoice } as const;
   const subject = renderMailText(input.subject, vars, marked);
   const heading = renderMailText(input.heading || input.subject, vars, marked);
   const body = renderMailText(input.body, vars, marked);
-  const commercial = input.kind === "commercial";
+  const commercial = !invoice && input.kind === "commercial";
 
   const shell = {
     heading: heading.text,
@@ -1429,12 +1504,20 @@ export async function previewLetter(input: PreviewLetterInput): Promise<LetterPr
     html: applyHighlight(html, false),
     highlightedHtml: applyHighlight(html, true),
     /** what the highlight is pointing at, so the legend names the same thing the colour marks */
-    variablesUsed: usedVariables(input.subject, input.heading, input.body),
+    variablesUsed: usedVariables([input.subject, input.heading, input.body], { invoice }),
     unknownVariables: [...new Set([...subject.unknown, ...heading.unknown, ...body.unknown])],
     sendable: !blockedReason,
     blockedReason,
     sender: { name: account.name, email: account.fromEmail?.trim() || null },
   };
+}
+
+async function invoiceMailboxForPreview(): Promise<SenderAccount> {
+  const account = await repo.findInvoiceSenderAccount();
+  if (!account) {
+    throw new ValidationError("No mailbox sends invoices. Pick one under Mailouts → Sender");
+  }
+  return account;
 }
 
 export async function preview(input: SendMailoutInput): Promise<MailoutPreview> {

@@ -155,6 +155,17 @@ export async function registerRoutes(instance: FastifyInstance) {
     },
   );
 
+  /**
+   * **Use for invoices** (payments.md §12): the letter an invoice is emailed with. On Mail-outs'
+   * gate, as the template's text is: whoever may write the letter may say which one invoices use.
+   * The mailbox it goes from stays behind `mailboxes`. Answers the whole list, as the mark moves.
+   */
+  app.post(
+    "/templates/:id/invoice-template",
+    { config: mailouts, schema: { params: idParams } },
+    async (request) => service.makeInvoiceTemplate(request.params.id),
+  );
+
   // ── preview and send ──────────────────────────────────────────────────────
 
   // "what does this letter look like" — sample values, no recipients. Registered before

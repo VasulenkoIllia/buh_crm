@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import type { LetterPreview } from "@shared/schema/mailouts";
 import type { MailoutKind } from "@shared/schema/enums";
-import { MAIL_VARIABLES } from "@shared/mailouts";
+import { INVOICE_VARIABLES, MAIL_VARIABLES } from "@shared/mailouts";
 import { Modal } from "@/shared/ui/modal";
 import { InfoHint } from "@/shared/ui/info-hint";
 import { Segmented } from "@/shared/ui/segmented";
@@ -31,6 +31,7 @@ export function LetterPreviewModal({
   kind,
   onKindChange,
   senderAccountId,
+  isInvoiceTemplate = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -45,6 +46,8 @@ export function LetterPreviewModal({
    * default's, whatever the template had chosen (owner, 2026-10-08).
    */
   senderAccountId: string;
+  /** drawn as an invoice goes: the invoice mailbox, sample invoice values, the kind fixed (§12) */
+  isInvoiceTemplate?: boolean;
 }) {
   const preview = usePreviewLetter();
   const [result, setResult] = useState<LetterPreview | null>(null);
@@ -69,6 +72,7 @@ export function LetterPreviewModal({
         body: body.trim(),
         kind,
         senderAccountId: senderAccountId || null,
+        isInvoiceTemplate,
       })
       .then((r) => !cancelled && setResult(r))
       .catch(
@@ -80,9 +84,11 @@ export function LetterPreviewModal({
     // The preview refetches when the LETTER changes, not when the callbacks that fetch it are
     // re-created; listing those would send a request on every keystroke.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, subject, heading, body, kind, senderAccountId]);
+  }, [open, subject, heading, body, kind, senderAccountId, isInvoiceTemplate]);
 
-  const used = MAIL_VARIABLES.filter((v) => result?.variablesUsed.includes(v.key));
+  const used = [...MAIL_VARIABLES, ...INVOICE_VARIABLES].filter((v) =>
+    result?.variablesUsed.includes(v.key),
+  );
 
   return (
     <Modal open={open} onClose={onClose} size="xl" title="The letter">
@@ -90,6 +96,7 @@ export function LetterPreviewModal({
         <div className="w-[260px]">
           <Segmented
             value={kind}
+            disabled={isInvoiceTemplate}
             onChange={(v) => onKindChange(v as MailoutKind)}
             options={[
               { value: "commercial", label: "Commercial" },

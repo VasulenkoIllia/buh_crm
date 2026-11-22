@@ -21,6 +21,7 @@ import { createInvoiceItemInput } from "@shared/schema/invoice-items.js";
 import { gate } from "../../core/access.js";
 import { viewHeaders } from "../files/index.js";
 import { createInvoiceItem } from "../settings/index.js";
+import { emailInvoice, invoiceEmailPreview } from "./invoice-email.js";
 import { attachInvoice, listUnbilledJobs } from "./job-invoices.js";
 import { invoicePdf, saveInvoicePdf } from "./payments.pdf.js";
 import * as service from "./payments.service.js";
@@ -147,6 +148,19 @@ export async function registerRoutes(instance: FastifyInstance) {
     "/:id/save-pdf",
     { config: billing, schema: { params: idParams } },
     async (request) => saveInvoicePdf(request.params.id, request.currentUser!),
+  );
+
+  /**
+   * **Send by email** (payments.md §12, owner 2026-11-22). The GET says what the POST would do, so
+   * the window shows the address, the mailbox and the letter before anybody presses Send. Billing's
+   * gate, as Mark as sent: whoever hands invoices over sends them.
+   */
+  app.get("/:id/email", { config: billing, schema: { params: idParams } }, async (request) =>
+    invoiceEmailPreview(request.params.id),
+  );
+
+  app.post("/:id/email", { config: billing, schema: { params: idParams } }, async (request) =>
+    emailInvoice(request.params.id, request.currentUser!),
   );
 
   // correcting an issued invoice is a money change → admin, journalled

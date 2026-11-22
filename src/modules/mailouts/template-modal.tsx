@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { EmailTemplate } from "@shared/schema/mailouts";
-import { CLIENT_VARIABLES, FIRM_VARIABLES, renderMailText, sampleVars } from "@shared/mailouts";
+import {
+  CLIENT_VARIABLES,
+  FIRM_VARIABLES,
+  INVOICE_VARIABLES,
+  renderMailText,
+  sampleVars,
+} from "@shared/mailouts";
 import { Button } from "@/shared/ui/button";
 import { FieldError, FormField, Input, Select, Textarea } from "@/shared/ui/field";
 import { Modal } from "@/shared/ui/modal";
@@ -30,6 +36,8 @@ export function TemplateModal({
   const create = useCreateTemplate();
   const update = useUpdateTemplate();
   const senders = useSenderOptions();
+  /** the letter invoices are emailed with: its own variables, its kind and mailbox fixed (§12) */
+  const isInvoice = !!template?.isInvoiceTemplate;
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const [lastFocused, setLastFocused] = useState<"subject" | "heading" | "body">("body");
 
@@ -79,10 +87,14 @@ export function TemplateModal({
 
   // The same renderer the server uses, against sample values — so what is previewed here is
   // exactly the substitution that will happen at send time.
-  const vars = sampleVars();
-  const previewSubject = renderMailText(subject, vars).text;
-  const previewHeading = renderMailText(heading || subject, vars).text;
-  const previewBody = renderMailText(body, vars);
+  const opts = { invoice: isInvoice };
+  const vars = sampleVars(opts);
+  const previewSubject = renderMailText(subject, vars, opts).text;
+  const previewHeading = renderMailText(heading || subject, vars, opts).text;
+  const previewBody = renderMailText(body, vars, opts);
+  const clientVariables = isInvoice
+    ? [...CLIENT_VARIABLES, ...INVOICE_VARIABLES]
+    : CLIENT_VARIABLES;
 
   async function submit() {
     setError(null);
@@ -163,17 +175,21 @@ export function TemplateModal({
                 <>
                   Usually sent from{" "}
                   <InfoHint label="Where this template sends from">
-                    A send can still override this. Letters about money usually come from a
-                    different address than news does.
+                    {isInvoice
+                      ? "Invoices always go from the mailbox marked for invoices in Sender."
+                      : "A send can still override this. Letters about money usually come from a different address than news does."}
                   </InfoHint>
                 </>
               }
             >
               <Select
-                value={senderAccountId}
+                value={isInvoice ? "" : senderAccountId}
                 onChange={(e) => setSenderAccountId(e.target.value)}
+                disabled={isInvoice}
               >
-                <option value="">The default mailbox</option>
+                <option value="">
+                  {isInvoice ? "The mailbox for invoices" : "The default mailbox"}
+                </option>
                 {(senders.data?.accounts ?? [])
                   // the template's own mailbox stays listed after it is deactivated, so the
                   // picker says what the template holds and the preview's refusal makes sense
@@ -229,6 +245,7 @@ export function TemplateModal({
               <Segmented
                 className="w-auto"
                 value={kind}
+                disabled={isInvoice}
                 onChange={(v) => setKind(v as "commercial" | "transactional")}
                 options={[
                   { value: "commercial", label: "Commercial" },
@@ -251,11 +268,12 @@ export function TemplateModal({
             <div className="md:flex-none">
               <p className="mb-1.5 text-[12px] font-medium text-ink-700">Insert a variable</p>
               <p className="mb-2 text-[12px] text-muted">
-                Filled from the client card. A client missing one is skipped, never sent a
-                letter with a gap in it.
+                {isInvoice
+                  ? "Filled from the client card and the invoice. A letter missing one is not sent; only the due date may be empty."
+                  : "Filled from the client card. A client missing one is skipped, never sent a letter with a gap in it."}
               </p>
               <div className="flex flex-wrap gap-1">
-                {CLIENT_VARIABLES.map((v) => (
+                {clientVariables.map((v) => (
                   <button
                     key={v.key}
                     type="button"
@@ -321,6 +339,7 @@ export function TemplateModal({
         kind={kind}
         onKindChange={setKind}
         senderAccountId={senderAccountId}
+        isInvoiceTemplate={isInvoice}
       />
     </Modal>
   );

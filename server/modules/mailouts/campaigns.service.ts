@@ -214,6 +214,11 @@ async function assertTemplateUsable(templateId: string) {
   if (!template.active) {
     throw new ValidationError(`“${template.name}” is inactive — activate it to schedule it`);
   }
+  if (template.isInvoiceTemplate) {
+    throw new ValidationError(
+      `“${template.name}” is the invoice template. It goes with one invoice at a time`,
+    );
+  }
 }
 
 export async function create(actor: User, input: CampaignInput): Promise<CampaignDetail> {

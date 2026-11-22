@@ -69,13 +69,63 @@ describe("renderMailText", () => {
 
 describe("usedVariables", () => {
   it("lists what a letter references, in catalog order, across subject and body", () => {
-    expect(usedVariables("{{company}} update", "Dear {{first_name}}, ref {{company}}")).toEqual(
-      ["first_name", "company"],
-    );
+    expect(
+      usedVariables(["{{company}} update", "Dear {{first_name}}, ref {{company}}"]),
+    ).toEqual(["first_name", "company"]);
   });
 
   it("ignores unknown names", () => {
-    expect(usedVariables("{{nope}}")).toEqual([]);
+    expect(usedVariables(["{{nope}}"])).toEqual([]);
+  });
+
+  it("counts the invoice variables only for the invoice template", () => {
+    expect(usedVariables(["{{amount}} for {{first_name}}"])).toEqual(["first_name"]);
+    expect(usedVariables(["{{amount}} for {{first_name}}"], { invoice: true })).toEqual([
+      "first_name",
+      "amount",
+    ]);
+  });
+});
+
+/**
+ * The invoice variables exist for one letter only (payments.md §12). Anywhere else there is no
+ * invoice behind them, so they read as a typo does: left standing, and named.
+ */
+describe("the invoice variables", () => {
+  const letter = "Invoice {{invoice_number}}: {{amount}}, {{balance}} due {{due_date}}";
+  const values = {
+    invoice_number: "INV-2026-0042",
+    amount: "$450.00",
+    balance: "$200.00",
+    due_date: "Dec-15-2026",
+  };
+
+  it("are unknown in an ordinary letter", () => {
+    const r = renderMailText(letter, values);
+    expect(r.text).toBe(letter);
+    expect(r.unknown).toEqual(["invoice_number", "amount", "balance", "due_date"]);
+  });
+
+  it("render in the invoice template", () => {
+    const r = renderMailText(letter, values, { invoice: true });
+    expect(r.text).toBe("Invoice INV-2026-0042: $450.00, $200.00 due Dec-15-2026");
+    expect(r.unknown).toEqual([]);
+  });
+
+  it("need the number and the sums, and leave a missing due date empty", () => {
+    const noSum = renderMailText(letter, { ...values, amount: null }, { invoice: true });
+    expect(noSum.missing).toEqual(["amount"]);
+    // owner, 2026-11-22: an invoice with no due date still goes
+    const noDate = renderMailText(letter, { ...values, due_date: null }, { invoice: true });
+    expect(noDate.missing).toEqual([]);
+    expect(noDate.text).toBe("Invoice INV-2026-0042: $450.00, $200.00 due ");
+  });
+
+  it("have samples only where they are known", () => {
+    expect(sampleVars()).not.toHaveProperty("amount");
+    const r = renderMailText(letter, sampleVars({ invoice: true }), { invoice: true });
+    expect(r.missing).toEqual([]);
+    expect(r.text).not.toContain("{{");
   });
 });
 

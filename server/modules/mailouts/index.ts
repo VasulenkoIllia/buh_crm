@@ -10,3 +10,10 @@ export async function mailoutsModule(app: FastifyInstance) {
 /** The scheduler's entry point — S10.1, one sweep for every campaign whose date has come. */
 export { runDueCampaigns } from "./campaigns.service.js";
 export { sweepBounces, sweepStalledSends } from "./mailouts.service.js";
+
+/** Send by email on an invoice (payments.md §12): Payments' one door into the letter path. */
+export {
+  previewInvoiceLetter,
+  sendInvoiceLetter,
+  type InvoiceLetterRequest,
+} from "./invoice-letter.js";

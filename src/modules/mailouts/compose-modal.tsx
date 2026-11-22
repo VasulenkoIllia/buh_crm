@@ -105,7 +105,8 @@ export function ComposeModal({
   }, [open, presetClientId, hasPresetTargets, presetHasOwnAddress]);
 
   const activeTemplates = useMemo(
-    () => (templates.data ?? []).filter((t) => t.active),
+    // the invoice template goes from an invoice only (payments.md §12)
+    () => (templates.data ?? []).filter((t) => t.active && !t.isInvoiceTemplate),
     [templates.data],
   );
 
