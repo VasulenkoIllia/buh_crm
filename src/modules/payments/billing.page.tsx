@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useRecordParam } from "@/shared/lib/use-record-param";
 import { CircleCheck, CircleDollarSign, TriangleAlert } from "lucide-react";
@@ -15,6 +15,7 @@ import { SearchInput } from "@/shared/ui/search-input";
 import { FilterChips } from "@/shared/ui/tabs";
 import { ClearButton } from "@/shared/ui/clear-button";
 import { InvoiceModal } from "./invoice-modals";
+import { InvoiceEmailModal, InvoiceRowActions } from "./invoice-pdf-actions";
 import { NewInvoiceModal } from "./new-invoice-modal";
 import { PageCheckbox, SelectionBar, type BulkKind } from "./selection-bar";
 import { invoiceDetail, invoiceSubject } from "@shared/invoice-subject";
@@ -39,7 +40,7 @@ const FILTERS: { key: Filter; label: string }[] = [
 ];
 
 /**
- * checkbox · № · client · service · issued · due · amount · paid · status · delivery
+ * checkbox · № · client · service · issued · due · amount · paid · status · delivery · actions
  *
  * `minmax(0,1fr)`, never a bare `1fr`. The header and the rows are SEPARATE grid containers inside
  * one horizontally scrolling box, and a bare `1fr` is `minmax(auto,1fr)` — its floor is the widest
@@ -47,7 +48,8 @@ const FILTERS: { key: Filter; label: string }[] = [
  * every column after it drifted left of its own label (user, 2026-08-27). A zero floor makes the
  * two resolve identically whatever they hold; the cells truncate instead.
  */
-const GRID = "grid-cols-[30px_104px_minmax(0,1fr)_minmax(0,1fr)_72px_72px_84px_84px_76px_96px]";
+const GRID =
+  "grid-cols-[30px_104px_minmax(0,1fr)_minmax(0,1fr)_72px_72px_84px_84px_76px_96px_92px]";
 
 /** Billing / Unpaid — every invoice with what's been paid against it. */
 export function BillingPage() {
@@ -76,6 +78,9 @@ export function BillingPage() {
   const [jobToBill, setJobToBill] = useState<string>();
   // Duplicate on an invoice's card: the card closes and New invoice opens filled in from it
   const [copyOf, setCopyOf] = useState<Invoice>();
+  // Send by email from a row: the invoice as it was clicked, so a refetch that drops the row (the
+  // Not sent filter, once it is sent) does not take the window with it
+  const [emailing, setEmailing] = useState<Invoice>();
   useEffect(() => {
     if (!jobParam) return;
     setJobToBill(jobParam);
@@ -365,7 +370,7 @@ export function BillingPage() {
                     height, so the rows do not move under the pointer */}
                 <div
                   className={cn(
-                    "grid h-11 min-w-[960px] items-center gap-x-3 border-b border-border px-4 text-[11px] font-medium uppercase tracking-wide text-faint",
+                    "grid h-11 min-w-[1064px] items-center gap-x-3 border-b border-border px-4 text-[11px] font-medium uppercase tracking-wide text-faint",
                     GRID,
                     hasChosen && "sm:hidden",
                   )}
@@ -387,6 +392,8 @@ export function BillingPage() {
                   <div className="text-right">Paid</div>
                   <div>Status</div>
                   <div>Delivery</div>
+                  {/* the row's icons name themselves; a heading over them would be one more word */}
+                  <div />
                 </div>
 
                 {items.map((invoice) => (
@@ -396,6 +403,7 @@ export function BillingPage() {
                     checked={selected.includes(invoice.id)}
                     onToggle={() => toggle(invoice.id)}
                     onOpen={() => openInvoice(invoice.id)}
+                    onEmail={() => setEmailing(invoice)}
                     onError={setError}
                   />
                 ))}
@@ -462,6 +470,11 @@ export function BillingPage() {
           onCreated={(inv) => openInvoice(inv.id)}
         />
       )}
+      {emailing && (
+        <Suspense fallback={null}>
+          <InvoiceEmailModal invoice={emailing} onClose={() => setEmailing(undefined)} />
+        </Suspense>
+      )}
     </div>
   );
 }
@@ -471,12 +484,14 @@ function InvoiceRow({
   checked,
   onToggle,
   onOpen,
+  onEmail,
   onError,
 }: {
   invoice: Invoice;
   checked: boolean;
   onToggle: () => void;
   onOpen: () => void;
+  onEmail: () => void;
   onError: (message: string | null) => void;
 }) {
   const setDelivery = useSetDelivery();
@@ -489,7 +504,7 @@ function InvoiceRow({
     <div
       onClick={onOpen}
       className={cn(
-        "grid min-w-[960px] cursor-pointer items-center gap-x-3 border-b border-divider px-4 py-2.5 text-[13px] last:border-0 hover:bg-divider/40",
+        "grid min-w-[1064px] cursor-pointer items-center gap-x-3 border-b border-divider px-4 py-2.5 text-[13px] last:border-0 hover:bg-divider/40",
         GRID,
         overdue && "bg-[#fef6f6]",
         (invoice.cancelledAt || invoice.tidiedAt) && "opacity-60",
@@ -582,6 +597,10 @@ function InvoiceRow({
             {sent ? "✉ Sent" : "✉ Not sent"}
           </button>
         )}
+      </div>
+      {/* a click on an icon is that action, not the row's Open */}
+      <div onClick={(e) => e.stopPropagation()}>
+        <InvoiceRowActions invoice={invoice} onEmail={onEmail} />
       </div>
     </div>
   );

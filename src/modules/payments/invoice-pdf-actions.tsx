@@ -3,15 +3,19 @@ import { Check, CreditCard, Download, ExternalLink, FolderInput, Mail } from "lu
 import type { Invoice } from "@shared/schema/payment";
 import { useCanEdit } from "@/app/auth";
 import { cn } from "@/shared/lib/cn";
-import { Button, buttonVariants } from "@/shared/ui/button";
+import { Button, buttonVariants, IconButton } from "@/shared/ui/button";
+import { useToast } from "@/shared/ui/toast";
 import { useSaveInvoicePdf } from "./payments.api";
 
 /** 28px at a desk, 44px under a thumb. */
 const TAP = "max-md:h-11 max-md:px-3.5";
 const LINK = cn(buttonVariants({ variant: "secondary", size: "sm" }), TAP);
 
-/** On demand: it carries Mailouts' letter frame, and most cards are opened without sending. */
-const InvoiceEmailModal = lazy(() =>
+/**
+ * On demand: it carries Mailouts' letter frame, and most cards are opened without sending. The
+ * Billing list opens the same window from a row.
+ */
+export const InvoiceEmailModal = lazy(() =>
   import("./invoice-email-modal").then((m) => ({ default: m.InvoiceEmailModal })),
 );
 
@@ -92,22 +96,7 @@ export function InvoicePdfActions({ invoice }: { invoice: Invoice }) {
  * instead, selected on a tap, rather than a button that silently did nothing.
  */
 function CopyPayLink({ url }: { url: string }) {
-  const [copied, setCopied] = useState(false);
-  const [refused, setRefused] = useState(false);
-  const timer = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
-
-  const copy = () => {
-    if (!navigator.clipboard) return setRefused(true);
-    navigator.clipboard.writeText(url).then(
-      () => {
-        setCopied(true);
-        window.clearTimeout(timer.current);
-        timer.current = window.setTimeout(() => setCopied(false), 1800);
-      },
-      () => setRefused(true),
-    );
-  };
+  const { copied, refused, copy } = usePayLinkCopy(url);
 
   return (
     <>
@@ -115,7 +104,7 @@ function CopyPayLink({ url }: { url: string }) {
         variant="secondary"
         size="sm"
         className={cn(TAP, copied && "text-success-text")}
-        onClick={copy}
+        onClick={() => void copy()}
         title="Copy the link the client opens to pay this invoice by card"
       >
         {copied ? <Check /> : <CreditCard />}
@@ -128,5 +117,96 @@ function CopyPayLink({ url }: { url: string }) {
         </p>
       )}
     </>
+  );
+}
+
+/**
+ * The copy behind both pay-link buttons: "Copied" for a moment, or `refused` for good. `copy`
+ * also answers whether it copied, for a button with no room to show the link.
+ */
+function usePayLinkCopy(url: string) {
+  const [copied, setCopied] = useState(false);
+  const [refused, setRefused] = useState(false);
+  const timer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+
+  const copy = async (): Promise<boolean> => {
+    try {
+      if (!navigator.clipboard) throw new Error("no clipboard");
+      await navigator.clipboard.writeText(url);
+    } catch {
+      // the answer is the link shown instead, by whichever button asked
+      setRefused(true);
+      return false;
+    }
+    setCopied(true);
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setCopied(false), 1800);
+    return true;
+  };
+
+  return { copied, refused, copy };
+}
+
+/** 28px at a desk, 44px under a thumb: the Billing column is sized for two of the larger. */
+const ROW_TAP = "max-md:h-11 max-md:w-11";
+
+/**
+ * **Send by email** and **Copy pay link** on a row of the Billing list (owner, 2026-11-22), so an
+ * invoice goes out without opening its card. The same rules as on the card: Send by email for
+ * Billing open and not on a cancelled invoice, the pay link exactly when the server sends one.
+ *
+ * The window itself is the page's, not the row's (`onEmail`): `Modal` draws in place, so inside a row
+ * it would take on the row's pointer cursor, and a Settled row's `opacity-60` would fade it and let
+ * the rows below paint over it. Each button is named with its invoice, because a screen reader
+ * lists 25 rows of them.
+ */
+export function InvoiceRowActions({
+  invoice,
+  onEmail,
+}: {
+  invoice: Invoice;
+  onEmail: () => void;
+}) {
+  const canEdit = useCanEdit("billing");
+
+  return (
+    <div className="flex items-center gap-1">
+      {canEdit && !invoice.cancelledAt && (
+        <IconButton
+          label={`Send ${invoice.number} by email`}
+          className={ROW_TAP}
+          onClick={onEmail}
+        >
+          <Mail />
+        </IconButton>
+      )}
+      {invoice.payUrl && <RowPayLink url={invoice.payUrl} number={invoice.number} />}
+    </div>
+  );
+}
+
+/**
+ * The row's pay link: an icon, so there is no line under it for the link when the browser refuses
+ * the clipboard. The browser's own prompt shows the link instead, selected and ready to copy. A copy
+ * is also said in a toast, which a screen reader announces and an icon swap is not.
+ */
+function RowPayLink({ url, number }: { url: string; number: string }) {
+  const { copied, copy } = usePayLinkCopy(url);
+  const toast = useToast();
+
+  const copyOrShow = async () => {
+    if (await copy()) toast({ text: `Pay link for ${number} copied` });
+    else window.prompt("The browser would not copy it. The pay link:", url);
+  };
+
+  return (
+    <IconButton
+      label={`Copy pay link for ${number}`}
+      className={cn(ROW_TAP, copied && "text-success-text")}
+      onClick={() => void copyOrShow()}
+    >
+      {copied ? <Check /> : <CreditCard />}
+    </IconButton>
   );
 }
