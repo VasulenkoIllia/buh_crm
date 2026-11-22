@@ -1443,6 +1443,29 @@ describe("templates", () => {
     const res = await send({ templateId: id, recipients: to(clientA) });
     expect(res.statusCode).toBe(400);
   });
+
+  it("keeps a transactional template transactional when it is switched off and on", async () => {
+    // A PATCH names only what it changes. The update schema once filled a missing `kind` with the
+    // create default, so the Templates screen's on/off icon turned a transactional letter
+    // commercial, and a client who had unsubscribed from news stopped getting it (2026-11-22)
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/mailouts/templates",
+      headers: { cookie },
+      payload: { name: "Kept transactional", subject: "S", body: "B", kind: "transactional" },
+    });
+    const id = created.json().id;
+    for (const active of [false, true]) {
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/api/mailouts/templates/${id}`,
+        headers: { cookie },
+        payload: { active },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ active, kind: "transactional" });
+    }
+  });
 });
 
 describe("the whole unsubscribe journey, as a client lives it", () => {

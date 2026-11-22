@@ -228,11 +228,10 @@ describe("the invoice template", () => {
     expect((await as(admin).patch(url, { active: false })).statusCode).toBe(409);
     expect((await as(admin).patch(url, { kind: "commercial" })).statusCode).toBe(400);
     expect((await as(admin).delete(url)).statusCode).toBe(409);
-    // the text itself is the firm's to change. `kind` is sent as the editor sends it: the update
-    // schema's default would otherwise read a missing kind as commercial
-    expect(
-      (await as(admin).patch(url, { subject: SUBJECT, kind: "transactional" })).statusCode,
-    ).toBe(200);
+    // the text itself is the firm's to change, and a PATCH that names no kind keeps the kind
+    const edited = await as(admin).patch(url, { subject: SUBJECT });
+    expect(edited.statusCode).toBe(200);
+    expect(edited.json()).toMatchObject({ kind: "transactional" });
   });
 
   it("does not go out as an ordinary mailout", async () => {

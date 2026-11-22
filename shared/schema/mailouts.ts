@@ -56,7 +56,11 @@ export const createTemplateInput = letterFields.extend({
 });
 export type CreateTemplateInput = z.infer<typeof createTemplateInput>;
 
+// A PATCH names only what it changes, so nothing here may have a default. `.partial()` keeps the
+// create schema's `.default("commercial")`, which read a missing kind as commercial: the on/off
+// icon in Templates turned a transactional letter commercial (2026-11-22)
 export const updateTemplateInput = createTemplateInput.partial().extend({
+  kind: mailoutKind.optional(),
   active: z.boolean().optional(),
 });
 export type UpdateTemplateInput = z.infer<typeof updateTemplateInput>;
