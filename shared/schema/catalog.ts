@@ -135,6 +135,9 @@ export type CreateTaskTemplateInput = z.infer<typeof createTaskTemplateInput>;
 
 export const updateTaskTemplateInput = taskTemplateFields
   .partial()
+  // `.partial()` keeps the create default, so an edit that named no `billable` set it back to true
+  // (2026-11-22). Omitted leaves it alone.
+  .extend({ billable: z.boolean().optional() })
   .refine((v) => v.periodicity === undefined || rhythmValid(v as never), rhythmMsg);
 export type UpdateTaskTemplateInput = z.infer<typeof updateTaskTemplateInput>;
 

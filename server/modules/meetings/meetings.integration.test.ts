@@ -197,6 +197,29 @@ describe("meetings — booking", () => {
     await patch(`/api/calendar/meetings/${id}`, { cancelled: false });
     expect(await onCalendar()).toContain(id);
   });
+
+  // the meeting card's Cancel sends `{ cancelled: true }` alone; the schema's create default read
+  // the missing list as an empty one and took everybody off the meeting (2026-11-22)
+  it("cancelling, and putting it back, keeps who was invited", async () => {
+    const created = await post("/api/calendar/meetings", {
+      title: "Called off with people in it",
+      startAt: at(day(4), "11:00"),
+      durationMinutes: 30,
+      participantIds: [mateId],
+    });
+    const id = created.json().id as string;
+    const invited = [adminId, mateId].sort();
+    const participants = async () =>
+      ((await get(`/api/calendar/meetings/${id}`)).json().participantIds as string[]).sort();
+
+    const cancelled = await patch(`/api/calendar/meetings/${id}`, { cancelled: true });
+    expect(cancelled.statusCode).toBe(200);
+    expect(cancelled.json().cancelledAt).not.toBeNull();
+    expect(await participants()).toEqual(invited);
+
+    await patch(`/api/calendar/meetings/${id}`, { cancelled: false });
+    expect(await participants()).toEqual(invited);
+  });
 });
 
 describe("meetings — who can be booked with", () => {

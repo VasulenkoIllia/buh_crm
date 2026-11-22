@@ -579,6 +579,50 @@ describe("catalog", () => {
     expect(badDay.statusCode).toBe(400);
   });
 
+  it("an edit that names no `billable` leaves it as it was (2026-11-22)", async () => {
+    const svc = await app.inject({
+      method: "POST",
+      url: "/api/catalog",
+      headers: { cookie: adminCookie },
+      payload: { name: "Billable check", type: "subscription", defaultAmount: 1000 },
+    });
+    expect(svc.statusCode).toBe(201);
+    const svcId = svc.json().id as string;
+    const added = await app.inject({
+      method: "POST",
+      url: `/api/catalog/${svcId}/tasks`,
+      headers: { cookie: adminCookie },
+      payload: {
+        name: "Courtesy call",
+        periodicity: "monthly",
+        dayOfPeriod: 1,
+        billable: false,
+      },
+    });
+    expect(added.statusCode).toBe(201);
+    const tplId = added.json().taskTemplates[0].id as string;
+    const tplOf = (res: { json: () => { taskTemplates: { id: string }[] } }) =>
+      res.json().taskTemplates.find((t) => t.id === tplId);
+
+    const renamed = await app.inject({
+      method: "PATCH",
+      url: `/api/catalog/${svcId}/tasks/${tplId}`,
+      headers: { cookie: adminCookie },
+      payload: { name: "Courtesy call, renamed" },
+    });
+    expect(renamed.statusCode).toBe(200);
+    expect(tplOf(renamed)).toMatchObject({ name: "Courtesy call, renamed", billable: false });
+
+    // and naming it still changes it
+    const flipped = await app.inject({
+      method: "PATCH",
+      url: `/api/catalog/${svcId}/tasks/${tplId}`,
+      headers: { cookie: adminCookie },
+      payload: { billable: true },
+    });
+    expect(tplOf(flipped)).toMatchObject({ billable: true });
+  });
+
   it("blocks duplicate subscriptions for the same target, allows different companies", async () => {
     const created = await app.inject({
       method: "POST",

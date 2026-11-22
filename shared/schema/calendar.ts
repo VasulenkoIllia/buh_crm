@@ -156,6 +156,10 @@ export const updateMeetingInput = meetingFields
   .omit({ clientId: true, leadId: true })
   .partial()
   .extend({
+    // a PATCH names only what it changes, and `.partial()` keeps the create default: Cancel sends
+    // `{ cancelled: true }` alone, which read as `participantIds: []` and emptied the meeting
+    // (2026-11-22). Omitted keeps the list, `[]` clears it.
+    participantIds: z.array(uuid).max(50).optional(),
     cancelled: z.boolean().optional(),
     task: meetingTaskInput.nullable().optional(),
   });
