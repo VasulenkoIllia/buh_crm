@@ -541,6 +541,68 @@ describe("email", () => {
     expect(standUp?.subject).toContain("Today at");
     expect(standUp?.text).not.toMatch(/^(Client|Lead):/m);
   });
+
+  /**
+   * An archived client's or lead's meeting is gone from the calendar, and the two sweeps now read
+   * the calendar's rule (`liveMeetingWhere`): a letter, with the client's phone in it, about a
+   * meeting nobody can open was the bug (owner, 2026-11-24). The live client in the same runs keeps
+   * the case from passing on sweeps that sent nothing at all.
+   */
+  it("says nothing about an archived client's or lead's meeting, in the morning or before it", async () => {
+    await prisma.notificationPreference.create({
+      data: { userId: mateId, trigger: "meeting_soon", channel: "email", enabled: true },
+    });
+    const archived = await bookClient("Halyna");
+    const live = await bookClient("Iryna");
+    const lead = await asAdmin.post("/api/leads", { name: "Gone Lead" });
+    expect(lead.statusCode).toBe(201);
+    const leadId = lead.json().id as string;
+
+    // "today" starts now, so it is today in any zone and the reminder run passes it by; "soon" is
+    // inside its own 15-minute reminder
+    const bookings = {
+      today: { startAt: new Date().toISOString() },
+      soon: {
+        startAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+        remindMinutesBefore: 15,
+      },
+    };
+    const goneIds: string[] = [];
+    for (const [label, target] of [
+      ["Archived client", { clientId: archived.id }],
+      ["Archived lead", { leadId }],
+      ["Live client", { clientId: live.id }],
+    ] as const) {
+      for (const [when, timing] of Object.entries(bookings)) {
+        const res = await asAdmin.post("/api/calendar/meetings", {
+          title: `${label} ${when}`,
+          ...target,
+          ...timing,
+          durationMinutes: 15,
+          participantIds: [mateId],
+        });
+        expect(res.statusCode).toBe(201);
+        if (label !== "Live client") goneIds.push(res.json().id as string);
+      }
+    }
+    expect((await asAdmin.post(`/api/clients/${archived.id}/archive`)).statusCode).toBe(200);
+    expect((await asAdmin.post(`/api/leads/${leadId}/archive`)).statusCode).toBe(200);
+    testOutbox.length = 0;
+
+    await runNotificationSweep();
+    await runMeetingReminders();
+
+    const subjects = lettersToBo().map((m) => m.subject);
+    expect(subjects).toContainEqual(expect.stringMatching(/^Today at .+: Live client today$/));
+    expect(subjects).toContainEqual(
+      expect.stringMatching(/^Starts in \d+ minutes: Live client soon$/),
+    );
+    expect(subjects.filter((s) => s.includes("Archived"))).toEqual([]);
+    const goneRows = await prisma.notification.findMany({
+      where: { linkId: { in: goneIds }, trigger: { in: ["meeting_today", "meeting_soon"] } },
+    });
+    expect(goneRows).toEqual([]);
+  });
 });
 
 // ── the sweep, and the reason dedupKey is NOT NULL ───────────────────────────

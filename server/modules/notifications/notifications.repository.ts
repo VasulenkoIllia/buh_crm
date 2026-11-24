@@ -10,6 +10,7 @@
 import type { NotificationChannel } from "@shared/notifications.js";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../core/db.js";
+import { liveMeetingWhere } from "../../core/live-meetings.js";
 import { meetingPartySelect } from "../../core/meeting-facts.js";
 
 // ── the tray ─────────────────────────────────────────────────────────────────
@@ -163,6 +164,9 @@ export function tasksWithDeadlineIn(range: {
  * `remindMinutesBefore` is now" compares a column to another column plus the clock, which Prisma
  * cannot express. The widest reminder is an hour, so the query never looks further than that — a
  * handful of rows at any moment, on the `(cancelledAt, startAt)` index that already exists.
+ *
+ * Only meetings the calendar still shows: an archived client's or lead's meeting is gone from it,
+ * so it reminds nobody (`liveMeetingWhere`, and the same in `meetingsStartingBetween`).
  */
 export function meetingsToRemind(now: Date, widestMinutes: number) {
   return prisma.meeting.findMany({
@@ -170,6 +174,7 @@ export function meetingsToRemind(now: Date, widestMinutes: number) {
       cancelledAt: null,
       remindMinutesBefore: { not: null },
       startAt: { gt: now, lte: new Date(now.getTime() + widestMinutes * 60_000) },
+      ...liveMeetingWhere(),
     },
     select: {
       id: true,
@@ -183,7 +188,7 @@ export function meetingsToRemind(now: Date, widestMinutes: number) {
 
 export function meetingsStartingBetween(from: Date, to: Date) {
   return prisma.meeting.findMany({
-    where: { startAt: { gte: from, lt: to }, cancelledAt: null },
+    where: { startAt: { gte: from, lt: to }, cancelledAt: null, ...liveMeetingWhere() },
     orderBy: { startAt: "asc" },
     select: { id: true, title: true, startAt: true, ...meetingPartySelect },
   });

@@ -1,6 +1,7 @@
 /** All Prisma access for meetings (see the repository rule in eslint.config.js). */
 import type { Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../core/db.js";
+import { liveMeetingWhere } from "../../core/live-meetings.js";
 import { meetingPartySelect } from "../../core/meeting-facts.js";
 
 const meetingInclude = {
@@ -14,23 +15,6 @@ const meetingInclude = {
 } satisfies Prisma.MeetingInclude;
 
 export type MeetingRecord = Prisma.MeetingGetPayload<{ include: typeof meetingInclude }>;
-
-/**
- * "Its client and its lead are both still live" — the same rule the task board applies, in the
- * shape a meeting query needs.
- *
- * Without it an archived client's TASKS left the calendar while their MEETINGS stayed, which is
- * the worst of both: half the relationship vanished and half did not. Written once here for the
- * same reason the tasks module has `liveTargetWhere` — two copies drift, and this pair already did.
- */
-function liveTargetWhere(): Prisma.MeetingWhereInput {
-  return {
-    AND: [
-      { OR: [{ clientId: null }, { client: { archivedAt: null } }] },
-      { OR: [{ leadId: null }, { lead: { archivedAt: null } }] },
-    ],
-  };
-}
 
 /**
  * Live meetings that START inside the window.
@@ -52,7 +36,7 @@ export function listMeetings(args: {
       startAt: { gte: args.from, lt: args.to },
       ...(args.userId ? { participants: { some: { userId: args.userId } } } : {}),
       ...(args.clientId ? { clientId: args.clientId } : {}),
-      ...liveTargetWhere(),
+      ...liveMeetingWhere(),
     },
     orderBy: { startAt: "asc" },
     include: meetingInclude,
@@ -111,7 +95,7 @@ export function findPotentialConflicts(args: {
       participants: { some: { userId: { in: args.userIds } } },
       ...(args.excludeMeetingId ? { id: { not: args.excludeMeetingId } } : {}),
       // an archived client's meeting is off the calendar, so it no longer holds anyone's time
-      ...liveTargetWhere(),
+      ...liveMeetingWhere(),
     },
     orderBy: { startAt: "asc" },
     select: {
