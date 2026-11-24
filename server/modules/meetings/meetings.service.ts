@@ -12,8 +12,9 @@ import { config } from "../../core/config.js";
 import { stateFor } from "../../core/access.js";
 import { dateToUtc, isoDayInTz, todayBusinessMs, zonedDayStart } from "../../core/dates.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../core/errors.js";
+import { meetingFacts } from "../../core/meeting-facts.js";
 import { clientLabel, personName } from "../../core/names.js";
-import { notify, notifiedAbout } from "../../core/notify.js";
+import { notify, notifiedAbout, type NotifyContext } from "../../core/notify.js";
 import { createTask, listDeadlinesInRange } from "../tasks/index.js";
 import { diff, peopleNaming, record } from "../../core/activity.js";
 import * as repo from "./meetings.repository.js";
@@ -315,7 +316,8 @@ export async function createMeeting(input: CreateMeetingInput, actor: User) {
 
   // after the writes, and never inside them — a booking that rolls back must not leave an
   // invitation in somebody's tray. The organiser is dropped by the emitter: they were there.
-  await notifyInvited(created.id, input.title, startAt, actor);
+  const facts = target.clientId || target.leadId ? await partyFacts(created.id) : [];
+  await notifyInvited(created.id, input.title, startAt, actor, facts);
   record("meeting.created", {
     subjectId: created.id,
     subjectLabel: input.title,
@@ -333,15 +335,38 @@ export async function createMeeting(input: CreateMeetingInput, actor: User) {
  * is the MEETING: a participant list edited three times invites each new person exactly once, and
  * nobody twice.
  */
-function notifyInvited(meetingId: string, title: string, startAt: Date, actor: User) {
+function notifyInvited(
+  meetingId: string,
+  title: string,
+  startAt: Date,
+  actor: User,
+  facts: NotifyContext["facts"],
+) {
   return notify("meeting_invited", {
     dedup: meetingId,
     actorId: actor.id,
     meetingId,
     vars: { actor: personName(actor), meeting: title },
     sub: meetingWhen(startAt),
+    facts,
     link: { type: "meeting", id: meetingId },
   });
+}
+
+/**
+ * Who the meeting is with, for its letters (`core/meeting-facts.ts`). Read after the write.
+ *
+ * Swallowed on purpose, like `notify()` itself: the meeting is already saved, and a failed read
+ * here must cost the letter its rows, not the request a 500 that invites booking it twice.
+ */
+async function partyFacts(meetingId: string): Promise<NotifyContext["facts"]> {
+  try {
+    const party = await repo.findMeetingParty(meetingId);
+    return party ? meetingFacts(party) : [];
+  } catch (err) {
+    console.error(`[meetings] could not read who meeting ${meetingId} is with:`, err);
+    return [];
+  }
 }
 
 /**
@@ -492,6 +517,12 @@ export async function updateMeeting(id: string, input: UpdateMeetingInput, actor
 
   const title = input.title ?? existing.title;
   const startAt = movedTo ?? existing.startAt;
+  // Read once, and only when one of the letters below can go out: the participant list (invited,
+  // back on, uninvited), `cancelled` (cancelled, restored) and `startAt` (moved). A new letter
+  // further down adds its condition here. The target is frozen, so `existing` says who it is with.
+  const mayNotify = !!participantIds || input.cancelled !== undefined || !!movedTo;
+  const hasParty = !!(existing.clientId || existing.leadId);
+  const facts = mayNotify && hasParty ? await partyFacts(id) : [];
 
   /**
    * Somebody added to the list now is being invited, exactly as on create — the plain key means a
@@ -509,7 +540,7 @@ export async function updateMeeting(id: string, input: UpdateMeetingInput, actor
     const before = existing.participants.map((p) => p.userId);
     const added = participantIds.filter((userId) => !before.includes(userId));
 
-    await notifyInvited(id, title, startAt, actor);
+    await notifyInvited(id, title, startAt, actor, facts);
 
     // whoever among the newcomers we once told had been REMOVED. Their `meeting_invited` key is
     // spent, so they need one carrying the moment of this edit.
@@ -521,6 +552,7 @@ export async function updateMeeting(id: string, input: UpdateMeetingInput, actor
         selfUserId: userId,
         vars: { actor: personName(actor), meeting: title },
         sub: `Back on — ${meetingWhen(startAt)}`,
+        facts,
         link: { type: "meeting", id },
       });
     }
@@ -546,6 +578,7 @@ export async function updateMeeting(id: string, input: UpdateMeetingInput, actor
         selfUserId: userId,
         vars: { actor: personName(actor), meeting: title },
         sub: meetingWhen(startAt),
+        facts,
         link: { type: "meeting", id },
       });
     }
@@ -573,6 +606,7 @@ export async function updateMeeting(id: string, input: UpdateMeetingInput, actor
       sub: linkedTask
         ? `Was ${meetingWhen(startAt)} · its task is still open`
         : `Was ${meetingWhen(startAt)}`,
+      facts,
       link: { type: "meeting", id },
     });
   }
@@ -585,6 +619,7 @@ export async function updateMeeting(id: string, input: UpdateMeetingInput, actor
       meetingId: id,
       vars: { actor: personName(actor), meeting: title },
       sub: meetingWhen(startAt),
+      facts,
       link: { type: "meeting", id },
     });
   }
@@ -607,6 +642,7 @@ export async function updateMeeting(id: string, input: UpdateMeetingInput, actor
       meetingId: id,
       vars: { meeting: title, when: meetingWhen(movedTo) },
       sub: `Was ${meetingWhen(existing.startAt)}`,
+      facts,
       link: { type: "meeting", id },
     });
   }

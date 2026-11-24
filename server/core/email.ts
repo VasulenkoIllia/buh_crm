@@ -29,7 +29,16 @@ export interface EmailTemplates {
    * not receive staff rows. Keeping them apart keeps the client mail log clean by construction
    * rather than by discipline (docs/modules/notifications.md §7.1).
    */
-  notification: { title: string; sub: string | null; url: string | null };
+  notification: {
+    title: string;
+    sub: string | null;
+    url: string | null;
+    /**
+     * Label/value rows under the account: for a meeting, who it is with (owner, 2026-11-24). Only
+     * the letter carries them; the tray keeps its one line.
+     */
+    facts?: Array<{ label: string; value: string }>;
+  };
   /**
    * A run of failed sign-ins (two-factor.md §9). On this door and never the notifications pipeline:
    * a person cannot opt out of being told their own account is under attack. `account` is set on
@@ -128,7 +137,7 @@ function render<T extends EmailTemplateName>(
         heading: d.title,
         body: d.sub ?? "",
         cta: d.url ? { label: "Open in the CRM", url: d.url } : null,
-        facts: [],
+        facts: d.facts ?? [],
       };
     }
     /**

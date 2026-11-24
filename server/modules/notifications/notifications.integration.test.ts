@@ -7,7 +7,8 @@ import { config } from "../../core/config.js";
 import { prisma } from "../../core/db.js";
 import { testOutbox } from "../../core/email.js";
 import { recordJobRun, resetJobHealth } from "../../core/job-health.js";
-import { purgeOldNotifications, runNotificationSweep } from "./index.js";
+import { clientCode } from "@shared/schema/client.js";
+import { purgeOldNotifications, runMeetingReminders, runNotificationSweep } from "./index.js";
 
 /**
  * Notifications (S9), and mostly the four things that would be silently wrong:
@@ -376,9 +377,169 @@ describe("email", () => {
     expect(letters[0].subject).toContain("Quarterly VAT");
     // the client brand shell is for CLIENTS: a staff letter carries no unsubscribe link
     expect(letters[0].html).not.toContain("/unsubscribe/");
+    // the client rows belong to meeting letters alone
+    expect(letters[0].text).not.toMatch(/^Client:/m);
 
     const [row] = await rowsFor(mateId, "task_assigned");
     expect(await mailedAt(row.id)).not.toBeNull();
+  });
+
+  /**
+   * A letter about a meeting said only its title (owner, 2026-11-24). It now says who the meeting
+   * is with, by the meeting form's rule: the named contact's phone and email before the client's.
+   * The tray row stays one line.
+   *
+   * Meetings are not cleared by the outer `beforeEach`, and a meeting left starting today would
+   * add a letter to every later sweep in this file.
+   */
+  afterEach(async () => {
+    await prisma.meetingParticipant.deleteMany();
+    await prisma.meeting.deleteMany();
+  });
+
+  const bookClient = async (firstName: string, over: Record<string, unknown> = {}) => {
+    const res = await asAdmin.post("/api/clients", {
+      firstName,
+      lastName: "Petrenko",
+      phone: "+1 555 0100",
+      email: "olga@client.test",
+      companies: [],
+      people: [],
+      ...over,
+    });
+    expect(res.statusCode).toBe(201);
+    return res.json() as { id: string; code: number; people: { id: string }[] };
+  };
+  const lettersToBo = () => testOutbox.filter((m) => m.to === "bo@notify.local");
+
+  it("says who a meeting is with, and reads the contact after the edit", async () => {
+    const {
+      id: clientId,
+      code,
+      people,
+    } = await bookClient("Olga", {
+      // escaped in the HTML part, kept as typed in the text part
+      companyName: "Petrenko & Sons <Bakery>",
+      people: [{ name: "Maryna", phone: "+1 555 0199", email: "maryna@client.test" }],
+    });
+
+    const booked = await asAdmin.post("/api/calendar/meetings", {
+      title: "Year-end review",
+      clientId,
+      personId: people[0].id,
+      startAt: `${day(3)}T10:00:00.000Z`,
+      durationMinutes: 30,
+      participantIds: [mateId],
+    });
+    expect(booked.statusCode).toBe(201);
+    const meetingId = booked.json().id as string;
+
+    const [invited] = lettersToBo();
+    expect(invited.subject).toContain("Year-end review");
+    expect(invited.text).toContain(`Client: Olga Petrenko · ${clientCode(code)}`);
+    expect(invited.text).toContain("Company: Petrenko & Sons <Bakery>");
+    expect(invited.text).toContain("Contact: Maryna");
+    expect(invited.text).toContain("Phone: +1 555 0199");
+    expect(invited.text).toContain("Email: maryna@client.test");
+    expect(invited.text).not.toContain("+1 555 0100");
+    expect(invited.html).toContain("Petrenko &amp; Sons &lt;Bakery&gt;");
+    expect(invited.html).not.toContain("<Bakery>");
+    const [row] = await rowsFor(mateId, "meeting_invited");
+    expect(row.sub).not.toContain("Petrenko");
+
+    // the contact is dropped in the same save that moves it: the letter speaks of the client
+    testOutbox.length = 0;
+    const moved = await asAdmin.patch(`/api/calendar/meetings/${meetingId}`, {
+      personId: null,
+      startAt: `${day(4)}T10:00:00.000Z`,
+    });
+    expect(moved.statusCode).toBe(200);
+    const [movedLetter] = lettersToBo();
+    expect(movedLetter.subject).toContain("Moved to");
+    expect(movedLetter.text).not.toContain("Contact:");
+    expect(movedLetter.text).toContain("Phone: +1 555 0100");
+    expect(movedLetter.text).toContain("Email: olga@client.test");
+  });
+
+  it("carries them on the reminder and on every other turn of the meeting's life", async () => {
+    // two of the seven mail only to whoever asked for it, and Bo asks
+    await prisma.notificationPreference.createMany({
+      data: ["meeting_uninvited", "meeting_soon"].map((trigger) => ({
+        userId: mateId,
+        trigger,
+        channel: "email" as const,
+        enabled: true,
+      })),
+    });
+    const { id: clientId, code } = await bookClient("Iryna");
+    const booked = await asAdmin.post("/api/calendar/meetings", {
+      title: "Payroll check",
+      clientId,
+      startAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+      durationMinutes: 15,
+      remindMinutesBefore: 15,
+      participantIds: [mateId],
+    });
+    expect(booked.statusCode).toBe(201);
+    const url = `/api/calendar/meetings/${booked.json().id}`;
+
+    await runMeetingReminders();
+    for (const change of [
+      { cancelled: true },
+      { cancelled: false },
+      { participantIds: [adminId] }, // Bo is taken off…
+      { participantIds: [adminId, mateId] }, // …and put back on
+    ]) {
+      expect((await asAdmin.patch(url, change)).statusCode).toBe(200);
+    }
+
+    const letters = lettersToBo();
+    expect(letters.map((m) => m.subject.replace(/: Payroll check$/, ""))).toEqual([
+      "Ada Tester invited you",
+      expect.stringMatching(/^Starts in \d+ minutes$/),
+      "Ada Tester cancelled",
+      "Ada Tester put it back on",
+      "Ada Tester took you off",
+      "Ada Tester invited you",
+    ]);
+    for (const letter of letters) {
+      expect(letter.text).toContain(`Client: Iryna Petrenko · ${clientCode(code)}`);
+      expect(letter.text).toContain("Phone: +1 555 0100");
+    }
+  });
+
+  it("names the lead in the morning letter, and nobody on an internal meeting", async () => {
+    const lead = await asAdmin.post("/api/leads", {
+      name: "Taras Lead",
+      companyName: "Taras Garage",
+      phone: "+1 555 0142",
+    });
+    expect(lead.statusCode).toBe(201);
+    const startAt = new Date().toISOString(); // today in any zone, whatever the hour
+    for (const [title, leadId] of [
+      ["Lead intro", lead.json().id as string],
+      ["Team stand-up", undefined],
+    ] as const) {
+      const res = await asAdmin.post("/api/calendar/meetings", {
+        title,
+        ...(leadId ? { leadId } : {}),
+        startAt,
+        durationMinutes: 15,
+        participantIds: [mateId],
+      });
+      expect(res.statusCode).toBe(201);
+    }
+    testOutbox.length = 0;
+    await runNotificationSweep();
+
+    const today = testOutbox.filter((m) => m.to === "bo@notify.local");
+    const intro = today.find((m) => m.subject.includes("Lead intro"));
+    expect(intro?.text).toContain("Lead: Taras Lead");
+    expect(intro?.text).toContain("Company: Taras Garage");
+    expect(intro?.text).toContain("Phone: +1 555 0142");
+    const standUp = today.find((m) => m.subject.includes("Team stand-up"));
+    expect(standUp?.subject).toContain("Today at");
+    expect(standUp?.text).not.toMatch(/^(Client|Lead):/m);
   });
 });
 

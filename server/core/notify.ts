@@ -27,7 +27,7 @@ import {
 import { isGateKey } from "@shared/access.js";
 import { accessMapFor } from "./access.js";
 import { prisma } from "./db.js";
-import { sendEmail, webOrigin } from "./email.js";
+import { sendEmail, webOrigin, type EmailTemplates } from "./email.js";
 
 export interface NotifyContext {
   /**
@@ -50,6 +50,8 @@ export interface NotifyContext {
    * forced callers to invent a value that is then discarded.
    */
   link?: { type: string; id: string | null } | null;
+  /** rows for the LETTER only, never stored on the row: the tray stays one line */
+  facts?: EmailTemplates["notification"]["facts"];
 
   // ── role inputs: what the roles on the policy row are resolved against ──────
   /** resolves `assignee`, `author` and `participant` */
@@ -541,6 +543,7 @@ async function mail(
     void sendEmail("notification", user.email, {
       title: text,
       sub: ctx.sub ?? null,
+      facts: ctx.facts,
       // the SAME resolver the tray's Open uses (shared/notifications.ts) — one definition, so a
       // letter's button and a tray row can never point at different screens
       url: (() => {

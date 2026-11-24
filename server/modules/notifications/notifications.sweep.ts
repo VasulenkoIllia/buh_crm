@@ -14,6 +14,7 @@ import { NOTIFICATION_TRIGGERS } from "@shared/notifications.js";
 import { REMINDER_CHOICES } from "@shared/schema/calendar.js";
 import { config } from "../../core/config.js";
 import { addDays, isoDayInTz, todayInTz, toUtc, zonedDayStart } from "../../core/dates.js";
+import { meetingFacts } from "../../core/meeting-facts.js";
 import { clientLabel } from "../../core/names.js";
 import { notify, type NotifyOutcome } from "../../core/notify.js";
 import {
@@ -183,6 +184,7 @@ export async function runNotificationSweep(): Promise<SweepResult> {
           meeting: meeting.title,
           time: fmtTimeInTz(meeting.startAt, config.TZ),
         },
+        facts: meetingFacts(meeting),
         link: { type: "meeting", id: meeting.id },
       }),
     out,
@@ -344,6 +346,7 @@ export async function runMeetingReminders(): Promise<SweepResult> {
           minute: "2-digit",
           hour12: false,
         }).format(meeting.startAt),
+        facts: meetingFacts(meeting),
         link: { type: "meeting", id: meeting.id },
       }),
     out,

@@ -1,6 +1,7 @@
 /** All Prisma access for meetings (see the repository rule in eslint.config.js). */
 import type { Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../core/db.js";
+import { meetingPartySelect } from "../../core/meeting-facts.js";
 
 const meetingInclude = {
   // labels ride along so the calendar never has to resolve ids against a (capped) client list —
@@ -81,6 +82,11 @@ export function countUpcomingMeetingsForClient(clientId: string, now: Date) {
 
 export function findMeeting(id: string) {
   return prisma.meeting.findUnique({ where: { id }, include: meetingInclude });
+}
+
+/** Who the meeting is with, for its letters. Read after the write, so an edited contact counts. */
+export function findMeetingParty(id: string) {
+  return prisma.meeting.findUnique({ where: { id }, select: meetingPartySelect });
 }
 
 /**

@@ -10,6 +10,7 @@
 import type { NotificationChannel } from "@shared/notifications.js";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../core/db.js";
+import { meetingPartySelect } from "../../core/meeting-facts.js";
 
 // ── the tray ─────────────────────────────────────────────────────────────────
 
@@ -170,7 +171,13 @@ export function meetingsToRemind(now: Date, widestMinutes: number) {
       remindMinutesBefore: { not: null },
       startAt: { gt: now, lte: new Date(now.getTime() + widestMinutes * 60_000) },
     },
-    select: { id: true, title: true, startAt: true, remindMinutesBefore: true },
+    select: {
+      id: true,
+      title: true,
+      startAt: true,
+      remindMinutesBefore: true,
+      ...meetingPartySelect,
+    },
   });
 }
 
@@ -178,7 +185,7 @@ export function meetingsStartingBetween(from: Date, to: Date) {
   return prisma.meeting.findMany({
     where: { startAt: { gte: from, lt: to }, cancelledAt: null },
     orderBy: { startAt: "asc" },
-    select: { id: true, title: true, startAt: true },
+    select: { id: true, title: true, startAt: true, ...meetingPartySelect },
   });
 }
 
